@@ -1,15 +1,32 @@
 package com.lomo.data.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SearchTokenizer
  * - Behavior focus: ASCII, CJK, and mixed-text tokenization plus query-term normalization for search input.
  * - Observable outcomes: emitted tokenized string content and query-term list contents/order.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: Room/FTS integration, DAO query execution, and UI search-state behavior.
  */
 class SearchTokenizerTest : DataFunSpec() {

@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.ContentResolver
 import android.content.Context
@@ -18,11 +35,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareTransferPayloadBuilder, ShareTransferRequestExecutor, ShareTransferRequestProcessor, and LomoShareServer attachment handling.
  * - Behavior focus: multipart attachment upload in open and E2E modes, attachment decryption/copy, saved memo attachment mappings, and rollback of persisted attachments when memo commit fails.
  * - Observable outcomes: transferred attachment bytes, saved attachment metadata, saved memo mappings, incoming prepare payload attachments, and rollback callback invocations after failed memo save.
- * - Red phase: Fails before the fix because the LAN transfer flow has no rollback callback and leaves saved attachments committed when memo persistence fails.
+ * - TDD proof: Fails before the fix because the LAN transfer flow has no rollback callback and leaves saved attachments committed when memo persistence fails.
  * - Excludes: sender-side attachment discovery policy, UI approval dialogs, and persistence backend details after save callbacks return or rollback finishes.
  */
 class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {

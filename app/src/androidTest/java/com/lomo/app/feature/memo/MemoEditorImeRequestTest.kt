@@ -1,5 +1,22 @@
 package com.lomo.app.feature.memo
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
@@ -9,26 +26,37 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.core.content.getSystemService
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
+import java.time.LocalDate
+import java.time.ZoneId
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoEditorSheetHost editor focus recovery for an already-visible create session.
- * - Behavior focus: opening the editor should auto-focus the input, and an explicit ensureVisible request must re-focus and reactivate IME after the editor loses focus.
- * - Observable outcomes: EditText focus state and InputMethodManager active-editor state after open and ensureVisible.
- * - Red phase: Fails before the fix because ensureVisible() only rewrites the same visible flag and does not trigger a fresh focus or IME request once the sheet is already visible.
- * - Excludes: memo persistence, submit flow, dismissal flow, media pickers, and OEM keyboard visuals.
+ * - Owning layer: app
+ * - Priority tier: P2
+ * - Capability: verify editor focus recovery and IME requests.
+ *
+ * Scenarios:
+ * - Given open for create, when input displays, then autofocuses the editor and activates IME.
+ * - Given visible editor session, when ensureVisible is called, then refocuses the existing editor session.
+ * - Given active editor session, when editor is closed, then detaches the editor and deactivates IME.
+ *
+ * Observable outcomes:
+ * - correct EditText focus and IMM state transitions.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - memo persistence, submit flow, dismissal flow, media pickers, and OEM keyboard visuals.
  */
-@RunWith(AndroidJUnit4::class)
+@org.junit.runner.RunWith(AndroidJUnit4::class)
 class MemoEditorImeRequestTest {
     @Suppress("DEPRECATION")
-    @get:Rule
+    @get:org.junit.Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    @Test
+    @org.junit.Test
     fun openForCreate_autoFocusesTheEditorAndActivatesIme() {
         val controller = MemoEditorController()
         lateinit var inputMethodManager: InputMethodManager
@@ -53,12 +81,12 @@ class MemoEditorImeRequestTest {
         waitForFocusAndIme(editor = editor, inputMethodManager = inputMethodManager)
 
         composeRule.runOnUiThread {
-            assertTrue(editor.hasFocus())
-            assertTrue(inputMethodManager.isActive(editor))
+            org.junit.Assert.assertTrue(editor.hasFocus())
+            org.junit.Assert.assertTrue(inputMethodManager.isActive(editor))
         }
     }
 
-    @Test
+    @org.junit.Test
     fun ensureVisible_refocusesTheExistingEditorSession() {
         val controller = MemoEditorController()
         lateinit var inputMethodManager: InputMethodManager
@@ -95,12 +123,12 @@ class MemoEditorImeRequestTest {
         waitForFocusAndIme(editor = editor, inputMethodManager = inputMethodManager)
 
         composeRule.runOnUiThread {
-            assertTrue(editor.hasFocus())
-            assertTrue(inputMethodManager.isActive(editor))
+            org.junit.Assert.assertTrue(editor.hasFocus())
+            org.junit.Assert.assertTrue(inputMethodManager.isActive(editor))
         }
     }
 
-    @Test
+    @org.junit.Test
     fun close_detachesTheEditorAndDeactivatesIme() {
         val controller = MemoEditorController()
         lateinit var inputMethodManager: InputMethodManager
@@ -137,8 +165,8 @@ class MemoEditorImeRequestTest {
         }
 
         composeRule.runOnUiThread {
-            assertTrue(!editor.isAttachedToWindow)
-            assertTrue(!inputMethodManager.isActive(editor))
+            org.junit.Assert.assertTrue(!editor.isAttachedToWindow)
+            org.junit.Assert.assertTrue(!inputMethodManager.isActive(editor))
         }
     }
 

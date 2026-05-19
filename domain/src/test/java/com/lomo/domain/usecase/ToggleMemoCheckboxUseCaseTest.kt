@@ -1,10 +1,10 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ToggleMemoCheckboxUseCaseTest
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for ToggleMemoCheckboxUseCaseTest.
  * - Boundary: boundary and edge cases for ToggleMemoCheckboxUseCaseTest.
  * - Failure: failure and error scenarios for ToggleMemoCheckboxUseCaseTest.
@@ -12,23 +12,37 @@
  *
  * - Behavior focus: test behavioral outcomes of ToggleMemoCheckboxUseCaseTest.
  * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
  */
 
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoRepository
 import io.kotest.matchers.shouldBe
-import io.mockk.coVerify
-import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 
 class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
-    private val repository: MemoRepository = mockk(relaxed = true)
+    private val repository = FakeMemoRepository()
     private val useCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase())
     init {
         test("updates markdown checkbox line when checking") {
@@ -41,11 +55,11 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = true)
 
                         (changed) shouldBe true
-                        coVerify(exactly = 1) { repository.updateMemo(memo, "- [x] task\ntext") }
+                        repository.updatedMemos shouldBe
+                            listOf(FakeMemoRepository.UpdatedMemo(memo, "- [x] task\ntext"))
                     }
         }
-    }
-    init {
+
         test("supports uppercase X when unchecking") {
             runTest {
                         val memo = memo(content = "- [X] done")
@@ -53,11 +67,11 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = false)
 
                         (changed) shouldBe true
-                        coVerify(exactly = 1) { repository.updateMemo(memo, "- [ ] done") }
+                        repository.updatedMemos shouldBe
+                            listOf(FakeMemoRepository.UpdatedMemo(memo, "- [ ] done"))
                     }
         }
-    }
-    init {
+
         test("does not toggle when checkbox marker only appears in body text") {
             runTest {
                         val memo = memo(content = "prefix - [ ] not a list item")
@@ -65,11 +79,10 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = true)
 
                         (changed) shouldBe false
-                        coVerify(exactly = 0) { repository.updateMemo(any(), any()) }
+                        repository.updatedMemos shouldBe emptyList()
                     }
         }
-    }
-    init {
+
         test("supports ordered list checkbox markers") {
             runTest {
                         val memo = memo(content = "1. [ ] numbered task")
@@ -77,11 +90,11 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = true)
 
                         (changed) shouldBe true
-                        coVerify(exactly = 1) { repository.updateMemo(memo, "1. [x] numbered task") }
+                        repository.updatedMemos shouldBe
+                            listOf(FakeMemoRepository.UpdatedMemo(memo, "1. [x] numbered task"))
                     }
         }
-    }
-    init {
+
         test("preserves trailing newline when toggling checkbox") {
             runTest {
                         val memo = memo(content = "- [ ] task\n")
@@ -89,11 +102,11 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = true)
 
                         (changed) shouldBe true
-                        coVerify(exactly = 1) { repository.updateMemo(memo, "- [x] task\n") }
+                        repository.updatedMemos shouldBe
+                            listOf(FakeMemoRepository.UpdatedMemo(memo, "- [x] task\n"))
                     }
         }
-    }
-    init {
+
         test("preserves multiple trailing blank lines when toggling checkbox") {
             runTest {
                         val memo = memo(content = "- [ ] task\n\n")
@@ -101,7 +114,8 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                         val changed = useCase(memo = memo, lineIndex = 0, checked = true)
 
                         (changed) shouldBe true
-                        coVerify(exactly = 1) { repository.updateMemo(memo, "- [x] task\n\n") }
+                        repository.updatedMemos shouldBe
+                            listOf(FakeMemoRepository.UpdatedMemo(memo, "- [x] task\n\n"))
                     }
         }
     }

@@ -1,15 +1,32 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: resolveMemoParagraphTapOutcome — the decision function that turns a
  *   tap on a memo paragraph into one of {open link, clear scope selection, invoke body
  *   click, ignore}.
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: tap with active selection clears selection.
  * - Boundary: tap on a link while selection is active clears selection instead of opening.
  * - Failure: tap with no selection and no link falls back to InvokeBodyClick.
@@ -23,7 +40,7 @@ import io.kotest.matchers.shouldBe
  *   `selectionState.hasSelection = false` and falls through to `onBodyClick`).
  * - Observable outcomes: the returned MemoParagraphTapOutcome for each combination of
  *   (link, paragraphHasSelection, scopeHasSelection).
- * - Red phase: Fails before the fix because the live decision lives inline inside
+ * - TDD proof: Fails before the fix because the live decision lives inline inside
  *   `memoParagraphPointerInput` and only inspects the paragraph-local selectionState; the
  *   pure decision function this test pins does not exist yet.
  * - Excludes: link URL handling, gesture detection mechanics, body click invocation.

@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.repository.MemoSynchronizer
 import com.lomo.domain.repository.MediaRepository
@@ -11,11 +28,11 @@ import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareIncomingMemoSaver
  * - Behavior focus: attachment reference remapping and incoming memo persistence side effects after legacy capture removal.
  * - Observable outcomes: saved memo content/timestamp and media refresh execution.
- * - Red phase: Fails before the fix because ShareIncomingMemoSaver still requires legacy capture infrastructure that is being removed from the incoming share path.
+ * - TDD proof: Fails before the fix because ShareIncomingMemoSaver still requires legacy capture infrastructure that is being removed from the incoming share path.
  * - Excludes: LAN transport protocol, attachment file storage implementation, and UI state handling.
  */
 class ShareIncomingMemoSaverTest : DataFunSpec() {

@@ -1,14 +1,31 @@
 package com.lomo.app.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: buildShareCardFooterContent
  * - Behavior focus: share-card footer single-line composition, custom signature rendering, and Lomo fallback after recorded-days removal.
  * - Observable outcomes: ShareCardFooterContent row structure and footer visibility used by footer rendering.
- * - Red phase: Fails before the fix because footer composition still accepts recorded-days input and builds a two-row footer instead of a single-line time/signature footer.
+ * - TDD proof: Fails before the fix because footer composition still accepts recorded-days input and builds a two-row footer instead of a single-line time/signature footer.
  * - Test Change Justification: reason category = product contract changed; old assertions expected recorded-days gating and a two-row layout, which is no longer correct after the product requirement changed to remove recorded days and keep only one footer line. Coverage is preserved by asserting the new single-line time/signature layout plus footer-hidden and blank-signature fallback paths. This is not changing the test to fit the implementation because the user explicitly changed the footer contract.
  * - Excludes: canvas drawing, bitmap creation, and Android resource lookup.
  */

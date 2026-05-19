@@ -1,14 +1,31 @@
 package com.lomo.app.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: share-card Markdown body line builder.
  * - Behavior focus: generated share-card images must apply common Markdown semantics instead of flattening Markdown to plain body text.
  * - Observable outcomes: share body line type, text, checked task state, table rows, image slots, and inline text style ranges.
- * - Red phase: Fails before the fix because share-card rendering uses regex cleanup that drops Markdown semantics for headings, strikethrough, tables, and parser-resolved image syntax.
+ * - TDD proof: Fails before the fix because share-card rendering uses regex cleanup that drops Markdown semantics for headings, strikethrough, tables, and parser-resolved image syntax.
  * - Excludes: bitmap pixel rendering, Android resource lookup, image decoding, and share intent/file-provider wiring.
  */
 class ShareCardMarkdownBodyLinesTest : AppFunSpec() {

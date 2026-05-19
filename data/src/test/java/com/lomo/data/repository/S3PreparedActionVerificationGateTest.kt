@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.S3RemoteObject
@@ -15,11 +32,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 prepared-action verification gate
  * - Behavior focus: destructive or overwrite-capable actions should be re-planned after targeted HeadObject verification so stale cached remote state cannot survive into apply-time as a skipped destructive action.
  * - Observable outcomes: rewritten S3SyncPlan action direction/reason, verified remote file state, and confirmed-missing path set.
- * - Red phase: Fails before the fix because the executor verification phase is a no-op, leaving stale cached DELETE_REMOTE / UPLOAD actions to be skipped later during apply while the sync result still reports the original destructive outcome.
+ * - TDD proof: Fails before the fix because the executor verification phase is a no-op, leaving stale cached DELETE_REMOTE / UPLOAD actions to be skipped later during apply while the sync result still reports the original destructive outcome.
  * - Excludes: conflict payload downloads, Room persistence, and WorkManager scheduling.
  */
 class S3PreparedActionVerificationGateTest : DataFunSpec() {

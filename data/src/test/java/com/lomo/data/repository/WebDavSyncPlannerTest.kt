@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.domain.model.WebDavSyncDirection
@@ -8,11 +25,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavSyncPlanner
  * - Behavior focus: first-sync direction selection, conflict detection with and without metadata, and delete propagation.
  * - Observable outcomes: planned WebDavSyncDirection/WebDavSyncReason for each path.
- * - Red phase: Fails before the fix because first-sync overlapping local/remote files are resolved by timestamp instead of surfacing a conflict.
+ * - TDD proof: Fails before the fix because first-sync overlapping local/remote files are resolved by timestamp instead of surfacing a conflict.
  * - Excludes: WebDAV transport, file I/O, metadata persistence, and UI rendering.
  */
 class WebDavSyncPlannerTest : DataFunSpec() {

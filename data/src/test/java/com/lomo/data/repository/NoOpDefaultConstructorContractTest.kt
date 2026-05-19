@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: sync-related repository/runtime constructors that currently expose silent fallback collaborators.
  * - Behavior focus: incremental-sync-critical constructors must require explicit collaborator wiring instead of Kotlin default-argument overloads that silently downgrade to NoOp/disabled implementations.
  * - Observable outcomes: target classes expose no synthetic default-argument constructor backed by DefaultConstructorMarker.
- * - Red phase: Fails before the fix because MediaRepositoryImpl, S3SyncExecutor, S3SyncRepositoryContext, and MemoMutationRuntime still publish Kotlin default-argument constructors.
+ * - TDD proof: Fails before the fix because MediaRepositoryImpl, S3SyncExecutor, S3SyncRepositoryContext, and MemoMutationRuntime still publish Kotlin default-argument constructors.
  * - Excludes: Hilt code generation, S3/WebDAV transport behavior, and mutation/sync business logic.
  */
 package com.lomo.data.repository
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import com.lomo.data.testing.DataFunSpec

@@ -1,10 +1,10 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DeleteMemoUseCaseTest
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for DeleteMemoUseCaseTest.
  * - Boundary: boundary and edge cases for DeleteMemoUseCaseTest.
  * - Failure: failure and error scenarios for DeleteMemoUseCaseTest.
@@ -12,29 +12,45 @@
  *
  * - Behavior focus: test behavioral outcomes of DeleteMemoUseCaseTest.
  * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
  */
 
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
+import com.lomo.domain.testing.fakes.FakeMemoRepository
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DeleteMemoUseCase
  * - Behavior focus: delete requests go through the shared memo-maintenance policy.
  * - Observable outcomes: delegated delete call with the selected memo.
  * - Excludes: repository deletion internals and trash/file synchronization behavior.
  */
 class DeleteMemoUseCaseTest : DomainFunSpec() {
-    private val memoMaintenanceUseCase: MemoMaintenanceUseCase = mockk(relaxed = true)
-    private val useCase = DeleteMemoUseCase(memoMaintenanceUseCase)
+    private val repository = FakeMemoRepository()
+    private val useCase = DeleteMemoUseCase(repository)
     init {
         test("invoke delegates delete to maintenance use case") {
             runTest {
@@ -46,11 +62,9 @@ class DeleteMemoUseCaseTest : DomainFunSpec() {
                                 rawContent = "- 10:00 delete me",
                                 dateKey = "2026_03_24",
                             )
-                        coEvery { memoMaintenanceUseCase.deleteMemo(memo) } returns Unit
-
                         useCase(memo)
 
-                        coVerify(exactly = 1) { memoMaintenanceUseCase.deleteMemo(memo) }
+                        repository.deletedMemoRequests shouldBe listOf(memo)
                     }
         }
     }

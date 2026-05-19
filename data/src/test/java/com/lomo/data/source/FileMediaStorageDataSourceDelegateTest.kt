@@ -1,5 +1,22 @@
 package com.lomo.data.source
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.ContentResolver
 import android.content.Context
@@ -17,13 +34,13 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: FileMediaStorageDataSourceDelegate
  * - Behavior focus: saving imported images through resolved storage roots without branching on
  *   concrete backend classes.
  * - Observable outcomes: direct roots write bytes into the resolved directory, SAF roots delegate
  *   the save to the resolved media backend, and filename generation still returns the stored name.
- * - Red phase: Fails before the fix because saveImage switches on DirectStorageBackend /
+ * - TDD proof: Fails before the fix because saveImage switches on DirectStorageBackend /
  *   SafStorageBackend concrete types instead of using an explicit WorkspaceVfs resolution.
  * - Excludes: full SAF traversal, Android permission handling, and image listing/delete behavior.
  */

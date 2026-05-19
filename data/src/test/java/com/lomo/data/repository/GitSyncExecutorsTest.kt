@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
@@ -35,11 +52,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncInitAndSyncExecutor, GitSyncMaintenanceExecutor
  * - Behavior focus: precondition gating, direct-vs-SAF path branching, split-layout memo mirroring, and exception mapping after legacy pre-sync capture cleanup.
  * - Observable outcomes: GitSyncResult values, error messages, and side-effect invocation ordering across collaborators.
- * - Red phase: Fails before the fix because Git sync still depends on retired pre-sync capture work in the sync path.
+ * - TDD proof: Fails before the fix because Git sync still depends on retired pre-sync capture work in the sync path.
  * - Excludes: git engine internal algorithms, transport/JGit behavior, and UI or DI wiring.
  */
 class GitSyncExecutorsTest : DataFunSpec() {

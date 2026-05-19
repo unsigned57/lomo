@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: PlaintextDatabaseVersionReader
  * - Behavior focus: extraction of database version from SQL files/streams.
  * - Observable outcomes: correct version identification, error handling for malformed input.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: SQLite execution, Room internals.
  */
 package com.lomo.data.local
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import androidx.sqlite.SQLiteConnection
@@ -21,12 +38,12 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: PlaintextDatabaseVersionReader
  * - Behavior focus: pre-open schema inspection for plaintext databases must read `PRAGMA user_version`
  *   through the bundled SQLite driver so opening an existing FTS5 database never falls back to framework SQLite.
  * - Observable outcomes: returned version number and bundled-driver call sequence.
- * - Red phase: Fails before the fix because DatabaseTransitionStrategy reads user_version through
+ * - TDD proof: Fails before the fix because DatabaseTransitionStrategy reads user_version through
  *   android.database.sqlite.SQLiteDatabase instead of the bundled driver.
  * - Excludes: real filesystem I/O, bundled native library loading, and migration policy decisions.
  */

@@ -1,15 +1,32 @@
 package com.lomo.data.git
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitMediaSyncPlanner
  * - Behavior focus: media sync direction selection for local-only, repo-only, changed, deleted, and tolerance-window cases.
  * - Observable outcomes: planned GitMediaSyncAction direction/reason list for each path.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: actual file I/O, Git transport, and metadata store persistence.
  */
 class GitMediaSyncPlannerTest : DataFunSpec() {

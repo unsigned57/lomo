@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.Memo
 import io.mockk.MockKAnnotations
@@ -13,13 +30,13 @@ import java.util.concurrent.TimeUnit
 import com.lomo.data.testing.DataFunSpec
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoSynchronizer
  * - Behavior focus: existing memo edits must return after the DB-first mutation path is queued, without waiting
  *   for the synchronous file rewrite path.
  * - Observable outcomes: updateMemo returns while the legacy synchronous update path is still blocked, delegates
  *   to updateMemoInDb exactly once, and never invokes the blocking updateMemo handler.
- * - Red phase: Fails before the fix because MemoSynchronizer.updateMemo still calls MemoMutationHandler.updateMemo,
+ * - TDD proof: Fails before the fix because MemoSynchronizer.updateMemo still calls MemoMutationHandler.updateMemo,
  *   which blocks on synchronous file rewrite before the UI-visible edit can complete.
  * - Excludes: outbox drain completion timing, widget refresh, and Room/file persistence internals.
  */

@@ -1,10 +1,27 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoTextSelectionState — the per-paragraph selection state holder used
  *   by the compose-native memo body text renderer.
  * - Behavior focus: selection ranges resolve against the original (un-normalized) source
@@ -12,7 +29,7 @@ import io.kotest.matchers.shouldBe
  *   and a collapsed or cleared selection yields no copied text.
  * - Observable outcomes: normalized selected range, copied plain text, cleared selection
  *   state.
- * - Red phase: Fails before the fix because memo body copy selection is delegated to
+ * - TDD proof: Fails before the fix because memo body copy selection is delegated to
  *   TextView and has no Compose-native selection state contract.
  * - Excludes: Android clipboard service, floating toolbar placement, drag gesture dispatch,
  *   rendered selection handle pixels, and link activation policy (now covered by

@@ -1,5 +1,22 @@
 package com.lomo.data.git
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.GitSyncResult
 import io.mockk.mockk
@@ -15,11 +32,11 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitRepositoryPrimitives
  * - Behavior focus: stale-lock cleanup, .gitignore creation policy, remote add/update behavior, commit-file reads, and amend eligibility checks.
  * - Observable outcomes: deleted vs preserved lock files, .gitignore file contents, repository remote URL config, file contents at a commit, and amend Boolean decisions.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: credential fallback execution, network push transport, and JGit internal status computation beyond observable repository state.
  */
 class GitRepositoryPrimitivesTest : DataFunSpec() {

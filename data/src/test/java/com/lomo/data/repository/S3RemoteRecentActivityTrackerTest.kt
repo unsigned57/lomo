@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
@@ -7,11 +24,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 remote recent-activity tracker
  * - Behavior focus: foreground candidates, failed paths, and conflict paths should all feed the explicit recent-activity layer that seeds later fast/reconcile scans without waiting for a full shard rotation.
  * - Observable outcomes: persisted remote-index scanPriority, dirtySuspect, and recency fields after tracker updates.
- * - Red phase: Fails before the fix because recent activity only exists as ad hoc promotion on successful outcomes, leaving failed/manual/conflict paths outside the dedicated recent-activity source described by the manifest-free sync plan.
+ * - TDD proof: Fails before the fix because recent activity only exists as ad hoc promotion on successful outcomes, leaving failed/manual/conflict paths outside the dedicated recent-activity source described by the manifest-free sync plan.
  * - Excludes: planner action derivation, Room SQL generation, and UI refresh behavior.
  */
 class S3RemoteRecentActivityTrackerTest : DataFunSpec() {

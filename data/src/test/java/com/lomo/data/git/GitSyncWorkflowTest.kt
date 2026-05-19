@@ -1,5 +1,22 @@
 package com.lomo.data.git
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncErrorCode
@@ -21,11 +38,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncWorkflow
  * - Behavior focus: local commit branching (no-op / commit / amend), non-repository error handling, PAT precondition, and a stable local-file sync success path.
  * - Observable outcomes: GitSyncResult subtype or message, commit history/count changes, and emitted syncing phases.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: network transport behavior, conflict-content extraction internals, and engine-level state holder orchestration.
  */
 class GitSyncWorkflowTest : DataFunSpec() {

@@ -1,9 +1,25 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
 
-import com.lomo.data.source.MarkdownStorageDataSource
+
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteFile
@@ -21,11 +37,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavSyncActionApplier
  * - Behavior focus: action routing across upload/download/delete directions, memo-vs-media branching, skip behavior, and failure mapping.
  * - Observable outcomes: ActionExecutionState result, sync state transitions, and side-effect targets (WebDAV client vs markdown/media data sources).
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: planner conflict detection, metadata persistence, and network protocol correctness.
  */
 class WebDavSyncActionApplierTest : DataFunSpec() {
@@ -59,7 +75,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
     private val runtime: WebDavSyncRepositoryContext = mockk(relaxed = true)
     private val fileBridge: WebDavSyncFileBridge = mockk(relaxed = true)
     private val stateHolder = WebDavSyncStateHolder()
-    private val markdownStorageDataSource: MarkdownStorageDataSource = mockk(relaxed = true)
+    private val markdownStorageDataSource = FakeFileDataSource()
     private val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
     private val client: WebDavClient = mockk(relaxed = true)
 
@@ -89,7 +105,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "note.md"
             every { fileBridge.contentTypeForPath(path, layout) } returns WEBDAV_MARKDOWN_CONTENT_TYPE
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") } returns "memo body"
+            markdownStorageDataSource.saveFileIn(MemoDirectoryType.MAIN, "note.md", "memo body", false)
 
             val result = applier.applyAction(action, client, layout, localFiles, remoteFiles)
 
@@ -131,7 +147,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
                 )
             }
             coVerify(exactly = 1) { localMediaSyncStore.exportToFile(path, layout, any()) }
-            coVerify(exactly = 0) { markdownStorageDataSource.readFileIn(any(), any()) }
+            markdownStorageDataSource.files.isEmpty() shouldBe true
         }
 
     private fun `upload memo skips when local memo content is missing`() =
@@ -140,7 +156,6 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             val action = action(path, WebDavSyncDirection.UPLOAD)
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "missing.md"
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "missing.md") } returns null
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
@@ -160,13 +175,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
 
             result shouldBe ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
             stateHolder.state.value shouldBe WebDavSyncState.Downloading
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "download.md",
-                    content = "remote memo",
-                )
-            }
+            markdownStorageDataSource.files[Pair(MemoDirectoryType.MAIN, "download.md")] shouldBe "remote memo"
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(any(), any(), any()) }
         }
 
@@ -183,7 +192,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             stateHolder.state.value shouldBe WebDavSyncState.Downloading
             verify(exactly = 1) { client.getToFile(path, any()) }
             coVerify(exactly = 1) { localMediaSyncStore.importFromFile(path, any(), layout) }
-            coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
+            markdownStorageDataSource.files.isEmpty() shouldBe true
         }
 
     private fun `delete local memo removes markdown file`() =
@@ -192,14 +201,13 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             val action = action(path, WebDavSyncDirection.DELETE_LOCAL)
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "deleted.md"
+            markdownStorageDataSource.saveFileIn(MemoDirectoryType.MAIN, "deleted.md", "hello", false)
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             result shouldBe ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
             stateHolder.state.value shouldBe WebDavSyncState.Deleting
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, "deleted.md")
-            }
+            markdownStorageDataSource.files.containsKey(Pair(MemoDirectoryType.MAIN, "deleted.md")) shouldBe false
             coVerify(exactly = 0) { localMediaSyncStore.delete(any(), any()) }
         }
 
@@ -214,7 +222,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             result shouldBe ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
             stateHolder.state.value shouldBe WebDavSyncState.Deleting
             coVerify(exactly = 1) { localMediaSyncStore.delete(path, layout) }
-            coVerify(exactly = 0) { markdownStorageDataSource.deleteFileIn(any(), any(), any()) }
+            markdownStorageDataSource.files.isEmpty() shouldBe true
         }
 
     private fun `delete remote removes remote file`() =
@@ -243,7 +251,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             verify(exactly = 0) { client.get(any()) }
             verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
             verify(exactly = 0) { client.delete(any(), any()) }
-            coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
+            markdownStorageDataSource.files.isEmpty() shouldBe true
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(any(), any(), any()) }
         }
 

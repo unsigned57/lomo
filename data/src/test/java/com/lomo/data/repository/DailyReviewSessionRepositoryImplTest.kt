@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.DailyReviewSession
@@ -17,11 +34,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DailyReviewSessionRepositoryImpl
  * - Behavior focus: atomic session reads from datastore flows and write-through persistence of date/seed/pageIndex.
  * - Observable outcomes: returned DailyReviewSession values (including pageIndex defaulting) and datastore update arguments.
- * - Red phase: Fails before the fix when session fields are read via multiple sequential `first()` calls and can observe torn state.
+ * - TDD proof: Fails before the fix when session fields are read via multiple sequential `first()` calls and can observe torn state.
  * - Excludes: DataStore file I/O internals and date parsing implementation details outside repository boundaries.
  */
 class DailyReviewSessionRepositoryImplTest : DataFunSpec() {

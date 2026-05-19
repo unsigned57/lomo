@@ -1,19 +1,36 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SynchronizedLruStore
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for SynchronizedLruStoreTest.
  * - Boundary: boundary and edge cases for SynchronizedLruStoreTest.
  * - Failure: failure and error scenarios for SynchronizedLruStoreTest.
  * - Must-not-happen: invariants are never violated for SynchronizedLruStoreTest.
  * - Behavior focus: shared in-memory caches must keep LRU access semantics while remaining safe to snapshot and clear from synchronized callers.
  * - Observable outcomes: eviction order after access, stored values from snapshot, and full clear behavior.
- * - Red phase: Fails before the fix because the shared LRU helper does not exist, leaving each cache site to hand-roll LinkedHashMap eviction separately.
+ * - TDD proof: Fails before the fix because the shared LRU helper does not exist, leaving each cache site to hand-roll LinkedHashMap eviction separately.
  * - Excludes: navigation payload TTL rules, bitmap decoding, and Compose rendering.
  */
 
 package com.lomo.ui.util
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe

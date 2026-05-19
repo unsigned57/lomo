@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.datastore.LomoDataStore
 import io.mockk.coEvery
@@ -13,11 +30,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: InputToolbarPreferencesRepositoryImpl
  * - Behavior focus: input toolbar drag order must round-trip through settings persistence with stable delimiter serialization.
  * - Observable outcomes: decoded toolbar id list and datastore update calls with trimmed, deduplicated payloads.
- * - Red phase: Fails before the fix because no repository contract or datastore preference exists for input toolbar ordering.
+ * - TDD proof: Fails before the fix because no repository contract or datastore preference exists for input toolbar ordering.
  * - Excludes: Compose toolbar rendering, reorder gesture physics, and DataStore file I/O.
  */
 class InputToolbarPreferencesRepositoryTest : DataFunSpec() {

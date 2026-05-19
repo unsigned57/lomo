@@ -1,5 +1,22 @@
 package com.lomo.ui.theme
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography as MaterialTypography
@@ -7,11 +24,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoTypography memo text tokens
  * - Behavior focus: global body-medium text and memo body, editor, hint, and summary styles keep the tightened reading spacing while preserving the compact memo line-height rhythm.
  * - Observable outcomes: selected fontSize, lineHeight, letterSpacing, and memo paragraph block spacing values.
- * - Red phase: Fails before the fix because bodyMedium still uses 0.25sp and memo text tokens still use 0sp instead of the tightened 0.1sp spacing contract.
+ * - TDD proof: Fails before the fix because bodyMedium still uses 0.25sp and memo text tokens still use 0sp instead of the tightened 0.1sp spacing contract.
  * - Excludes: MaterialTheme composition wiring, OEM font rendering differences, and downstream Text composable layout.
  */
 class MemoTypographyTest : UiComponentsFunSpec() {

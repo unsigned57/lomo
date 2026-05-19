@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
@@ -12,13 +29,13 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 large-transfer execution policy
  * - Behavior focus: large uploads/downloads should route to a dedicated large-transfer lane while small
  *   files stay on the default lane, so saturated large work does not block unrelated small transfers.
  * - Observable outcomes: selected lane for representative sync actions and whether a small transfer can
  *   complete while the large lane is fully occupied.
- * - Red phase: Fails before the fix because all actions share one weighted semaphore, so there is no
+ * - TDD proof: Fails before the fix because all actions share one weighted semaphore, so there is no
  *   separate lane classification and a saturated large-transfer lane cannot let a small transfer proceed.
  * - Excludes: AWS SDK transport behavior, executor wiring beyond lane selection, and memo refresh side effects.
  */

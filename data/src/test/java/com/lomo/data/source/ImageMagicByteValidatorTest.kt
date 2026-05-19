@@ -1,5 +1,22 @@
 package com.lomo.data.source
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.ContentResolver
 import android.net.Uri
@@ -12,11 +29,11 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ImageMagicByteValidator.
  * - Behavior focus: imported image payloads must be validated by magic bytes rather than trusting MIME metadata.
  * - Observable outcomes: known image signatures are accepted, and arbitrary binary payloads are rejected with IOException.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: filename extension selection, backend storage writes, and ContentProvider permission handling.
  */
 class ImageMagicByteValidatorTest : DataFunSpec() {

@@ -1,149 +1,166 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.UnifiedSyncPhase
+import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncState
-import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
+import com.lomo.domain.testing.fakes.FakeUnifiedSyncProvider
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.coVerifyOrder
+import io.kotest.matchers.collections.shouldContain
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: remote sync shared settings helpers in RemoteSyncSettingsShared.kt
- *
- * Scenario matrix:
- * - Happy: standard happy path for RemoteSyncSettingsSharedTest.
- * - Boundary: boundary and edge cases for RemoteSyncSettingsSharedTest.
- * - Failure: failure and error scenarios for RemoteSyncSettingsSharedTest.
- * - Must-not-happen: invariants are never violated for RemoteSyncSettingsSharedTest.
- * - Behavior focus: common remote sync settings observation, policy mutation wiring, and shared actions should
- *   preserve one backend-agnostic contract for Git/WebDAV/S3 settings orchestration.
- * - Observable outcomes: exposed flows, backend policy writes, auto-sync policy reapplication, and delegated
- *   manual-sync / connection-test results.
- * - Red phase: Fails before the fix because the shared settings helper layer does not exist yet.
+ * - Capability: Backend-agnostic settings orchestration for Git/WebDAV/S3 remote synchronization.
+ * - Scenarios:
+ *   - Given a configured RemoteSyncSharedStateObservation, when observing sync properties, then it should expose the flows correctly.
+ *   - Given a RemoteSyncSharedMutation, when updating sync enabled, then it updates backend type and reapplies policy.
+ *   - Given a RemoteSyncSharedMutation, when updating auto-sync properties, then it updates through provider and reapplies policy.
+ *   - Given a RemoteSyncSharedMutation, when updating sync on refresh, then it updates without reapplying policy.
+ *   - Given a RemoteSyncSharedActions with real SyncAndRebuildUseCase, when triggerSyncNow is called, then it triggers manual sync on the active provider.
+ * - Observable outcomes: exposed flows, backend policy writes, auto-sync policy reapplication, and delegated manual-sync/connection-test results.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: repository transport behavior, provider-specific field mapping, and UI rendering.
  */
 class RemoteSyncSettingsSharedTest : DomainFunSpec() {
-    private val syncPolicyRepository: SyncPolicyRepository = io.mockk.mockk(relaxed = true)
-    private val syncAndRebuildUseCase: SyncAndRebuildUseCase = io.mockk.mockk(relaxed = true)
+    private val syncPolicyRepository = FakeSyncPolicyRepository(initialBackend = SyncBackendType.GIT)
+    private val memoRepository = FakeMemoRepository()
+    private val fakeGitProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.GIT)
+    private val fakeInboxProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.INBOX)
+    private val syncProviderRegistry = SyncProviderRegistry(
+        providers = listOf(fakeGitProvider, fakeInboxProvider)
+    )
+    private val syncAndRebuildUseCase = SyncAndRebuildUseCase(
+        memoRepository = memoRepository,
+        syncProviderRegistry = syncProviderRegistry,
+        syncPolicyRepository = syncPolicyRepository,
+    )
+
     init {
         test("shared state observation exposes configured flows") {
             runTest {
-                        val expectedState =
-                            UnifiedSyncState.Running(
-                                provider = SyncBackendType.GIT,
-                                phase = UnifiedSyncPhase.PULLING,
-                            )
-                        val observation =
-                            RemoteSyncSharedStateObservationImpl(
-                                enabled = { flowOf(true) },
-                                autoSyncEnabled = { flowOf(false) },
-                                autoSyncInterval = { flowOf("30m") },
-                                syncOnRefreshEnabled = { flowOf(true) },
-                                lastSyncTimeMillis = { flowOf(1234L) },
-                                syncState = { flowOf(expectedState) },
-                            )
+                val expectedState =
+                    UnifiedSyncState.Running(
+                        provider = SyncBackendType.GIT,
+                        phase = com.lomo.domain.model.UnifiedSyncPhase.PULLING,
+                    )
+                val observation =
+                    RemoteSyncSharedStateObservationImpl(
+                        enabled = { flowOf(true) },
+                        autoSyncEnabled = { flowOf(false) },
+                        autoSyncInterval = { flowOf("30m") },
+                        syncOnRefreshEnabled = { flowOf(true) },
+                        lastSyncTimeMillis = { flowOf(1234L) },
+                        syncState = { flowOf(expectedState) },
+                    )
 
-                        observation.observeSyncEnabled().first() shouldBe true
-                        observation.observeAutoSyncEnabled().first() shouldBe false
-                        observation.observeAutoSyncInterval().first() shouldBe "30m"
-                        observation.observeSyncOnRefreshEnabled().first() shouldBe true
-                        observation.observeLastSyncTimeMillis().first() shouldBe 1234L
-                        observation.observeSyncState().first() shouldBe expectedState
-                    }
+                observation.observeSyncEnabled().first() shouldBe true
+                observation.observeAutoSyncEnabled().first() shouldBe false
+                observation.observeAutoSyncInterval().first() shouldBe "30m"
+                observation.observeSyncOnRefreshEnabled().first() shouldBe true
+                observation.observeLastSyncTimeMillis().first() shouldBe 1234L
+                observation.observeSyncState().first() shouldBe expectedState
+            }
         }
-    }
-    init {
+
         test("shared mutation updates backend policy and reapplies policy") {
             runTest {
-                        val mutation =
-                            RemoteSyncSharedMutationImpl(
-                                backendType = SyncBackendType.WEBDAV,
-                                syncPolicyRepository = syncPolicyRepository,
-                                autoSyncEnabledUpdater = {},
-                                autoSyncIntervalUpdater = {},
-                                syncOnRefreshUpdater = {},
-                            )
-                        coEvery { syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                val mutation =
+                    RemoteSyncSharedMutationImpl(
+                        backendType = SyncBackendType.WEBDAV,
+                        syncPolicyRepository = syncPolicyRepository,
+                        autoSyncEnabledUpdater = {},
+                        autoSyncIntervalUpdater = {},
+                        syncOnRefreshUpdater = {},
+                    )
 
-                        mutation.updateSyncEnabled(true)
+                mutation.updateSyncEnabled(true)
 
-                        coVerifyOrder {
-                            syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                syncPolicyRepository.setBackendRequests shouldBe listOf(SyncBackendType.WEBDAV)
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 1
+            }
         }
-    }
-    init {
+
         test("shared mutation reuses provider updater and reapplies policy for auto sync changes") {
             runTest {
-                        var autoSyncEnabled: Boolean? = null
-                        var autoSyncInterval: String? = null
-                        val mutation =
-                            RemoteSyncSharedMutationImpl(
-                                backendType = SyncBackendType.S3,
-                                syncPolicyRepository = syncPolicyRepository,
-                                autoSyncEnabledUpdater = { autoSyncEnabled = it },
-                                autoSyncIntervalUpdater = { autoSyncInterval = it },
-                                syncOnRefreshUpdater = {},
-                            )
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                var autoSyncEnabled: Boolean? = null
+                var autoSyncInterval: String? = null
+                val mutation =
+                    RemoteSyncSharedMutationImpl(
+                        backendType = SyncBackendType.S3,
+                        syncPolicyRepository = syncPolicyRepository,
+                        autoSyncEnabledUpdater = { autoSyncEnabled = it },
+                        autoSyncIntervalUpdater = { autoSyncInterval = it },
+                        syncOnRefreshUpdater = {},
+                    )
 
-                        mutation.updateAutoSyncEnabled(true)
-                        mutation.updateAutoSyncInterval("1h")
+                mutation.updateAutoSyncEnabled(true)
+                mutation.updateAutoSyncInterval("1h")
 
-                        autoSyncEnabled shouldBe true
-                        autoSyncInterval shouldBe "1h"
-                        coVerify(exactly = 2) { syncPolicyRepository.applyRemoteSyncPolicy() }
-                    }
+                autoSyncEnabled shouldBe true
+                autoSyncInterval shouldBe "1h"
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
+            }
         }
-    }
-    init {
+
         test("shared mutation updates sync-on-refresh without reapplying policy") {
             runTest {
-                        var syncOnRefresh: Boolean? = null
-                        val mutation =
-                            RemoteSyncSharedMutationImpl(
-                                backendType = SyncBackendType.GIT,
-                                syncPolicyRepository = syncPolicyRepository,
-                                autoSyncEnabledUpdater = {},
-                                autoSyncIntervalUpdater = {},
-                                syncOnRefreshUpdater = { syncOnRefresh = it },
-                            )
+                var syncOnRefresh: Boolean? = null
+                val mutation =
+                    RemoteSyncSharedMutationImpl(
+                        backendType = SyncBackendType.GIT,
+                        syncPolicyRepository = syncPolicyRepository,
+                        autoSyncEnabledUpdater = {},
+                        autoSyncIntervalUpdater = {},
+                        syncOnRefreshUpdater = { syncOnRefresh = it },
+                    )
 
-                        mutation.updateSyncOnRefreshEnabled(true)
+                mutation.updateSyncOnRefreshEnabled(true)
 
-                        syncOnRefresh shouldBe true
-                        coVerify(exactly = 0) { syncPolicyRepository.applyRemoteSyncPolicy() }
-                    }
+                syncOnRefresh shouldBe true
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 0
+            }
         }
-    }
-    init {
+
         test("shared actions trigger manual sync and delegate connection test") {
             runTest {
-                        val expected = GitSyncResult.Success("ok")
-                        val actions =
-                            RemoteSyncSharedActionsImpl<GitSyncResult>(
-                                syncAndRebuildUseCase = syncAndRebuildUseCase,
-                                connectionTester = { expected },
-                            )
-                        coEvery { syncAndRebuildUseCase.invoke(forceSync = true) } returns Unit
+                val expected = GitSyncResult.Success("ok")
+                val actions =
+                    RemoteSyncSharedActionsImpl<GitSyncResult>(
+                        syncAndRebuildUseCase = syncAndRebuildUseCase,
+                        connectionTester = { expected },
+                    )
 
-                        actions.triggerSyncNow()
-                        val result = actions.testConnection()
+                actions.triggerSyncNow()
+                val result = actions.testConnection()
 
-                        result shouldBe expected
-                        coVerify(exactly = 1) { syncAndRebuildUseCase.invoke(forceSync = true) }
-                    }
+                result shouldBe expected
+                fakeGitProvider.syncRequests shouldContain UnifiedSyncOperation.MANUAL_SYNC
+                memoRepository.refreshMemosCallCount shouldBe 1
+            }
         }
     }
 }

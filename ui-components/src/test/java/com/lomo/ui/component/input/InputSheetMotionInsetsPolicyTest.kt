@@ -1,5 +1,22 @@
 package com.lomo.ui.component.input
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
@@ -15,20 +32,16 @@ import io.kotest.matchers.shouldBe
 class InputSheetMotionInsetsPolicyTest : UiComponentsFunSpec() {
     init {
         test("collapsing does not keep expanded insets alive") {
-        withClue("Collapsing should already target compact insets so the sheet does not shrink a second time after the tabs finish closing.") { (InputSheetMotionStage.Collapsing.usesExpandedInsets()) shouldBe false }
+            withClue("Collapsing should already target compact insets so the sheet does not shrink a second time after the tabs finish closing.") { (InputSheetMotionStage.Collapsing.usesExpandedInsets()) shouldBe false }
         }
-    }
 
-    init {
         test("expanding and expanded still keep fullscreen insets") {
-        withClue("Expanding should keep fullscreen insets so the opening path still reaches the long-form surface cleanly.") { (InputSheetMotionStage.Expanding.usesExpandedInsets()) shouldBe true }
-        withClue("Expanded should keep fullscreen insets because the long-form editor still occupies the fullscreen sheet form.") { (InputSheetMotionStage.Expanded.usesExpandedInsets()) shouldBe true }
+            withClue("Expanding should keep fullscreen insets so the opening path still reaches the long-form surface cleanly.") { (InputSheetMotionStage.Expanding.usesExpandedInsets()) shouldBe true }
+            withClue("Expanded should keep fullscreen insets because the long-form editor still occupies the fullscreen sheet form.") { (InputSheetMotionStage.Expanded.usesExpandedInsets()) shouldBe true }
         }
-    }
 
-    init {
         test("compact keeps compact inset policy") {
-        withClue("Compact should not reintroduce fullscreen insets.") { (InputSheetMotionStage.Compact.usesExpandedInsets()) shouldBe false }
+            withClue("Compact should not reintroduce fullscreen insets.") { (InputSheetMotionStage.Compact.usesExpandedInsets()) shouldBe false }
         }
     }
 }

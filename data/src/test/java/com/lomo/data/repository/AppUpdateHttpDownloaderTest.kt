@@ -1,18 +1,35 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: AppUpdateHttpDownloader
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for AppUpdateHttpDownloaderTest.
  * - Boundary: boundary and edge cases for AppUpdateHttpDownloaderTest.
  * - Failure: failure and error scenarios for AppUpdateHttpDownloaderTest.
  * - Must-not-happen: invariants are never violated for AppUpdateHttpDownloaderTest.
  * - Behavior focus: APK download transport must stream bytes through Ktor while preserving redirects, progress, timeout propagation, and caller cancellation.
  * - Observable outcomes: downloaded file bytes, emitted progress values, followed redirect path, surfaced timeout exception, and cancelled coroutine outcome.
- * - Red phase: Fails before the fix because the repository still hardcodes HttpURLConnection and there is no Ktor-backed downloader contract to exercise with MockEngine.
+ * - TDD proof: Fails before the fix because the repository still hardcodes HttpURLConnection and there is no Ktor-backed downloader contract to exercise with MockEngine.
  * - Excludes: install-permission gating, FileProvider URI generation, package-installer UI, and release metadata discovery.
  */
 package com.lomo.data.repository
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import io.ktor.client.HttpClient

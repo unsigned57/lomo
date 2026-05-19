@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
@@ -7,12 +24,12 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LAN share active-discovery target policy.
  * - Behavior focus: when platform NSD does not surface peers on hotspot or same-Wi-Fi networks,
  *   the fallback discovery must probe the local IPv4 subnet on Lomo's stable share port.
  * - Observable outcomes: deterministic probe targets for hotspot and ordinary Wi-Fi bind hosts.
- * - Red phase: Fails before the fix because LAN share only depends on NSD and the random
+ * - TDD proof: Fails before the fix because LAN share only depends on NSD and the random
  *   server port, leaving no deterministic target list for hotspot fallback discovery.
  * - Excludes: real sockets, HTTP timeout behavior, and platform ConnectivityManager callbacks.
  */

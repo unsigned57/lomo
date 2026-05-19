@@ -1,14 +1,31 @@
 package com.lomo.domain.model
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareTransferErrorPolicy
  * - Behavior focus: canonical error construction for pairing, attachment, connection, transfer, and unknown failure paths.
  * - Observable outcomes: emitted ShareTransferError code/detail/device fields for each policy entrypoint.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: UI string presentation and LAN transport behavior.
  */
 class ShareTransferErrorPolicyTest : DomainFunSpec() {
@@ -29,8 +46,7 @@ class ShareTransferErrorPolicyTest : DomainFunSpec() {
                 )
             ShareTransferErrorPolicy.transferFailed() shouldBe ShareTransferError(code = ShareTransferErrorCode.TRANSFER_FAILED)
         }
-    }
-    init {
+
         test("connection and unknown policies trim detail while preserving null") {
             ShareTransferErrorPolicy.connectionFailed("  network timeout  ") shouldBe ShareTransferError(
                     code = ShareTransferErrorCode.CONNECTION_FAILED,

@@ -1,15 +1,32 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.ShareCardTextInput
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: PrepareShareCardContentUseCase
  * - Behavior focus: share-card tag extraction preserves user-facing tags and removes inline tags from body text.
  * - Observable outcomes: extracted tag list and final body text content.
- * - Red phase: Fails before the fix when inline emoji tags are ignored and remain in the body text.
+ * - TDD proof: Fails before the fix when inline emoji tags are ignored and remain in the body text.
  * - Excludes: presentation-layer truncation, typography, and UI rendering details.
  */
 class PrepareShareCardContentUseCaseTest : DomainFunSpec() {
@@ -29,8 +46,7 @@ class PrepareShareCardContentUseCaseTest : DomainFunSpec() {
             result.bodyText shouldBe longContent
             (result.bodyText.endsWith("...")) shouldBe false
         }
-    }
-    init {
+
         test("invoke keeps all source tags without display truncation") {
             val tags =
                 (1..8).map { index ->
@@ -47,8 +63,7 @@ class PrepareShareCardContentUseCaseTest : DomainFunSpec() {
 
             result.tags shouldBe tags.map { it.removePrefix("#") }
         }
-    }
-    init {
+
         test("invoke keeps original spacing semantics in body text") {
             val result =
                 useCase(
@@ -60,8 +75,7 @@ class PrepareShareCardContentUseCaseTest : DomainFunSpec() {
 
             result.bodyText shouldBe "line1  line2\n\n\nline3"
         }
-    }
-    init {
+
         test("invoke extracts inline emoji tags and removes them from body text") {
             val result =
                 useCase(

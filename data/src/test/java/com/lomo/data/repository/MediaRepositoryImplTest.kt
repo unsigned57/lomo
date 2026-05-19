@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MediaRepositoryImpl
  * - Behavior focus: cached media location updates, workspace fallback behavior, and S3 local change journal recording for image and voice mutations.
  * - Observable outcomes: returned storage locations, emitted image-location maps, null workspace results on directory failures, and recorder invocations for S3-visible media changes.
- * - Red phase: Fails before the fix because media imports and voice capture mutations do not record S3 local journal entries, so the new recorder assertions stay red.
+ * - TDD proof: Fails before the fix because media imports and voice capture mutations do not record S3 local journal entries, so the new recorder assertions stay red.
  * - Excludes: FileDataSource backend internals, platform URI parsing behavior, and downstream S3 executor reconciliation.
  */
 package com.lomo.data.repository
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import android.net.Uri

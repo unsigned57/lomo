@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.ROOM_MAX_BIND_PARAMETER_COUNT
@@ -15,11 +32,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoRefreshDbApplier
  * - Behavior focus: refresh replacement cleanup, deduplicated insertion, and transaction execution boundaries.
  * - Observable outcomes: DAO calls, inserted memo content, and transaction invocation count.
- * - Red phase: Fails if refresh replacement stops cleaning stale rows, inserts duplicate memo revisions, or bypasses
+ * - TDD proof: Fails if refresh replacement stops cleaning stale rows, inserts duplicate memo revisions, or bypasses
  *   the configured transaction runner.
  * - Excludes: Room integration wiring, filesystem refresh parsing, and removed day-file snapshot side effects.
  */

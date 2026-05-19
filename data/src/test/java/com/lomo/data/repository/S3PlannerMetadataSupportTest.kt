@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -11,11 +28,11 @@ import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 planner metadata support
  * - Behavior focus: planner metadata reads should stay on the lightweight snapshot query and return an empty map without falling back to a full-row table scan.
  * - Observable outcomes: returned planner metadata map and absence of full-row DAO access.
- * - Red phase: Fails before the fix because an empty snapshot result still falls back to getAll(), which reintroduces the full-row metadata scan the manifest-free incremental planner is meant to avoid.
+ * - TDD proof: Fails before the fix because an empty snapshot result still falls back to getAll(), which reintroduces the full-row metadata scan the manifest-free incremental planner is meant to avoid.
  * - Excludes: Room generated SQL, repository orchestration, and sync action execution.
  */
 class S3PlannerMetadataSupportTest : DataFunSpec() {

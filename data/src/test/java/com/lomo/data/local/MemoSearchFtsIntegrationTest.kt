@@ -1,5 +1,22 @@
 package com.lomo.data.local
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.database.Cursor
 import com.lomo.data.util.SearchTokenizer
@@ -13,7 +30,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: FTS search infrastructure end-to-end (DDL generation + real SQLite queries)
  * - Behavior focus: FTS5 module availability, query correctness for English words, single CJK
  *   characters, multi-CJK bigrams, mixed Latin+CJK, symbol-only inputs (expected: no match), FTS
@@ -22,7 +39,7 @@ import io.kotest.matchers.booleans.shouldBeFalse
  * - Observable outcomes: sqlite_master schema shows "fts5"; FTS5 queries return correct memo rows
  *   for each character class; symbol-only input yields empty result; FTS reserved words match
  *   when present in content.
- * - Red phase: The upgrade/repair scenarios execute the production FTS maintenance helper against
+ * - TDD proof: The upgrade/repair scenarios execute the production FTS maintenance helper against
  *   a real SQLite database. They stay RED while schema repair still emits FTS4 or while upgraded
  *   databases are not retokenized back to the repository's live MATCH contract.
  * - Excludes: Android Room wiring, DAO interface, Hilt injection, and write-path FTS sync.

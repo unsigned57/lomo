@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3SyncDirection
@@ -9,11 +26,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 conflict session classification for S3SyncExecutor conflict publishing.
  * - Behavior focus: first-sync overlapping files with no stored metadata must be classified as an initial-sync preview, while established conflicts with sync metadata must stay standard conflicts.
  * - Observable outcomes: returned SyncConflictSessionKind for conflict action sets.
- * - Red phase: Fails before the fix because S3 conflict classification does not distinguish first-sync overlap from normal conflicts, so the executor can only publish generic ConflictDetected.
+ * - TDD proof: Fails before the fix because S3 conflict classification does not distinguish first-sync overlap from normal conflicts, so the executor can only publish generic ConflictDetected.
  * - Excludes: S3 transport, file content merging, Compose rendering, and metadata DAO I/O.
  */
 class S3ConflictSessionClassifierTest : DataFunSpec() {

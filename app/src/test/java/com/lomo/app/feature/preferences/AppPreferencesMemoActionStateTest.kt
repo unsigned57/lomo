@@ -1,60 +1,69 @@
 package com.lomo.app.feature.preferences
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
-import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import io.kotest.matchers.shouldBe
-import io.mockk.every
-import io.mockk.mockk
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: observeAppPreferences in AppPreferencesState.kt
- * - Behavior focus: aggregation of memo action auto-reorder settings into shared app preference state after quick-send removal.
- * - Observable outcomes: combined AppPreferencesState fields for the new auto-reorder flag and persisted action-id order.
- * - Red phase: Fails before the fix because the aggregated app preference state still depends on the removed quick-send contract.
- * - Excludes: screen-specific menu rendering, DataStore serialization, and unrelated settings groups.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: aggregates memo action auto-reorder and list preferences into the shared app-preferences state.
+ *
+ * Scenarios:
+ * - Given configured auto-reorder and scope ordering preferences, when observeAppPreferences is observed, then include those action preferences in the emitted state.
+ *
+ * Observable outcomes:
+ * - Emitted AppPreferencesState snapshot fields for reorder and scoped list orderings match the fake settings.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - screen-specific menu rendering, DataStore serialization, and unrelated settings groups.
  */
 class AppPreferencesMemoActionStateTest : AppFunSpec() {
+    private val appConfigRepository = FakeAppConfigRepository()
+
     init {
         test("observeAppPreferences includes memo action ordering preferences") {
             runTest {
-                val preferencesRepository = mockk<PreferencesRepository>()
-                every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-                every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
-                every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.DARK)
-                every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(false)
-                every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
-                every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
-                every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
-                every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-                every { preferencesRepository.isScrollbarEnabled() } returns flowOf(true)
-                every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-                every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
-                every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
-                every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
-                every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
-                every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
-                every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
-                every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-                every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
-                every { preferencesRepository.getMemoActionOrdersByScope() } returns
-                    flowOf(mapOf(MemoActionOrderScopes.GALLERY to listOf("jump", "copy")))
-                every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(listOf("backfill", "camera"))
+                appConfigRepository.setMemoActionAutoReorderEnabled(true)
+                appConfigRepository.setMemoActionOrder(order = listOf("history", "copy"))
+                appConfigRepository.setMemoActionOrder(
+                    scope = MemoActionOrderScopes.GALLERY,
+                    order = listOf("jump", "copy")
+                )
+                appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
-                val state = preferencesRepository.observeAppPreferences().first()
+                val state = appConfigRepository.observeAppPreferences().first()
 
-                (state.memoActionAutoReorderEnabled) shouldBe (true)
-                (state.memoActionOrder) shouldBe (listOf("history", "copy"))
-                (state.memoActionOrderFor(MemoActionOrderScopes.GALLERY)) shouldBe (listOf("jump", "copy"))
-                (state.inputToolbarToolOrder) shouldBe (listOf("backfill", "camera"))
+                state.memoActionAutoReorderEnabled shouldBe true
+                state.memoActionOrder shouldBe listOf("history", "copy")
+                state.memoActionOrderFor(MemoActionOrderScopes.GALLERY) shouldBe listOf("jump", "copy")
+                state.inputToolbarToolOrder shouldBe listOf("backfill", "camera")
             }
         }
     }
-
 }

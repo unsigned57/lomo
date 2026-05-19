@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: Dav4jvmWebDavClient
  * - Behavior focus: client creation, caching, and cache invalidation after credential changes.
  * - Observable outcomes: cached client reuse, new client after password change, invalidate evicts old client.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: actual HTTP transport, WebDAV protocol details.
  */
 package com.lomo.data.webdav
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import com.lomo.data.network.SyncHttpClientProvider

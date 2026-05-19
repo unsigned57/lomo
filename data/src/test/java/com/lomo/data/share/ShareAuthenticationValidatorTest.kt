@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.share.LomoShareServer.AttachmentInfo
 import com.lomo.data.share.LomoShareServer.PrepareRequest
@@ -14,11 +31,11 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareAuthenticationValidator
  * - Behavior focus: open-mode auth bypass, pairing-key requirements, signature validation, and replay protection.
  * - Observable outcomes: ShareAuthValidation status/message/keyHex for accepted and rejected requests.
- * - Red phase: Fails before the fix because open-mode prepare authentication still short-circuits
+ * - TDD proof: Fails before the fix because open-mode prepare authentication still short-circuits
  *   on `!e2eEnabled`, allowing unsigned requests without a configured pairing key.
  * - Excludes: HTTP request parsing, payload decryption, and UI approval flow.
  */

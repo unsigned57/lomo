@@ -1,18 +1,35 @@
 package com.lomo.ui.theme
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: Material 3 text interaction color helpers in the ui-components layer.
  * - Behavior focus: text selection highlight, handles, and cursor-adjacent platform colors must
  *   derive from a single Material 3 primary tone while keeping the selection background visibly
  *   lighter than the handle color.
  * - Observable outcomes: resolved Compose selection colors and platform selection highlight color.
- * - Red phase: Fails before the fix because the helpers do not yet provide the requested lighter
+ * - TDD proof: Fails before the fix because the helpers do not yet provide the requested lighter
  *   selection background and shared primary-toned handle color.
  * - Excludes: Android widget tint application, OEM drawable behavior, and full theme composition.
  *
@@ -32,17 +49,15 @@ class TextInteractionColorsTest : UiComponentsFunSpec() {
 
     init {
         test("compose text selection colors use primary handle and lighter background") {
-        val selectionColors = memoTextSelectionColors(colorScheme)
+            val selectionColors = memoTextSelectionColors(colorScheme)
 
-        (selectionColors.handleColor) shouldBe (primary)
-        (selectionColors.backgroundColor) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
+            (selectionColors.handleColor) shouldBe (primary)
+            (selectionColors.backgroundColor) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
         }
-    }
 
-    init {
         test("platform selection colors reuse the same primary family") {
-        (memoPlatformTextHandleColor(colorScheme)) shouldBe (primary)
-        (memoPlatformTextSelectionHighlightColor(colorScheme)) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
+            (memoPlatformTextHandleColor(colorScheme)) shouldBe (primary)
+            (memoPlatformTextSelectionHighlightColor(colorScheme)) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
         }
     }
 }

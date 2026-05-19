@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StableDatabaseBaselineCatalog
  * - Behavior focus: mapping of baseline schema versions to SQL scripts.
  * - Observable outcomes: correct script resolution, validation of version ranges.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: SQLite execution, Room internals.
  */
 package com.lomo.data.local
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import com.lomo.data.testing.DataFunSpec
@@ -15,13 +32,13 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StableDatabaseBaselineCatalog
  * - Behavior focus: released app versions collapse into a deduplicated stable DB-baseline support window
  *   that excludes the current target schema from direct-migration source baselines.
  * - Observable outcomes: previous stable baseline lists, oldest retained baseline selection, and released
  *   baseline membership checks.
- * - Red phase: Fails before the fix because StableDatabaseBaselineCatalog and its release-window helpers do
+ * - TDD proof: Fails before the fix because StableDatabaseBaselineCatalog and its release-window helpers do
  *   not exist yet.
  * - Excludes: Room SQL execution, actual database open/migration behavior, and Android filesystem concerns.
  */

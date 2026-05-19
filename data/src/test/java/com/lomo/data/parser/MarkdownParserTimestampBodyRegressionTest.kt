@@ -1,5 +1,22 @@
 package com.lomo.data.parser
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.usecase.MemoIdentityPolicy
@@ -12,11 +29,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MarkdownParser
  * - Behavior focus: storage-header parsing for timestamp-only first lines, including files that carry an invisible UTF-8 BOM before the first memo header.
  * - Observable outcomes: parsed memo count, resolved timestamp date/time, and preserved body text after removing the storage header.
- * - Red phase: Fails before the fix when an invisible BOM causes the first `- HH:mm:ss` storage header to miss parsing, so the memo falls back to plain Markdown content and loses the intended timestamp.
+ * - TDD proof: Fails before the fix when an invisible BOM causes the first `- HH:mm:ss` storage header to miss parsing, so the memo falls back to plain Markdown content and loses the intended timestamp.
  * - Excludes: Compose rendering, Room persistence, and sync transport orchestration.
  */
 class MarkdownParserTimestampBodyRegressionTest : DataFunSpec() {

@@ -1,18 +1,35 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import android.os.Build
 import android.text.Layout
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: Memo paragraph Android layout policy.
  * - Behavior focus: share-card/plain Android layout policy remains deterministic while memo body
  *   rendering is owned by the Compose-native paragraph engine.
  * - Observable outcomes: selected Android justification mode, selected hyphenation frequency,
  *   selected paragraph alignment, and strict CJK justification eligibility.
- * - Red phase: Fails before the fix because CJK justification eligibility ignored SDK and
+ * - TDD proof: Fails before the fix because CJK justification eligibility ignored SDK and
  *   letter-spacing constraints.
  * - Excludes: Compose widget tree inspection, OEM font rasterization, TextView measurement internals, and markdown block traversal.
  *

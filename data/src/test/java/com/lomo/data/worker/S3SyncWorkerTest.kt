@@ -1,5 +1,22 @@
 package com.lomo.data.worker
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import androidx.work.ListenableWorker
@@ -17,11 +34,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncWorker
  * - Behavior focus: periodic S3 auto-sync delegates exactly once to the shared S3 sync repository and maps result types to WorkManager outcomes without opening another sync path.
  * - Observable outcomes: returned ListenableWorker.Result and repository invocation count.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: WorkManager scheduling policy, Android process lifecycle, and S3 transport details.
  */
 class S3SyncWorkerTest : DataFunSpec() {

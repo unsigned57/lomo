@@ -1,59 +1,59 @@
 package com.lomo.app.feature.preferences
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
-import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import io.kotest.matchers.shouldBe
-import io.mockk.every
-import io.mockk.mockk
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: observeAppPreferences state aggregation.
- * - Behavior focus: share-card signature text remains aggregated into shared app preferences after recorded-days removal.
- * - Observable outcomes: emitted AppPreferencesState field for signature text.
- * - Red phase: Fails before the fix because observeAppPreferences still requires the removed recorded-days preference to build the share-card state.
- * - Test Change Justification: reason category = product contract changed; the old assertion expected a recorded-days toggle in app preferences, but that preference was explicitly removed. Coverage is preserved by keeping the signature-text aggregation check, which still protects cross-screen image-share configuration. This is not fitting the test to the implementation because the product requirement deleted the recorded-days option.
- * - Excludes: Compose rendering, repository persistence internals, and share-card bitmap drawing.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: aggregates share-card signature text preference into shared app preferences.
+ *
+ * Scenarios:
+ * - Given configured signature text, when observeAppPreferences is observed, then include signature text in the state.
+ *
+ * Observable outcomes:
+ * - Emitted AppPreferencesState field for signature text matches the fake settings.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - Compose rendering, repository persistence internals, and share-card bitmap drawing.
  */
 class AppPreferencesShareCardOptionsTest : AppFunSpec() {
+    private val appConfigRepository = FakeAppConfigRepository()
+
     init {
         test("observeAppPreferences includes share card signature text") {
             runTest {
-                val preferencesRepository = mockk<PreferencesRepository>()
-                every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-                every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
-                every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.DARK)
-                every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(false)
-                every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
-                every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
-                every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
-                every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-                every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-                every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-                every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Unsigned57")
-                every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
-                every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
-                every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
-                every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
-                every { preferencesRepository.isScrollbarEnabled() } returns flowOf(true)
-                every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-                every {
-                    preferencesRepository.getMemoActionOrder()
-                } returns flowOf(listOf("history", "copy").toImmutableList())
-                every { preferencesRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
-                every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
+                appConfigRepository.setShareCardSignatureText("Unsigned57")
 
-                val state = preferencesRepository.observeAppPreferences().first()
+                val state = appConfigRepository.observeAppPreferences().first()
 
-                (state.shareCardSignatureText) shouldBe ("Unsigned57")
+                state.shareCardSignatureText shouldBe "Unsigned57"
             }
         }
     }
-
 }

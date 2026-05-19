@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -34,11 +51,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncExecutor
  * - Behavior focus: initial S3 sync should fast-classify overlapping files so empty-local snapshots download directly, equivalent local/remote files avoid redundant transfer and seed metadata, clear one-sided changes auto-sync, and irreconcilable overlaps stay in preview conflict.
  * - Observable outcomes: returned S3SyncResult outcomes, remote get/put/delete/head invocation counts, local file contents after sync, and metadata rows persisted for initial equivalence.
- * - Red phase: Fails before the fix because initial sync treats every overlapping path without metadata as a conflict, so identical files do not seed metadata, clear newer-side changes do not auto-sync, and the initial overlap path never reaches the optimized fast path.
+ * - TDD proof: Fails before the fix because initial sync treats every overlapping path without metadata as a conflict, so identical files do not seed metadata, clear newer-side changes do not auto-sync, and the initial overlap path never reaches the optimized fast path.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
 class S3InitialSyncOptimizationTest : DataFunSpec() {

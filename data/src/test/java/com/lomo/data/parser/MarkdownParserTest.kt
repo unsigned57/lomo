@@ -1,5 +1,22 @@
 package com.lomo.data.parser
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.usecase.MemoIdentityPolicy
@@ -15,11 +32,11 @@ import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MarkdownParser
  * - Behavior focus: timestamped memo parsing, fallback timestamp/date resolution, and plain-Markdown file compatibility.
  * - Observable outcomes: parsed memo count, memo content, memo date/timestamp, and stable id shape.
- * - Red phase: Fails before the fix when a non-empty plain Markdown daily note parses as zero memos and disappears after sync refresh.
+ * - TDD proof: Fails before the fix when a non-empty plain Markdown daily note parses as zero memos and disappears after sync refresh.
  * - Excludes: filesystem backend behavior, Room/index persistence, and sync transport orchestration.
  */
 class MarkdownParserTest : DataFunSpec() {

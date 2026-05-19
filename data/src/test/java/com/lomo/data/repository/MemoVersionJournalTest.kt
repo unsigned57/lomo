@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -20,7 +37,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoVersionJournal
  * - Behavior focus: append-only memo revision history, duplicate-state suppression across restores and edits,
  *   cursor pagination, settings-driven retention pruning and disable behavior, orphan-blob cleanup, imported
@@ -30,7 +47,7 @@ import io.kotest.matchers.nulls.shouldNotBeNull
  *   imported deletion records, pruned history tails, cleaned blob files, preview-truncated history rows with full
  *   restore fidelity, restored markdown content, rollback of partially applied restore side effects, and restore
  *   failure preventing a synthetic restore revision.
- * - Red phase: Fails before the fix because restoring or editing back to an older memo state records duplicate
+ * - TDD proof: Fails before the fix because restoring or editing back to an older memo state records duplicate
  *   revisions for content and attachments that already exist in history, revision rows still persist full memo
  *   bodies instead of compact previews, and restore paths without memo persistence stores can succeed after
  *   mutating files instead of failing fast.

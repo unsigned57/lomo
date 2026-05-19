@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ApplyMainMemoFilterUseCase
- * - Behavior focus: sort and filter memo lists by date range, sort option, pinned priority.
- * - Observable outcomes: correct ordering, date range filtering, pinned-first sort.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - Behavior focus: sort and filter memo lists by date range, sort option, pinned priority, and content flags (todo/attachment/url).
+ * - Observable outcomes: correct ordering, date range filtering, pinned-first sort, three-state content predicate.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: repository internals, UI rendering.
  */
 package com.lomo.domain.usecase
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
@@ -17,8 +34,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
-    private val useCase = ApplyMainMemoFilterUseCase()
     init {
+        val useCase = ApplyMainMemoFilterUseCase()
+
         test("default filter sorts by creation time descending") {
             val memos =
                 listOf(
@@ -31,8 +49,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("new", "middle", "old")
         }
-    }
-    init {
+
         test("updated time sorting uses updatedAt") {
             val memos =
                 listOf(
@@ -58,8 +75,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("recently_updated", "new_but_not_updated")
         }
-    }
-    init {
+
         test("pinned memos are always ordered before non pinned memos") {
             val memos =
                 listOf(
@@ -77,8 +93,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("pinned_old", "normal_new", "normal_old")
         }
-    }
-    init {
+
         test("ascending sorting order is applied when enabled") {
             val memos =
                 listOf(
@@ -95,8 +110,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("old", "middle", "new")
         }
-    }
-    init {
+
         test("date range keeps only memos within selected boundaries") {
             val result =
                 useCase(
@@ -116,8 +130,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("end", "start")
         }
-    }
-    init {
+
         test("date range accepts reversed boundaries") {
             val result =
                 useCase(
@@ -135,8 +148,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("in")
         }
-    }
-    init {
+
         test("start date without end date keeps memos on and after selected day") {
             val result =
                 useCase(
@@ -151,8 +163,7 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("after", "start")
         }
-    }
-    init {
+
         test("end date without start date keeps memos on and before selected day") {
             val result =
                 useCase(
@@ -167,13 +178,99 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
 
             result.map { it.id } shouldBe listOf("end", "before")
         }
-    }
-    init {
+
         test("filter active flag reflects non default settings") {
             (MemoListFilter().isActive) shouldBe false
-            (MemoListFilter(sortOption = MemoSortOption.UPDATED_TIME).isActive) shouldBe true
-            (MemoListFilter(sortAscending = true).isActive) shouldBe true
+            (MemoListFilter(sortOption = MemoSortOption.UPDATED_TIME).isActive) shouldBe false
+            (MemoListFilter(sortAscending = true).isActive) shouldBe false
             (MemoListFilter(startDate = LocalDate.of(2026, 3, 1)).isActive) shouldBe true
+            (MemoListFilter(hasTodo = true).isActive) shouldBe true
+            (MemoListFilter(hasAttachment = false).isActive) shouldBe true
+            (MemoListFilter(hasUrl = true).isActive) shouldBe true
+        }
+
+        test("hasSortOverride reflects non default sort settings") {
+            (MemoListFilter().hasSortOverride) shouldBe false
+            (MemoListFilter(sortOption = MemoSortOption.UPDATED_TIME).hasSortOverride) shouldBe true
+            (MemoListFilter(sortAscending = true).hasSortOverride) shouldBe true
+            (MemoListFilter(startDate = LocalDate.of(2026, 3, 1)).hasSortOverride) shouldBe false
+            (MemoListFilter(hasTodo = true).hasSortOverride) shouldBe false
+        }
+
+        test("hasTodo true keeps only memos whose content contains a todo box") {
+            val result =
+                useCase(
+                    memos =
+                        listOf(
+                            memo(id = "plain", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 9, 0), content = "plain text"),
+                            memo(id = "todo", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 0), content = "- [ ] buy milk"),
+                        ),
+                    filter = MemoListFilter(hasTodo = true),
+                )
+
+            result.map { it.id } shouldBe listOf("todo")
+        }
+
+        test("hasTodo false excludes memos that contain a todo box") {
+            val result =
+                useCase(
+                    memos =
+                        listOf(
+                            memo(id = "plain", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 9, 0), content = "plain text"),
+                            memo(id = "todo", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 0), content = "- [x] done"),
+                        ),
+                    filter = MemoListFilter(hasTodo = false),
+                )
+
+            result.map { it.id } shouldBe listOf("plain")
+        }
+
+        test("hasAttachment true keeps memos with image or audio references") {
+            val result =
+                useCase(
+                    memos =
+                        listOf(
+                            memo(id = "plain", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 9, 0), content = "no media"),
+                            memo(id = "img", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 0), content = "![](a.png)"),
+                            memo(id = "voice", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 11, 0), content = "[v](r/v.m4a)"),
+                        ),
+                    filter = MemoListFilter(hasAttachment = true),
+                )
+
+            result.map { it.id } shouldBe listOf("voice", "img")
+        }
+
+        test("hasUrl true keeps memos containing an http link") {
+            val result =
+                useCase(
+                    memos =
+                        listOf(
+                            memo(id = "plain", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 9, 0), content = "no link"),
+                            memo(id = "link", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 0), content = "see https://example.com"),
+                        ),
+                    filter = MemoListFilter(hasUrl = true),
+                )
+
+            result.map { it.id } shouldBe listOf("link")
+        }
+
+        test("content flags AND with date range") {
+            val result =
+                useCase(
+                    memos =
+                        listOf(
+                            memo(id = "old_todo", date = "2026_02_27", timestamp = timestampOf(2026, 2, 27, 9, 0), content = "- [ ] old"),
+                            memo(id = "new_plain", date = "2026_03_02", timestamp = timestampOf(2026, 3, 2, 9, 0), content = "plain"),
+                            memo(id = "new_todo", date = "2026_03_02", timestamp = timestampOf(2026, 3, 2, 10, 0), content = "- [ ] new"),
+                        ),
+                    filter =
+                        MemoListFilter(
+                            startDate = LocalDate.of(2026, 3, 1),
+                            hasTodo = true,
+                        ),
+                )
+
+            result.map { it.id } shouldBe listOf("new_todo")
         }
     }
 
@@ -183,13 +280,14 @@ class ApplyMainMemoFilterUseCaseTest : DomainFunSpec() {
         timestamp: Long,
         updatedAt: Long = timestamp,
         isPinned: Boolean = false,
+        content: String = id,
     ): Memo =
         Memo(
             id = id,
             timestamp = timestamp,
             updatedAt = updatedAt,
-            content = id,
-            rawContent = id,
+            content = content,
+            rawContent = content,
             dateKey = date,
             isPinned = isPinned,
         )

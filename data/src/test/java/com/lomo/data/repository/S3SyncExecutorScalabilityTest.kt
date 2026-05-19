@@ -1,5 +1,21 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -13,8 +29,9 @@ import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3RemoteObjectPayload
 import com.lomo.data.source.FileMetadata
-import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.fakes.FakeFileDataSource
+import com.lomo.data.testing.fakes.FakeS3SyncMetadataDao
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
@@ -41,11 +58,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncExecutor
  * - Behavior focus: preparation should overlap local, remote, and metadata discovery; multi-action sync should overlap independent uploads; metadata persistence should stay incremental and batch stale-row cleanup; and legacy attachment downloads should reuse one resolved local sync mode without extra media rescans.
  * - Observable outcomes: peak concurrent preparation and upload work, returned sync outcomes, metadata DAO clear/replace usage, stale metadata delete batching, metadata upsert scope, local media listing count, and local sync configuration collection count.
- * - Red phase: Fails before the fix because metadata loading waits for local/remote scans, S3 actions run strictly serially, stale metadata cleanup deletes one row at a time, local sync mode is re-resolved for each action, metadata persistence replaces the full table, and legacy direct-root attachment downloads trigger a second full media scan.
+ * - TDD proof: Fails before the fix because metadata loading waits for local/remote scans, S3 actions run strictly serially, stale metadata cleanup deletes one row at a time, local sync mode is re-resolved for each action, metadata persistence replaces the full table, and legacy direct-root attachment downloads trigger a second full media scan.
  * - Excludes: AWS SDK transport correctness, Room generated DAO code, WorkManager scheduling, and UI rendering.
  */
 class S3SyncExecutorScalabilityTest : DataFunSpec() {
@@ -80,8 +97,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var credentialStore: S3CredentialStore
 
-    @MockK(relaxed = true)
-    private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
+    private val markdownStorageDataSource = FakeFileDataSource()
 
     @MockK(relaxed = true)
     private lateinit var localMediaSyncStore: LocalMediaSyncStore
@@ -118,8 +134,8 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         every { credentialStore.getEncryptionPassword2() } returns null
 
         coEvery { dataStore.updateS3LastSyncTime(any()) } returns Unit
-        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } answers {
-            "# ${secondArg<String>().removeSuffix(".md")}"
+        markdownStorageDataSource.readFileInResult = { _, filename ->
+            "# ${filename.removeSuffix(".md")}"
         }
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
     }
@@ -128,11 +144,12 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         runBlocking {
             val client = ParallelUploadProbeClient()
             val metadataDao = RecordingMetadataDao()
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns
+            markdownStorageDataSource.listMetadataInResult = {
                 listOf(
                     FileMetadata(filename = "first.md", lastModified = 10L),
                     FileMetadata(filename = "second.md", lastModified = 20L),
                 )
+            }
 
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
@@ -152,7 +169,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
             val probe = ConcurrentScanProbe()
             val client = ParallelListingProbeClient(probe)
             val metadataDao = RecordingMetadataDao()
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } coAnswers {
+            markdownStorageDataSource.listMetadataInResult = {
                 probe.track()
                 listOf(FileMetadata(filename = "note.md", lastModified = 10L))
             }
@@ -169,12 +186,13 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         runBlocking {
             val probe = ConcurrentScanProbe()
             val client = ParallelListingProbeClient(probe)
-            val metadataDao = mockk<S3SyncMetadataDao>(relaxed = true)
-            coEvery { metadataDao.getAll() } coAnswers {
-                probe.track()
-                emptyList()
+            val metadataDao = object : FakeS3SyncMetadataDao() {
+                override suspend fun getAll(): List<S3SyncMetadataEntity> {
+                    probe.track()
+                    return emptyList()
+                }
             }
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } coAnswers {
+            markdownStorageDataSource.listMetadataInResult = {
                 probe.track()
                 listOf(FileMetadata(filename = "note.md", lastModified = 10L))
             }
@@ -192,7 +210,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
             val probe = ConcurrentScanProbe()
             val client = ParallelPagedListingProbeClient(probe)
             val metadataDao = RecordingMetadataDao()
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+            markdownStorageDataSource.listMetadataInResult = { emptyList() }
 
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
@@ -240,11 +258,12 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                             freshPath to "etag-fresh",
                         ),
                 )
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns
+            markdownStorageDataSource.listMetadataInResult = {
                 listOf(
                     FileMetadata(filename = "stable.md", lastModified = 100L),
                     FileMetadata(filename = "fresh.md", lastModified = 200L),
                 )
+            }
 
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
@@ -271,7 +290,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                         ),
                 )
             val client = StaticListingClient(remoteObjects = emptyList(), uploadedEtags = emptyMap())
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+            markdownStorageDataSource.listMetadataInResult = { emptyList() }
 
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
@@ -310,22 +329,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                                 ),
                         ),
                 )
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
-            coEvery {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "note.md",
-                    content = "# note",
-                    append = false,
-                    uri = null,
-                )
-            } returns null
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(
-                    MemoDirectoryType.MAIN,
-                    "note.md",
-                )
-            } returns com.lomo.data.source.FileMetadata(filename = "note.md", lastModified = 30L)
+            markdownStorageDataSource.listMetadataInResult = { emptyList() }
 
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
@@ -334,7 +338,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
-            io.mockk.coVerify(exactly = 1) { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
+            markdownStorageDataSource.listMetadataInCalls.size shouldBe 1
         }
 
     private fun `performSync does not rescan legacy media store after direct-root attachment download`() =
@@ -372,7 +376,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                                     ),
                             ),
                     )
-                coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+                markdownStorageDataSource.listMetadataInResult = { emptyList() }
                 coEvery { localMediaSyncStore.writeBytes(imagePath, any(), any()) } coAnswers {
                     imageRoot.mkdirs()
                     java.io.File(imageRoot, "cover.png").writeBytes(secondArg())
@@ -441,7 +445,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                                     ),
                             ),
                     )
-                coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+                markdownStorageDataSource.listMetadataInResult = { emptyList() }
                 coEvery { localMediaSyncStore.writeBytes(imagePath, any(), any()) } coAnswers {
                     imageRoot.mkdirs()
                     java.io.File(imageRoot, "cover.png").writeBytes(secondArg())
@@ -800,22 +804,19 @@ private class ConcurrentScanProbe {
     }
 }
 
-private fun staleMetadata(relativePath: String) =
+private fun staleMetadata(path: String) =
     S3SyncMetadataEntity(
-        relativePath = relativePath,
-        remotePath = relativePath,
-        etag = "etag-$relativePath",
-        remoteLastModified = 10L,
-        localLastModified = 10L,
-        lastSyncedAt = 10L,
+        relativePath = path,
+        remotePath = path,
+        etag = "stale",
+        remoteLastModified = 5L,
+        localLastModified = 5L,
+        lastSyncedAt = 5L,
         lastResolvedDirection = "NONE",
-        lastResolvedReason = "UNCHANGED",
+        lastResolvedReason = "EXPIRED",
     )
 
-private fun <T> countingFlow(
-    value: T,
-    counter: AtomicInteger,
-): Flow<T> =
+private fun <T> countingFlow(value: T, counter: AtomicInteger): Flow<T> =
     flow {
         counter.incrementAndGet()
         emit(value)

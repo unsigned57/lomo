@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -37,11 +54,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncExecutor
  * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, verify destructive local-delete candidates without scanning the whole bucket, and use content fingerprints to resolve tracked memo drift when etags are unreliable.
  * - Observable outcomes: returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys, metadata fingerprint persistence, and local journal drain behavior.
- * - Red phase: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, and treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints.
+ * - TDD proof: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, and treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
 class S3SyncIncrementalExecutorTest : DataFunSpec() {

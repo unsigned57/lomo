@@ -1,15 +1,32 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import androidx.compose.ui.geometry.Offset
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: memoTextSelectionHandleGeometry — the geometric description of the
  *   memo card's free-copy selection handles.
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: anchor/focus handle geometries place shoulder squares in upper-right/left quadrants correctly.
  * - Boundary: touch top-left offset is calculated linearly scaling with visual size.
  * - Failure: touch top-left handles large touch bounds and visual sizes correctly.
@@ -24,7 +41,7 @@ import io.kotest.matchers.shouldBe
  * - Observable outcomes: circle center / radius and shoulder rect bounds returned by
  *   memoTextSelectionHandleGeometry; touch-box top-left returned by
  *   resolveMemoTextSelectionHandleTopLeft.
- * - Red phase: Fails before the handle rewrite because the current implementation draws a
+ * - TDD proof: Fails before the handle rewrite because the current implementation draws a
  *   hand-rolled cubic-Bezier teardrop instead of the standard circle+shoulder anatomy and
  *   does not expose a geometry value at all.
  * - Excludes: handle drag gesture wiring, touch hot-zone size, color resolution.

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -33,11 +50,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavConflictResolver
  * - Behavior focus: per-file conflict choice routing, not-configured short-circuiting, and error/result mapping after legacy capture cleanup.
  * - Observable outcomes: WebDavSyncResult type, state transitions, and local/remote side-effect targets.
- * - Red phase: Fails before the fix because conflict resolution still depends on retired pre-sync capture work for KEEP_REMOTE memo writes.
+ * - TDD proof: Fails before the fix because conflict resolution still depends on retired pre-sync capture work for KEEP_REMOTE memo writes.
  * - Excludes: WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
  */
 class WebDavConflictResolverTest : DataFunSpec() {

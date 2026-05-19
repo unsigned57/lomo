@@ -1,5 +1,22 @@
 package com.lomo.data.source
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import android.net.Uri
@@ -16,11 +33,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: FileStorageBackendResolver
  * - Behavior focus: root-backend selection, cache invalidation on root changes, media-root precedence, and voice fallback behavior.
  * - Observable outcomes: resolved backend types, returned configured SAF uri markers, nullability for missing roots, and cache reuse vs refresh.
- * - Red phase: Fails before the fix because the resolver does not expose an explicit WorkspaceVfs
+ * - TDD proof: Fails before the fix because the resolver does not expose an explicit WorkspaceVfs
  *   shape for resolved roots, leaving the media bridge to branch on concrete backend types.
  * - Excludes: SAF document traversal, backend file I/O, and DataStore persistence implementation internals.
  */

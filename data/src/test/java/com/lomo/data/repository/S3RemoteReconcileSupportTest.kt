@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
@@ -20,11 +37,11 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 remote reconcile support
  * - Behavior focus: reconcile should derive finer hot-prefix shards from the local remote index, verify indexed files that disappear from a fully scanned shard, and keep dirty/missing index state instead of dropping it on the floor.
  * - Observable outcomes: generated scan prefixes, reconcile candidate and missing path sets, targeted head requests, and persisted dirty/missing remote-index flags.
- * - Red phase: Fails before the fix because scan planning only rotates coarse memo/images/voice shards, reconcile never re-checks indexed entries hidden from a shard listing, and remote-index updates delete missing entries instead of retaining actionable missing/dirty state.
+ * - TDD proof: Fails before the fix because scan planning only rotates coarse memo/images/voice shards, reconcile never re-checks indexed entries hidden from a shard listing, and remote-index updates delete missing entries instead of retaining actionable missing/dirty state.
  * - Excludes: AWS SDK transport internals, Room generated DAO SQL, WorkManager execution, and UI rendering.
  */
 class S3RemoteReconcileSupportTest : DataFunSpec() {

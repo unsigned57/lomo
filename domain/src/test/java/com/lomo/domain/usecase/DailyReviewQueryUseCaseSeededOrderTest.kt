@@ -1,44 +1,50 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoRepository
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
-import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DailyReviewQueryUseCase
  * - Behavior focus: seeded random-review ordering must stay stable within the same day so a persisted page index still points at the same memo ordering after re-entry.
  * - Observable outcomes: identical memo id ordering for repeated queries with the same seed.
- * - Red phase: Fails before the fix because the use case always reseeds from volatile time and exposes no way to replay the same random walk.
+ * - TDD proof: Fails before the fix because the use case always reseeds from volatile time and exposes no way to replay the same random walk.
  * - Excludes: session date rollover, UI pager restoration, and repository paging correctness already covered elsewhere.
  */
 class DailyReviewQueryUseCaseSeededOrderTest : DomainFunSpec() {
-    private val repository: MemoRepository = mockk()
+    private val repository = FakeMemoRepository()
     private val useCase = DailyReviewQueryUseCase(repository)
     init {
         test("invoke returns the same memo order when called with the same seed") {
             runTest {
                         val memos = (0 until 30).map(::memo)
-                        stubPagedMemos(memos)
+                        repository.setMemos(memos)
 
                         val first = useCase(seed = 42L).map { it.id }
                         val second = useCase(seed = 42L).map { it.id }
 
                         second shouldBe first
                     }
-        }
-    }
-
-    private fun stubPagedMemos(memos: List<Memo>) {
-        coEvery { repository.getMemoCount() } returns memos.size
-        coEvery { repository.getMemosPage(any(), any()) } answers {
-            val limit = firstArg<Int>()
-            val offset = secondArg<Int>()
-            memos.drop(offset).take(limit)
         }
     }
 

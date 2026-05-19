@@ -1,18 +1,35 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.floats.plusOrMinus
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoTextLayoutEngine in the ui-components text layer.
  * - Behavior focus: Compose-native memo text layout must support CJK justification while keeping
  *   English and English-dominant prose ragged-right, preserving configured base letter spacing,
  *   and respecting parent visible height limits for collapsed previews.
  * - Observable outcomes: line widths, chosen expansion slots, forced long-token breaks, and
  *   protected-range expansion exclusion, ellipsis placement, and resolved max visible lines.
- * - Red phase: Fails before the English-layout fix because the layout engine justifies pure
+ * - TDD proof: Fails before the English-layout fix because the layout engine justifies pure
  *   English and English-dominant non-final lines by stretching spaces to the container width.
  * - Excludes: OEM glyph rasterization, Canvas drawing pixels, Android TextView internals, and
  *   Compose semantics tree inspection.

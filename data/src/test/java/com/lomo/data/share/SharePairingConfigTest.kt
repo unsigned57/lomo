@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.datastore.LomoDataStore
 import io.mockk.coEvery
@@ -14,11 +31,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SharePairingConfig
  * - Behavior focus: pairing-code normalization/storage, device-name sanitization, and send gating based on E2E + pairing state.
  * - Observable outcomes: stored key material, exposed StateFlow pairing code, sanitized device name, and requiresPairingBeforeSend result.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: Build.MODEL fallback lookup, HTTP client creation, and UI settings rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)

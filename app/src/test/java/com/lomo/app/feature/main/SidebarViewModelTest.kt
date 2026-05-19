@@ -1,133 +1,132 @@
 package com.lomo.app.feature.main
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
-import com.lomo.domain.model.MemoTagCount
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
-import io.mockk.every
-import io.mockk.mockk
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 
-/*
- * Test Contract:
- * - Unit under test: SidebarViewModel
- * - Behavior focus: sidebar aggregate projection and reachable search-filter delegation.
- * - Observable outcomes: stats counts, parsed date map, sorted tags, and propagated search filter state.
- * - Red phase: Fails before behavior changes or migration are applied.
- * - Test Change Justification: reason category = product contract changed; removed pinned-tag assertions and toggle coverage because tag pinning is being rolled back before ship, while the original aggregation, ordering, and filter-delegation risks remain covered by the retained assertions below.
- * - Excludes: Compose sidebar rendering, calendar drawing behavior, and repository implementation details.
- */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SidebarViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
+    private val memoRepository = FakeMemoRepository()
+    private val appConfigRepository = FakeAppConfigRepository()
+    private val stateHolder = MainSidebarStateHolder()
+    private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
-    }
-    private lateinit var memoRepository: MemoRepository
-    private lateinit var appConfigRepository: AppConfigRepository
-    private lateinit var stateHolder: MainSidebarStateHolder
-    private lateinit var appConfigCoordinator: AppConfigUiCoordinator
 
-    init {
         beforeTest {
-memoRepository = mockk(relaxed = true)
-            appConfigRepository = mockk(relaxed = true)
-            every { appConfigRepository.getSidebarTagOrder() } returns flowOf(emptyList())
-            stateHolder = MainSidebarStateHolder()
-            appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
+            memoRepository.setActiveMemos(emptyList())
+            memoRepository.resetCallCounts()
         }
-    }
 
-    init {
         test("sidebarUiState aggregates stats filters invalid dates and sorts tags") {
             runTest {
-                every { memoRepository.getMemoCountFlow() } returns flowOf(7)
-                every { memoRepository.getMemoCountByDateFlow() } returns
-                    flowOf(
-                        mapOf(
-                            "2026_03_24" to 3,
-                            "2026-03-23" to 2,
-                            "not-a-date" to 99,
-                        ),
+                val memos = (1..10).map { id ->
+                    val dateKey = when (id) {
+                        1, 2, 3 -> "2026_03_24"
+                        4, 5 -> "2026-03-23"
+                        else -> "not-a-date"
+                    }
+                    val tags = when (id) {
+                        in 1..4 -> listOf("beta", "zeta", "alpha")
+                        else -> listOf("beta")
+                    }
+                    Memo(
+                        id = id.toString(),
+                        timestamp = id * 1000L,
+                        content = "memo $id",
+                        rawContent = "memo $id",
+                        dateKey = dateKey,
+                        localDate = when (id) {
+                            1, 2, 3 -> LocalDate.of(2026, 3, 24)
+                            4, 5 -> LocalDate.of(2026, 3, 23)
+                            else -> null
+                        },
+                        tags = tags
                     )
-                every { memoRepository.getTagCountsFlow() } returns
-                    flowOf(
-                        listOf(
-                            MemoTagCount(name = "zeta", count = 4),
-                            MemoTagCount(name = "alpha", count = 4),
-                            MemoTagCount(name = "beta", count = 10),
-                        ),
-                    )
+                }
+                memoRepository.setActiveMemos(memos)
 
-                val viewModel =
-                    SidebarViewModel(
-                        memoUiCoordinator = MemoUiCoordinator(memoRepository),
-                        stateHolder = stateHolder,
-                        appConfigCoordinator = appConfigCoordinator,
-                    )
+                val viewModel = SidebarViewModel(
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
+                )
 
-                val state = viewModel.sidebarUiState.first { it.stats.memoCount == 7 && it.tags.isNotEmpty() }
+                val state = viewModel.sidebarUiState.first { it.stats.memoCount == 10 && it.tags.isNotEmpty() }
 
-                (state.stats.memoCount) shouldBe (7)
-                (state.stats.tagCount) shouldBe (3)
-                (state.stats.dayCount) shouldBe (2)
-                (state.memoCountByDate) shouldBe (mapOf(
-                        LocalDate.of(2026, 3, 24) to 3,
-                        LocalDate.of(2026, 3, 23) to 2,
-                    ))
-                (state.tags) shouldBe (listOf(
-                        com.lomo.ui.component.navigation.SidebarTag(name = "beta", count = 10),
-                        com.lomo.ui.component.navigation.SidebarTag(name = "alpha", count = 4),
-                        com.lomo.ui.component.navigation.SidebarTag(name = "zeta", count = 4),
-                    ))
+                state.stats.memoCount shouldBe 10
+                state.stats.tagCount shouldBe 3
+                state.stats.dayCount shouldBe 2
+                state.memoCountByDate shouldBe mapOf(
+                    LocalDate.of(2026, 3, 24) to 3,
+                    LocalDate.of(2026, 3, 23) to 2,
+                )
+                state.tags shouldBe listOf(
+                    com.lomo.ui.component.navigation.SidebarTag(name = "beta", count = 10),
+                    com.lomo.ui.component.navigation.SidebarTag(name = "alpha", count = 4),
+                    com.lomo.ui.component.navigation.SidebarTag(name = "zeta", count = 4),
+                )
             }
         }
-    }
 
-    init {
         test("onSearch delegates query update to state holder") {
             runTest {
-                val viewModel =
-                    SidebarViewModel(
-                        memoUiCoordinator = MemoUiCoordinator(memoRepository),
-                        stateHolder = stateHolder,
-                        appConfigCoordinator = appConfigCoordinator,
-                    )
+                val viewModel = SidebarViewModel(
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
+                )
 
                 viewModel.onSearch("meeting")
 
-                (viewModel.searchQuery.value) shouldBe ("meeting")
+                viewModel.searchQuery.value shouldBe "meeting"
             }
         }
-    }
 
-    init {
         test("clearFilters resets query") {
             runTest {
-                val viewModel =
-                    SidebarViewModel(
-                        memoUiCoordinator = MemoUiCoordinator(memoRepository),
-                        stateHolder = stateHolder,
-                        appConfigCoordinator = appConfigCoordinator,
-                    )
+                val viewModel = SidebarViewModel(
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
+                )
 
                 viewModel.onSearch("meeting")
 
                 viewModel.clearFilters()
 
-                (viewModel.searchQuery.value) shouldBe ("")
+                viewModel.searchQuery.value shouldBe ""
             }
         }
     }
-
 }
+

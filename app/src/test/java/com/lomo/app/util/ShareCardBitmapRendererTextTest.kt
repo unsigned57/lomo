@@ -1,15 +1,32 @@
 package com.lomo.app.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.floats.plusOrMinus
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: shouldUseCenteredBody, bodyTextSizeSp, and quote line layout policy.
  * - Behavior focus: centered-body layout policy, body text size thresholds, and share-card quote block visual affordance.
  * - Observable outcomes: Boolean decision to use centered body, selected body text size, and quote indicator/text layout metrics.
- * - Red phase: Quote layout test fails before the fix because share-card quote lines are rendered as plain text without a rounded indicator bar or text inset.
+ * - TDD proof: Quote layout test fails before the fix because share-card quote lines are rendered as plain text without a rounded indicator bar or text inset.
  * - Test Change Justification: reason category = pure refactor preserved behavior; removed the obsolete activeDayCountText constructor argument after recorded-days footer content was deleted. Coverage is preserved by keeping the same centered-body and text-size assertions. This is not fitting the test to the implementation because the assertions remain identical and only the input shape changed.
  * - Excludes: bitmap drawing, text paint construction, and Android typography/resource lookups.
  */

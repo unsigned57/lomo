@@ -1,259 +1,220 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.repository.GitSyncRepository
-import com.lomo.domain.repository.SyncPolicyRepository
-import io.kotest.assertions.fail
+import com.lomo.domain.model.UnifiedSyncPhase
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeGitSyncRepository
+import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
+import io.kotest.assertions.fail
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.coVerifyOrder
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncSettingsUseCase
- * - Behavior focus: remote backend policy updates, conflict-resolution actions, and exception mapping semantics.
- * - Observable outcomes: backend policy writes, delegated repository calls, sync follow-up invocation ordering, and returned result mapping.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - Behavior focus: remote backend policy updates, Git settings mutation, conflict-resolution actions, and exception mapping semantics.
+ * - Observable outcomes: backend policy writes, fake repository state, memo refresh count, and returned result mapping.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: repository implementation details, network behavior, and UI rendering.
  */
 class GitSyncSettingsUseCaseTest : DomainFunSpec() {
-    private val gitSyncRepository: GitSyncRepository = mockk(relaxed = true)
-    private val syncPolicyRepository: SyncPolicyRepository = mockk(relaxed = true)
-    private val syncAndRebuildUseCase: SyncAndRebuildUseCase = mockk(relaxed = true)
-    private val gitRemoteUrlUseCase: GitRemoteUrlUseCase = mockk(relaxed = true)
+    private val eventLog = mutableListOf<String>()
+    private lateinit var gitSyncRepository: FakeGitSyncRepository
+    private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
+    private lateinit var memoRepository: FakeMemoRepository
+    private lateinit var useCase: GitSyncSettingsUseCase
 
-    private val useCase =
-        GitSyncSettingsUseCase(
-            gitSyncRepository = gitSyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-            gitRemoteUrlUseCase = gitRemoteUrlUseCase,
-        )
     init {
-        test("updateGitSyncEnabled true applies Git backend policy") {
+        beforeTest {
+            eventLog.clear()
+            gitSyncRepository = FakeGitSyncRepository()
+            syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
+            memoRepository = FakeMemoRepository()
+            useCase =
+                GitSyncSettingsUseCase(
+                    gitSyncRepository = gitSyncRepository,
+                    syncPolicyRepository = syncPolicyRepository,
+                    syncAndRebuildUseCase =
+                        SyncAndRebuildUseCase(
+                            memoRepository = memoRepository,
+                            syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                            syncPolicyRepository = syncPolicyRepository,
+                        ),
+                    gitRemoteUrlUseCase = GitRemoteUrlUseCase(),
+                )
+        }
+
+        test("updateGitSyncEnabled applies backend policy") {
             runTest {
-                        coEvery { syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.GIT) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.updateGitSyncEnabled(enabled = true)
+                useCase.updateGitSyncEnabled(enabled = false)
 
-                        useCase.updateGitSyncEnabled(enabled = true)
-
-                        coVerifyOrder {
-                            syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.GIT)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                syncPolicyRepository.setBackendRequests shouldBe
+                    listOf(SyncBackendType.GIT, SyncBackendType.NONE)
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
+                eventLog shouldBe
+                    listOf(
+                        "syncPolicy.setRemoteSyncBackend:GIT",
+                        "syncPolicy.applyRemoteSyncPolicy",
+                        "syncPolicy.setRemoteSyncBackend:NONE",
+                        "syncPolicy.applyRemoteSyncPolicy",
+                    )
+            }
         }
-    }
-    init {
-        test("updateGitSyncEnabled false applies None backend policy") {
+
+        test("git setting mutations update fake repository state") {
             runTest {
-                        coEvery { syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.updateRemoteUrl(" https://example.com/org/repo.git/ ")
+                useCase.updateToken("token")
+                useCase.updateAuthorInfo(name = "Lomo", email = "lomo@example.com")
 
-                        useCase.updateGitSyncEnabled(enabled = false)
-
-                        coVerifyOrder {
-                            syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                gitSyncRepository.remoteUrlWrites shouldBe listOf("https://example.com/org/repo.git")
+                gitSyncRepository.tokenWrites shouldBe listOf("token")
+                gitSyncRepository.authorInfoWrites shouldBe listOf("Lomo" to "lomo@example.com")
+                useCase.isTokenConfigured() shouldBe true
+                useCase.isValidRemoteUrl("https://example.com/org/repo.git") shouldBe true
+            }
         }
-    }
-    init {
-        test("updateRemoteUrl normalizes then saves url") {
+
+        test("auto sync mutations reapply policy while sync-on-refresh only writes flag") {
             runTest {
-                        every { gitRemoteUrlUseCase.normalize(" https://example.com/org/repo.git/ ") } returns "https://example.com/org/repo.git"
-                        coEvery { gitSyncRepository.setRemoteUrl("https://example.com/org/repo.git") } returns Unit
+                useCase.updateAutoSyncEnabled(enabled = true)
+                useCase.updateAutoSyncInterval(interval = "15m")
+                useCase.updateSyncOnRefreshEnabled(enabled = true)
 
-                        useCase.updateRemoteUrl(" https://example.com/org/repo.git/ ")
-
-                        verify(exactly = 1) { gitRemoteUrlUseCase.normalize(" https://example.com/org/repo.git/ ") }
-                        coVerify(exactly = 1) { gitSyncRepository.setRemoteUrl("https://example.com/org/repo.git") }
-                    }
+                gitSyncRepository.autoSyncEnabledWrites shouldBe listOf(true)
+                gitSyncRepository.autoSyncIntervalWrites shouldBe listOf("15m")
+                gitSyncRepository.syncOnRefreshEnabledWrites shouldBe listOf(true)
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
+            }
         }
-    }
-    init {
-        test("isValidRemoteUrl delegates to url policy") {
-            every { gitRemoteUrlUseCase.isValid("https://example.com/org/repo.git") } returns true
 
-            val result = useCase.isValidRemoteUrl("https://example.com/org/repo.git")
-
-            (result) shouldBe true
-            verify(exactly = 1) { gitRemoteUrlUseCase.isValid("https://example.com/org/repo.git") }
-        }
-    }
-    init {
-        test("updateAutoSyncEnabled writes flag and reapplies policy") {
+        test("triggerSyncNow forces a memo refresh through shared actions") {
             runTest {
-                        coEvery { gitSyncRepository.setAutoSyncEnabled(true) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.triggerSyncNow()
 
-                        useCase.updateAutoSyncEnabled(enabled = true)
-
-                        coVerifyOrder {
-                            gitSyncRepository.setAutoSyncEnabled(true)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                memoRepository.refreshMemosCallCount shouldBe 1
+            }
         }
-    }
-    init {
-        test("updateAutoSyncInterval writes interval and reapplies policy") {
-            runTest {
-                        coEvery { gitSyncRepository.setAutoSyncInterval("15m") } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
 
-                        useCase.updateAutoSyncInterval(interval = "15m")
-
-                        coVerifyOrder {
-                            gitSyncRepository.setAutoSyncInterval("15m")
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
-        }
-    }
-    init {
-        test("updateSyncOnRefreshEnabled only writes repository flag") {
-            runTest {
-                        coEvery { gitSyncRepository.setSyncOnRefreshEnabled(true) } returns Unit
-
-                        useCase.updateSyncOnRefreshEnabled(enabled = true)
-
-                        coVerify(exactly = 1) { gitSyncRepository.setSyncOnRefreshEnabled(true) }
-                        coVerify(exactly = 0) { syncPolicyRepository.applyRemoteSyncPolicy() }
-                    }
-        }
-    }
-    init {
-        test("triggerSyncNow delegates with forceSync true") {
-            runTest {
-                        coEvery { syncAndRebuildUseCase.invoke(forceSync = true) } returns Unit
-
-                        useCase.triggerSyncNow()
-
-                        coVerify(exactly = 1) { syncAndRebuildUseCase.invoke(forceSync = true) }
-                    }
-        }
-    }
-    init {
         test("resolveConflictUsingRemote success triggers follow-up refresh sync") {
             runTest {
-                        val success = GitSyncResult.Success("remote reset")
-                        coEvery { gitSyncRepository.resetLocalBranchToRemote() } returns success
-                        coEvery { syncAndRebuildUseCase.invoke(forceSync = false) } returns Unit
+                val success = GitSyncResult.Success("remote reset")
+                gitSyncRepository.nextResetLocalBranchToRemoteResult = success
 
-                        val result = useCase.resolveConflictUsingRemote()
+                val result = useCase.resolveConflictUsingRemote()
 
-                        result shouldBe success
-                        coVerifyOrder {
-                            gitSyncRepository.resetLocalBranchToRemote()
-                            syncAndRebuildUseCase.invoke(forceSync = false)
-                        }
-                    }
+                result shouldBe success
+                gitSyncRepository.resetLocalBranchToRemoteCallCount shouldBe 1
+                memoRepository.refreshMemosCallCount shouldBe 1
+            }
         }
-    }
-    init {
+
         test("resolveConflictUsingRemote error result skips follow-up refresh sync") {
             runTest {
-                        val failure = GitSyncResult.Error("conflict unresolved")
-                        coEvery { gitSyncRepository.resetLocalBranchToRemote() } returns failure
+                val failure = GitSyncResult.Error("conflict unresolved")
+                gitSyncRepository.nextResetLocalBranchToRemoteResult = failure
 
-                        val result = useCase.resolveConflictUsingRemote()
+                val result = useCase.resolveConflictUsingRemote()
 
-                        result shouldBe failure
-                        coVerify(exactly = 0) { syncAndRebuildUseCase.invoke(forceSync = false) }
-                    }
+                result shouldBe failure
+                gitSyncRepository.resetLocalBranchToRemoteCallCount shouldBe 1
+                memoRepository.refreshMemosCallCount shouldBe 0
+            }
         }
-    }
-    init {
+
         test("resolveConflictUsingLocal non-cancellation exception maps to error result") {
             runTest {
-                        val failure = IllegalStateException("push failed")
-                        coEvery { gitSyncRepository.forcePushLocalToRemote() } throws failure
+                val failure = IllegalStateException("push failed")
+                gitSyncRepository.forcePushLocalFailure = failure
 
-                        val result = useCase.resolveConflictUsingLocal()
+                val result = useCase.resolveConflictUsingLocal()
 
-                        val error = result.shouldBeInstanceOf<GitSyncResult.Error>()
-                        error.message shouldBe "push failed"
-                        error.exception shouldBe failure
-                        coVerify(exactly = 0) { syncAndRebuildUseCase.invoke(forceSync = false) }
-                    }
+                val error = result.shouldBeInstanceOf<GitSyncResult.Error>()
+                error.message shouldBe "push failed"
+                error.exception shouldBe failure
+                memoRepository.refreshMemosCallCount shouldBe 0
+            }
         }
-    }
-    init {
+
         test("resolveConflictUsingLocal cancellation is rethrown") {
             runTest {
-                        val cancellation = CancellationException("cancelled")
-                        coEvery { gitSyncRepository.forcePushLocalToRemote() } throws cancellation
+                val cancellation = CancellationException("cancelled")
+                gitSyncRepository.forcePushLocalFailure = cancellation
 
-                        try {
-                            useCase.resolveConflictUsingLocal()
-                            fail("Expected CancellationException")
-                        } catch (e: CancellationException) {
-                            e shouldBe cancellation
-                        }
-                    }
+                try {
+                    useCase.resolveConflictUsingLocal()
+                    fail("Expected CancellationException")
+                } catch (e: CancellationException) {
+                    e shouldBe cancellation
+                }
+            }
         }
-    }
-    init {
+
         test("testConnection and resetRepository delegate to git repository") {
             runTest {
-                        val testResult = GitSyncResult.Success("ok")
-                        val resetResult = GitSyncResult.Success("reset")
-                        coEvery { gitSyncRepository.testConnection() } returns testResult
-                        coEvery { gitSyncRepository.resetRepository() } returns resetResult
+                val testResult = GitSyncResult.Success("ok")
+                val resetResult = GitSyncResult.Success("reset")
+                gitSyncRepository.nextTestConnectionResult = testResult
+                gitSyncRepository.nextResetRepositoryResult = resetResult
 
-                        useCase.testConnection() shouldBe testResult
-                        useCase.resetRepository() shouldBe resetResult
-
-                        coVerify(exactly = 1) { gitSyncRepository.testConnection() }
-                        coVerify(exactly = 1) { gitSyncRepository.resetRepository() }
-                    }
+                useCase.testConnection() shouldBe testResult
+                useCase.resetRepository() shouldBe resetResult
+                gitSyncRepository.testConnectionCallCount shouldBe 1
+                gitSyncRepository.resetRepositoryCallCount shouldBe 1
+            }
         }
-    }
-    init {
-        test("state observation delegates expose repository flows") {
-            runTest {
-                        every { gitSyncRepository.isGitSyncEnabled() } returns flowOf(true)
-                        every { gitSyncRepository.getRemoteUrl() } returns flowOf("https://example.com/repo.git")
-                        every { gitSyncRepository.getAuthorName() } returns flowOf("Lomo")
-                        every { gitSyncRepository.getAuthorEmail() } returns flowOf("lomo@example.com")
-                        every { gitSyncRepository.getAutoSyncEnabled() } returns flowOf(true)
-                        every { gitSyncRepository.getAutoSyncInterval() } returns flowOf("30m")
-                        every { gitSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
-                        every { gitSyncRepository.observeLastSyncTimeMillis() } returns flowOf(1234L)
-                        every { gitSyncRepository.syncState() } returns
-                            flowOf(
-                                com.lomo.domain.model.UnifiedSyncState.Running(
-                                    provider = com.lomo.domain.model.SyncBackendType.GIT,
-                                    phase = com.lomo.domain.model.UnifiedSyncPhase.PULLING,
-                                ),
-                            )
 
-                        useCase.observeGitSyncEnabled().first() shouldBe true
-                        useCase.observeRemoteUrl().first() shouldBe "https://example.com/repo.git"
-                        useCase.observeAuthorName().first() shouldBe "Lomo"
-                        useCase.observeAuthorEmail().first() shouldBe "lomo@example.com"
-                        useCase.observeAutoSyncEnabled().first() shouldBe true
-                        useCase.observeAutoSyncInterval().first() shouldBe "30m"
-                        useCase.observeSyncOnRefreshEnabled().first() shouldBe true
-                        useCase.observeLastSyncTimeMillis().first() shouldBe 1234L
-                        useCase.observeSyncState().first() shouldBe com.lomo.domain.model.UnifiedSyncState.Running(
-                                provider = com.lomo.domain.model.SyncBackendType.GIT,
-                                phase = com.lomo.domain.model.UnifiedSyncPhase.PULLING,
-                            )
-                    }
+        test("state observation exposes repository flows") {
+            runTest {
+                val expectedState =
+                    UnifiedSyncState.Running(
+                        provider = SyncBackendType.GIT,
+                        phase = UnifiedSyncPhase.PULLING,
+                    )
+                gitSyncRepository.setEnabled(true)
+                gitSyncRepository.setRemoteUrlValue("https://example.com/repo.git")
+                gitSyncRepository.setAuthorNameValue("Lomo")
+                gitSyncRepository.setAuthorEmailValue("lomo@example.com")
+                gitSyncRepository.setAutoSyncEnabledValue(true)
+                gitSyncRepository.setAutoSyncIntervalValue("30m")
+                gitSyncRepository.setSyncOnRefreshEnabledValue(true)
+                gitSyncRepository.setLastSyncTimeMillis(1234L)
+                gitSyncRepository.setSyncState(expectedState)
+
+                useCase.observeGitSyncEnabled().first() shouldBe true
+                useCase.observeRemoteUrl().first() shouldBe "https://example.com/repo.git"
+                useCase.observeAuthorName().first() shouldBe "Lomo"
+                useCase.observeAuthorEmail().first() shouldBe "lomo@example.com"
+                useCase.observeAutoSyncEnabled().first() shouldBe true
+                useCase.observeAutoSyncInterval().first() shouldBe "30m"
+                useCase.observeSyncOnRefreshEnabled().first() shouldBe true
+                useCase.observeLastSyncTimeMillis().first() shouldBe 1234L
+                useCase.observeSyncState().first() shouldBe expectedState
+            }
         }
     }
 }

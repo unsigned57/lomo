@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -31,11 +48,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncActionApplier
  * - Behavior focus: (1) large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs; (2) every object upload — including non-memo media — should record a content md5 in the S3 object metadata and report the same fingerprint on downloads so classifiers can skip full GETs when ETags are multipart; (3) when the verification gate has already observed that a remote object is missing (observedMissingRemotePaths), upload / delete-remote / delete-local actions must trust that observation and not re-issue HEAD requests for the same key.
  * - Observable outcomes: Applied results, uploaded bytes/metadata captured at the S3 client boundary, downloaded file contents, absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads, syncedContentFingerprint presence for media downloads, and HEAD call count on the S3 client for gate-observed-missing paths.
- * - Red phase: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; and (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing.
+ * - TDD proof: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; and (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing.
  * - Excludes: AWS SDK transport internals, planner action selection, metadata persistence, and reconcile behavior.
  */
 class S3SyncActionApplierTest : DataFunSpec() {

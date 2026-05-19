@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.DiscoveredDevice
 import io.mockk.mockk
@@ -10,10 +27,10 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LAN share active-discovery client.
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for LanShareActiveDiscoveryClientTest.
  * - Boundary: boundary and edge cases for LanShareActiveDiscoveryClientTest.
  * - Failure: failure and error scenarios for LanShareActiveDiscoveryClientTest.
@@ -21,7 +38,7 @@ import io.kotest.matchers.nulls.shouldBeNull
  * - Behavior focus: active discovery must map the stable /share/ping response into discovered
  *   devices and deduplicate probe results from same-Wi-Fi or hotspot subnet scans.
  * - Observable outcomes: parsed DiscoveredDevice values and scan result list.
- * - Red phase: Fails before the fix because ping-response mapping is private to the HTTP probe,
+ * - TDD proof: Fails before the fix because ping-response mapping is private to the HTTP probe,
  *   active discovery has no focused contract for merging probe results, and hotspot scans do not
  *   bind probes to the local-only Android Network.
  * - Excludes: live HTTP sockets, Android NSD callbacks, timeout tuning, and ConnectivityManager.

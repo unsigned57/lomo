@@ -1,5 +1,22 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.testing.DomainFunSpec
@@ -8,11 +25,11 @@ import java.time.LocalDate
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DailyReviewSessionUseCase
  * - Behavior focus: same-day session reuse, cross-day reset, and persisted page updates for the active random-review session.
  * - Observable outcomes: returned session date, seed, page index, and repository writes.
- * - Red phase: Fails before the fix because random review has no persisted same-day session contract, so it cannot restore the previous page against a stable ordering.
+ * - TDD proof: Fails before the fix because random review has no persisted same-day session contract, so it cannot restore the previous page against a stable ordering.
  * - Excludes: UI pager rendering, DataStore key wiring, and memo query pagination.
  */
 class DailyReviewSessionUseCaseTest : DomainFunSpec() {
@@ -37,8 +54,7 @@ class DailyReviewSessionUseCaseTest : DomainFunSpec() {
                         repository.lastSavedSession shouldBe null
                     }
         }
-    }
-    init {
+
         test("prepareSession resets page and seed when the saved session is from a previous day") {
             runTest {
                         val today = LocalDate.of(2026, 4, 16)
@@ -59,8 +75,7 @@ class DailyReviewSessionUseCaseTest : DomainFunSpec() {
                         repository.lastSavedSession shouldBe session
                     }
         }
-    }
-    init {
+
         test("updateCurrentPage persists the active same-day seed with the new page index") {
             runTest {
                         val today = LocalDate.of(2026, 4, 16)

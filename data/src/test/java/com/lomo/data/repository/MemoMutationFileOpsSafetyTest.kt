@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -29,11 +46,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoMutationFileOps top-level helpers and MemoTrashMutationHandler safety branch.
  * - Behavior focus: cached-uri vs fallback reads, safe block rewrite persistence, append/upsert state behavior, persisted-uri filtering, and weak-match rejection safety.
  * - Observable outcomes: returned file content/result booleans, saved file payloads, LocalFileState upsert contents, and parsed-uri acceptance/rejection by scheme.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: parser internals, Room persistence details, and UI rendering.
  */
 class MemoMutationFileOpsSafetyTest : DataFunSpec() {

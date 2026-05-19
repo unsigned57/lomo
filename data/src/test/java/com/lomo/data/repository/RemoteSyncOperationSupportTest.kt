@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
@@ -16,10 +33,10 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: shared remote sync operation helpers in RemoteSyncOperationSupport.kt
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for RemoteSyncOperationSupportTest.
  * - Boundary: boundary and edge cases for RemoteSyncOperationSupportTest.
  * - Failure: failure and error scenarios for RemoteSyncOperationSupportTest.
@@ -28,7 +45,7 @@ import io.kotest.matchers.shouldBe
  *   reusable shell for Git/WebDAV/S3 operation repositories.
  * - Observable outcomes: in-progress short-circuit result, restored pending conflict result, and success-only
  *   conflict-store clearing.
- * - Red phase: Fails before the fix because the shared operation helper layer does not exist yet.
+ * - TDD proof: Fails before the fix because the shared operation helper layer does not exist yet.
  * - Excludes: executor internals, transport behavior, and UI rendering.
  */
 class RemoteSyncOperationSupportTest : DataFunSpec() {

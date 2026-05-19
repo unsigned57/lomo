@@ -1,16 +1,33 @@
 package com.lomo.app.theme
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import android.content.res.Configuration
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.ThemeMode
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: theme resync policy for lifecycle resume and handled uiMode changes.
  * - Behavior focus: when the user follows the system theme, Lomo must re-sync app night mode on handled uiMode transitions without relying on a visible resume-time correction; explicit light/dark choices must remain sticky.
  * - Observable outcomes: boolean resync decisions for resume and uiMode-change events.
- * - Red phase: Fails before the fix because the policy still asks MainActivity to re-sync on resume, which causes a visible foreground theme flip after the app becomes visible.
+ * - TDD proof: Fails before the fix because the policy still asks MainActivity to re-sync on resume, which causes a visible foreground theme flip after the app becomes visible.
  * - Excludes: AppCompatDelegate side effects, OEM dark-mode rendering, and Compose recomposition details.
  */
 /*

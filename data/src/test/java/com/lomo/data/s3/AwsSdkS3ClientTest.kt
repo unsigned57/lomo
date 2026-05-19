@@ -1,5 +1,22 @@
 package com.lomo.data.s3
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.sdk.kotlin.services.s3.model.CompleteMultipartUploadResponse
@@ -26,11 +43,11 @@ import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: AwsSdkS3Client
  * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, object metadata reads should use HEAD without downloading bodies, and deletions must hit the SDK synchronously so the sync state machine cannot record success before the network call confirms.
  * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, and multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns.
- * - Red phase: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
+ * - TDD proof: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
  * - Excludes: live AWS transport behavior, sync planner logic, and repository orchestration.
  */
 /*

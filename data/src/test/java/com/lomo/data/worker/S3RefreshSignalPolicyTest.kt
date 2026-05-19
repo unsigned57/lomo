@@ -1,5 +1,22 @@
 package com.lomo.data.worker
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.repository.S3RemoteShardState
 import com.lomo.data.repository.S3SyncProtocolState
@@ -10,11 +27,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 refresh planner policy
  * - Behavior focus: strong refresh signals from repeated user refreshes should raise the foreground S3 scan intensity without weakening existing full-reconcile safeguards or catch-up scheduling.
  * - Observable outcomes: selected S3RefreshSyncPlan foreground and catch-up policies for representative protocol-state inputs.
- * - Red phase: Fails before the fix because refresh planning ignores repeated-refresh signal strength and always keeps the same foreground policy for normal and strong refresh requests.
+ * - TDD proof: Fails before the fix because refresh planning ignores repeated-refresh signal strength and always keeps the same foreground policy for normal and strong refresh requests.
  * - Excludes: WorkManager request wiring, repository execution, and UI gesture handling.
  */
 class S3RefreshSignalPolicyTest : DataFunSpec() {

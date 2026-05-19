@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -26,11 +43,11 @@ import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncFileBridge
  * - Behavior focus: vault-root mode recursively collects syncable content files under the inferred local sync root and filters remote listings to the same content-only contract.
  * - Observable outcomes: local and remote relative-path maps preserve nested hierarchy, include markdown and supported attachments, and ignore hidden or unsupported external files.
- * - Red phase: Fails before the fix because S3 sync still assumes the legacy three-directory lomo/ model instead of recursive vault-root content syncing.
+ * - TDD proof: Fails before the fix because S3 sync still assumes the legacy three-directory lomo/ model instead of recursive vault-root content syncing.
  * - Excludes: S3 transport implementation details, metadata DAO persistence, planner conflict rules, and UI rendering.
  */
 class S3SyncFileBridgeTest : DataFunSpec() {

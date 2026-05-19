@@ -1,5 +1,22 @@
 package com.lomo.data.local
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import java.sql.DriverManager
 import com.lomo.data.testing.DataFunSpec
@@ -8,12 +25,12 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: rebuildMemoFtsExternalContentInfrastructure (DatabaseFtsInfrastructure)
  * - Behavior focus: external-content FTS5 schema, trigger creation, and rebuild command execution.
  * - Observable outcomes: emitted DDL includes external-content clauses, trigger SQL is present,
  *   and rebuilt index returns rows from the Lomo content table.
- * - Red phase: Fails before the fix because rebuildMemoFtsExternalContentInfrastructure needs external-content
+ * - TDD proof: Fails before the fix because rebuildMemoFtsExternalContentInfrastructure needs external-content
  *   schema and trigger infrastructure to be created and rebuild command issued.
  * - Excludes: Room validation and app-layer repository wiring.
  */

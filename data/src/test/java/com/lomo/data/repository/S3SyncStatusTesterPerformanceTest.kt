@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -27,11 +44,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncStatusTester
  * - Behavior focus: status queries should overlap local, remote, and metadata scans instead of serializing full discovery work.
  * - Observable outcomes: returned S3SyncStatus and peak concurrent scan count across local, remote, and metadata discovery.
- * - Red phase: Fails before the fix because getStatus performs metadata loading after local and remote discovery instead of overlapping the three preparation steps.
+ * - TDD proof: Fails before the fix because getStatus performs metadata loading after local and remote discovery instead of overlapping the three preparation steps.
  * - Excludes: AWS transport correctness, planner conflict semantics, metadata persistence mutations, and UI rendering.
  */
 class S3SyncStatusTesterPerformanceTest : DataFunSpec() {

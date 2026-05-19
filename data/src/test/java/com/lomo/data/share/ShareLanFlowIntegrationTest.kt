@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import com.lomo.domain.model.DiscoveredDevice
@@ -14,11 +31,11 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LomoShareServer, LomoShareClient, SharePrepareRequestProcessor, ShareTransferRequestProcessor, and share request executors.
  * - Behavior focus: approval-driven prepare flow, open vs E2E transfer success, compatibility-key retry, and invalid-session rejection.
  * - Observable outcomes: prepared session token/key, captured incoming payload, saved memo content, and transfer success/failure.
- * - Red phase: Fails before the fix because open-mode prepare still succeeds without sender or
+ * - TDD proof: Fails before the fix because open-mode prepare still succeeds without sender or
  *   receiver pairing configuration, so the new missing-pairing contract stays green incorrectly.
  * - Excludes: UI prompts, attachment file persistence internals, and discovery transport.
  */

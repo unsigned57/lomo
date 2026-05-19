@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.worker.S3RefreshSignal
 import com.lomo.data.worker.S3RefreshSyncPlan
@@ -18,11 +35,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncOperationRepositoryImpl
  * - Behavior focus: refresh-triggered S3 sync should coalesce overlapping refresh requests into at most one follow-up run and upgrade rapid repeated refreshes into a stronger foreground sync signal.
  * - Observable outcomes: returned S3SyncResult, refresh planner signal selection, and executor invocation ordering/count.
- * - Red phase: Fails before the fix because overlapping refresh requests only short-circuit with "already in progress" and never schedule exactly one follow-up refresh or upgrade that follow-up to a strong signal.
+ * - TDD proof: Fails before the fix because overlapping refresh requests only short-circuit with "already in progress" and never schedule exactly one follow-up refresh or upgrade that follow-up to a strong signal.
  * - Excludes: AWS transport behavior, WorkManager scheduling, and UI refresh indicator rendering.
  */
 class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
