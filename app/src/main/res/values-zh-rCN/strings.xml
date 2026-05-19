@@ -233,6 +233,14 @@
     <string name="main_filter_pick_end_date">选择结束日期</string>
     <string name="main_filter_date_not_set">未设置</string>
     <string name="main_filter_date_dialog_action_apply">应用</string>
+
+    <string name="main_filter_content_todo">待办</string>
+    <string name="main_filter_content_attachment">附件</string>
+    <string name="main_filter_content_url">链接</string>
+    <string name="main_filter_content_state_required">含</string>
+    <string name="main_filter_content_state_excluded">不含</string>
+    <string name="search_filter_open">筛选结果</string>
+    <string name="search_filter_active_cd">已应用筛选</string>
     <string name="memo_backfill_title">选择补录时间</string>
     <string name="memo_backfill_action_apply">使用时间</string>
     <string name="memo_backfill_seconds_label">秒</string>
@@ -298,6 +306,13 @@
     <string name="action_cancel">取消</string>
     <string name="action_close">关闭</string>
     <string name="action_retry">重试</string>
+    <string name="action_next">下一步</string>
+    <string name="action_confirm">确认</string>
+    <string name="reminder_dialog_title">提醒</string>
+    <string name="reminder_dialog_repeat_label">重复次数</string>
+    <string name="reminder_dialog_repeat_hint">重复使用全局间隔（可在设置中调整）。</string>
+    <string name="reminder_permission_denied_notification">通知权限被拒绝，无法发送提醒。</string>
+    <string name="reminder_permission_denied_exact_alarm">请在系统设置中允许精确闹钟，否则提醒可能延迟。</string>
     <string name="update_progress_title_preparing">正在准备更新</string>
     <string name="update_progress_title_downloading">正在下载更新</string>
     <string name="update_progress_title_installing">正在打开安装程序</string>

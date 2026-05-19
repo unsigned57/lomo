@@ -33,6 +33,7 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.app.feature.common.MemoListFilterController
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.component.navigation.SidebarDrawer
@@ -70,9 +71,8 @@ internal fun MainScreenNavigationRender(
         snackbarHostState = hostState.snackbarHostState,
         scrollBehavior = hostState.scrollBehavior,
         searchQuery = screenState.searchQuery,
-        memoListFilter = screenState.memoListFilter,
         mainListTotalCount = screenState.mainListTotalCount,
-        isFilterActive = screenState.memoListFilter.hasDateRange,
+        isFilterActive = screenState.memoListFilter.isActive,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
         pagedUiMemos = pagedUiMemos,
@@ -91,9 +91,7 @@ internal fun MainScreenNavigationRender(
         freeTextCopyEnabled = screenState.freeTextCopyEnabled,
         scrollbarEnabled = screenState.scrollbarEnabled,
         onShowMemoMenu = onShowMemoMenu,
-        onMemoSortOptionSelected = viewModel.updateMemoSortOption,
-        onMemoStartDateSelected = viewModel.updateMemoStartDate,
-        onMemoEndDateSelected = viewModel.updateMemoEndDate,
+        memoListFilterController = viewModel.memoListFilterController,
         onDismissMemoFilterSheet = onDismissMemoFilterSheet,
         onHeatmapDateLongPress = onHeatmapDateLongPress,
         onScrollToTop = onScrollToTop,
@@ -111,7 +109,6 @@ internal fun MainScreenRenderHost(
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     searchQuery: String,
-    memoListFilter: MemoListFilter,
     mainListTotalCount: Int,
     isFilterActive: Boolean,
     isMemoFilterSheetVisible: Boolean,
@@ -132,9 +129,7 @@ internal fun MainScreenRenderHost(
     freeTextCopyEnabled: Boolean,
     scrollbarEnabled: Boolean,
     onShowMemoMenu: (MemoMenuState) -> Unit,
-    onMemoSortOptionSelected: (MemoSortOption) -> Unit,
-    onMemoStartDateSelected: (LocalDate?) -> Unit,
-    onMemoEndDateSelected: (LocalDate?) -> Unit,
+    memoListFilterController: MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onScrollToTop: () -> Unit,
@@ -179,10 +174,7 @@ internal fun MainScreenRenderHost(
             isFilterActive = isFilterActive,
             onScrollToTop = onScrollToTop,
             isMemoFilterSheetVisible = isMemoFilterSheetVisible,
-            memoListFilter = memoListFilter,
-            onMemoSortOptionSelected = onMemoSortOptionSelected,
-            onMemoStartDateSelected = onMemoStartDateSelected,
-            onMemoEndDateSelected = onMemoEndDateSelected,
+            memoListFilterController = memoListFilterController,
             onDismissMemoFilterSheet = onDismissMemoFilterSheet,
         )
     }

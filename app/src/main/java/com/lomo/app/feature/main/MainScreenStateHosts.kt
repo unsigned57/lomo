@@ -368,7 +368,7 @@ private fun rememberClearMainFiltersAction(
 ): () -> Unit =
     remember(dependencies.mainViewModel) {
         {
-            dependencies.mainViewModel.clearMemoDateRange()
+            dependencies.mainViewModel.clearMemoFilter()
         }
     }
 

@@ -14,7 +14,10 @@ import com.lomo.app.feature.main.mapToUiModelState
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -26,11 +29,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.map
@@ -38,6 +41,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import javax.inject.Inject
 
 private const val SEARCH_QUERY_DEBOUNCE_MILLIS = 300L
@@ -59,6 +63,9 @@ class SearchViewModel
     ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
+        val searchFilterController = com.lomo.app.feature.common.MemoListFilterController()
+        val searchFilter: StateFlow<MemoListFilter> = searchFilterController.filter
+        private val applyMemoFilter = ApplyMainMemoFilterUseCase()
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
@@ -79,8 +86,8 @@ class SearchViewModel
 
         @OptIn(ExperimentalCoroutinesApi::class)
         private val searchExecutionState: StateFlow<SearchExecutionState> =
-            _searchQuery
-                .transformLatest { rawQuery ->
+            combine(_searchQuery, searchFilterController.filter) { rawQuery, filter -> rawQuery to filter }
+                .transformLatest { (rawQuery, filter) ->
                     val query = rawQuery.trim()
                     if (query.isBlank()) {
                         emit(SearchExecutionState())
@@ -88,7 +95,7 @@ class SearchViewModel
                     }
 
                     delay(SEARCH_QUERY_DEBOUNCE_MILLIS)
-                    emitAll(searchExecutionFlow(query))
+                    emitAll(searchExecutionFlow(query, filter))
                 }.stateIn(viewModelScope, appWhileSubscribed(), SearchExecutionState())
 
         val isSearching: StateFlow<Boolean> =
@@ -119,6 +126,14 @@ class SearchViewModel
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
         }
+
+        val onSortOptionSelected: (MemoSortOption) -> Unit = searchFilterController.onSortOptionSelected
+        val onStartDateSelected: (LocalDate?) -> Unit = searchFilterController.onStartDateSelected
+        val onEndDateSelected: (LocalDate?) -> Unit = searchFilterController.onEndDateSelected
+        val onHasTodoChanged: (Boolean?) -> Unit = searchFilterController.onHasTodoChanged
+        val onHasAttachmentChanged: (Boolean?) -> Unit = searchFilterController.onHasAttachmentChanged
+        val onHasUrlChanged: (Boolean?) -> Unit = searchFilterController.onHasUrlChanged
+        val clearSearchFilter: () -> Unit = searchFilterController.clear
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
@@ -212,8 +227,10 @@ class SearchViewModel
         }
 
         @OptIn(ExperimentalCoroutinesApi::class)
-        private fun searchExecutionFlow(query: String) =
-            channelFlow searchExecution@{
+        private fun searchExecutionFlow(
+            query: String,
+            filter: MemoListFilter,
+        ) = channelFlow searchExecution@{
                 send(SearchExecutionState(isSearching = true))
                 var loadingVisible = false
                 var loadingMinVisibleJob: Job? = null
@@ -235,6 +252,7 @@ class SearchViewModel
 
                 memoUiCoordinator
                     .searchMemos(query)
+                    .map { results -> applyMemoFilter(results, filter) }
                     .catch {
                         loadingJob.cancel()
                         if (loadingVisible) {

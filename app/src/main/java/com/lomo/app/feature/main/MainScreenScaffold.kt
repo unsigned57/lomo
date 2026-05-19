@@ -62,10 +62,7 @@ internal fun MainScreenScaffoldContent(
     isFilterActive: Boolean,
     onScrollToTop: () -> Unit,
     isMemoFilterSheetVisible: Boolean,
-    memoListFilter: MemoListFilter,
-    onMemoSortOptionSelected: (MemoSortOption) -> Unit,
-    onMemoStartDateSelected: (java.time.LocalDate?) -> Unit,
-    onMemoEndDateSelected: (java.time.LocalDate?) -> Unit,
+    memoListFilterController: com.lomo.app.feature.common.MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
 ) {
     val isFabVisible = rememberMainScreenFabVisibility(scrollBehavior)
@@ -122,12 +119,9 @@ internal fun MainScreenScaffoldContent(
         )
     }
 
-    MainScreenFilterSheetHost(
-        isVisible = isMemoFilterSheetVisible,
-        filter = memoListFilter,
-        onSortOptionSelected = onMemoSortOptionSelected,
-        onStartDateSelected = onMemoStartDateSelected,
-        onEndDateSelected = onMemoEndDateSelected,
+    com.lomo.app.feature.common.MemoFilterSheetHost(
+        visible = isMemoFilterSheetVisible,
+        controller = memoListFilterController,
         onDismiss = onDismissMemoFilterSheet,
     )
 
@@ -243,22 +237,3 @@ private fun MainScreenScaffoldBody(
     }
 }
 
-@Composable
-private fun MainScreenFilterSheetHost(
-    isVisible: Boolean,
-    filter: MemoListFilter,
-    onSortOptionSelected: (MemoSortOption) -> Unit,
-    onStartDateSelected: (java.time.LocalDate?) -> Unit,
-    onEndDateSelected: (java.time.LocalDate?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    if (isVisible) {
-        MainMemoFilterSheet(
-            filter = filter,
-            onSortOptionSelected = onSortOptionSelected,
-            onStartDateSelected = onStartDateSelected,
-            onEndDateSelected = onEndDateSelected,
-            onDismiss = onDismiss,
-        )
-    }
-}
