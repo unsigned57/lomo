@@ -1,21 +1,36 @@
-package com.lomo.app.feature.share
-
 /**
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Unit under test: ShareViewModel.
+ * - Owning layer: app.
+ * - Priority tier: P1.
+ * - Capability: restore share memo content and coordinate LAN share operations.
+ *
+ * Scenarios:
+ * - Given a share route key survives while process-memory payload state is unavailable, when a
+ *   configured route payload cache still holds the memo content, then a new ViewModel restores the
+ *   content from that key without saving the full memo body in route arguments.
+ * - Given share content is missing, when the ViewModel initializes or send is requested, then a
+ *   user-facing unavailable-content error is exposed and sending is skipped.
+ * - Given LAN share startup, pairing, settings, or transfer operations fail, when the user invokes the
+ *   operation, then observable error or pairing state is updated without hiding cancellation.
+ * - Given attachment references exist in memo content, when sending succeeds, then extracted attachment
+ *   URIs are forwarded with the memo payload.
+ *
+ * Observable outcomes:
+ * - memoContent, operationError, pairingCodeError, lanSharePermissionState, pairingRequiredEvent, and
+ *   fake LAN service sent memo records.
+ *
+ * TDD proof:
+ * - The route-key cache restoration scenario fails before implementation because ViewModels only
+ *   consume the process-memory ShareRoutePayloadStore and lose content once that memory store is
+ *   unavailable.
+ *
+ * Excludes:
+ * - Compose rendering, NavHost graph serialization, network transport internals, and attachment parser
+ *   internals.
  */
 
+package com.lomo.app.feature.share
 
 import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.navigation.ShareRoutePayloadStore
@@ -26,6 +41,7 @@ import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import io.kotest.matchers.shouldBe
+import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -162,6 +178,23 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.memoContent shouldBe "legacy-content"
                 viewModel.operationError.value shouldBe null
+            }
+        }
+
+        test("given route key survives process memory loss when cache is configured then ViewModel restores memo content") {
+            runTest {
+                val cacheDir = Files.createTempDirectory("share-view-model-payload-cache-test").toFile()
+                ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
+                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+
+                // Simulates a restored navigation route after process-local singleton state is gone.
+                ShareRoutePayloadStore.clearMemoryForTest()
+                val restoredViewModel = createViewModel(payloadKey)
+
+                restoredViewModel.memoContent shouldBe "memo-content"
+                restoredViewModel.operationError.value shouldBe null
+                restoredViewModel.memoTimestamp shouldBe 123L
+                cacheDir.deleteRecursively()
             }
         }
 
@@ -406,15 +439,20 @@ class ShareViewModelTest : AppFunSpec() {
     }
 
     private fun createViewModel(payloadKey: String): ShareViewModel =
-        ShareViewModel(
-            lanShareUiCoordinator = LanShareUiCoordinator(shareService),
-            extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
-            shareErrorPolicy = shareErrorPolicy,
-            savedStateHandle = SavedStateHandle(
+        createViewModel(
+            SavedStateHandle(
                 mapOf(
                     "payloadKey" to payloadKey,
                     "memoTimestamp" to 123L,
                 ),
             ),
+        )
+
+    private fun createViewModel(savedStateHandle: SavedStateHandle): ShareViewModel =
+        ShareViewModel(
+            lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+            extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+            shareErrorPolicy = shareErrorPolicy,
+            savedStateHandle = savedStateHandle,
         )
 }

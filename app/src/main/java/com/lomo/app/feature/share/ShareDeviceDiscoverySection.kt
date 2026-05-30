@@ -12,9 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,26 +22,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiFind
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -51,17 +39,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.lomo.app.CapabilityRecoveryAction
+import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.R
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
-import com.lomo.ui.component.common.lazyListMotionItem
-import com.lomo.ui.component.common.rememberLazyListMotionState
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentSetOf
-import kotlinx.collections.immutable.toPersistentList
 
 private const val DEVICE_DISCOVERY_ENTER_DURATION_MILLIS = 420
 private const val DEVICE_DISCOVERY_EXIT_DURATION_MILLIS = 220
@@ -69,12 +54,6 @@ private const val DEVICE_DISCOVERY_CONTENT_ENTER_DURATION_MILLIS = 260
 private const val DEVICE_DISCOVERY_OFFSET_DIVISOR = 4
 private val DEVICE_DISCOVERY_ICON_SIZE = 20.dp
 private val DEVICE_DISCOVERY_LOADER_SIZE = 14.dp
-
-private val DEVICE_CARD_AVATAR_SIZE = 44.dp
-private val DEVICE_CARD_AVATAR_ICON_SIZE = 22.dp
-private val DEVICE_CARD_STATUS_DOT_SIZE = 12.dp
-private val DEVICE_CARD_STATUS_DOT_PADDING = 2.dp
-private val DEVICE_CARD_TRAILING_ICON_SIZE = 20.dp
 
 private const val SEARCH_PULSE_INITIAL_ALPHA = 0.3f
 private const val SEARCH_PULSE_TARGET_ALPHA = 1f
@@ -84,15 +63,22 @@ private const val SEARCH_PULSE_DURATION_MILLIS = 1_200
 private val SEARCH_PULSE_ICON_SIZE = 64.dp
 private const val SEARCHING_HINT_ALPHA = 0.7f
 
-private enum class DeviceDiscoveryContentState {
-    Searching,
-    PermissionDenied,
-    StartupFailed,
-    Devices,
-}
+internal data class DeviceDiscoveryRecoveryAffordance(
+    val showRetry: Boolean,
+    val fallbackAction: CapabilityRecoveryAction?,
+)
+
+internal fun resolveDeviceDiscoveryRecoveryAffordance(
+    fallbackAction: CapabilityRecoveryAction?,
+    canRetryAfterRecovery: Boolean,
+): DeviceDiscoveryRecoveryAffordance =
+    DeviceDiscoveryRecoveryAffordance(
+        showRetry = canRetryAfterRecovery,
+        fallbackAction = fallbackAction,
+    )
 
 @Composable
-fun DeviceDiscoverySection(
+internal fun DeviceDiscoverySection(
     showDevicesSection: Boolean,
     devices: ImmutableList<DiscoveredDevice>,
     lanShareEnabled: Boolean,
@@ -100,17 +86,18 @@ fun DeviceDiscoverySection(
     discoveryError: String?,
     transferState: ShareTransferState,
     onRequestLanSharePermissions: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onExecuteRecoveryAction: (CapabilityRecoveryAction) -> Unit,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val activeFallbackDiscovery = lanShareEnabled && permissionState == LanSharePermissionState.Granted
     val contentState =
-        when {
-            devices.isNotEmpty() -> DeviceDiscoveryContentState.Devices
-            permissionState == LanSharePermissionState.Denied -> DeviceDiscoveryContentState.PermissionDenied
-            discoveryError != null -> DeviceDiscoveryContentState.StartupFailed
-            else -> DeviceDiscoveryContentState.Searching
-        }
+        resolveDeviceDiscoveryContentState(
+            discoveredDeviceCount = devices.size,
+            permissionState = permissionState,
+            discoveryError = discoveryError,
+            activeFallbackDiscovery = activeFallbackDiscovery,
+        )
     AnimatedVisibility(
         visible = showDevicesSection,
         enter =
@@ -141,8 +128,13 @@ fun DeviceDiscoverySection(
             DeviceDiscoveryContentState.Searching -> DeviceSearchingState(modifier = Modifier.fillMaxSize())
             DeviceDiscoveryContentState.PermissionDenied ->
                 DevicePermissionRequiredState(
+                    recoveryAffordance =
+                        resolveDeviceDiscoveryRecoveryAffordance(
+                            fallbackAction = lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.Denied),
+                            canRetryAfterRecovery = canRetryLanSharePermissionRecovery(),
+                        ),
                     onRequestLanSharePermissions = onRequestLanSharePermissions,
-                    onOpenAppSettings = onOpenAppSettings,
+                    onExecuteRecoveryAction = onExecuteRecoveryAction,
                     modifier = Modifier.fillMaxSize(),
                 )
             DeviceDiscoveryContentState.StartupFailed ->
@@ -158,51 +150,6 @@ fun DeviceDiscoverySection(
                     onDeviceClick = onDeviceClick,
                     listState = listState,
                 )
-        }
-    }
-}
-
-@Composable
-private fun DeviceCard(
-    device: DiscoveredDevice,
-    isEnabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        onClick = onClick,
-        enabled = isEnabled,
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = AppShapes.Medium,
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(AppSpacing.Medium),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DeviceCardAvatar()
-            Spacer(modifier = Modifier.width(AppSpacing.Medium))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = device.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "${device.host}:${device.port}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                Icons.Outlined.Wifi,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(DEVICE_CARD_TRAILING_ICON_SIZE),
-            )
         }
     }
 }
@@ -307,20 +254,34 @@ private fun DeviceDiscoveryHeader(
 
 @Composable
 private fun DevicePermissionRequiredState(
+    recoveryAffordance: DeviceDiscoveryRecoveryAffordance,
     onRequestLanSharePermissions: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onExecuteRecoveryAction: (CapabilityRecoveryAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val fallbackAction = recoveryAffordance.fallbackAction
     DeviceDiscoveryPlaceholder(
         title = stringResource(R.string.share_permission_required_title),
         message = stringResource(R.string.share_permission_required_hint),
-        primaryActionLabel = stringResource(R.string.action_retry),
-        onPrimaryAction = onRequestLanSharePermissions,
-        secondaryActionLabel = stringResource(R.string.share_open_settings),
-        onSecondaryAction = onOpenAppSettings,
+        primaryActionLabel = stringResource(R.string.action_retry).takeIf { recoveryAffordance.showRetry },
+        onPrimaryAction = onRequestLanSharePermissions.takeIf { recoveryAffordance.showRetry },
+        secondaryActionLabel = recoveryActionLabel(fallbackAction),
+        onSecondaryAction = fallbackAction?.let { action -> { onExecuteRecoveryAction(action) } },
         modifier = modifier,
     )
 }
+
+@Composable
+private fun recoveryActionLabel(action: CapabilityRecoveryAction?): String? =
+    when (action) {
+        CapabilityRecoveryAction.OpenAppSettings -> stringResource(R.string.share_open_settings)
+        CapabilityRecoveryAction.RequestRuntimePermissions,
+        is CapabilityRecoveryAction.OpenSettings,
+        CapabilityRecoveryAction.SelectSafTree,
+        CapabilityRecoveryAction.SelectSafDocument,
+        null,
+        -> null
+    }
 
 @Composable
 private fun DeviceDiscoveryErrorState(
@@ -341,8 +302,8 @@ private fun DeviceDiscoveryErrorState(
 private fun DeviceDiscoveryPlaceholder(
     title: String,
     message: String,
-    primaryActionLabel: String,
-    onPrimaryAction: () -> Unit,
+    primaryActionLabel: String?,
+    onPrimaryAction: (() -> Unit)?,
     modifier: Modifier = Modifier,
     secondaryActionLabel: String? = null,
     onSecondaryAction: (() -> Unit)? = null,
@@ -375,8 +336,10 @@ private fun DeviceDiscoveryPlaceholder(
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(onClick = onPrimaryAction) {
-                Text(primaryActionLabel)
+            if (primaryActionLabel != null && onPrimaryAction != null) {
+                Button(onClick = onPrimaryAction) {
+                    Text(primaryActionLabel)
+                }
             }
             if (secondaryActionLabel != null && onSecondaryAction != null) {
                 TextButton(onClick = onSecondaryAction) {
@@ -384,84 +347,5 @@ private fun DeviceDiscoveryPlaceholder(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DeviceDiscoveryList(
-    devices: ImmutableList<DiscoveredDevice>,
-    transferState: ShareTransferState,
-    onDeviceClick: (DiscoveredDevice) -> Unit,
-    listState: LazyListState,
-) {
-    val deviceKeys =
-        remember(devices) {
-            devices.map { device -> device.motionKey() }.toPersistentList()
-        }
-    val listMotionState =
-        rememberLazyListMotionState(
-            itemKeys = deviceKeys,
-            removingKeys = persistentSetOf(),
-            listState = listState,
-        )
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
-    ) {
-        itemsIndexed(devices, key = { _, item -> item.motionKey() }) { _, device ->
-            DeviceCard(
-                device = device,
-                isEnabled = transferState.allowsDeviceSelection(),
-                onClick = { onDeviceClick(device) },
-                modifier =
-                    Modifier.lazyListMotionItem(
-                        lazyItemScope = this,
-                        itemKey = device.motionKey(),
-                        motionState = listMotionState,
-                    ),
-            )
-        }
-    }
-}
-
-private fun DiscoveredDevice.motionKey(): String = "$host:$port"
-
-private fun ShareTransferState.allowsDeviceSelection(): Boolean =
-    this is ShareTransferState.Idle ||
-        this is ShareTransferState.Success ||
-        this is ShareTransferState.Error
-
-@Composable
-private fun DeviceCardAvatar() {
-    Box {
-        Surface(
-            modifier = Modifier.size(DEVICE_CARD_AVATAR_SIZE),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = CircleShape,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Outlined.PhoneAndroid,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(DEVICE_CARD_AVATAR_ICON_SIZE),
-                )
-            }
-        }
-        Box(
-            modifier =
-                Modifier
-                    .size(DEVICE_CARD_STATUS_DOT_SIZE)
-                    .align(Alignment.BottomEnd)
-                    .background(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = CircleShape,
-                    ).padding(DEVICE_CARD_STATUS_DOT_PADDING)
-                    .background(
-                        color = MaterialTheme.colorScheme.tertiary,
-                        shape = CircleShape,
-                    ),
-        )
     }
 }

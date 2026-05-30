@@ -29,9 +29,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.R
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.ShareTransferState
@@ -54,11 +54,11 @@ fun ShareScreen(
     onBackClick: () -> Unit,
     viewModel: ShareViewModel = hiltViewModel(),
 ) {
-    val context = LocalContext.current
     val uiState = collectShareScreenUiState(viewModel)
     val localState = rememberShareScreenLocalState()
     val canSaveDeviceName = localState.canSaveDeviceName(uiState.deviceName)
     val dismissIme = rememberDismissImeAction()
+    val recoveryExecutor = rememberCapabilityRecoveryExecutor()
     val requestLanShareNetworkPermissions =
         rememberLanShareNetworkPermissionRequester(
             lanShareEnabled = uiState.lanShareEnabled,
@@ -86,7 +86,7 @@ fun ShareScreen(
         onUpdateLanShareE2eEnabled = viewModel::updateLanShareE2eEnabled,
         onUpdateLanShareDeviceName = viewModel::updateLanShareDeviceName,
         onRequestLanSharePermissions = requestLanShareNetworkPermissions,
-        onOpenAppSettings = { context.openAppSettings() },
+        onExecuteRecoveryAction = { action -> recoveryExecutor.execute(action) },
         onSendMemo = viewModel::sendMemo,
         onResetTransferState = viewModel::resetTransferState,
     )
@@ -106,7 +106,7 @@ private fun ShareScreenContent(
     onUpdateLanShareE2eEnabled: (Boolean) -> Unit,
     onUpdateLanShareDeviceName: (String) -> Unit,
     onRequestLanSharePermissions: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onExecuteRecoveryAction: (CapabilityRecoveryAction) -> Unit,
     onSendMemo: (com.lomo.domain.model.DiscoveredDevice) -> Unit,
     onResetTransferState: () -> Unit,
 ) {
@@ -144,7 +144,7 @@ private fun ShareScreenContent(
                 onUpdateLanShareDeviceName("")
             },
             onRequestLanSharePermissions = onRequestLanSharePermissions,
-            onOpenAppSettings = onOpenAppSettings,
+            onExecuteRecoveryAction = onExecuteRecoveryAction,
             onSendMemo = { device ->
                 dismissIme()
                 onSendMemo(device)
@@ -248,7 +248,7 @@ private fun ShareScreenBody(
     onSaveDeviceName: () -> Unit,
     onUseSystemDeviceName: () -> Unit,
     onRequestLanSharePermissions: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onExecuteRecoveryAction: (CapabilityRecoveryAction) -> Unit,
     onSendMemo: (com.lomo.domain.model.DiscoveredDevice) -> Unit,
     onDismissTransferState: () -> Unit,
     modifier: Modifier = Modifier,
@@ -296,7 +296,7 @@ private fun ShareScreenBody(
             discoveryError = uiState.lanShareDiscoveryError,
             transferState = uiState.transferState,
             onRequestLanSharePermissions = onRequestLanSharePermissions,
-            onOpenAppSettings = onOpenAppSettings,
+            onExecuteRecoveryAction = onExecuteRecoveryAction,
             onDeviceClick = onSendMemo,
             modifier = Modifier.weight(1f),
         )

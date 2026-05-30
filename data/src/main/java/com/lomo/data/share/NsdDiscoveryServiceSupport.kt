@@ -22,6 +22,7 @@ internal fun resolvedHostAddresses(info: NsdServiceInfo): List<InetAddress> =
         info.hostAddresses
     } else {
         listOfNotNull(
+            // behavior-contract: silent-result-ok: reflective getHost may fail; null filtered by listOfNotNull
             runCatching {
                 NsdServiceInfo::class.java
                     .getMethod("getHost")

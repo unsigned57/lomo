@@ -1,26 +1,47 @@
 /*
- * Test Contract:
- * - Unit under test: LanShareNetworkPermissionPolicyTest
- * - Owning layer: app
- * - Priority tier: P0
+ * Behavior Contract:
+ * - Unit under test: LanShareNetworkPermissionPolicy.
+ * - Owning layer: app.
+ * - Priority tier: P1.
+ * - Capability: derive LAN sharing runtime permission behavior from the shared capability catalog.
  *
- * Scenario matrix:
- * - Happy: standard happy path for LanShareNetworkPermissionPolicyTest.
- * - Boundary: boundary and edge cases for LanShareNetworkPermissionPolicyTest.
- * - Failure: failure and error scenarios for LanShareNetworkPermissionPolicyTest.
- * - Must-not-happen: invariants are never violated for LanShareNetworkPermissionPolicyTest.
+ * Scenarios:
+ * - Given API 32, when LAN sharing asks for required permissions, then no runtime permission is needed.
+ * - Given API 33 through 35, when LAN sharing asks for required permissions, then NEARBY_WIFI_DEVICES
+ *   is requested.
+ * - Given API 36+, when ACCESS_LOCAL_NETWORK is recognized, then LAN sharing requests both nearby Wi-Fi
+ *   and local-network permissions.
+ * - Given API 36+ when ACCESS_LOCAL_NETWORK is not recognized, then LAN sharing omits that permission.
+ * - Given a permission callback, when all required permissions are granted or current state is already
+ *   granted, then LAN sharing proceeds.
+ * - Given denial or permanent denial, when recovery is evaluated, then LAN sharing exposes app settings
+ *   fallback with retry enabled.
+ * - Given LocalNetwork denied recovery, when the app-layer recovery executor receives the fallback,
+ *   then it opens app settings.
+ * - Given no fallback action, when the recovery executor is asked to run recovery, then it performs
+ *   no settings action.
  *
- * - Behavior focus: test behavioral outcomes of LanShareNetworkPermissionPolicyTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Observable outcomes:
+ * - Permission name lists, grant aggregation result, fallback recovery action, and executed recovery callback.
+ *
+ * TDD proof:
+ * - RED: targeted app test fails before the fix because LAN sharing builds permissions directly and
+ *   exposes no catalog-backed recovery plan or permanent-denial fallback action.
+ * - RED: targeted app test fails before the fix because no app-layer executor maps
+ *   CapabilityRecoveryAction.OpenAppSettings to the production settings callback.
+ *
+ * Excludes:
+ * - Compose launcher wiring, Android permission dialog rendering, localized denial copy.
  */
 
 package com.lomo.app.feature.share
 
+import com.lomo.app.CapabilityRecoveryAction
+import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldNotContain
+import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 
 private const val SDK_TIRAMISU = 33
@@ -107,6 +128,20 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
             permissions shouldContain ACCESS_LOCAL_NETWORK_PERMISSION
         }
 
+        test("required LAN share permissions are derived from the shared capability catalog") {
+            val sdk36Permissions =
+                lanShareNetworkPermissionPlan().requiredPermissions(
+                    sdkInt = SDK_BAKLAVA,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            sdk36Permissions shouldContainExactly
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_BAKLAVA,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+        }
+
         test("permission request is granted when all required permissions return true") {
             val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
 
@@ -147,6 +182,43 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
             )
 
             granted shouldBe false
+        }
+
+        test("permission recovery opens app settings after denial and permanent denial") {
+            val deniedRecovery = lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.Denied)
+            val permanentlyDeniedRecovery =
+                lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.PermanentlyDenied)
+
+            deniedRecovery shouldBe CapabilityRecoveryAction.OpenAppSettings
+            permanentlyDeniedRecovery shouldBe CapabilityRecoveryAction.OpenAppSettings
+            canRetryLanSharePermissionRecovery() shouldBe true
+        }
+
+        test("LocalNetwork denied recovery executes the app settings callback") {
+            var settingsOpenCount = 0
+            val executor =
+                CapabilityRecoveryExecutor(
+                    onOpenAppSettings = { settingsOpenCount += 1 },
+                )
+
+            val executed =
+                executor.execute(lanSharePermissionRecoveryAction(CapabilityRecoveryDecision.Denied))
+
+            executed shouldBe true
+            settingsOpenCount shouldBe 1
+        }
+
+        test("missing LocalNetwork fallback recovery does not execute app settings") {
+            var settingsOpenCount = 0
+            val executor =
+                CapabilityRecoveryExecutor(
+                    onOpenAppSettings = { settingsOpenCount += 1 },
+                )
+
+            val executed = executor.execute(null)
+
+            executed shouldBe false
+            settingsOpenCount shouldBe 0
         }
     }
 }

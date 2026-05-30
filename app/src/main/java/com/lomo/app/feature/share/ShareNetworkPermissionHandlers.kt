@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import com.lomo.app.CapabilityRecoveryAction
 
 @Composable
 internal fun rememberLanShareNetworkPermissionRequester(
@@ -54,6 +55,34 @@ internal fun rememberLanShareNetworkPermissionRequester(
         }
     }
     return requestPermissions
+}
+
+internal class CapabilityRecoveryExecutor(
+    private val onOpenAppSettings: () -> Unit,
+) {
+    fun execute(action: CapabilityRecoveryAction?): Boolean =
+        when (action) {
+            CapabilityRecoveryAction.OpenAppSettings -> {
+                onOpenAppSettings()
+                true
+            }
+            CapabilityRecoveryAction.RequestRuntimePermissions,
+            is CapabilityRecoveryAction.OpenSettings,
+            CapabilityRecoveryAction.SelectSafTree,
+            CapabilityRecoveryAction.SelectSafDocument,
+            null,
+            -> false
+        }
+}
+
+@Composable
+internal fun rememberCapabilityRecoveryExecutor(): CapabilityRecoveryExecutor {
+    val context = LocalContext.current
+    return remember(context) {
+        CapabilityRecoveryExecutor(
+            onOpenAppSettings = { context.openAppSettings() },
+        )
+    }
 }
 
 internal fun Context.openAppSettings() {

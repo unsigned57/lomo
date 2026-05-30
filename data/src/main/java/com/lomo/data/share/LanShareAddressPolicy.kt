@@ -18,6 +18,7 @@ internal fun isLanSharePrivateHost(host: String): Boolean {
             .trim()
     if (normalizedHost.isBlank()) return false
     if (normalizedHost == "localhost") return true
+    // behavior-contract: silent-result-ok: unresolvable host → false (not on LAN)
     val address = runCatching { InetAddress.getByName(normalizedHost) }.getOrNull() ?: return false
     return address.isLanSharePrivateAddress()
 }
@@ -106,6 +107,7 @@ internal fun ConnectivityManager.toLanShareNetworkProbes(candidateNetworks: Set<
 }
 
 private fun ConnectivityManager.reflectedLanShareNetworks(): List<Network> =
+    // behavior-contract: silent-result-ok: reflective getAllNetworks may be removed on future SDKs; empty list ok
     runCatching {
         val networks =
             ConnectivityManager::class.java
@@ -115,16 +117,21 @@ private fun ConnectivityManager.reflectedLanShareNetworks(): List<Network> =
     }.getOrDefault(emptyList())
 
 internal fun enumerateLanShareInterfaceProbes(): List<LanShareInterfaceProbe> =
+    // behavior-contract: silent-result-ok: getNetworkInterfaces() may throw on locked-down VMs; empty list = no probes
     runCatching {
         val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching emptyList()
         Collections.list(interfaces).map { networkInterface ->
             LanShareInterfaceProbe(
                 name = networkInterface.name,
                 addresses = Collections.list(networkInterface.inetAddresses),
-                isUp = runCatching { networkInterface.isUp }.getOrDefault(false),
-                isLoopback = runCatching { networkInterface.isLoopback }.getOrDefault(false),
-                isVirtual = runCatching { networkInterface.isVirtual }.getOrDefault(false),
-                isPointToPoint = runCatching { networkInterface.isPointToPoint }.getOrDefault(false),
+                isUp = networkInterface.safeFlag { isUp },
+                isLoopback = networkInterface.safeFlag { isLoopback },
+                isVirtual = networkInterface.safeFlag { isVirtual },
+                isPointToPoint = networkInterface.safeFlag { isPointToPoint },
             )
         }
     }.getOrDefault(emptyList())
+
+private fun NetworkInterface.safeFlag(getter: NetworkInterface.() -> Boolean): Boolean =
+    // behavior-contract: silent-result-ok: flag query may throw on some kernels; false is the safe default
+    runCatching { getter() }.getOrDefault(false)

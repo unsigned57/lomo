@@ -23,6 +23,9 @@ import javax.inject.Inject
 
 private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
 private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
+private const val SHARE_PAYLOAD_KEY = "payloadKey"
+private const val SHARE_MEMO_CONTENT_KEY = "memoContent"
+private const val SHARE_MEMO_TIMESTAMP_KEY = "memoTimestamp"
 
 @HiltViewModel
 class ShareViewModel
@@ -33,17 +36,17 @@ class ShareViewModel
         private val shareErrorPolicy: ShareErrorPolicy,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
-        private val memoPayloadKey: String = savedStateHandle.get<String>("payloadKey").orEmpty()
-        private val legacyMemoContent: String = savedStateHandle.get<String>("memoContent").orEmpty()
+        private val memoPayloadKey: String = savedStateHandle.get<String>(SHARE_PAYLOAD_KEY).orEmpty()
         private var memoContentBacking: String =
-            ShareRoutePayloadStore.consumeMemoContent(memoPayloadKey).orEmpty().ifBlank {
-                legacyMemoContent
-            }
+            resolveShareMemoContent(
+                savedStateHandle = savedStateHandle,
+                payloadKey = memoPayloadKey,
+            )
 
         val memoContent: String
             get() = memoContentBacking
 
-        val memoTimestamp: Long = savedStateHandle.get<Long>("memoTimestamp") ?: 0L
+        val memoTimestamp: Long = savedStateHandle.get<Long>(SHARE_MEMO_TIMESTAMP_KEY) ?: 0L
 
         val discoveredDevices =
             lanShareUiCoordinator.discoveredDevices
@@ -92,7 +95,7 @@ class ShareViewModel
             }
             viewModelScope.launch {
                 lanShareUiCoordinator.lanShareStartupFailures.collect { failure ->
-                    val message = failure.userFacingMessage()
+                    val message = failure.toShareUserFacingMessage()
                     _lanShareDiscoveryError.value = message
                     _operationError.value = message
                 }
@@ -255,13 +258,6 @@ class ShareViewModel
             Timber.e(throwable, "ShareViewModel operation failed: %s", message)
         }
 
-        private fun LanShareStartupFailure.userFacingMessage(): String =
-            when (this) {
-                LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
-                LanShareStartupFailure.ServiceRegistrationFailed ->
-                    "Failed to register this device for LAN sharing"
-            }
-
         private fun clearLanShareDiscoveryError() {
             val previousDiscoveryError = _lanShareDiscoveryError.value
             _lanShareDiscoveryError.value = null
@@ -270,3 +266,20 @@ class ShareViewModel
             }
         }
     }
+
+private fun LanShareStartupFailure.toShareUserFacingMessage(): String =
+    when (this) {
+        LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
+        LanShareStartupFailure.ServiceRegistrationFailed ->
+            "Failed to register this device for LAN sharing"
+    }
+
+private fun resolveShareMemoContent(
+    savedStateHandle: SavedStateHandle,
+    payloadKey: String,
+): String {
+    val routeStoreContent = ShareRoutePayloadStore.consumeMemoContent(payloadKey).orEmpty()
+    return routeStoreContent.ifBlank {
+        savedStateHandle.get<String>(SHARE_MEMO_CONTENT_KEY).orEmpty()
+    }
+}
