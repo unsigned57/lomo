@@ -21,6 +21,7 @@ fun MarkdownRenderer(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
@@ -28,14 +29,17 @@ fun MarkdownRenderer(
     onTextTapFeedback: (() -> Unit)? = null,
     onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+    onTextLongClick: (() -> Unit)? = null,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
     MarkdownRendererContent(
         content = content,
-        modifier = modifier,
         maxVisibleBlocks = maxVisibleBlocks,
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
         onTotalBlocks = onTotalBlocks,
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = knownTagsToStrip,
@@ -44,6 +48,10 @@ fun MarkdownRenderer(
         onTextTapFeedback = onTextTapFeedback,
         onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
+        onTextLongClick = onTextLongClick,
+        modifier = modifier,
+        hideImages = hideImages,
+        mediaContent = mediaContent,
     )
 }
 
@@ -55,6 +63,7 @@ internal fun MarkdownRendererWithTextSelectionRegistrar(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
@@ -63,14 +72,17 @@ internal fun MarkdownRendererWithTextSelectionRegistrar(
     onTextTapFeedback: (() -> Unit)? = null,
     onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+    onTextLongClick: (() -> Unit)? = null,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
     MarkdownRendererContent(
         content = content,
-        modifier = modifier,
         maxVisibleBlocks = maxVisibleBlocks,
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
         onTotalBlocks = onTotalBlocks,
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = knownTagsToStrip,
@@ -79,6 +91,10 @@ internal fun MarkdownRendererWithTextSelectionRegistrar(
         onTextTapFeedback = onTextTapFeedback,
         onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
+        onTextLongClick = onTextLongClick,
+        modifier = modifier,
+        hideImages = hideImages,
+        mediaContent = mediaContent,
     )
 }
 
@@ -89,6 +105,7 @@ private fun MarkdownRendererContent(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     onTotalBlocks: ((Int) -> Unit)?,
     precomputedRenderPlan: ModernMarkdownRenderPlan?,
     knownTagsToStrip: ImmutableList<String>,
@@ -96,8 +113,11 @@ private fun MarkdownRendererContent(
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
-    modifier: Modifier = Modifier,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
     ModernMarkdownRenderer(
         content = content,
@@ -106,6 +126,7 @@ private fun MarkdownRendererContent(
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
         onTotalBlocks = onTotalBlocks,
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = knownTagsToStrip,
@@ -114,6 +135,9 @@ private fun MarkdownRendererContent(
         onTextTapFeedback = onTextTapFeedback,
         onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
+        onTextLongClick = onTextLongClick,
+        hideImages = hideImages,
+        mediaContent = mediaContent,
     )
 }
 
@@ -126,6 +150,7 @@ internal fun MarkdownRendererFallback(
     onTextTapFeedback: (() -> Unit)? = null,
     onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+    onTextLongClick: (() -> Unit)? = null,
 ) {
     val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
     val textStyle =
@@ -143,5 +168,6 @@ internal fun MarkdownRendererFallback(
         onTapFeedback = onTextTapFeedback,
         onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
+        onLongClick = onTextLongClick,
     )
 }
