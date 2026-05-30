@@ -226,6 +226,7 @@ class AndroidS3SafTreeAccess
         }
 
         private fun resolveRoot(rootUriString: String): DocumentFile? =
+            // behavior-contract: silent-result-ok: revoked SAF permission → null; root unavailable
             runCatching { DocumentFile.fromTreeUri(context, rootUriString.toUri()) }
                 .getOrNull()
                 ?.takeIf { it.exists() && it.isDirectory }

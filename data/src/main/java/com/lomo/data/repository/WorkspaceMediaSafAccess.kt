@@ -3,17 +3,17 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
-import com.lomo.data.source.safIsImageFilename
-import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.io.OutputStream
+import java.util.UUID
 
 internal suspend fun listWorkspaceSafFiles(
     context: Context,
     category: WorkspaceMediaCategory,
     rootUriString: String,
-): List<WorkspaceMediaFile> =
+): List<WorkspaceMediaDescriptor> =
     withContext(Dispatchers.IO) {
         resolveWorkspaceSafRoot(context, rootUriString)
             ?.listFiles()
@@ -22,11 +22,10 @@ internal suspend fun listWorkspaceSafFiles(
             ?.sortedBy { it.name.orEmpty() }
             ?.mapNotNull { file ->
                 val filename = file.name ?: return@mapNotNull null
-                val bytes =
-                    context.contentResolver.openInputStream(file.uri)?.use { input ->
-                        input.readBytes()
-                    } ?: return@mapNotNull null
-                WorkspaceMediaFile(filename = filename, bytes = bytes)
+                WorkspaceMediaDescriptor(
+                    filename = filename,
+                    sizeBytes = file.length(),
+                )
             }?.toList()
             ?: emptyList()
     }
@@ -47,24 +46,23 @@ internal suspend fun listWorkspaceSafFilenames(
             ?: emptyList()
     }
 
-internal suspend fun writeWorkspaceSafFile(
+internal suspend fun readWorkspaceSafFileToStream(
     context: Context,
     category: WorkspaceMediaCategory,
     rootUriString: String,
     filename: String,
-    bytes: ByteArray,
-) {
+    destination: OutputStream,
+): Boolean =
     withContext(Dispatchers.IO) {
-        val root = requireNotNull(resolveWorkspaceSafRoot(context, rootUriString)) { "Cannot access SAF media root" }
-        root.findFile(filename)?.delete()
-        val target =
-            root.createFile(workspaceMimeTypeFor(category, filename), filename)
-                ?: throw IOException("Cannot create SAF media file: $filename")
-        context.contentResolver.openOutputStream(target.uri)?.use { output ->
-            output.write(bytes)
-        } ?: throw IOException("Cannot open SAF media output stream: $filename")
+        val target = resolveWorkspaceSafRoot(context, rootUriString)
+            ?.findFile(filename)
+            ?.takeIf { file -> file.isFile && file.name == filename && workspaceMatchesSafCategory(category, file) }
+            ?: return@withContext false
+        context.contentResolver.openInputStream(target.uri)?.use { input ->
+            input.copyTo(destination, bufferSize = WORKSPACE_MEDIA_STREAM_BUFFER_BYTES)
+        } ?: return@withContext false
+        true
     }
-}
 
 internal suspend fun deleteWorkspaceSafFile(
     context: Context,
@@ -77,6 +75,7 @@ internal suspend fun deleteWorkspaceSafFile(
 }
 
 internal fun isContentUriRoot(value: String): Boolean =
+    // behavior-contract: silent-result-ok: malformed URI → false (not a content URI)
     runCatching {
         java.net.URI(value).scheme.equals("content", ignoreCase = true)
     }.getOrDefault(false)
@@ -84,54 +83,10 @@ internal fun isContentUriRoot(value: String): Boolean =
 internal fun resolveWorkspaceSafRoot(
     context: Context,
     rootUriString: String,
+    // behavior-contract: silent-result-ok: revoked SAF → null; workspace root unavailable
 ): DocumentFile? = runCatching { DocumentFile.fromTreeUri(context, rootUriString.toUri()) }.getOrNull()
 
-private fun workspaceMatchesSafCategory(
-    category: WorkspaceMediaCategory,
-    file: DocumentFile,
-): Boolean {
-    val filename = file.name ?: return false
-    return when (category) {
-        WorkspaceMediaCategory.IMAGE ->
-            file.type?.startsWith(IMAGE_MIME_PREFIX) == true || safIsImageFilename(filename)
-        WorkspaceMediaCategory.VOICE ->
-            file.type?.startsWith(AUDIO_MIME_PREFIX) == true || isWorkspaceSafAudioFilename(filename)
-    }
-}
+internal fun temporaryWorkspaceSafFilename(filename: String): String =
+    "$filename.tmp.${UUID.randomUUID()}"
 
-internal fun workspaceMimeTypeFor(
-    category: WorkspaceMediaCategory,
-    filename: String,
-): String =
-    when (category) {
-        WorkspaceMediaCategory.IMAGE -> workspaceImageMimeType(filename)
-        WorkspaceMediaCategory.VOICE -> workspaceAudioMimeType(filename)
-    }
-
-private fun workspaceImageMimeType(filename: String): String =
-    when (filename.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
-        "png" -> "image/png"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "bmp" -> "image/bmp"
-        "heic" -> "image/heic"
-        "heif" -> "image/heif"
-        "avif" -> "image/avif"
-        else -> "image/jpeg"
-    }
-
-private fun workspaceAudioMimeType(filename: String): String =
-    when (filename.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
-        "mp3" -> "audio/mpeg"
-        "aac" -> "audio/aac"
-        "ogg" -> "audio/ogg"
-        "wav" -> "audio/wav"
-        else -> "audio/mp4"
-    }
-
-private fun isWorkspaceSafAudioFilename(name: String): Boolean {
-    return MediaFileExtensions.hasAudioExtension(name)
-}
-
-private const val AUDIO_MIME_PREFIX = "audio/"
-private const val IMAGE_MIME_PREFIX = "image/"
+private const val WORKSPACE_MEDIA_STREAM_BUFFER_BYTES = 64 * 1024

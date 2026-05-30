@@ -5,15 +5,14 @@ import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class WorkspaceMediaFile(
+data class WorkspaceMediaDescriptor(
     val filename: String,
-    val bytes: ByteArray,
+    val sizeBytes: Long,
 )
 
 enum class WorkspaceMediaCategory(
@@ -24,58 +23,26 @@ enum class WorkspaceMediaCategory(
 }
 
 interface WorkspaceMediaAccess {
-    suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile>
+    suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor>
 
     suspend fun listFilenames(category: WorkspaceMediaCategory): List<String>
 
-    suspend fun readFileBytes(
+    suspend fun readFileToStream(
         category: WorkspaceMediaCategory,
         filename: String,
-    ): ByteArray? = listFiles(category).firstOrNull { it.filename == filename }?.bytes
-
-    suspend fun writeFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        bytes: ByteArray,
-    )
+        destination: OutputStream,
+    ): Boolean
 
     suspend fun writeFileFromStream(
         category: WorkspaceMediaCategory,
         filename: String,
         source: suspend (OutputStream) -> Unit,
-    ) {
-        val output = ByteArrayOutputStream()
-        source(output)
-        writeFile(category = category, filename = filename, bytes = output.toByteArray())
-    }
+    )
 
     suspend fun deleteFile(
         category: WorkspaceMediaCategory,
         filename: String,
     )
-}
-
-object NoOpWorkspaceMediaAccess : WorkspaceMediaAccess {
-    override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile> = emptyList()
-
-    override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> = emptyList()
-
-    override suspend fun writeFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        bytes: ByteArray,
-    ) = Unit
-
-    override suspend fun writeFileFromStream(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        source: suspend (OutputStream) -> Unit,
-    ) = Unit
-
-    override suspend fun deleteFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-    ) = Unit
 }
 
 @Singleton
@@ -85,7 +52,7 @@ class DefaultWorkspaceMediaAccess
         @ApplicationContext private val context: Context,
         private val workspaceConfigSource: WorkspaceConfigSource,
     ) : WorkspaceMediaAccess {
-        override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile> =
+        override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
                 if (isContentUriRoot(root)) {
                     listWorkspaceSafFiles(context, category, root)
@@ -103,33 +70,33 @@ class DefaultWorkspaceMediaAccess
                 }
             } ?: emptyList()
 
-        override suspend fun writeFile(
+        override suspend fun readFileToStream(
             category: WorkspaceMediaCategory,
             filename: String,
-            bytes: ByteArray,
-        ) {
-            val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
-                "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
-            }
-            if (isContentUriRoot(root)) {
-                writeWorkspaceSafFile(context, category, root, filename, bytes)
-            } else {
-                writeWorkspaceDirectFile(File(root), filename, bytes)
-            }
-        }
+            destination: OutputStream,
+        ): Boolean =
+            workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
+                val safeFilename = requireWorkspaceMediaFilename(filename)
+                if (isContentUriRoot(root)) {
+                    readWorkspaceSafFileToStream(context, category, root, safeFilename, destination)
+                } else {
+                    readWorkspaceDirectFileToStream(category, File(root), safeFilename, destination)
+                }
+            } ?: false
 
         override suspend fun writeFileFromStream(
             category: WorkspaceMediaCategory,
             filename: String,
             source: suspend (OutputStream) -> Unit,
         ) {
+            val safeFilename = requireWorkspaceMediaFilename(filename)
             val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
                 "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
             }
             if (isContentUriRoot(root)) {
-                writeWorkspaceSafFileFromStream(context, category, root, filename, source)
+                writeWorkspaceSafFileFromStream(context, category, root, safeFilename, source)
             } else {
-                writeWorkspaceDirectFileFromStream(File(root), filename, source)
+                writeWorkspaceDirectFileFromStream(File(root), safeFilename, source)
             }
         }
 
@@ -137,14 +104,24 @@ class DefaultWorkspaceMediaAccess
             category: WorkspaceMediaCategory,
             filename: String,
         ) {
+            val safeFilename = requireWorkspaceMediaFilename(filename)
             val root = workspaceMediaRoot(workspaceConfigSource, category) ?: return
             if (isContentUriRoot(root)) {
-                deleteWorkspaceSafFile(context, root, filename)
+                deleteWorkspaceSafFile(context, root, safeFilename)
             } else {
-                deleteWorkspaceDirectFile(File(root), filename)
+                deleteWorkspaceDirectFile(File(root), safeFilename)
             }
         }
     }
+
+internal fun requireWorkspaceMediaFilename(filename: String): String {
+    require(filename.isNotBlank()) { "Workspace media filename must not be blank" }
+    require('/' !in filename && '\\' !in filename) {
+        "Workspace media filename must not contain paths"
+    }
+    require(filename != "." && filename != "..") { "Workspace media filename must not be relative" }
+    return filename
+}
 
 internal suspend fun workspaceMediaRoot(
     workspaceConfigSource: WorkspaceConfigSource,

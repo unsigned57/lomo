@@ -2,16 +2,24 @@ package com.lomo.data.repository
 
 import com.lomo.data.source.directEnsureRootExists
 import com.lomo.data.source.directIsImageFilename
+import com.lomo.data.source.ensureWithinDirectory
+import com.lomo.data.source.fsyncDirectoryBestEffort
 import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.io.OutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 internal suspend fun listWorkspaceDirectFiles(
     category: WorkspaceMediaCategory,
     root: File,
-): List<WorkspaceMediaFile> =
+): List<WorkspaceMediaDescriptor> =
     withContext(Dispatchers.IO) {
         if (!root.exists() || !root.isDirectory) {
             return@withContext emptyList()
@@ -22,9 +30,9 @@ internal suspend fun listWorkspaceDirectFiles(
             ?.filter { file -> file.isFile && workspaceMatchesDirectCategory(category, file.name) }
             ?.sortedBy { it.name }
             ?.map { file ->
-                WorkspaceMediaFile(
+                WorkspaceMediaDescriptor(
                     filename = file.name,
-                    bytes = file.readBytes(),
+                    sizeBytes = file.length(),
                 )
             }?.toList()
             ?: emptyList()
@@ -48,16 +56,25 @@ internal suspend fun listWorkspaceDirectFilenames(
             ?: emptyList()
     }
 
-internal suspend fun writeWorkspaceDirectFile(
+internal suspend fun readWorkspaceDirectFileToStream(
+    category: WorkspaceMediaCategory,
     root: File,
     filename: String,
-    bytes: ByteArray,
-) {
+    destination: OutputStream,
+): Boolean =
     withContext(Dispatchers.IO) {
-        directEnsureRootExists(root)
-        File(root, filename).writeBytes(bytes)
+        if (!root.exists() || !root.isDirectory) {
+            return@withContext false
+        }
+        val target = workspaceDirectTarget(root, filename)
+        if (!target.isFile || !workspaceMatchesDirectCategory(category, target.name)) {
+            return@withContext false
+        }
+        target.inputStream().use { input ->
+            input.copyTo(destination, bufferSize = WORKSPACE_MEDIA_STREAM_BUFFER_BYTES)
+        }
+        true
     }
-}
 
 internal suspend fun writeWorkspaceDirectFileFromStream(
     root: File,
@@ -66,9 +83,8 @@ internal suspend fun writeWorkspaceDirectFileFromStream(
 ) {
     withContext(Dispatchers.IO) {
         directEnsureRootExists(root)
-        File(root, filename).outputStream().use { output ->
-            source(output)
-        }
+        val target = workspaceDirectTarget(root, filename)
+        writeWorkspaceDirectFileAtomically(target = target, source = source)
     }
 }
 
@@ -77,7 +93,7 @@ internal suspend fun deleteWorkspaceDirectFile(
     filename: String,
 ) {
     withContext(Dispatchers.IO) {
-        val target = File(root, filename)
+        val target = workspaceDirectTarget(root, filename)
         if (target.exists()) {
             target.delete()
         }
@@ -96,3 +112,50 @@ private fun workspaceMatchesDirectCategory(
 private fun isWorkspaceAudioFilename(name: String): Boolean {
     return MediaFileExtensions.hasAudioExtension(name)
 }
+
+private fun workspaceDirectTarget(
+    root: File,
+    filename: String,
+): File {
+    val target = File(root, filename)
+    ensureWithinDirectory(root, target)
+    return target
+}
+
+private suspend fun writeWorkspaceDirectFileAtomically(
+    target: File,
+    source: suspend (OutputStream) -> Unit,
+) {
+    val parent = target.parentFile ?: throw IOException("Missing parent directory for ${target.absolutePath}")
+    if (!parent.exists() && !parent.mkdirs()) {
+        throw IOException("Failed to create parent directory ${parent.absolutePath}")
+    }
+    val temp = File(parent, "${target.name}.tmp.${UUID.randomUUID()}")
+    try {
+        FileOutputStream(temp).use { output ->
+            source(output)
+            output.fd.sync()
+        }
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+        fsyncDirectoryBestEffort(parent)
+    } finally {
+        if (temp.exists()) {
+            temp.delete()
+        }
+    }
+}
+
+private const val WORKSPACE_MEDIA_STREAM_BUFFER_BYTES = 64 * 1024
