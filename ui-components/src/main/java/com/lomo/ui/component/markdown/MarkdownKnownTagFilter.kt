@@ -56,7 +56,6 @@ object MarkdownKnownTagFilter {
                 .replace(HORIZONTAL_WHITESPACE_REGEX, " ")
                 .replace(SPACE_BEFORE_PUNCTUATION_REGEX, "")
                 .replace(SPACE_BEFORE_NEWLINE_REGEX, "\n")
-                .replace(LEADING_EMPTY_LINES_REGEX, "")
         } else {
             input
         }

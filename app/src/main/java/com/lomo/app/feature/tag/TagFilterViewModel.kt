@@ -6,30 +6,23 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.MemoCollectionStateHolder
+import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
 import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.runDeleteAnimationWithRollback
-import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.mapToUiModelState
+import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DeleteMemoUseCase
-import com.lomo.domain.usecase.SaveImageResult
+import com.lomo.domain.usecase.GetMemosByTagPageUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -39,85 +32,78 @@ class TagFilterViewModel
     @Inject
     constructor(
         savedStateHandle: SavedStateHandle,
-        private val memoUiCoordinator: MemoUiCoordinator,
-        private val appConfigStateProvider: AppConfigStateProvider,
+        getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
+        observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+        appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        private val imageMapProvider: ImageMapProvider,
-        private val memoUiMapper: MemoUiMapper,
-        private val deleteMemoUseCase: DeleteMemoUseCase,
-        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-        private val saveImageUseCase: SaveImageUseCase,
+        imageMapProvider: ImageMapProvider,
+        memoUiMapper: MemoUiMapper,
+        deleteMemoUseCase: DeleteMemoUseCase,
+        updateMemoContentUseCase: UpdateMemoContentUseCase,
+        toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+        saveImageUseCase: SaveImageUseCase,
     ) : ViewModel() {
-        val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
-        private val _errorMessage = MutableStateFlow<String?>(null)
-        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-        private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
-        val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
-
-        private val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
-
-        private val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
-
-        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
-
-        val activeDayCount: StateFlow<Int> =
-            memoUiCoordinator
-                .activeDayCount()
-                .stateIn(viewModelScope, appWhileSubscribed(), 0)
-
-        val rootDir: StateFlow<String?> = rootDirectory
-        val imageDir: StateFlow<String?> = imageDirectory
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
-
-        val memos: StateFlow<List<Memo>> =
-            memoUiCoordinator
-                .memosByTag(tagName)
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
-
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            memos.mapToUiModelState(
-                rootDirectory = rootDir,
-                imageDirectory = imageDir,
-                imageMap = imageMap,
+        private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
+        val tagName: String = routeArgs.tagName
+        private val collectionWindowStateHolder =
+            MemoCollectionWindowStateHolder(
+                source = { getMemosByTagPageUseCase(tag = tagName) },
+                scope = viewModelScope,
+            )
+        private val collectionStateHolder =
+            MemoCollectionStateHolder(
+                source = collectionWindowStateHolder.memos,
+                configStateProvider = appConfigStateProvider,
+                imageMapProvider = imageMapProvider,
                 memoUiMapper = memoUiMapper,
+                capabilities =
+                    MemoCollectionCapabilities.Editable(
+                        deleteMemo = deleteMemoUseCase::invoke,
+                        updateMemo = updateMemoContentUseCase::invoke,
+                        toggleTodo = { memo, lineIndex, checked ->
+                            toggleMemoCheckboxUseCase(memo = memo, lineIndex = lineIndex, checked = checked)
+                        },
+                        saveImage = saveImageUseCase::saveWithCacheSyncStatus,
+                    ),
                 scope = viewModelScope,
             )
 
+        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
+        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
+
+        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
+
+        val activeDayCount: StateFlow<Int> =
+            observeActiveDayCountUseCase()
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
+
+        val rootDir: StateFlow<String?> = collectionStateHolder.rootDirectory
+        val imageDir: StateFlow<String?> = collectionStateHolder.imageDirectory
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
+
+        val memos: StateFlow<List<Memo>> = collectionStateHolder.memos
+        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
+
+        val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            collectionStateHolder.uiMemos
+
+        fun loadMore() {
+            collectionWindowStateHolder.loadNextPage()
+        }
+
         fun deleteMemo(memo: Memo) {
-            viewModelScope.launch {
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemId = memo.id,
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        deleteMemoUseCase(memo)
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
-                }
-            }
+            collectionStateHolder.actions.delete(memo)
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            _deletingMemoIds.value = _deletingMemoIds.value - memoId
+            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
         }
 
         fun updateMemo(
             memo: Memo,
             newContent: String,
         ) {
-            viewModelScope.launch {
-                runCatching {
-                    updateMemoContentUseCase(memo, newContent)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
-                }
-            }
+            collectionStateHolder.actions.updateMemo(memo, newContent)
         }
 
         fun toggleTodo(
@@ -125,16 +111,7 @@ class TagFilterViewModel
             lineIndex: Int,
             checked: Boolean,
         ) {
-            viewModelScope.launch {
-                runCatching {
-                    toggleMemoCheckboxUseCase(memo = memo, lineIndex = lineIndex, checked = checked)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to update todo")
-                }
-            }
+            collectionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
         }
 
         fun saveImage(
@@ -142,31 +119,11 @@ class TagFilterViewModel
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            viewModelScope.launch {
-                runCatching {
-                    val path =
-                        when (
-                            val result =
-                                saveImageUseCase.saveWithCacheSyncStatus(
-                                    StorageLocation(uri.toString()),
-                                )
-                        ) {
-                            is SaveImageResult.SavedAndCacheSynced -> result.location.raw
-                            is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
-                        }
-                    onResult(path)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
-                    onError?.invoke()
-                }
-            }
+            collectionStateHolder.actions.saveImage(uri, onResult, onError)
         }
 
         fun clearError() {
-            _errorMessage.value = null
+            collectionStateHolder.errors.clear()
         }
 
         fun recordMemoActionUsage(actionId: MemoActionId) {
@@ -193,4 +150,19 @@ class TagFilterViewModel
             }
         }
 
+        private data class TagFilterRouteArgs(
+            val tagName: String,
+        ) {
+            companion object {
+                private const val TAG_NAME_KEY = "tagName"
+                private const val TAG_NAME_ERROR =
+                    "TagFilterViewModel requires non-blank tagName route argument"
+
+                fun from(savedStateHandle: SavedStateHandle): TagFilterRouteArgs {
+                    val tagName = savedStateHandle.get<String>(TAG_NAME_KEY)
+                    check(!tagName.isNullOrBlank()) { TAG_NAME_ERROR }
+                    return TagFilterRouteArgs(tagName = tagName)
+                }
+            }
+        }
     }

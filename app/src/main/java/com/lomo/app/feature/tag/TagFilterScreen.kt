@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Tag
@@ -25,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -37,10 +40,18 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
+import com.lomo.app.feature.memo.MemoEditorSessionState
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoMenuPresentationState
+import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.app.feature.memo.existingMemoEditorSurface
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.rememberMemoEditorController
+import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
@@ -51,6 +62,7 @@ private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
 private val TAG_FILTER_LIST_PADDING = 16.dp
 private val TAG_FILTER_LIST_BOTTOM_PADDING = 88.dp
+private const val TAG_FILTER_LOAD_MORE_LOOKAHEAD_ITEMS = 6
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -62,6 +74,7 @@ fun TagFilterScreen(
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     onRequestFocusMemo: (String) -> Unit = {},
     onNavigateToMain: () -> Unit = onBackClick,
+    onNavigateToTag: (String) -> Unit = {},
     lanShareEnabled: Boolean = true,
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
@@ -73,42 +86,67 @@ fun TagFilterScreen(
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val canLoadMore by viewModel.canLoadMore.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val editorController = rememberMemoEditorController()
 
     TagFilterScreenEffects(
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onClearError = viewModel::clearError,
     )
+    val memoMenuCommandHandler =
+        rememberMemoMenuCommandHandler(
+            presentationState =
+                MemoMenuPresentationState(
+                    shareCardShowTime = appPreferences.shareCardShowTime,
+                    shareCardShowSignature = appPreferences.shareCardShowBrand,
+                    shareCardSignatureText = appPreferences.shareCardSignatureText,
+                    customFontPath = appPreferences.customFontPath,
+                    showJump = true,
+                    memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+                    memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.TAG),
+                ),
+            onEditMemo = editorController::openForEdit,
+            onDeleteMemo = viewModel::deleteMemo,
+            onLanShare =
+                if (lanShareEnabled) {
+                    { request -> onNavigateToShare(request.content, request.timestamp) }
+                } else {
+                    null
+                },
+            onJump = { state ->
+                handleMemoJumpToMain(
+                    selection = state,
+                    requestFocusMemo = onRequestFocusMemo,
+                    navigateToMain = onNavigateToMain,
+                )
+            },
+            onMemoActionInvoked = viewModel::recordMemoActionUsage,
+            onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        )
+
+    val editorSurface =
+        existingMemoEditorSurface(
+            session =
+                MemoEditorSessionState(
+                    imageDirectory = imageDirectory,
+                    rootPath = rootDirectory,
+                    imageMap = stableImageMap,
+                    dateFormat = appPreferences.dateFormat,
+                    timeFormat = appPreferences.timeFormat,
+                ),
+            toolbarToolOrder = appPreferences.inputToolbarToolOrder,
+            onUpdateMemo = viewModel::updateMemo,
+            onSaveImage = viewModel::saveImage,
+            onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
+        )
 
     MemoInteractionHost(
-        shareCardShowTime = appPreferences.shareCardShowTime,
-        shareCardShowSignature = appPreferences.shareCardShowBrand,
-        shareCardSignatureText = appPreferences.shareCardSignatureText,
-        dateFormat = appPreferences.dateFormat,
-        timeFormat = appPreferences.timeFormat,
-        rootPath = rootDirectory,
-        imageMap = stableImageMap,
-        onDeleteMemo = viewModel::deleteMemo,
-        onUpdateMemo = viewModel::updateMemo,
-        onSaveImage = viewModel::saveImage,
-        imageDirectory = imageDirectory,
-        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
-        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.TAG),
-        onMemoActionInvoked = viewModel::recordMemoActionUsage,
-        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
-        inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
-        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
-        onJump = { state ->
-            handleMemoJumpToMain(
-                state = state,
-                requestFocusMemo = onRequestFocusMemo,
-                navigateToMain = onNavigateToMain,
-            )
-        },
-        showJump = true,
+        menuCommandHandler = memoMenuCommandHandler,
+        controller = editorController,
+        editorSurface = editorSurface,
     ) { showMenu, openEditor ->
         TagFilterScreenScaffold(
             tagName = tagName,
@@ -131,6 +169,9 @@ fun TagFilterScreen(
                 onImageClick = onNavigateToImage,
                 onTodoClick = viewModel::toggleTodo,
                 onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
+                onNavigateToTag = onNavigateToTag,
+                canLoadMore = canLoadMore,
+                onLoadMore = viewModel::loadMore,
                 modifier = modifier.padding(padding),
             )
         }
@@ -214,12 +255,16 @@ private fun TagFilterScreenContent(
     freeTextCopyEnabled: Boolean,
     deletingMemoIds: ImmutableSet<String>,
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
-    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     onDeleteAnimationSettled: (String) -> Unit,
+    onNavigateToTag: (String) -> Unit,
+    canLoadMore: Boolean,
+    onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
     Box(modifier = modifier.fillMaxSize()) {
         if (memos.isEmpty()) {
             EmptyState(
@@ -228,6 +273,12 @@ private fun TagFilterScreenContent(
                 description = stringResource(R.string.empty_no_tag_matches_subtitle),
             )
         } else {
+            TagFilterLoadMoreEffect(
+                itemCount = memos.size,
+                canLoadMore = canLoadMore,
+                listState = listState,
+                onLoadMore = onLoadMore,
+            )
             MemoCardList(
                 memos = memos,
                 dateFormat = dateFormat,
@@ -238,9 +289,11 @@ private fun TagFilterScreenContent(
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
                 onTodoClick = onTodoClick,
+                onTagClick = onNavigateToTag,
                 animation = MemoCardListAnimation.Placement,
                 deletingMemoIds = deletingMemoIds,
                 onDeleteAnimationSettled = onDeleteAnimationSettled,
+                listState = listState,
                 contentPadding =
                     PaddingValues(
                         top = TAG_FILTER_LIST_PADDING,
@@ -251,5 +304,28 @@ private fun TagFilterScreenContent(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+@Composable
+private fun TagFilterLoadMoreEffect(
+    itemCount: Int,
+    canLoadMore: Boolean,
+    listState: LazyListState,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(listState, itemCount, canLoadMore) {
+        if (!canLoadMore || itemCount == 0) {
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisibleIndex >= itemCount - TAG_FILTER_LOAD_MORE_LOOKAHEAD_ITEMS
+        }.distinctUntilChanged()
+            .collect { shouldLoad ->
+                if (shouldLoad) {
+                    onLoadMore()
+                }
+            }
     }
 }
