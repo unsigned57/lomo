@@ -159,7 +159,11 @@ internal class GitSyncConflictRecoveryCoordinator
                 }.getOrElse { error ->
                     Timber.e(error, "Failed to force push local branch")
                     ForcePushOutcome(
-                        result = GitSyncResult.Error("Failed to force push local branch: ${error.message}", error),
+                        result =
+                            GitSyncResult.Error(
+                                message = "Failed to force push local branch: ${error.message}",
+                                exception = error,
+                            ),
                         syncedAtMs = null,
                     )
                 }
@@ -187,29 +191,16 @@ internal class GitSyncConflictRecoveryCoordinator
                     Git.open(rootDir).use { g ->
                         primitives.ensureRemote(g, remoteUrl)
 
-                        for (file in conflictSet.files) {
-                            val choice = resolution.perFileChoices[file.relativePath]
-                                ?: SyncConflictResolutionChoice.KEEP_LOCAL
-                            val content = when (choice) {
-                                SyncConflictResolutionChoice.KEEP_LOCAL -> file.localContent
-                                SyncConflictResolutionChoice.KEEP_REMOTE -> file.remoteContent
-                                SyncConflictResolutionChoice.MERGE_TEXT ->
-                                    SyncConflictTextMerge.merge(
-                                        localText = file.localContent,
-                                        remoteText = file.remoteContent,
-                                        localLastModified = file.localLastModified,
-                                        remoteLastModified = file.remoteLastModified,
-                                    )
-                                        ?: error("Unable to merge conflict for ${file.relativePath}")
-                                SyncConflictResolutionChoice.SKIP_FOR_NOW ->
-                                    return@withContext GitSyncResult.Error(
-                                        "Git conflicts do not support deferring files for later resolution",
-                                    )
-                            } ?: continue
-
-                            val target = File(rootDir, file.relativePath)
+                        val resolvedFiles =
+                            when (val contentResolution = resolveFileContents(resolution, conflictSet)) {
+                                is GitConflictContentResolution.Resolved -> contentResolution.files
+                                is GitConflictContentResolution.Unsupported ->
+                                    return@withContext GitSyncResult.Error(contentResolution.message)
+                            }
+                        resolvedFiles.forEach { resolved ->
+                            val target = File(rootDir, resolved.relativePath)
                             target.parentFile?.mkdirs()
-                            target.writeText(content, Charsets.UTF_8)
+                            target.writeText(resolved.content, Charsets.UTF_8)
                         }
 
                         g.add().addFilepattern(".").call()
@@ -234,6 +225,54 @@ internal class GitSyncConflictRecoveryCoordinator
                     GitSyncResult.Error("Failed to apply conflict resolution: ${error.message}", error)
                 }
             }
+
+        private fun resolveFileContents(
+            resolution: SyncConflictResolution,
+            conflictSet: SyncConflictSet,
+        ): GitConflictContentResolution {
+            val resolvedFiles = mutableListOf<ResolvedGitConflictFile>()
+            for (file in conflictSet.files) {
+                val choice = resolution.perFileChoices[file.relativePath]
+                    ?: SyncConflictResolutionChoice.KEEP_LOCAL
+                val content =
+                    when (choice) {
+                        SyncConflictResolutionChoice.KEEP_LOCAL -> file.localContent
+                        SyncConflictResolutionChoice.KEEP_REMOTE -> file.remoteContent
+                        SyncConflictResolutionChoice.MERGE_TEXT ->
+                            SyncConflictTextMerge.merge(
+                                localText = file.localContent,
+                                remoteText = file.remoteContent,
+                                localLastModified = file.localLastModified,
+                                remoteLastModified = file.remoteLastModified,
+                            )
+                                ?: return GitConflictContentResolution.Unsupported(
+                                    "Git text merge could not resolve ${file.relativePath} automatically. " +
+                                        "Choose keep local or keep remote.",
+                                )
+                        SyncConflictResolutionChoice.SKIP_FOR_NOW ->
+                            return GitConflictContentResolution.Unsupported(GIT_DEFERRED_FILES_UNSUPPORTED_MESSAGE)
+                    } ?: continue
+                resolvedFiles += ResolvedGitConflictFile(relativePath = file.relativePath, content = content)
+            }
+            return GitConflictContentResolution.Resolved(resolvedFiles)
+        }
     }
 
 private const val NOT_GIT_REPOSITORY_MESSAGE = "Not a git repository. Please initialize first."
+private const val GIT_DEFERRED_FILES_UNSUPPORTED_MESSAGE =
+    "Git conflicts do not support deferring files for later resolution"
+
+private sealed interface GitConflictContentResolution {
+    data class Resolved(
+        val files: List<ResolvedGitConflictFile>,
+    ) : GitConflictContentResolution
+
+    data class Unsupported(
+        val message: String,
+    ) : GitConflictContentResolution
+}
+
+private data class ResolvedGitConflictFile(
+    val relativePath: String,
+    val content: String,
+)

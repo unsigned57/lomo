@@ -5,11 +5,15 @@ import kotlin.math.abs
 data class LocalGitMediaFile(
     val path: String,
     val lastModified: Long,
+    val size: Long?,
+    val fingerprint: String,
 )
 
 data class RepoGitMediaFile(
     val path: String,
     val lastModified: Long,
+    val size: Long,
+    val fingerprint: String,
 )
 
 enum class GitMediaSyncDirection {
@@ -75,12 +79,30 @@ class GitMediaSyncPlanner(
         repo: RepoGitMediaFile,
         metadata: GitMediaSyncMetadataEntry?,
     ): GitMediaSyncAction? {
+        if (local.fingerprint == repo.fingerprint) {
+            return null
+        }
+
         if (metadata == null) {
             return newerWins(path, local.lastModified, repo.lastModified)
         }
 
-        val localChanged = changed(local.lastModified, metadata.localLastModified)
-        val repoChanged = changed(repo.lastModified, metadata.repoLastModified)
+        val localChanged = changed(
+            currentLastModified = local.lastModified,
+            currentSize = local.size,
+            currentFingerprint = local.fingerprint,
+            previousLastModified = metadata.localLastModified,
+            previousSize = metadata.localSize,
+            previousFingerprint = metadata.localFingerprint,
+        )
+        val repoChanged = changed(
+            currentLastModified = repo.lastModified,
+            currentSize = repo.size,
+            currentFingerprint = repo.fingerprint,
+            previousLastModified = metadata.repoLastModified,
+            previousSize = metadata.repoSize,
+            previousFingerprint = metadata.repoFingerprint,
+        )
 
         return when {
             !localChanged && !repoChanged -> null
@@ -104,7 +126,14 @@ class GitMediaSyncPlanner(
                 GitMediaSyncAction(path, GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY)
             }
 
-            !changed(local.lastModified, metadata.localLastModified) -> {
+            !changed(
+                currentLastModified = local.lastModified,
+                currentSize = local.size,
+                currentFingerprint = local.fingerprint,
+                previousLastModified = metadata.localLastModified,
+                previousSize = metadata.localSize,
+                previousFingerprint = metadata.localFingerprint,
+            ) -> {
                 GitMediaSyncAction(path, GitMediaSyncDirection.DELETE_LOCAL, GitMediaSyncReason.REPO_DELETED)
             }
 
@@ -128,7 +157,14 @@ class GitMediaSyncPlanner(
                 GitMediaSyncAction(path, GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY)
             }
 
-            !changed(repo.lastModified, metadata.repoLastModified) -> {
+            !changed(
+                currentLastModified = repo.lastModified,
+                currentSize = repo.size,
+                currentFingerprint = repo.fingerprint,
+                previousLastModified = metadata.repoLastModified,
+                previousSize = metadata.repoSize,
+                previousFingerprint = metadata.repoFingerprint,
+            ) -> {
                 GitMediaSyncAction(path, GitMediaSyncDirection.DELETE_REPO, GitMediaSyncReason.LOCAL_DELETED)
             }
 
@@ -156,12 +192,25 @@ class GitMediaSyncPlanner(
         }
 
     private fun changed(
-        current: Long?,
-        previous: Long?,
-    ): Boolean =
-        if (current == null || previous == null) {
-            current != previous
-        } else {
-            abs(current - previous) > timestampToleranceMs
+        currentLastModified: Long?,
+        currentSize: Long?,
+        currentFingerprint: String,
+        previousLastModified: Long?,
+        previousSize: Long?,
+        previousFingerprint: String?,
+    ): Boolean {
+        if (previousFingerprint != null) {
+            return currentFingerprint != previousFingerprint
         }
+
+        if (previousSize != null && currentSize != previousSize) {
+            return true
+        }
+
+        return if (currentLastModified == null || previousLastModified == null) {
+            currentLastModified != previousLastModified
+        } else {
+            abs(currentLastModified - previousLastModified) > timestampToleranceMs
+        }
+    }
 }

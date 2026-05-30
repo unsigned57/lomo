@@ -145,6 +145,7 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
             MemoSynchronizer(
                 refreshEngine = refreshEngine,
                 mutationHandler = mutationHandler,
+                outboxScope = immediateTestBackgroundScope(),
                 startOutboxCoordinator = false,
             )
         runtime =
