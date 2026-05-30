@@ -12,10 +12,5 @@ interface MemoVersionRepository {
         limit: Int,
     ): MemoRevisionPage
 
-    suspend fun restoreMemoRevision(
-        currentMemo: Memo,
-        revisionId: String,
-    )
-
     suspend fun clearAllMemoSnapshots()
 }
