@@ -9,7 +9,6 @@ internal const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
 internal const val MAX_SHARE_BODY_LINES = 60
 internal const val SHORT_BODY_CENTER_THRESHOLD = 42
 internal const val SHORT_BODY_MAX_NON_BLANK_LINES = 3
-internal const val REMOTE_IMAGE_TIMEOUT_MS = 10_000
 
 internal const val MIN_SHARE_CARD_CANVAS_WIDTH_PX = 720
 internal const val SHARE_CARD_CANVAS_WIDTH_RATIO = 0.9f
@@ -151,6 +150,7 @@ internal data class ShareCardPaintSet(
     val codePaint: TextPaint,
     val tablePaint: TextPaint,
     val footerPaint: TextPaint,
+    val linkColor: Int,
 )
 
 internal data class ShareCardComposition(
@@ -210,6 +210,7 @@ internal enum class ShareInlineStyleKind {
     InlineCode,
     Link,
     Underline,
+    Highlight,
 }
 
 internal data class ShareCardPalette(
@@ -223,4 +224,5 @@ internal data class ShareCardPalette(
     val tagText: Int,
     val divider: Int,
     val quoteIndicator: Int,
+    val linkText: Int,
 )

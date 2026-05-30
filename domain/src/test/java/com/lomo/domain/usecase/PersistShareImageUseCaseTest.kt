@@ -1,80 +1,79 @@
 /*
  * Behavior Contract:
- * - Unit under test: PersistShareImageUseCaseTest
+ * - Unit under test: PersistShareImageUseCase
  * - Owning layer: domain
  * - Priority tier: P0
+ * - Capability: persist rendered share images through a streaming writer contract.
  *
  * Scenarios:
- * - Happy: standard happy path for PersistShareImageUseCaseTest.
- * - Boundary: boundary and edge cases for PersistShareImageUseCaseTest.
- * - Failure: failure and error scenarios for PersistShareImageUseCaseTest.
- * - Must-not-happen: invariants are never violated for PersistShareImageUseCaseTest.
+ * - Given a share image writer, when persistence runs with the default prefix, then the writer is
+ *   invoked and the bytes it emits are stored by the repository.
+ * - Given a custom prefix, when persistence runs, then the same prefix is forwarded with the
+ *   streamed bytes.
+ * - Given the repository returns a storage path, when persistence completes, then that path is
+ *   returned to the caller.
+ * - Given callers should not need to materialize PNG bytes first, when the use case contract is
+ *   exercised, then the observable path is a writer rather than a ByteArray payload.
  *
- * - Behavior focus: test behavioral outcomes of PersistShareImageUseCaseTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Observable outcomes:
+ * - Returned storage path, repository invocation prefix, writer invocation count, and stored bytes.
+ *
+ * TDD proof:
+ * - Fails before the fix because PersistShareImageUseCase only accepts a ByteArray payload and has
+ *   no writer-based invoke contract.
+ *
+ * Excludes:
+ * - Bitmap encoding details, filesystem persistence, FileProvider URI exposure, and cache cleanup.
  */
 
 package com.lomo.domain.usecase
-
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
 
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeShareImageRepository
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
-/*
- * Behavior Contract:
- * - Unit under test: PersistShareImageUseCase
- * - Behavior focus: share-image persistence keeps the byte payload and caller-selected filename prefix.
- * - Observable outcomes: returned storage path and repository invocation parameters.
- * - Excludes: image encoding, filesystem persistence, and URI exposure details.
- */
 class PersistShareImageUseCaseTest : DomainFunSpec() {
     private val repository = FakeShareImageRepository()
     private val useCase = PersistShareImageUseCase(repository)
+
     init {
-        test("invoke forwards bytes with default prefix") {
+        test("given share image writer when invoked with default prefix then streamed bytes are stored") {
             runTest {
-                        val bytes = byteArrayOf(1, 2, 3)
-                        repository.nextPath = "/tmp/memo_share.png"
+                val bytes = byteArrayOf(1, 2, 3)
+                var writerCallCount = 0
+                repository.nextPath = "/tmp/memo_share.png"
 
-                        val result = useCase(bytes)
-
-                        result shouldBe "/tmp/memo_share.png"
-                        repository.storedImages.single().pngBytes.toList() shouldBe bytes.toList()
-                        repository.storedImages.single().fileNamePrefix shouldBe "memo_share"
+                val result =
+                    useCase {
+                        writerCallCount += 1
+                        it.write(bytes)
                     }
+
+                result shouldBe "/tmp/memo_share.png"
+                writerCallCount shouldBe 1
+                repository.storedImages.single().pngBytes.toList() shouldBe bytes.toList()
+                repository.storedImages.single().fileNamePrefix shouldBe "memo_share"
+            }
         }
 
-        test("invoke forwards custom prefix to repository") {
+        test("given custom prefix when invoked then prefix is forwarded with streamed bytes") {
             runTest {
-                        val bytes = byteArrayOf(9, 8, 7)
-                        repository.nextPath = "/tmp/daily_review.png"
+                val bytes = byteArrayOf(9, 8, 7)
+                var writerCallCount = 0
+                repository.nextPath = "/tmp/daily_review.png"
 
-                        val result = useCase(bytes, fileNamePrefix = "daily_review")
-
-                        result shouldBe "/tmp/daily_review.png"
-                        repository.storedImages.single().pngBytes.toList() shouldBe bytes.toList()
-                        repository.storedImages.single().fileNamePrefix shouldBe "daily_review"
+                val result =
+                    useCase(fileNamePrefix = "daily_review") {
+                        writerCallCount += 1
+                        it.write(bytes)
                     }
+
+                result shouldBe "/tmp/daily_review.png"
+                writerCallCount shouldBe 1
+                repository.storedImages.single().pngBytes.toList() shouldBe bytes.toList()
+                repository.storedImages.single().fileNamePrefix shouldBe "daily_review"
+            }
         }
     }
 }

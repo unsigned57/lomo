@@ -103,6 +103,8 @@ private fun MarkdownSemanticInline.appendShareText(
             appendStyledChildren(state, ShareInlineStyleKind.Strikethrough, inlines)
         is MarkdownSemanticInline.Link ->
             appendStyledChildren(state, ShareInlineStyleKind.Link, inlines)
+        is MarkdownSemanticInline.Highlight ->
+            appendStyledChildren(state, ShareInlineStyleKind.Highlight, inlines)
         is MarkdownSemanticInline.Image -> state.appendImagePlaceholder()
         MarkdownSemanticInline.SoftBreak,
         MarkdownSemanticInline.HardBreak,
