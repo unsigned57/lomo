@@ -1,26 +1,28 @@
 package com.lomo.data.source
 
+import android.content.Context
 import android.net.Uri
 import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.io.IOException
 
 internal class DirectMediaStorageBackendDelegate(
+    private val context: Context,
     private val rootDir: File,
 ) : MediaStorageBackend {
     override suspend fun saveImage(
         sourceUri: Uri,
         filename: String,
     ) {
-        withContext(Dispatchers.IO) {
-            directEnsureRootExists(rootDir)
-            throw UnsupportedOperationException(
-                "Direct image storage requires Context to resolve source URIs. " +
-                    "Use FileDataSourceImpl.saveImage() instead.",
-            )
-        }
+        directSaveImage(
+            context = context,
+            rootDir = rootDir,
+            sourceUri = sourceUri,
+            filename = filename,
+        )
     }
 
     override suspend fun listImageFiles(): List<Pair<String, String>> = directListImageFiles(rootDir)
@@ -89,3 +91,21 @@ private suspend fun directCreateVoiceFile(
         directEnsureRootExists(rootDir)
         Uri.fromFile(File(rootDir, filename))
     }
+
+private suspend fun directSaveImage(
+    context: Context,
+    rootDir: File,
+    sourceUri: Uri,
+    filename: String,
+) = withContext(Dispatchers.IO) {
+    val inputStream =
+        context.contentResolver.openInputStream(sourceUri)
+            ?: throw IOException("Cannot open source image URI")
+    inputStream.use { input ->
+        directEnsureRootExists(rootDir)
+        val targetFile = File(rootDir, filename)
+        targetFile.outputStream().use { outputStream ->
+            input.copyTo(outputStream)
+        }
+    }
+}
