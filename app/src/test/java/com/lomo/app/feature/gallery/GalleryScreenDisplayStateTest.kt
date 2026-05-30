@@ -9,65 +9,114 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 
 /*
- * Test Contract:
- * - Unit under test: GalleryScreen display-state reducer.
+ * Behavior Contract:
+ * - Unit under test: resolveGalleryScreenDisplayState (GalleryScreen display-state reducer)
+ * - Owning layer: app
+ * - Priority tier: P2
+ * - Capability: decide gallery loading vs empty vs grid so the mosaic only renders once tile aspect ratios
+ *   and first-screen image loads are final.
  *
- * Scenario matrix:
- * - Happy: standard happy path for GalleryScreenDisplayStateTest.
- * - Boundary: boundary and edge cases for GalleryScreenDisplayStateTest.
- * - Failure: failure and error scenarios for GalleryScreenDisplayStateTest.
- * - Must-not-happen: invariants are never violated for GalleryScreenDisplayStateTest.
- * - Behavior focus: gallery entry must distinguish initial loading, true empty data, and image-dimension
- *   loading so transient empty lists or unresolved dimensions do not flash a real empty gallery or blank page.
- * - Observable outcomes: resolved GalleryScreenDisplayState for loading, loaded-empty, dimensions-loading,
- *   and grid-ready inputs.
- * - Red phase: Fails before the fix because GalleryScreenContent only receives an empty memo list and
- *   nullable dimensions, so it cannot distinguish initial loading from a true empty gallery and renders a
- *   blank page while dimensions are unresolved.
- * - Excludes: Compose rendering, image decoding, ContentResolver I/O, and navigation wiring.
+ * Scenarios:
+ * - Given the gallery is still loading memos, when reduced, then the state is Loading (not a true empty gallery).
+ * - Given memos loaded but the list is empty, when reduced, then the state is Empty.
+ * - Given loaded memos with no aspect map yet, when reduced, then the state stays Loading.
+ * - Given loaded memos whose aspect ratios are not all resolved, when reduced, then the state stays Loading so the
+ *   mosaic does not render-then-reflow.
+ * - Given loaded memos whose first-screen images are not loaded yet, when reduced, then the state stays Loading so
+ *   cells do not appear blank after the loading indicator leaves.
+ * - Given loaded memos with all dimensions and first-screen images ready, when reduced, then the state is Grid.
+ *
+ * Observable outcomes:
+ * - The returned GalleryScreenDisplayState (Loading | Empty | Grid) for each input combination.
+ *
+ * TDD proof:
+ * - RED: before the aspectsReady and initialImagesReady gates, loaded memos with a present aspect map reduced straight
+ *   to Grid, so the "stay loading until every tile/image resolves" scenarios failed (Grid instead of Loading).
+ * - RED command: `./gradlew :app:testDebugUnitTest --tests 'com.lomo.app.feature.gallery.GalleryScreenDisplayStateTest'`.
+ * - GREEN: the reducer keeps Loading until aspectsReady is true.
+ *
+ * Excludes:
+ * - Compose rendering, image decoding, ContentResolver I/O, and navigation wiring.
+ *
+ * Test Change Justification:
+ * - Reason category: production contract change (added aspectsReady gate).
+ * - Old behavior/assertion being replaced: "loaded memos with dimensions resolve to grid" treated a present
+ *   (possibly defaulted) aspect map as grid-ready.
+ * - Why old assertion is no longer correct: a present-but-not-fully-resolved aspect map renders square tiles that
+ *   reflow as ratios decode; the grid must wait for all aspects.
+ * - Coverage preserved by: splitting into "defaulted aspects stay loading" and "all resolved resolves to grid".
+ * - Why this is not fitting the test to the implementation: the scenarios encode the intended no-reflow entry
+ *   behavior, asserting Loading vs Grid by readiness rather than mirroring the reducer's branches.
  */
 class GalleryScreenDisplayStateTest : AppFunSpec() {
     init {
         test("initial gallery loading is not treated as true empty") {
-            (resolveGalleryScreenDisplayState(
-                    galleryState = GalleryUiMemosState.Loading,
-                    aspectByMemoId = null,
-                )) shouldBe (GalleryScreenDisplayState.Loading)
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loading,
+                aspectByMemoId = null,
+                aspectsReady = false,
+                initialImagesReady = false,
+            ) shouldBe GalleryScreenDisplayState.Loading
         }
-    }
 
-    init {
         test("loaded empty gallery is the only true empty state") {
-            (resolveGalleryScreenDisplayState(
-                    galleryState = GalleryUiMemosState.Loaded(emptyList()),
-                    aspectByMemoId = null,
-                )) shouldBe (GalleryScreenDisplayState.Empty)
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loaded(emptyList()),
+                aspectByMemoId = null,
+                aspectsReady = false,
+                initialImagesReady = false,
+            ) shouldBe GalleryScreenDisplayState.Empty
         }
-    }
 
-    init {
         test("loaded memos wait in loading state until image dimensions resolve") {
             val memos = persistentListOf(galleryMemo("memo-with-image", "images/photo.jpg"))
 
-            (resolveGalleryScreenDisplayState(
-                    galleryState = GalleryUiMemosState.Loaded(memos),
-                    aspectByMemoId = null,
-                )) shouldBe (GalleryScreenDisplayState.Loading)
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loaded(memos),
+                aspectByMemoId = null,
+                aspectsReady = false,
+                initialImagesReady = false,
+            ) shouldBe GalleryScreenDisplayState.Loading
         }
-    }
 
-    init {
-        test("loaded memos with dimensions resolve to grid") {
+        test("loaded memos stay loading until every tile aspect is resolved") {
+            val memos = persistentListOf(galleryMemo("memo-with-image", "images/photo.jpg"))
+            // Defaulted (square) aspect map is present, but resolution has not completed.
+            val aspectByMemoId = persistentMapOf("memo-with-image" to 1.0f)
+
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loaded(memos),
+                aspectByMemoId = aspectByMemoId,
+                aspectsReady = false,
+                initialImagesReady = true,
+            ) shouldBe GalleryScreenDisplayState.Loading
+        }
+
+        test("loaded memos stay loading until first-screen images are loaded") {
             val memos = persistentListOf(galleryMemo("memo-with-image", "images/photo.jpg"))
             val aspectByMemoId = persistentMapOf("memo-with-image" to 1.2f)
 
-            (resolveGalleryScreenDisplayState(
-                    galleryState = GalleryUiMemosState.Loaded(memos),
-                    aspectByMemoId = aspectByMemoId,
-                )) shouldBe (GalleryScreenDisplayState.Grid(
-                    memos = memos,
-                    aspectByMemoId = aspectByMemoId,
-                ))
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loaded(memos),
+                aspectByMemoId = aspectByMemoId,
+                aspectsReady = true,
+                initialImagesReady = false,
+            ) shouldBe GalleryScreenDisplayState.Loading
+        }
+
+        test("loaded memos with all dimensions resolved resolve to grid") {
+            val memos = persistentListOf(galleryMemo("memo-with-image", "images/photo.jpg"))
+            val aspectByMemoId = persistentMapOf("memo-with-image" to 1.2f)
+
+            resolveGalleryScreenDisplayState(
+                galleryState = GalleryUiMemosState.Loaded(memos),
+                aspectByMemoId = aspectByMemoId,
+                aspectsReady = true,
+                initialImagesReady = true,
+            ) shouldBe GalleryScreenDisplayState.Grid(
+                memos = memos,
+                aspectByMemoId = aspectByMemoId,
+            )
         }
     }
 

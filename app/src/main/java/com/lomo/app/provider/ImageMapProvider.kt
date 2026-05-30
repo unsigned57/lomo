@@ -20,14 +20,14 @@ import javax.inject.Singleton
  * identical mapping pipelines.
  */
 @Singleton
-class ImageMapProvider
+open class ImageMapProvider
     @Inject
     constructor(
         private val repository: MediaRepository,
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val imageMap: StateFlow<Map<String, Uri>> =
+        open val imageMap: StateFlow<Map<String, Uri>> =
             repository
                 .observeImageLocations()
                 .map { locationMap ->

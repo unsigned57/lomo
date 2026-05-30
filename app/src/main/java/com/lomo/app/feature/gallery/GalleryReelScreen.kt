@@ -32,9 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lomo.app.R
 import com.lomo.app.feature.image.lomoSharedKeyImageRequest
-import com.lomo.app.feature.memo.memoMenuState
+import com.lomo.app.feature.memo.memoMenuSelection
 import com.lomo.ui.component.image.RetainedAsyncImage
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import kotlinx.coroutines.flow.collectLatest
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
@@ -59,10 +59,11 @@ fun GalleryReelScreen(
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     modifier: Modifier = Modifier,
     viewerMode: GalleryReelMode = GalleryReelMode.Gallery,
     memoChromeEnabled: Boolean = true,
-    onShowMenu: ((MemoMenuState) -> Unit)? = null,
+    onShowMenu: ((MemoMenuSelection) -> Unit)? = null,
 ) {
     Box(
         modifier =
@@ -83,6 +84,7 @@ fun GalleryReelScreen(
                 timeFormat = timeFormat,
                 onBackClick = onBackClick,
                 onShowMenu = onShowMenu,
+                onTodoClick = onTodoClick,
             )
         }
     }
@@ -96,7 +98,8 @@ private fun BoxScope.GalleryReelLoadedRoute(
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: ((MemoMenuState) -> Unit)?,
+    onShowMenu: ((MemoMenuSelection) -> Unit)?,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
 ) {
     GalleryReelImmersiveSystemBars()
 
@@ -198,6 +201,7 @@ private fun BoxScope.GalleryReelLoadedRoute(
                     pageCount = pageCount,
                 ).takeIf { pageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD }
         },
+        onTodoClick = onTodoClick,
     )
 }
 
@@ -215,10 +219,11 @@ private fun BoxScope.GalleryReelContent(
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: ((MemoMenuState) -> Unit)?,
+    onShowMenu: ((MemoMenuSelection) -> Unit)?,
     onToggleChrome: () -> Unit,
     onActiveZoomFractionChanged: (Float) -> Unit,
     onActiveImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
 ) {
     if (viewerMode.allowsMemoPaging) {
         GalleryReelVerticalPager(
@@ -249,6 +254,7 @@ private fun BoxScope.GalleryReelContent(
         timeFormat = timeFormat,
         onBackClick = onBackClick,
         onShowMenu = onShowMenu,
+        onTodoClick = onTodoClick,
     )
 }
 
@@ -317,14 +323,15 @@ private fun BoxScope.GalleryReelChrome(
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: ((MemoMenuState) -> Unit)?,
+    onShowMenu: ((MemoMenuSelection) -> Unit)?,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
 ) {
     memo ?: return
     val showMenu =
         onShowMenu?.let { show ->
             {
                 show(
-                    memoMenuState(
+                    memoMenuSelection(
                         memo = memo.memo,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
@@ -358,6 +365,7 @@ private fun BoxScope.GalleryReelChrome(
                     memo = memo,
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
+                    onTodoClick = onTodoClick,
                     imageIndicator = indicatorViewState,
                     showMemoDetails = memoChromeEnabled,
                     modifier =

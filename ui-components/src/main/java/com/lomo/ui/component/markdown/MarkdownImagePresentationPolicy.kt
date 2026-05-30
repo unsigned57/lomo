@@ -18,6 +18,16 @@ internal enum class MarkdownImagePresentation {
     ErrorPlaceholder,
 }
 
+internal const val DEFAULT_MARKDOWN_IMAGE_LAYOUT_RATIO = 16f / 9f
+
+internal fun resolveMarkdownImageLayoutRatio(
+    cachedRatio: Float?,
+    freshRatio: Float?,
+): Float =
+    freshRatio.validMarkdownImageRatio()
+        ?: cachedRatio.validMarkdownImageRatio()
+        ?: DEFAULT_MARKDOWN_IMAGE_LAYOUT_RATIO
+
 internal fun resolveMarkdownImagePresentation(
     loadState: MarkdownImageLoadState,
     hasRetainedSuccess: Boolean,
@@ -49,3 +59,6 @@ internal fun AsyncImagePainter.State.toMarkdownImageLoadState(): MarkdownImageLo
         is AsyncImagePainter.State.Loading -> MarkdownImageLoadState.Loading
         AsyncImagePainter.State.Empty -> MarkdownImageLoadState.Empty
     }
+
+private fun Float?.validMarkdownImageRatio(): Float? =
+    this?.takeIf { ratio -> ratio.isFinite() && ratio > 0f }

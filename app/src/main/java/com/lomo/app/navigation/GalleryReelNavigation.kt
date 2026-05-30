@@ -15,7 +15,9 @@ import com.lomo.app.feature.gallery.GalleryReelScreen
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoMenuBinder
+import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.util.activityHiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -99,28 +101,42 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
         androidx.compose.runtime.CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
+            val memoMenuCommandHandler =
+                rememberMemoMenuCommandHandler(
+                    presentationState =
+                        MemoMenuPresentationState(
+                            shareCardShowTime = appPreferences.shareCardShowTime,
+                            shareCardShowSignature = appPreferences.shareCardShowBrand,
+                            shareCardSignatureText = appPreferences.shareCardSignatureText,
+                            customFontPath = appPreferences.customFontPath,
+                            showJump = true,
+                            memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+                            memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.GALLERY),
+                        ),
+                    onEditMemo = { memo ->
+                        mainViewModel.requestOpenMemo(memo.id)
+                        navController.popBackStackToMainOrNavigate()
+                    },
+                    onDeleteMemo = mainViewModel.deleteMemo,
+                    onLanShare =
+                        if (lanShareEnabled) {
+                            { request -> navigateToShare(request.content, request.timestamp) }
+                        } else {
+                            null
+                        },
+                    onJump = { state ->
+                        handleMemoJumpToMain(
+                            selection = state,
+                            requestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+                            navigateToMain = { navController.popBackStackToMainOrNavigate() },
+                        )
+                    },
+                    onMemoActionInvoked = mainViewModel.recordGalleryMemoActionUsage,
+                    onMemoActionOrderChanged = mainViewModel.updateGalleryMemoActionOrder,
+                )
+
             MemoMenuBinder(
-                shareCardShowTime = appPreferences.shareCardShowTime,
-                shareCardShowSignature = appPreferences.shareCardShowBrand,
-                shareCardSignatureText = appPreferences.shareCardSignatureText,
-                onEditMemo = { memo ->
-                    mainViewModel.requestOpenMemo(memo.id)
-                    navController.popBackStackToMainOrNavigate()
-                },
-                onDeleteMemo = mainViewModel.deleteMemo,
-                onLanShare = if (lanShareEnabled) navigateToShare else null,
-                onJump = { state ->
-                    handleMemoJumpToMain(
-                        state = state,
-                        requestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
-                        navigateToMain = { navController.popBackStackToMainOrNavigate() },
-                    )
-                },
-                showJump = true,
-                memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-                memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.GALLERY),
-                onMemoActionInvoked = mainViewModel.recordGalleryMemoActionUsage,
-                onMemoActionOrderChanged = mainViewModel.updateGalleryMemoActionOrder,
+                commandHandler = memoMenuCommandHandler,
             ) { showMenu ->
                 GalleryReelScreen(
                     request = request,
@@ -128,6 +144,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
                     dateFormat = appPreferences.dateFormat,
                     timeFormat = appPreferences.timeFormat,
                     onBackClick = popBackStackSafely,
+                    onTodoClick = mainViewModel.updateMemo,
                     onShowMenu = showMenu,
                 )
             }
