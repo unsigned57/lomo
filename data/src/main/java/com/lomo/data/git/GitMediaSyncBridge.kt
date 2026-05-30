@@ -7,9 +7,9 @@ import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.abs
 
 @Singleton
 class GitMediaSyncBridge
@@ -18,6 +18,7 @@ class GitMediaSyncBridge
         private val localMediaSyncStore: LocalMediaSyncStore,
         private val stateStore: GitMediaSyncStateStore,
         private val planner: GitMediaSyncPlanner,
+        private val fingerprintIndex: GitMediaSyncFingerprintIndex,
     ) {
         suspend fun reconcile(
             repoRootDir: File,
@@ -29,9 +30,9 @@ class GitMediaSyncBridge
                     return@withContext GitMediaSyncSummary()
                 }
 
-                val localFiles = listLocalFiles(layout)
-                val repoFiles = listRepoFiles(repoRootDir, categories, layout)
                 val metadata = stateStore.read()
+                val localFiles = fingerprintIndex.localFiles(layout, metadata)
+                val repoFiles = fingerprintIndex.repoFiles(repoRootDir, categories, layout, metadata)
                 val actions = planner.plan(localFiles, repoFiles, metadata)
                 val actionsByPath = actions.associateBy(GitMediaSyncAction::path)
                 val summary =
@@ -77,7 +78,6 @@ class GitMediaSyncBridge
                                     repoRootDir = repoRootDir,
                                     path = action.path,
                                     local = localFiles[action.path],
-                                    repo = repoFiles[action.path],
                                     layout = layout,
                                 )
                     }
@@ -88,7 +88,6 @@ class GitMediaSyncBridge
                                 pullToLocal(
                                     repoRootDir = repoRootDir,
                                     path = action.path,
-                                    local = localFiles[action.path],
                                     repo = repoFiles[action.path],
                                     layout = layout,
                                 )
@@ -126,13 +125,13 @@ class GitMediaSyncBridge
         ) {
             val refreshedLocalFiles =
                 if (localChanged) {
-                    listLocalFiles(layout)
+                    fingerprintIndex.localFiles(layout, previousMetadata)
                 } else {
                     localFiles
                 }
             val refreshedRepoFiles =
                 if (repoChanged) {
-                    listRepoFiles(repoRootDir, categories, layout)
+                    fingerprintIndex.repoFiles(repoRootDir, categories, layout, previousMetadata)
                 } else {
                     repoFiles
                 }
@@ -149,6 +148,10 @@ class GitMediaSyncBridge
                             relativePath = path,
                             repoLastModified = repo.lastModified,
                             localLastModified = local.lastModified,
+                            repoSize = repo.size,
+                            localSize = local.size,
+                            repoFingerprint = repo.fingerprint,
+                            localFingerprint = local.fingerprint,
                             lastSyncedAt = now,
                             lastResolvedDirection =
                                 action?.direction?.name
@@ -163,86 +166,36 @@ class GitMediaSyncBridge
             stateStore.write(entries)
         }
 
-        private suspend fun listLocalFiles(layout: SyncDirectoryLayout): Map<String, LocalGitMediaFile> =
-            localMediaSyncStore
-                .listFiles(layout)
-                .mapValues { (path, file) ->
-                    LocalGitMediaFile(
-                        path = path,
-                        lastModified = file.lastModified,
-                    )
-                }
-
-        private fun listRepoFiles(
-            repoRootDir: File,
-            categories: Set<MediaSyncCategory>,
-            layout: SyncDirectoryLayout,
-        ): Map<String, RepoGitMediaFile> =
-            categories
-                .flatMap { category -> listRepoFilesForCategory(repoRootDir, category, layout) }
-                .associateBy(RepoGitMediaFile::path)
-
         private suspend fun pushToRepo(
             repoRootDir: File,
             path: String,
             local: LocalGitMediaFile?,
-            repo: RepoGitMediaFile?,
             layout: SyncDirectoryLayout,
         ): Boolean {
             val localFile = local ?: return false
-            val localBytes = localMediaSyncStore.readBytes(path, layout)
             val repoPath = repoRelativePath(path, layout)
             val target = File(repoRootDir, repoPath)
-            val shouldWrite =
-                !(repo != null && target.exists() && target.readBytes().contentEquals(localBytes))
-
-            if (shouldWrite) {
-                writeRepoFile(
-                    repoRootDir = repoRootDir,
-                    relativePath = repoPath,
-                    bytes = localBytes,
-                    lastModified = localFile.lastModified,
-                )
-            } else if (
-                localFile.lastModified > 0L &&
-                abs(target.lastModified() - localFile.lastModified) > TIMESTAMP_TOLERANCE_MS
-            ) {
+            target.parentFile?.mkdirs()
+            localMediaSyncStore.exportToFile(path, layout, target)
+            if (localFile.lastModified > 0L) {
                 target.setLastModified(localFile.lastModified)
             }
-
-            return shouldWrite
+            return true
         }
 
         private suspend fun pullToLocal(
             repoRootDir: File,
             path: String,
-            local: LocalGitMediaFile?,
             repo: RepoGitMediaFile?,
             layout: SyncDirectoryLayout,
         ): Boolean {
-            val repoBytes =
+            val repoFile =
                 repo
                     ?.let { repoFile -> File(repoRootDir, repoRelativePath(repoFile.path, layout)) }
                     ?.takeIf(File::exists)
-                    ?.readBytes()
-            val shouldWrite =
-                if (repoBytes == null) {
-                    false
-                } else {
-                    local
-                        ?.let { current ->
-                            !localMediaSyncStore
-                                .readBytes(current.path, layout)
-                                .contentEquals(repoBytes)
-                        }
-                        ?: true
-                }
-
-            if (shouldWrite && repoBytes != null) {
-                localMediaSyncStore.writeBytes(path, repoBytes, layout)
-            }
-
-            return shouldWrite
+                    ?: return false
+            localMediaSyncStore.importFromFile(path, repoFile, layout)
+            return true
         }
 
         private suspend fun deleteLocalFile(
@@ -265,9 +218,6 @@ class GitMediaSyncBridge
             return target.exists() && target.delete()
         }
 
-        companion object {
-            private const val TIMESTAMP_TOLERANCE_MS = 1000L
-        }
     }
 
 data class GitMediaSyncSummary(
@@ -275,10 +225,50 @@ data class GitMediaSyncSummary(
     val localChanged: Boolean = false,
 )
 
+@Singleton
+class GitMediaSyncFingerprintIndex
+    @Inject
+    constructor(
+        private val localMediaSyncStore: LocalMediaSyncStore,
+    ) {
+        suspend fun localFiles(
+            layout: SyncDirectoryLayout,
+            metadata: Map<String, GitMediaSyncMetadataEntry>,
+        ): Map<String, LocalGitMediaFile> =
+            localMediaSyncStore
+                .listFiles(layout)
+                .mapValues { (path, file) ->
+                    val previous = metadata[path]
+                    val fingerprint =
+                        previous?.localFingerprint
+                            ?.takeIf {
+                                previous.localLastModified == file.lastModified &&
+                                    previous.localSize == file.size
+                            } ?: localMediaSyncStore.md5Hex(path, layout)
+                    LocalGitMediaFile(
+                        path = path,
+                        lastModified = file.lastModified,
+                        size = file.size,
+                        fingerprint = fingerprint,
+                    )
+                }
+
+        fun repoFiles(
+            repoRootDir: File,
+            categories: Set<MediaSyncCategory>,
+            layout: SyncDirectoryLayout,
+            metadata: Map<String, GitMediaSyncMetadataEntry>,
+        ): Map<String, RepoGitMediaFile> =
+            categories
+                .flatMap { category -> listRepoFilesForCategory(repoRootDir, category, layout, metadata) }
+                .associateBy(RepoGitMediaFile::path)
+    }
+
 private fun listRepoFilesForCategory(
     repoRootDir: File,
     category: MediaSyncCategory,
     layout: SyncDirectoryLayout,
+    metadata: Map<String, GitMediaSyncMetadataEntry>,
 ): List<RepoGitMediaFile> {
     val folder = category.remoteFolder(layout)
     val directory =
@@ -294,22 +284,22 @@ private fun listRepoFilesForCategory(
         .filter { file -> file.isFile && accepts(category, file.name) }
         .map { file ->
             val path = "$folder/${file.name}"
-            RepoGitMediaFile(path = path, lastModified = file.lastModified())
+            val lastModified = file.lastModified()
+            val size = file.length()
+            val previous = metadata[path]
+            val fingerprint =
+                previous?.repoFingerprint
+                    ?.takeIf {
+                        previous.repoLastModified == lastModified &&
+                            previous.repoSize == size
+                    } ?: file.md5Hex()
+            RepoGitMediaFile(
+                path = path,
+                lastModified = lastModified,
+                size = size,
+                fingerprint = fingerprint,
+            )
         }
-}
-
-private fun writeRepoFile(
-    repoRootDir: File,
-    relativePath: String,
-    bytes: ByteArray,
-    lastModified: Long,
-) {
-    val target = File(repoRootDir, relativePath)
-    target.parentFile?.mkdirs()
-    target.writeBytes(bytes)
-    if (lastModified > 0L) {
-        target.setLastModified(lastModified)
-    }
 }
 
 private fun repoRelativePath(
@@ -335,3 +325,17 @@ private fun String.hasExtension(extensions: Set<String>): Boolean =
     substringAfterLast('.', "").lowercase(java.util.Locale.ROOT).let { extension ->
         extension.isNotBlank() && extension in extensions
     }
+
+private fun File.md5Hex(): String =
+    inputStream().use { input ->
+        val digest = MessageDigest.getInstance("MD5")
+        val buffer = ByteArray(FILE_DIGEST_BUFFER_SIZE)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+        digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+private const val FILE_DIGEST_BUFFER_SIZE = 16 * 1024
