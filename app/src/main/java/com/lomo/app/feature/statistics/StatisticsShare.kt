@@ -12,10 +12,11 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.core.content.FileProvider
 import com.lomo.app.R
+import com.lomo.app.util.requireSuccessfulPngEncode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 
 private const val STATS_SCREENSHOT_PNG_QUALITY = 100
 
@@ -44,15 +45,30 @@ internal fun StatisticsShareEffects(
     }
 }
 
-internal suspend fun captureStatisticsPngBytes(graphicsLayer: GraphicsLayer): ByteArray {
-    val imageBitmap = graphicsLayer.toImageBitmap()
-    return withContext(Dispatchers.Default) {
-        ByteArrayOutputStream().use { out ->
-            imageBitmap
-                .asAndroidBitmap()
-                .compress(Bitmap.CompressFormat.PNG, STATS_SCREENSHOT_PNG_QUALITY, out)
-            out.toByteArray()
+interface StatisticsPngSource {
+    suspend fun writeTo(output: OutputStream)
+
+    fun close()
+}
+
+internal suspend fun captureStatisticsPngSource(graphicsLayer: GraphicsLayer): StatisticsPngSource {
+    val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
+    return BitmapStatisticsPngSource(bitmap)
+}
+
+private class BitmapStatisticsPngSource(
+    private val bitmap: android.graphics.Bitmap,
+) : StatisticsPngSource {
+    override suspend fun writeTo(output: OutputStream) {
+        withContext(Dispatchers.Default) {
+            requireSuccessfulPngEncode(
+                bitmap.compress(Bitmap.CompressFormat.PNG, STATS_SCREENSHOT_PNG_QUALITY, output),
+            )
         }
+    }
+
+    override fun close() {
+        bitmap.recycle()
     }
 }
 

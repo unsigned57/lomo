@@ -49,6 +49,7 @@ import com.lomo.app.feature.common.UiState
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.stats.CalendarHeatmap
+import com.lomo.ui.component.stats.ChartTagSlice
 import com.lomo.ui.component.stats.HourlyActivityChart
 import com.lomo.ui.component.stats.PeriodReportCard
 import com.lomo.ui.component.stats.StatCard
@@ -60,30 +61,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
-
-private const val NUMBER_FORMAT_MILLION_THRESHOLD = 1_000_000
-private const val NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD = 10_000
-private const val NUMBER_FORMAT_THOUSAND_THRESHOLD = 1_000
-private const val NUMBER_FORMAT_THOUSAND_DIVISOR = 1_000.0
-private const val NUMBER_FORMAT_MILLION_DIVISOR = 1_000_000.0
-private const val STATISTICS_TIME_DISTRIBUTION_TWO_COLUMN_MIN_WIDTH_DP = 720
-private val STATISTICS_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
-
-internal enum class StatisticsTimeDistributionLayout {
-    Stacked,
-    TwoColumn,
-}
-
-internal fun resolveStatisticsTimeDistributionLayout(widthDp: Int): StatisticsTimeDistributionLayout =
-    if (widthDp >= STATISTICS_TIME_DISTRIBUTION_TWO_COLUMN_MIN_WIDTH_DP) {
-        StatisticsTimeDistributionLayout.TwoColumn
-    } else {
-        StatisticsTimeDistributionLayout.Stacked
-    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -173,19 +151,14 @@ fun StatisticsScreen(
 @Composable
 private fun StatisticsContent(
     stats: MemoStatistics,
-    onShareImageCaptured: (ByteArray) -> Unit,
+    onShareImageCaptured: (StatisticsPngSource) -> Unit,
     onShareCaptureFailed: (Throwable) -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val screenshotLayer = rememberGraphicsLayer()
     val coroutineScope = rememberCoroutineScope()
     val screenshotBackgroundColor = MaterialTheme.colorScheme.surface
-    val today = LocalDate.now()
-    val weekDays =
-        ChronoUnit.DAYS
-            .between(today.minusWeeks(1).plusDays(1), today)
-            .toInt()
-            .coerceAtLeast(1)
+    val presentationDates = resolveStatisticsSnapshotPresentationDates(stats)
 
     Column(
         modifier =
@@ -209,9 +182,13 @@ private fun StatisticsContent(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             StatisticsOverviewSection(stats = stats)
-            StatisticsActivitySection(stats = stats, today = today)
+            StatisticsActivitySection(stats = stats, today = presentationDates.today)
             StatisticsTimeSection(stats = stats)
-            StatisticsReportsSection(stats = stats, today = today, weekDays = weekDays)
+            StatisticsReportsSection(
+                stats = stats,
+                today = presentationDates.today,
+                weekDays = presentationDates.weekDays,
+            )
             StatisticsTagsSection(stats = stats)
 
             Spacer(modifier = Modifier.height(AppSpacing.ExtraLarge))
@@ -220,7 +197,7 @@ private fun StatisticsContent(
             onClick = {
                 coroutineScope.launch {
                     runCatching {
-                        captureStatisticsPngBytes(screenshotLayer)
+                        captureStatisticsPngSource(screenshotLayer)
                     }.onSuccess(onShareImageCaptured)
                         .onFailure(onShareCaptureFailed)
                 }
@@ -258,7 +235,7 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
                 modifier = Modifier.weight(1f),
             )
             StatCard(
-                value = formatNumber(stats.totalWords),
+                value = formatStatisticsNumber(stats.totalWords),
                 label = stringResource(R.string.stats_total_words),
                 modifier = Modifier.weight(1f),
             )
@@ -284,7 +261,7 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
                 modifier = Modifier.weight(1f),
             )
             StatCard(
-                value = formatNumber(stats.totalCharacters),
+                value = formatStatisticsNumber(stats.totalCharacters),
                 label = stringResource(R.string.stats_total_chars),
                 modifier = Modifier.weight(1f),
             )
@@ -307,6 +284,7 @@ private fun StatisticsActivitySection(
                 stats.memoCountByDate
                     .filterKeys { !it.isAfter(today) }
                     .toImmutableMap(),
+            today = today,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -424,7 +402,10 @@ private fun StatisticsTagsSection(stats: MemoStatistics) {
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_tags))
         TagDistributionChart(
-            tagCounts = stats.tagCounts.toImmutableList(),
+            slices =
+                stats.tagCounts
+                    .map { tagCount -> ChartTagSlice(name = tagCount.name, count = tagCount.count) }
+                    .toImmutableList(),
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -439,14 +420,3 @@ private fun SectionHeader(text: String) {
         color = MaterialTheme.colorScheme.onSurface,
     )
 }
-
-private fun formatNumber(n: Int): String =
-    when {
-        n >= NUMBER_FORMAT_MILLION_THRESHOLD -> "%.1fM".format(n / NUMBER_FORMAT_MILLION_DIVISOR)
-        n >= NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD -> "%.1fK".format(n / NUMBER_FORMAT_THOUSAND_DIVISOR)
-        n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(n)
-        else -> n.toString()
-    }
-
-private fun formatStatisticsDailyMemoTime(time: LocalTime?): String =
-    time?.format(STATISTICS_TIME_FORMATTER) ?: "--:--"

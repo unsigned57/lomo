@@ -11,6 +11,9 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -18,22 +21,32 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StatisticsViewModel
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: statistics screenshot sharing persists rendered PNG data through the streaming share-image contract.
  *
- * Scenario matrix:
- * - Happy: standard happy path for StatisticsViewModelTest.
- * - Boundary: boundary and edge cases for StatisticsViewModelTest.
- * - Failure: failure and error scenarios for StatisticsViewModelTest.
- * - Must-not-happen: invariants are never violated for StatisticsViewModelTest.
- * - Behavior focus: statistics loading and screenshot-share persistence must emit user-visible
- *   state without leaking Android file sharing into the domain layer.
- * - Observable outcomes: UiState, share image event path/id, error message state, and share-image
- *   persistence prefix.
- * - Red phase: Fails before the fix because StatisticsViewModel cannot persist stats screenshots,
- *   emits no share event, and has no share failure state.
- * - Excludes: Compose screenshot capture, Android FileProvider URI creation, share sheet dispatch,
- *   and MemoStatisticsUseCase calculations.
+ * Scenarios:
+ * - Given a screenshot source, when sharing statistics succeeds, then the source output is passed
+ *   to share-image persistence with the stats prefix and a share event is emitted.
+ * - Given the streaming persistence fails before consuming the source, when sharing statistics,
+ *   then the source is still closed and a user-visible error is exposed.
+ * - Given statistics are requested, when loading completes, then memo statistics state is exposed.
+ *
+ * Observable outcomes:
+ * - UiState, share image event path/id, error message state, persistence prefix, streamed bytes,
+ *   writer calls, and source close calls.
+ *
+ * TDD proof:
+ * - RED: the streaming share scenario failed to compile before the first fix because
+ *   StatisticsViewModel.shareStatisticsImage accepted a ByteArray instead of a writer.
+ * - RED: the source-close scenario fails before this follow-up because shareStatisticsImage
+ *   accepts a plain writer with no closeable source ownership.
+ *
+ * Excludes:
+ * - Compose screenshot capture, Android FileProvider URI creation, share sheet dispatch, and
+ *   MemoStatisticsUseCase calculations.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class StatisticsViewModelTest : AppFunSpec() {
@@ -50,22 +63,33 @@ class StatisticsViewModelTest : AppFunSpec() {
             coEvery { memoStatisticsUseCase() } returns sampleStatistics()
         }
 
-        test("shareStatisticsImage persists png bytes with stats prefix and emits event") {
+        test("given screenshot source when share succeeds then streamed bytes are persisted with stats prefix") {
             runTest {
-                val pngBytes = byteArrayOf(1, 2, 3)
+                val expectedBytes = byteArrayOf(1, 2, 3)
+                val source = TestStatisticsPngSource(expectedBytes)
+                var persistedBytes = byteArrayOf()
                 coEvery {
-                    persistShareImageUseCase(pngBytes = pngBytes, fileNamePrefix = "stats_share")
-                } returns "/tmp/stats_share_1.png"
+                    persistShareImageUseCase(fileNamePrefix = "stats_share", writer = any())
+                } coAnswers {
+                    val writer = secondArg<suspend (OutputStream) -> Unit>()
+                    val output = ByteArrayOutputStream()
+                    writer(output)
+                    persistedBytes = output.toByteArray()
+                    "/tmp/stats_share_1.png"
+                }
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                viewModel.shareStatisticsImage(pngBytes)
+                viewModel.shareStatisticsImage(source)
                 advanceUntilIdle()
 
                 (viewModel.shareImageEvent.value) shouldBe (StatisticsShareImageEvent(id = 1L, filePath = "/tmp/stats_share_1.png"))
                 (viewModel.shareErrorMessage.value) shouldBe null
+                persistedBytes.toList() shouldBe expectedBytes.toList()
+                source.writeCallCount shouldBe 1
+                source.closeCallCount shouldBe 1
                 coVerify(exactly = 1) {
-                    persistShareImageUseCase(pngBytes = pngBytes, fileNamePrefix = "stats_share")
+                    persistShareImageUseCase(fileNamePrefix = "stats_share", writer = any())
                 }
 
                 viewModel.consumeShareImageEvent(1L)
@@ -74,20 +98,22 @@ class StatisticsViewModelTest : AppFunSpec() {
             }
         }
 
-        test("shareStatisticsImage exposes share error when persistence fails") {
+        test("given persistence fails before consuming source when sharing statistics then source is closed and error is exposed") {
             runTest {
-                val pngBytes = byteArrayOf(9, 8, 7)
+                val source = TestStatisticsPngSource(byteArrayOf(9, 8, 7))
                 coEvery {
-                    persistShareImageUseCase(pngBytes = pngBytes, fileNamePrefix = "stats_share")
+                    persistShareImageUseCase(fileNamePrefix = "stats_share", writer = any())
                 } throws IllegalStateException("disk full")
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                viewModel.shareStatisticsImage(pngBytes)
+                viewModel.shareStatisticsImage(source)
                 advanceUntilIdle()
 
                 (viewModel.shareErrorMessage.value) shouldBe ("Failed to share statistics: disk full")
                 (viewModel.shareImageEvent.value) shouldBe null
+                source.writeCallCount shouldBe 0
+                source.closeCallCount shouldBe 1
 
                 viewModel.clearShareError()
 
@@ -117,8 +143,27 @@ class StatisticsViewModelTest : AppFunSpec() {
             persistShareImageUseCase = persistShareImageUseCase,
         )
 
+    private class TestStatisticsPngSource(
+        private val bytes: ByteArray,
+    ) : StatisticsPngSource {
+        var writeCallCount = 0
+            private set
+        var closeCallCount = 0
+            private set
+
+        override suspend fun writeTo(output: OutputStream) {
+            writeCallCount += 1
+            output.write(bytes)
+        }
+
+        override fun close() {
+            closeCallCount += 1
+        }
+    }
+
     private fun sampleStatistics(): MemoStatistics =
         MemoStatistics(
+            asOfDate = LocalDate.of(2026, 5, 8),
             totalMemos = 2,
             totalWords = 4,
             totalCharacters = 20,

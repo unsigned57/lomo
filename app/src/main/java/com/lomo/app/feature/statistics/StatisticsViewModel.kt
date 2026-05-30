@@ -9,6 +9,7 @@ import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,13 +49,17 @@ class StatisticsViewModel
             loadStatistics(force = false)
         }
 
-        fun shareStatisticsImage(pngBytes: ByteArray) {
-            viewModelScope.launch {
+        fun shareStatisticsImage(source: StatisticsPngSource) {
+            viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
                 runCatching {
-                    persistShareImageUseCase(
-                        pngBytes = pngBytes,
-                        fileNamePrefix = STATS_SHARE_FILE_PREFIX,
-                    )
+                    try {
+                        persistShareImageUseCase(
+                            fileNamePrefix = STATS_SHARE_FILE_PREFIX,
+                            writer = source::writeTo,
+                        )
+                    } finally {
+                        source.close()
+                    }
                 }.onSuccess { filePath ->
                     _shareErrorMessage.value = null
                     _shareImageEvent.value =
