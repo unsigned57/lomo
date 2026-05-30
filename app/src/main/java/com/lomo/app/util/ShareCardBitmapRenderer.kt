@@ -1,20 +1,17 @@
 package com.lomo.app.util
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.os.Build
-import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
-import androidx.compose.ui.graphics.toArgb
+import android.graphics.Typeface
 import com.lomo.app.R
+import com.lomo.app.feature.main.appendLegacyMemoGeoLocation
+import com.lomo.app.feature.main.linkifyMemoGeoUris
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
+import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ShareCardTextInput
+import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
+import com.lomo.ui.theme.resolveLomoColorScheme
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,9 +34,15 @@ class ShareCardBitmapRenderer
             signatureText: String,
             timestampMillis: Long?,
             tags: List<String>,
+            colorSource: ColorSource,
+            themeMode: ThemeMode,
             resolvedImagePaths: List<String> = emptyList(),
+            geoLocation: String? = null,
+            bodyTypeface: Typeface? = null,
         ): Bitmap {
-            val preprocessed = preprocessShareCardContent(content, resolvedImagePaths.isNotEmpty())
+            val contentWithGeo = appendLegacyMemoGeoLocation(content, geoLocation)
+            val preprocessedText = linkifyBareUrlsAndGeoUris(contentWithGeo)
+            val preprocessed = preprocessShareCardContent(preprocessedText, resolvedImagePaths.isNotEmpty())
             val renderInput =
                 prepareRenderInput(
                     context = context,
@@ -57,7 +60,7 @@ class ShareCardBitmapRenderer
                     signatureText = renderInput.signatureText,
                     createdAtText = renderInput.createdAtText,
                 )
-            val palette = resolvePalette(context)
+            val palette = resolvePalette(context, colorSource, themeMode)
             val layoutSpec = createShareCardLayoutSpec(context.resources)
             val bodyLines =
                 buildMarkdownShareBodyLines(
@@ -76,6 +79,7 @@ class ShareCardBitmapRenderer
                     palette = palette,
                     bodyTextSizeSp = bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers),
                     shouldUseCenteredBody = shouldUseCenteredBody,
+                    bodyTypeface = bodyTypeface,
                 )
             val loadedImages =
                 loadShareImages(
@@ -155,37 +159,12 @@ class ShareCardBitmapRenderer
             )
         }
 
-        private fun resolvePalette(context: Context): ShareCardPalette =
-            buildShareCardColorScheme(context).toShareCardPalette()
-
-        private fun Context.isDarkTheme(): Boolean =
-            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-                Configuration.UI_MODE_NIGHT_YES
-
-        @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-        private fun buildShareCardColorScheme(context: Context): ColorScheme {
-            val darkTheme = context.isDarkTheme()
-            return when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context)
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
-                darkTheme -> darkColorScheme()
-                else -> expressiveLightColorScheme()
-            }
-        }
-
-        private fun ColorScheme.toShareCardPalette(): ShareCardPalette =
-            ShareCardPalette(
-                bgStart = surfaceContainerLowest.toArgb(),
-                bgEnd = surface.toArgb(),
-                card = surfaceContainerLow.toArgb(),
-                cardBorder = outlineVariant.toArgb(),
-                bodyText = onSurface.toArgb(),
-                secondaryText = onSurfaceVariant.toArgb(),
-                tagBg = secondaryContainer.toArgb(),
-                tagText = onSecondaryContainer.toArgb(),
-                divider = outlineVariant.toArgb(),
-                quoteIndicator = primary.toArgb(),
-            )
+        private fun resolvePalette(
+            context: Context,
+            colorSource: ColorSource,
+            themeMode: ThemeMode,
+        ): ShareCardPalette =
+            shareCardPaletteFromColorScheme(resolveLomoColorScheme(context, colorSource, themeMode))
     }
 
 internal fun buildShareCardFooterContent(
@@ -211,4 +190,22 @@ internal fun buildShareCardFooterContent(
         showFooter = row != null,
         row = row,
     )
+}
+
+private val BARE_URL_REGEX = Regex(
+    pattern = """(?<!\()(?<!\[)(?<!\]\()((?:https?://|www\.)[^\s()<>]+""" +
+        """(?:\([\w\d]+\)|[^\s\x60!()\[\]{};:'".,<>?«»“”‘’]))""",
+    option = RegexOption.IGNORE_CASE
+)
+
+internal fun linkifyBareUrls(content: String): String =
+    BARE_URL_REGEX.replace(content) { match ->
+        val url = match.value
+        val destination = if (url.startsWith("www.", ignoreCase = true)) "https://$url" else url
+        "[$url]($destination)"
+    }
+
+internal fun linkifyBareUrlsAndGeoUris(content: String): String {
+    val withGeo = linkifyMemoGeoUris(content)
+    return linkifyBareUrls(withGeo)
 }

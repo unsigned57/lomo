@@ -46,31 +46,33 @@ internal fun createShareCardPaintSet(
     palette: ShareCardPalette,
     bodyTextSizeSp: Float,
     shouldUseCenteredBody: Boolean,
-): ShareCardPaintSet =
-    ShareCardPaintSet(
+    bodyTypeface: Typeface?,
+): ShareCardPaintSet {
+    val bodyBase = bodyTypeface ?: Typeface.DEFAULT
+    return ShareCardPaintSet(
         tagPaint =
             createTextPaint(
                 color = palette.tagText,
                 textSizePx = sp(resources, TAG_TEXT_SIZE_SP),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+                typeface = Typeface.create(bodyBase, Typeface.BOLD),
             ).apply { letterSpacing = TAG_LETTER_SPACING },
         titlePaint =
             createTextPaint(
                 color = palette.secondaryText,
                 textSizePx = sp(resources, TITLE_TEXT_SIZE_SP),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
             ).apply { letterSpacing = TITLE_LETTER_SPACING },
         headingPaint =
             createTextPaint(
                 color = palette.bodyText,
                 textSizePx = sp(resources, bodyTextSizeSp * HEADING_TEXT_SCALE),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+                typeface = Typeface.create(bodyBase, Typeface.BOLD),
             ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         paragraphPaint =
             createTextPaint(
                 color = palette.bodyText,
                 textSizePx = sp(resources, bodyTextSizeSp),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
             ).apply {
                 letterSpacing =
                     if (shouldUseCenteredBody) {
@@ -83,13 +85,13 @@ internal fun createShareCardPaintSet(
             createTextPaint(
                 color = palette.bodyText,
                 textSizePx = sp(resources, bodyTextSizeSp * BULLET_TEXT_SCALE),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+                typeface = Typeface.create(bodyBase, Typeface.BOLD),
             ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         quotePaint =
             createTextPaint(
                 color = palette.secondaryText,
                 textSizePx = sp(resources, bodyTextSizeSp * QUOTE_TEXT_SCALE),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
             ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         codePaint =
             createTextPaint(
@@ -107,9 +109,11 @@ internal fun createShareCardPaintSet(
             createTextPaint(
                 color = palette.secondaryText,
                 textSizePx = sp(resources, FOOTER_TEXT_SIZE_SP),
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+                typeface = Typeface.create(bodyBase, Typeface.NORMAL),
             ).apply { letterSpacing = FOOTER_LETTER_SPACING },
+        linkColor = palette.linkText,
     )
+}
 
 internal fun createTextPaint(
     color: Int,

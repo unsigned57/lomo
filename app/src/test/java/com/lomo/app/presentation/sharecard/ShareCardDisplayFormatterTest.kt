@@ -59,9 +59,7 @@ class ShareCardDisplayFormatterTest : AppFunSpec() {
                     "Offline",
                 ))
         }
-    }
 
-    init {
         test("formatBodyText converts markdown constructs to stable share-card text") {
             val result =
                 formatter.formatBodyText(
@@ -87,7 +85,7 @@ class ShareCardDisplayFormatterTest : AppFunSpec() {
                 ✦ Title
                 • Subtitle
                 • bullet item
-                • ordered item
+                1. ordered item
                 │ quoted
                 「inline」
                 removed
@@ -96,9 +94,7 @@ class ShareCardDisplayFormatterTest : AppFunSpec() {
                 [Photo: cover.png]
                 """.trimIndent())
         }
-    }
 
-    init {
         test("formatBodyText indents code blocks and falls back when image pattern is invalid") {
             val result =
                 formatter.formatBodyText(
@@ -122,5 +118,4 @@ class ShareCardDisplayFormatterTest : AppFunSpec() {
                 """.trimIndent())
         }
     }
-
 }

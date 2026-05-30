@@ -5,12 +5,16 @@ import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextPaint
+import android.text.style.ForegroundColorSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.UnderlineSpan
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val DEFAULT_SHARE_CARD_HIGHLIGHT_COLOR = 0x66FFE082
+
 
 internal fun createBlankRenderLine(
     bodyLine: ShareBodyLine,
@@ -56,7 +60,7 @@ internal fun createQuoteRenderLine(
     val quoteStyle = resolveShareCardQuoteLayoutStyle(spec)
     val layout =
         buildStaticLayout(
-            text = bodyLine.withoutQuoteTextPrefix().toStyledText(),
+            text = bodyLine.withoutQuoteTextPrefix().toStyledText(paintSet.linkColor),
             paint = paintSet.quotePaint,
             width = quoteStyle.textWidth,
         )
@@ -68,6 +72,7 @@ internal fun createTextRenderLine(
     paint: TextPaint,
     spec: ShareCardLayoutSpec,
     shouldUseCenteredBody: Boolean = false,
+    linkColor: Int? = null,
 ): ShareCardRenderLine {
     val paragraphLayoutPolicy =
         resolveShareCardParagraphLayoutPolicy(
@@ -76,7 +81,7 @@ internal fun createTextRenderLine(
         )
     val layout =
         buildStaticLayout(
-            text = bodyLine.toStyledText(),
+            text = bodyLine.toStyledText(linkColor),
             paint = paint,
             width = spec.contentWidth,
             paragraphLayoutPolicy = paragraphLayoutPolicy,
@@ -109,7 +114,7 @@ internal fun createImageRenderLine(
     )
 }
 
-private fun ShareBodyLine.toStyledText(): CharSequence {
+private fun ShareBodyLine.toStyledText(linkColor: Int? = null): CharSequence {
     if (inlineStyles.isEmpty()) return text
 
     val styled = SpannableString(text)
@@ -120,8 +125,18 @@ private fun ShareBodyLine.toStyledText(): CharSequence {
             ShareInlineStyleKind.Italic -> styled.setSpan(StyleSpan(Typeface.ITALIC), range.start, range.end)
             ShareInlineStyleKind.Strikethrough -> styled.setSpan(StrikethroughSpan(), range.start, range.end)
             ShareInlineStyleKind.InlineCode -> styled.setSpan(TypefaceSpan("monospace"), range.start, range.end)
-            ShareInlineStyleKind.Link -> styled.setSpan(UnderlineSpan(), range.start, range.end)
+            ShareInlineStyleKind.Link -> {
+                styled.setSpan(UnderlineSpan(), range.start, range.end)
+                if (linkColor != null) {
+                    styled.setSpan(ForegroundColorSpan(linkColor), range.start, range.end)
+                }
+            }
             ShareInlineStyleKind.Underline -> styled.setSpan(UnderlineSpan(), range.start, range.end)
+            ShareInlineStyleKind.Highlight -> styled.setSpan(
+                android.text.style.BackgroundColorSpan(DEFAULT_SHARE_CARD_HIGHLIGHT_COLOR),
+                range.start,
+                range.end
+            )
         }
     }
     return styled

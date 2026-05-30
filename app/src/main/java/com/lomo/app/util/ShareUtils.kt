@@ -16,12 +16,14 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import androidx.core.content.FileProvider
 import com.lomo.app.R
+import com.lomo.app.feature.common.AppConfigStateProvider
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,6 +42,7 @@ class ShareUtils
     constructor(
         private val persistShareImageUseCase: PersistShareImageUseCase,
         private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
+        private val appConfigStateProvider: AppConfigStateProvider,
     ) {
         private data class ShareImageConfig(
             val showTime: Boolean,
@@ -47,7 +50,11 @@ class ShareUtils
             val signatureText: String,
             val timestampMillis: Long?,
             val tags: List<String>,
+            val colorSource: ColorSource,
+            val themeMode: ThemeMode,
             val resolvedImagePaths: List<String>,
+            val geoLocation: String?,
+            val bodyTypeface: android.graphics.Typeface?,
         )
 
         suspend fun shareMemoAsImage(
@@ -60,8 +67,11 @@ class ShareUtils
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
             resolvedImagePaths: List<String> = emptyList(),
+            geoLocation: String? = null,
+            bodyTypeface: android.graphics.Typeface? = null,
         ) {
             runCatching {
+                val displayPreferences = appConfigStateProvider.appPreferences.value
                 val imageUri =
                     createShareImageUri(
                         context = context,
@@ -74,7 +84,11 @@ class ShareUtils
                                 signatureText = signatureText,
                                 timestampMillis = timestamp,
                                 tags = tags,
+                                colorSource = displayPreferences.colorSource,
+                                themeMode = displayPreferences.themeMode,
                                 resolvedImagePaths = resolvedImagePaths,
+                                geoLocation = geoLocation,
+                                bodyTypeface = bodyTypeface,
                             ),
                     )
                 withContext(Dispatchers.Main.immediate) {
@@ -160,23 +174,27 @@ class ShareUtils
                         signatureText = config.signatureText,
                         timestampMillis = config.timestampMillis,
                         tags = config.tags,
+                        colorSource = config.colorSource,
+                        themeMode = config.themeMode,
                         resolvedImagePaths = config.resolvedImagePaths,
+                        geoLocation = config.geoLocation,
+                        bodyTypeface = config.bodyTypeface,
                     )
                 }
             val filePath =
                 try {
-                    val pngBytes =
-                        withContext(Dispatchers.Default) {
-                            ByteArrayOutputStream().use { out ->
-                                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, PNG_COMPRESS_QUALITY, out)
-                                out.toByteArray()
-                            }
-                        }
                     withContext(Dispatchers.IO) {
                         persistShareImageUseCase(
-                            pngBytes = pngBytes,
                             fileNamePrefix = "memo_share",
-                        )
+                        ) { output ->
+                            requireSuccessfulPngEncode(
+                                bitmap.compress(
+                                    android.graphics.Bitmap.CompressFormat.PNG,
+                                    PNG_COMPRESS_QUALITY,
+                                    output,
+                                ),
+                            )
+                        }
                     }
                 } finally {
                     bitmap.recycle()

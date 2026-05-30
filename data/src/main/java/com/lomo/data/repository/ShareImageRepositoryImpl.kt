@@ -6,6 +6,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.OutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,8 +21,8 @@ class ShareImageRepositoryImpl
         @ApplicationContext private val context: Context,
     ) : ShareImageRepository {
         override suspend fun storeShareImage(
-            pngBytes: ByteArray,
             fileNamePrefix: String,
+            writer: suspend (OutputStream) -> Unit,
         ): String =
             withContext(Dispatchers.IO) {
                 val directory = File(context.cacheDir, SHARED_MEMO_CACHE_DIR).apply { mkdirs() }
@@ -28,8 +33,18 @@ class ShareImageRepositoryImpl
                 )
 
                 val output = File(directory, "${fileNamePrefix}_${System.currentTimeMillis()}.png")
-                output.outputStream().use { out ->
-                    out.write(pngBytes)
+                val temp = File(directory, "${output.name}.tmp.${UUID.randomUUID()}")
+                var committed = false
+                try {
+                    temp.outputStream().use { out ->
+                        writer(out)
+                    }
+                    commitShareImageTempFile(temp = temp, target = output)
+                    committed = true
+                } finally {
+                    if (!committed) {
+                        temp.delete()
+                    }
                 }
 
                 ShareImageCacheCleaner.cleanup(
@@ -46,6 +61,26 @@ class ShareImageRepositoryImpl
             const val SHARED_MEMO_CACHE_MAX_AGE_MS = 48L * 60 * 60 * 1000
         }
     }
+
+private fun commitShareImageTempFile(
+    temp: File,
+    target: File,
+) {
+    try {
+        Files.move(
+            temp.toPath(),
+            target.toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    } catch (_: AtomicMoveNotSupportedException) {
+        Files.move(
+            temp.toPath(),
+            target.toPath(),
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    }
+}
 
 internal object ShareImageCacheCleaner {
     fun cleanup(

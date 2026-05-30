@@ -7,7 +7,7 @@ package com.lomo.app.util
  * Observable outcomes: Green tests
  * TDD proof: Compilation failure on Kotest transition
  * Excludes: none
- * 
+ *
  * Test Change Justification:
  * Reason category: Migration
  * Old behavior/assertion being replaced: JUnit4 assertions
@@ -15,7 +15,6 @@ package com.lomo.app.util
  * Coverage preserved by: Kotest functional matching
  * Why this is not fitting the test to the implementation: Syntax translation
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -50,9 +49,7 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
             ((result.contentForProcessing.contains("cover.png"))) shouldBe false
             ((result.contentForProcessing.contains("gallery/day-1.jpg"))) shouldBe false
         }
-    }
 
-    init {
         test("buildShareBodyLines classifies paragraphs quotes bullets code and image placeholders while collapsing blank lines") {
             val bodyText =
                 """
@@ -85,9 +82,7 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
                     ShareBodyLine("Final paragraph", ShareBodyLineType.Paragraph),
                 ))
         }
-    }
 
-    init {
         test("buildShareBodyLines falls back for blank content and caps rendered lines") {
             val blankResult = buildShareBodyLines("", imagePlaceholder = "[Image]")
             val longResult =
@@ -102,5 +97,4 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
             (longResult.last().text) shouldBe ("line ${MAX_SHARE_BODY_LINES - 1}")
         }
     }
-
 }

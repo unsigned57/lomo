@@ -156,6 +156,7 @@ private fun createRenderLine(
                 bodyLine = bodyLine,
                 paint = paintSet.headingPaint,
                 spec = spec,
+                linkColor = paintSet.linkColor,
             )
         ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
         ShareBodyLineType.Table ->
@@ -163,6 +164,7 @@ private fun createRenderLine(
                 bodyLine = bodyLine,
                 paint = paintSet.tablePaint,
                 spec = spec,
+                linkColor = paintSet.linkColor,
             )
         ShareBodyLineType.Quote ->
             createQuoteRenderLine(
@@ -175,6 +177,7 @@ private fun createRenderLine(
                 bodyLine = bodyLine,
                 paint = paintSet.bulletPaint,
                 spec = spec,
+                linkColor = paintSet.linkColor,
             )
         ShareBodyLineType.Image ->
             createImageRenderLine(
@@ -190,6 +193,7 @@ private fun createRenderLine(
                 paint = paintSet.paragraphPaint,
                 spec = spec,
                 shouldUseCenteredBody = shouldUseCenteredBody,
+                linkColor = paintSet.linkColor,
             )
     }
 

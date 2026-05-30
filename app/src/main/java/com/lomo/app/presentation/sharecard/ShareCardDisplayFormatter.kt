@@ -54,7 +54,6 @@ class ShareCardDisplayFormatter
             str = str.replace(Regex("""`([^`]+)`"""), "「$1」")
             str = str.replace(Regex("""~~(.*?)~~"""), "$1")
             str = str.replace(Regex("""(?m)^>\s?"""), "│ ")
-            str = str.replace(Regex("""(?m)^\s*\d+\.\s+"""), "• ")
             str = str.replace(Regex("""(?m)^\s*[-+*]\s+"""), "• ")
             str = str.replace(Regex("""(?m)^\s*[-*_]{3,}\s*$"""), "")
 
