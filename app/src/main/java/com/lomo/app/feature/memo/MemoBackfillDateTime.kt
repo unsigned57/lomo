@@ -1,33 +1,29 @@
 package com.lomo.app.feature.memo
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
+import com.lomo.ui.component.picker.ExpressivePickerDialog
+import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
+import com.lomo.ui.component.picker.SecondsWheelPicker
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -35,36 +31,6 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-
-private const val BACKFILL_SECONDS_INPUT_MAX_LENGTH = 2
-private const val BACKFILL_SECONDS_MIN = 0
-private const val BACKFILL_SECONDS_MAX = 59
-
-@Stable
-internal class MemoBackfillSelectionState {
-    var timestampMillis: Long? by mutableStateOf(null)
-        private set
-
-    fun setTimestampForCreate(
-        timestampMillis: Long,
-        isEditingExistingMemo: Boolean,
-    ) {
-        if (!isEditingExistingMemo) {
-            this.timestampMillis = timestampMillis
-        }
-    }
-
-    fun timestampMillisForCreateSubmit(isEditingExistingMemo: Boolean): Long? =
-        if (isEditingExistingMemo) {
-            null
-        } else {
-            timestampMillis
-        }
-
-    fun clear() {
-        timestampMillis = null
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,67 +62,44 @@ internal fun MemoBackfillDateTimeDialog(
     var selectedSecond by remember(initialTimestampMillis) { mutableIntStateOf(initialDateTime.second) }
     val selectedDate = datePickerState.selectedDateMillis?.toMemoBackfillLocalDate()
 
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            FilledTonalButton(
-                enabled = selectedDate != null,
-                onClick = {
-                    val date = selectedDate ?: return@FilledTonalButton
-                    onConfirm(
-                        combineMemoBackfillDateTimeMillis(
-                            date = date,
-                            time = LocalTime.of(timePickerState.hour, timePickerState.minute, selectedSecond),
-                        ),
-                    )
-                },
-            ) {
-                Text(text = stringResource(R.string.memo_backfill_action_apply))
-            }
+    ExpressivePickerDialog(
+        title = stringResource(R.string.memo_backfill_title),
+        confirmLabel = stringResource(R.string.memo_backfill_action_apply),
+        confirmEnabled = selectedDate != null,
+        onConfirm = {
+            val date = selectedDate ?: return@ExpressivePickerDialog
+            onConfirm(
+                combineMemoBackfillDateTimeMillis(
+                    date = date,
+                    time = LocalTime.of(timePickerState.hour, timePickerState.minute, selectedSecond),
+                ),
+            )
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.action_cancel))
-            }
-        },
+        dismissLabel = stringResource(R.string.action_cancel),
+        onDismiss = onDismiss,
     ) {
         Column(
             modifier =
                 Modifier
                     .verticalScroll(rememberScrollState())
-                    .padding(bottom = 24.dp),
+                    .padding(bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            DatePicker(
-                state = datePickerState,
-                showModeToggle = false,
-                title = {
+            ExpressiveDatePickerSurface(state = datePickerState)
+            ExpressiveTimePickerSurface(
+                state = timePickerState,
+                secondsSlot = {
                     Text(
-                        text = stringResource(R.string.memo_backfill_title),
-                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp),
+                        text = stringResource(R.string.memo_backfill_seconds_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SecondsWheelPicker(
+                        value = selectedSecond,
+                        onValueChange = { selectedSecond = it },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 },
-            )
-            TimePicker(
-                state = timePickerState,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-            OutlinedTextField(
-                value = selectedSecond.toString().padStart(BACKFILL_SECONDS_INPUT_MAX_LENGTH, '0'),
-                onValueChange = { value ->
-                    value
-                        .filter(Char::isDigit)
-                        .take(BACKFILL_SECONDS_INPUT_MAX_LENGTH)
-                        .toIntOrNull()
-                        ?.takeIf { second -> second in BACKFILL_SECONDS_MIN..BACKFILL_SECONDS_MAX }
-                        ?.let { second -> selectedSecond = second }
-                },
-                label = { Text(text = stringResource(R.string.memo_backfill_seconds_label)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
             )
         }
     }

@@ -65,9 +65,7 @@ class MemoEditorImeRequestTest {
             MaterialTheme {
                 MemoEditorSheetHost(
                     controller = controller,
-                    imageDirectory = null,
-                    onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _, _ -> },
+                    surface = memoEditorImeSurface(),
                 )
             }
         }
@@ -95,9 +93,7 @@ class MemoEditorImeRequestTest {
             MaterialTheme {
                 MemoEditorSheetHost(
                     controller = controller,
-                    imageDirectory = null,
-                    onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _, _ -> },
+                    surface = memoEditorImeSurface(),
                 )
             }
         }
@@ -137,9 +133,7 @@ class MemoEditorImeRequestTest {
             MaterialTheme {
                 MemoEditorSheetHost(
                     controller = controller,
-                    imageDirectory = null,
-                    onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _, _ -> },
+                    surface = memoEditorImeSurface(),
                 )
             }
         }
@@ -218,3 +212,19 @@ class MemoEditorImeRequestTest {
         return null
     }
 }
+
+private fun memoEditorImeSurface(): MemoEditorSurface =
+    MemoEditorSurface(
+        session = MemoEditorSessionState(imageDirectory = null),
+        capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = false),
+        commands = MemoEditorCommandHandler { command ->
+            error("IME test does not dispatch memo editor command: $command")
+        },
+        operations =
+            MemoEditorOperations(
+                onSaveImage = { _, _, _ -> },
+                onSubmit = { _, _, _ -> },
+                onDismiss = null,
+                onToolbarOrderChanged = {},
+            ),
+    )
