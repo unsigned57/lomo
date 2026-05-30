@@ -7,19 +7,54 @@ import org.intellij.markdown.ast.ASTNode
 internal fun limitModernMarkdownRenderPlan(
     plan: ModernMarkdownRenderPlan,
     maxVisibleBlocks: Int,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): ModernMarkdownRenderPlan {
+    if (plan.hasResolverClaimedGallery(mediaPresentationResolver)) {
+        return plan.copy(
+            items = buildModernMarkdownRenderItems(
+                plan = plan,
+                maxVisibleBlocks = maxVisibleBlocks,
+                mediaPresentationResolver = mediaPresentationResolver,
+            ),
+        )
+    }
+
     if (maxVisibleBlocks == Int.MAX_VALUE) {
         return if (plan.items.size == plan.totalBlocks) plan else plan.copy(
-            items = buildModernMarkdownRenderItems(plan, maxVisibleBlocks),
+            items = buildModernMarkdownRenderItems(
+                plan = plan,
+                maxVisibleBlocks = maxVisibleBlocks,
+                mediaPresentationResolver = mediaPresentationResolver,
+            ),
         )
     }
 
     if (plan.items.size <= maxVisibleBlocks) return plan
 
     return plan.copy(
-        items = buildModernMarkdownRenderItems(plan, maxVisibleBlocks),
+        items = buildModernMarkdownRenderItems(
+            plan = plan,
+            maxVisibleBlocks = maxVisibleBlocks,
+            mediaPresentationResolver = mediaPresentationResolver,
+        ),
     )
 }
+
+internal fun normalizeModernMarkdownRenderPlanForMediaResolver(
+    plan: ModernMarkdownRenderPlan,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+): ModernMarkdownRenderPlan =
+    if (plan.hasResolverClaimedGallery(mediaPresentationResolver)) {
+        plan.copy(
+            items = buildModernMarkdownRenderItems(
+                plan = plan,
+                maxVisibleBlocks = Int.MAX_VALUE,
+                mediaPresentationResolver = mediaPresentationResolver,
+            ),
+        )
+    } else {
+        plan
+    }
 
 internal fun isModernRenderableTopLevelBlock(
     node: ASTNode,
@@ -38,31 +73,55 @@ private fun isModernPrunableEmptyBlock(
 private fun buildModernMarkdownRenderItems(
     plan: ModernMarkdownRenderPlan,
     maxVisibleBlocks: Int,
-): List<ModernMarkdownRenderItem> =
-    buildModernMarkdownRenderItems(
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+): List<ModernMarkdownRenderItem> {
+    val references = parseMarkdownLinkReferences(plan.root, plan.content)
+    return buildModernMarkdownRenderItems(
         renderableBlocks =
             plan.root.children.filter { node ->
                 isModernRenderableTopLevelBlock(node, plan.content)
             },
         content = plan.content,
+        references = references,
         maxVisibleBlocks = maxVisibleBlocks,
+        mediaPresentationResolver = mediaPresentationResolver,
     )
+}
+
+private fun ModernMarkdownRenderPlan.hasResolverClaimedGallery(
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+): Boolean =
+    mediaPresentationResolver != null &&
+        items.any { item ->
+            item is ModernMarkdownRenderItem.Gallery &&
+                item.images.any { image -> mediaPresentationResolver(image) != null }
+        }
 
 internal fun buildModernMarkdownRenderItems(
     renderableBlocks: List<ASTNode>,
     content: String,
+    references: Map<String, MarkdownLinkReference>,
     maxVisibleBlocks: Int,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): List<ModernMarkdownRenderItem> {
     val items = mutableListOf<ModernMarkdownRenderItem>()
     var index = 0
 
     while (index < renderableBlocks.size && items.size < maxVisibleBlocks) {
-        val gallery = consumeModernImageGallery(renderableBlocks, index, content)
+        val gallery =
+            consumeModernImageGallery(
+                nodes = renderableBlocks,
+                startIndex = index,
+                content = content,
+                mediaPresentationResolver = mediaPresentationResolver,
+            )
         if (gallery != null) {
             items += ModernMarkdownRenderItem.Gallery(gallery.images)
             index = gallery.nextIndex
         } else {
-            items += ModernMarkdownRenderItem.Block(renderableBlocks[index])
+            val node = renderableBlocks[index]
+            val semanticBlock = parseSemanticBlock(node, content, references).firstOrNull()
+            items += ModernMarkdownRenderItem.Block(node = node, semanticBlock = semanticBlock)
             index++
         }
     }

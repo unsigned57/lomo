@@ -7,16 +7,25 @@ interface WebDavClient {
 
     fun list(path: String): List<WebDavRemoteResource>
 
-    fun get(path: String): WebDavRemoteFile
-
     fun getToFile(
         path: String,
         destination: File,
-    ) {
-        destination.writeBytes(get(path).bytes)
-    }
+    ): WebDavRemoteResource
 
-    fun put(
+    /*
+     * Behavior Contract:
+     * Small-file payload helpers are reserved for memo text, conflict previews, and focused tests.
+     * Remote object sync must use getToFile/putFile so large payloads never make ByteArray the
+     * primary transport contract.
+     */
+    fun getSmallFile(path: String): WebDavSmallRemoteFile
+
+    fun getSmallFile(
+        path: String,
+        maxBytes: Long,
+    ): WebDavSmallRemoteFile = getSmallFile(path)
+
+    fun putSmallFile(
         path: String,
         bytes: ByteArray,
         contentType: String,
@@ -32,16 +41,7 @@ interface WebDavClient {
         lastModifiedHint: Long? = null,
         expectedEtag: String? = null,
         requireAbsent: Boolean = false,
-    ) {
-        put(
-            path = path,
-            bytes = file.readBytes(),
-            contentType = contentType,
-            lastModifiedHint = lastModifiedHint,
-            expectedEtag = expectedEtag,
-            requireAbsent = requireAbsent,
-        )
-    }
+    )
 
     fun delete(
         path: String,
@@ -75,12 +75,14 @@ data class WebDavRemoteResource(
     val size: Long? = null,
 )
 
-data class WebDavRemoteFile(
+data class WebDavSmallRemoteFile(
     val path: String,
     val bytes: ByteArray,
     val etag: String?,
     val lastModified: Long?,
 )
+
+const val WEBDAV_SMALL_FILE_MAX_BYTES: Long = 256L * 1024L
 
 fun interface WebDavClientFactory {
     fun create(

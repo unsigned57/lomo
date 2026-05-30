@@ -22,10 +22,12 @@ import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
+import com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy
 import com.lomo.data.local.entity.MemoFileOutboxOp
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.projectedMemoEntity
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoIdentityPolicy
@@ -44,17 +46,16 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
 import com.lomo.data.testing.DataFunSpec
-import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Behavior Contract:
  * - Unit under test: MemoMutationHandler
- * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, unsafe rewrite rejection, and edit-time orphan attachment cleanup.
- * - Observable outcomes: thrown unsafe mutation exception, LocalFileState writes, persisted updatedAt, cached flow collection counts, and voice/image deletion dispatch when references disappear.
+ * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, unsafe rewrite visibility, and edit-time orphan attachment cleanup.
+ * - Observable outcomes: false outbox flush result, LocalFileState writes, persisted updatedAt, cached flow collection counts, and voice/image deletion dispatch when references disappear.
  * - TDD proof: "updateMemo deletes unreferenced voice attachment removed by edit" fails before the fix because UpdateMemoMutationDelegate never ran orphan cleanup on the removed attachment set.
- * - Excludes: Room transaction internals, UI rendering, and retired legacy-capture storage mechanics.
+ * - Excludes: Room transaction internals, UI rendering, and retired capture storage mechanics.
  */
 class MemoMutationHandlerTest : DataFunSpec() {
     init {
@@ -62,11 +63,15 @@ class MemoMutationHandlerTest : DataFunSpec() {
             setUp()
         }
 
-        test("flushSavedMemoToFile stores file metadata modified time in local file state") { `flushSavedMemoToFile stores file metadata modified time in local file state`() }
+        test("flushMemoFileOutbox create stores file metadata modified time in local file state") {
+            `flushMemoFileOutbox create stores file metadata modified time in local file state`()
+        }
 
         test("flushMemoFileOutbox create stores metadata modified time in local file state") { `flushMemoFileOutbox create stores metadata modified time in local file state`() }
 
-        test("flushSavedMemoToFile records memo upsert for s3 incremental journal") { `flushSavedMemoToFile records memo upsert for s3 incremental journal`() }
+        test("flushMemoFileOutbox create records memo upsert for s3 incremental journal") {
+            `flushMemoFileOutbox create records memo upsert for s3 incremental journal`()
+        }
 
         test("flushDeleteMemoToFile records memo delete when main file disappears") { `flushDeleteMemoToFile records memo delete when main file disappears`() }
 
@@ -74,7 +79,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
 
         test("updateMemoInDb relies on trigger managed fts and avoids direct fts writes") { `updateMemoInDb relies on trigger managed fts and avoids direct fts writes`() }
 
-        test("updateMemo throws when safe rewrite cannot locate target memo block") { shouldThrow<UnsafeWorkspaceMutationException> { `updateMemo throws when safe rewrite cannot locate target memo block`() } }
+        test("update outbox flush returns false when safe rewrite cannot locate target memo block") { `update outbox flush returns false when safe rewrite cannot locate target memo block`() }
 
         test("updateMemo deletes unreferenced voice attachment removed by edit") { `updateMemo deletes unreferenced voice attachment removed by edit`() }
 
@@ -117,25 +122,34 @@ class MemoMutationHandlerTest : DataFunSpec() {
         MockKAnnotations.init(this)
         every { dataStore.storageFilenameFormat } returns flowOf("yyyy_MM_dd")
         every { dataStore.storageTimestampFormat } returns flowOf("HH:mm:ss")
+        val workspaceStore =
+            testMemoWorkspaceStore(
+                markdownStorageDataSource = fileDataSource,
+                localFileStateDao = localFileStateDao,
+            )
         handler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
                 mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(dao),
-                memoSearchDao = dao,
+                memoStatisticsDao = dao,
                 localFileStateDao = localFileStateDao,
+                workspaceStore = workspaceStore,
+                workspaceMediaAccess = ThrowingWorkspaceMediaAccess,
                 savePlanFactory = savePlanFactory,
                 textProcessor = MemoTextProcessor(),
                 dataStore = dataStore,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = MemoIdentityPolicy(),
                 memoVersionJournal = memoVersionJournal,
+                mediaRepository = ThrowingMediaRepository,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
                 webDavLocalChangeRecorder = webDavLocalChangeRecorder,
+                backgroundScope = immediateTestBackgroundScope(),
             )
     }
 
-    private fun `flushSavedMemoToFile stores file metadata modified time in local file state`() =
+    private fun `flushMemoFileOutbox create stores file metadata modified time in local file state`() =
         runTest {
             val filename = "2024_01_15.md"
             val savePlan =
@@ -153,6 +167,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                             dateKey = "2024_01_15",
                         ),
                 )
+            coEvery { dao.getMemo(savePlan.memo.id) } returns projectedMemoEntity(savePlan.memo)
             coEvery { localFileStateDao.getByFilename(filename, false) } returns null
             coEvery {
                 fileDataSource.saveFileIn(
@@ -167,7 +182,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                 fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
             } returns FileMetadata(filename, 456_789L)
 
-            handler.flushSavedMemoToFile(savePlan)
+            handler.flushMemoFileOutbox(buildCreateOutbox(savePlan))
 
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) {
@@ -179,17 +194,35 @@ class MemoMutationHandlerTest : DataFunSpec() {
     private fun `flushMemoFileOutbox create stores metadata modified time in local file state`() =
         runTest {
             val filename = "2024_01_16.md"
+            val createRawContent = "- 11:00 from outbox"
+            val identity =
+                MemoFileOutboxIdentityPolicy.forCreate(
+                    memoId = "memo_2",
+                    memoDate = "2024_01_16",
+                    createRawContent = createRawContent,
+                )
             val outbox =
                 MemoFileOutboxEntity(
                     operation = MemoFileOutboxOp.CREATE,
+                    operationId = identity.operationId,
+                    idempotencyKey = identity.idempotencyKey,
                     memoId = "memo_2",
                     memoDate = "2024_01_16",
                     memoTimestamp = 1_700_100_000_000L,
-                    memoRawContent = "- 11:00 from outbox",
+                    memoRawContent = createRawContent,
                     newContent = "from outbox",
-                    createRawContent = "- 11:00 from outbox",
+                    createRawContent = createRawContent,
+                )
+            val memo =
+                Memo(
+                    id = "memo_2",
+                    timestamp = 1_700_100_000_000L,
+                    content = "from outbox",
+                    rawContent = createRawContent,
+                    dateKey = "2024_01_16",
                 )
 
+            coEvery { dao.getMemo(memo.id) } returns projectedMemoEntity(memo)
             coEvery { localFileStateDao.getByFilename(filename, false) } returns null
             coEvery {
                 fileDataSource.saveFileIn(
@@ -215,7 +248,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
             captured.captured.safUri shouldBe "content://saved/memo_2"
         }
 
-    private fun `flushSavedMemoToFile records memo upsert for s3 incremental journal`() =
+    private fun `flushMemoFileOutbox create records memo upsert for s3 incremental journal`() =
         runTest {
             val filename = "2024_01_15.md"
             val savePlan =
@@ -233,6 +266,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                             dateKey = "2024_01_15",
                         ),
                 )
+            coEvery { dao.getMemo(savePlan.memo.id) } returns projectedMemoEntity(savePlan.memo)
             coEvery { localFileStateDao.getByFilename(filename, false) } returns null
             coEvery {
                 fileDataSource.saveFileIn(
@@ -247,7 +281,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                 fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
             } returns FileMetadata(filename, 456_789L)
 
-            handler.flushSavedMemoToFile(savePlan)
+            handler.flushMemoFileOutbox(buildCreateOutbox(savePlan))
 
             coVerify(exactly = 1) { s3LocalChangeRecorder.recordMemoUpsert(filename) }
         }
@@ -284,9 +318,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                 )
             every { dataStore.storageFilenameFormat } returns flowOf("yyyy_MM_dd")
             every { dataStore.storageTimestampFormat } returns flowOf("HH:mm")
-            coEvery { dao.getMemo(sourceMemo.id) } returns
-                com.lomo.data.local.entity.MemoEntity
-                    .fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
 
             val persistedMemo = slot<com.lomo.data.local.entity.MemoEntity>()
             coEvery {
@@ -300,7 +332,9 @@ class MemoMutationHandlerTest : DataFunSpec() {
             (persistedMemo.captured.updatedAt > sourceMemo.updatedAt).shouldBeTrue()
             coVerify(exactly = 1) {
                 dao.replaceImageRefsForMemo(
-                    match { it.id == sourceMemo.id && it.content == "after" },
+                    match { projection ->
+                        projection.entity.id == sourceMemo.id && projection.entity.content == "after"
+                    },
                 )
             }
         }
@@ -316,9 +350,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     rawContent = "- 10:00 before",
                     dateKey = "2024_01_15",
                 )
-            coEvery { dao.getMemo(sourceMemo.id) } returns
-                com.lomo.data.local.entity.MemoEntity
-                    .fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { dao.insertMemo(any()) } just runs
             coEvery { dao.insertMemoFileOutbox(any()) } returns 1L
 
@@ -327,7 +359,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
             coVerify(exactly = 0) { dao.rebuildFts() }
         }
 
-    fun `updateMemo throws when safe rewrite cannot locate target memo block`() =
+    private fun `update outbox flush returns false when safe rewrite cannot locate target memo block`() =
         runTest {
             val sourceMemo =
                 Memo(
@@ -338,11 +370,13 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     rawContent = "- 10:00 before",
                     dateKey = "2026_03_26",
                 )
-            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { localFileStateDao.getByFilename("${sourceMemo.dateKey}.md", false) } returns null
             coEvery { fileDataSource.readFileIn(MemoDirectoryType.MAIN, "${sourceMemo.dateKey}.md") } returns "- 10:00 another memo"
 
-            handler.updateMemo(sourceMemo, "after")
+            val result = handler.flushMemoFileOutbox(buildUpdateOutbox(sourceMemo, "after"))
+
+            result shouldBe false
         }
 
     private fun `updateMemo deletes unreferenced voice attachment removed by edit`() =
@@ -359,7 +393,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     dateKey = "2026_03_26",
                     imageUrls = listOf(voicePath),
                 )
-            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { localFileStateDao.getByFilename(filename, false) } returns null
             coEvery {
                 fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
@@ -378,7 +412,9 @@ class MemoMutationHandlerTest : DataFunSpec() {
             } returns FileMetadata(filename, 1L)
             coEvery { dao.countMemosAndTrashWithImage(voicePath, sourceMemo.id) } returns 0
 
-            handler.updateMemo(sourceMemo, "after")
+            coEvery { dao.insertMemoFileOutbox(any()) } returns 1L
+
+            handler.updateMemoInDb(sourceMemo, "after")
 
             coVerify(exactly = 1) { fileDataSource.deleteVoiceFile(voicePath) }
         }
@@ -397,7 +433,7 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     dateKey = "2026_03_26",
                     imageUrls = listOf(voicePath),
                 )
-            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { localFileStateDao.getByFilename(filename, false) } returns null
             coEvery {
                 fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
@@ -416,7 +452,9 @@ class MemoMutationHandlerTest : DataFunSpec() {
             } returns FileMetadata(filename, 1L)
             coEvery { dao.countMemosAndTrashWithImage(voicePath, sourceMemo.id) } returns 1
 
-            handler.updateMemo(sourceMemo, "after")
+            coEvery { dao.insertMemoFileOutbox(any()) } returns 1L
+
+            handler.updateMemoInDb(sourceMemo, "after")
 
             coVerify(exactly = 0) { fileDataSource.deleteVoiceFile(any()) }
             coVerify(exactly = 0) { fileDataSource.deleteImage(any()) }
@@ -442,16 +480,24 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     markdownStorageDataSource = fileDataSource,
                     mediaStorageDataSource = fileDataSource,
                     daoBundle = testMemoMutationDaoBundle(dao),
-                    memoSearchDao = dao,
+                    memoStatisticsDao = dao,
                     localFileStateDao = localFileStateDao,
+                    workspaceStore =
+                        testMemoWorkspaceStore(
+                            markdownStorageDataSource = fileDataSource,
+                            localFileStateDao = localFileStateDao,
+                    ),
+                    workspaceMediaAccess = ThrowingWorkspaceMediaAccess,
                     savePlanFactory = savePlanFactory,
                     textProcessor = MemoTextProcessor(),
                     dataStore = dataStore,
                     trashMutationHandler = trashMutationHandler,
                     memoIdentityPolicy = MemoIdentityPolicy(),
                     memoVersionJournal = memoVersionJournal,
+                    mediaRepository = ThrowingMediaRepository,
                     s3LocalChangeRecorder = s3LocalChangeRecorder,
                     webDavLocalChangeRecorder = webDavLocalChangeRecorder,
+                    backgroundScope = immediateTestBackgroundScope(),
                 )
 
             withTimeout(2_000) {

@@ -3,8 +3,14 @@ package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialFieldState
+import com.lomo.domain.model.CredentialProvider
+import com.lomo.domain.model.CredentialState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
 import com.lomo.domain.repository.WebDavSyncConfigurationRepository
 import com.lomo.domain.repository.WebDavSyncStateRepository
@@ -79,7 +85,19 @@ class WebDavSyncConfigurationMutationRepositoryImpl
             }
         }
 
-        override suspend fun isPasswordConfigured(): Boolean = !credentialStore.getPassword().isNullOrBlank()
+        override suspend fun getPasswordStatus(): StoredCredentialStatus = credentialStore.passwordStatus
+
+        override suspend fun getCredentialState(): CredentialState =
+            CredentialState(
+                provider = CredentialProvider.WEBDAV,
+                fields =
+                    listOf(
+                        CredentialFieldState(CredentialField.WEBDAV_USERNAME, effectiveUsernameStatus()),
+                        CredentialFieldState(CredentialField.WEBDAV_PASSWORD, getPasswordStatus()),
+                    ),
+            )
+
+        override suspend fun isPasswordConfigured(): Boolean = getPasswordStatus().isConfigured
 
         override suspend fun setAutoSyncEnabled(enabled: Boolean) {
             dataStore.updateWebDavAutoSyncEnabled(enabled)
@@ -91,6 +109,15 @@ class WebDavSyncConfigurationMutationRepositoryImpl
 
         override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
             dataStore.updateWebDavSyncOnRefresh(enabled)
+        }
+
+        private suspend fun effectiveUsernameStatus(): StoredCredentialStatus {
+            val dataStoreUsername = dataStore.webDavUsername.first()
+            return if (dataStoreUsername.isNullOrBlank()) {
+                credentialStore.usernameStatus
+            } else {
+                StoredCredentialStatus.Present
+            }
         }
     }
 

@@ -16,31 +16,49 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.lomo.domain.model.MemoTagCount
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 
 private val BAR_HEIGHT = 20.dp
-private const val MAX_DISPLAY_TAGS = 10
+internal const val MAX_DISPLAY_TAGS = 10
 private const val TAG_NAME_WEIGHT = 0.25f
 private const val TAG_BAR_WEIGHT = 0.65f
 private const val TAG_COUNT_WEIGHT = 0.1f
 private const val BAR_ALPHA_BASE = 0.3f
 private const val BAR_ALPHA_RANGE = 0.7f
 
-@Composable
-fun TagDistributionChart(
-    tagCounts: ImmutableList<MemoTagCount>,
-    modifier: Modifier = Modifier,
-) {
-    val topTags = remember(tagCounts) {
-        tagCounts
+data class ChartTagSlice(
+    val name: String,
+    val count: Int,
+)
+
+internal data class ResolvedTagDistributionBar(
+    val slice: ChartTagSlice,
+    val fraction: Float,
+)
+
+internal fun resolveTagDistributionBars(slices: Iterable<ChartTagSlice>): List<ResolvedTagDistributionBar> {
+    val topSlices =
+        slices
             .sortedByDescending { it.count }
             .take(MAX_DISPLAY_TAGS)
+    val maxCount = topSlices.maxOfOrNull { it.count.coerceAtLeast(0) }?.coerceAtLeast(1) ?: 1
+    return topSlices.map { slice ->
+        ResolvedTagDistributionBar(
+            slice = slice,
+            fraction = slice.count.coerceAtLeast(0).toFloat() / maxCount,
+        )
     }
-    val maxCount = remember(topTags) {
-        topTags.maxOfOrNull { it.count } ?: 1
+}
+
+@Composable
+fun TagDistributionChart(
+    slices: ImmutableList<ChartTagSlice>,
+    modifier: Modifier = Modifier,
+) {
+    val bars = remember(slices) {
+        resolveTagDistributionBars(slices)
     }
     val barColor = MaterialTheme.colorScheme.primary
 
@@ -48,14 +66,14 @@ fun TagDistributionChart(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
-        for (tag in topTags) {
+        for (bar in bars) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
             ) {
                 Text(
-                    text = tag.name,
+                    text = bar.slice.name,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(TAG_NAME_WEIGHT),
@@ -67,17 +85,16 @@ fun TagDistributionChart(
                         .height(BAR_HEIGHT),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    val fraction = tag.count.toFloat() / maxCount
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction)
+                            .fillMaxWidth(bar.fraction)
                             .height(BAR_HEIGHT)
                             .clip(AppShapes.ExtraSmall)
-                            .background(barColor.copy(alpha = BAR_ALPHA_BASE + BAR_ALPHA_RANGE * fraction)),
+                            .background(barColor.copy(alpha = BAR_ALPHA_BASE + BAR_ALPHA_RANGE * bar.fraction)),
                     )
                 }
                 Text(
-                    text = tag.count.toString(),
+                    text = bar.slice.count.toString(),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(TAG_COUNT_WEIGHT),

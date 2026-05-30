@@ -6,6 +6,8 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.usecase.MemoIdentityPolicy
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -13,6 +15,20 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import javax.inject.Inject
+
+data class MarkdownSourceSpan(
+    val startLine: Int,
+    val endLine: Int,
+)
+
+data class MarkdownMemoBlock(
+    val memo: Memo,
+    val span: MarkdownSourceSpan,
+)
+
+data class MarkdownMemoDocument(
+    val blocks: List<MarkdownMemoBlock>,
+)
 
 class MarkdownParser
     @Inject
@@ -31,89 +47,27 @@ class MarkdownParser
             content: String,
             filename: String,
             fallbackTimestampMillis: Long? = null,
-        ): List<Memo> {
-            val result = mutableListOf<Memo>()
-            val lines = content.lines()
-            var currentTimestamp = ""
-            var currentContentBuilder = StringBuilder()
-            var currentRawBuilder = StringBuilder()
+        ): List<Memo> = parseDocument(content, filename, fallbackTimestampMillis).blocks.map { it.memo }
 
-            val seenIds = mutableSetOf<String>()
-            val timestampCounts = mutableMapOf<String, Int>()
+        fun parseDocument(
+            content: String,
+            filename: String,
+            fallbackTimestampMillis: Long? = null,
+        ): MarkdownMemoDocument =
+            parseLineSequence(
+                lines = content.lines().asSequence(),
+                filename = filename,
+                fallbackTimestampMillis = fallbackTimestampMillis,
+            )
 
-            fun addMemo() {
-                if (currentTimestamp.isNotEmpty()) {
-                    val fullRaw = currentRawBuilder.toString().trim()
-                    val fullContent = currentContentBuilder.toString().trim()
-
-                    // Track occurrence of timestamps to add millisecond offsets
-                    // This ensures that items with the same text-time are sorted by file-order (LIFO/FIFO)
-                    // rather than random ID hash order.
-                    val offset = timestampCounts.getOrDefault(currentTimestamp, 0)
-                    timestampCounts[currentTimestamp] = offset + 1
-
-                    val timestampWithOffset =
-                        memoIdentityPolicy.applyTimestampOffset(
-                            baseTimestampMillis =
-                                resolveTimestamp(
-                                    dateStr = filename,
-                                    timeStr = currentTimestamp,
-                                    fallbackTimestampMillis = fallbackTimestampMillis,
-                                ),
-                            occurrenceIndex = offset,
-                        )
-                    val timestampLong = timestampWithOffset
-
-                    val baseId = memoIdentityPolicy.buildBaseId(filename, currentTimestamp, fullContent)
-                    val collisionCount = memoIdentityPolicy.nextCollisionIndex(seenIds, baseId)
-                    val id = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionCount)
-
-                    seenIds.add(id)
-
-                    result.add(
-                        Memo(
-                            id = id,
-                            timestamp = timestampLong,
-                            content = fullContent,
-                            rawContent = fullRaw,
-                            dateKey = filename,
-                            localDate = MemoLocalDateResolver.resolve(filename),
-                            tags = extractTags(fullContent),
-                            imageUrls = extractInlineAttachments(fullContent),
-                        ),
-                    )
-                }
-            }
-
-            for (line in lines) {
-                val header = StorageTimestampFormats.parseMemoHeaderLine(line)
-                if (header != null) {
-                    addMemo()
-                    currentTimestamp = header.timePart
-                    currentContentBuilder = StringBuilder(header.contentPart)
-                    currentRawBuilder = StringBuilder(line)
-                } else {
-                    if (currentTimestamp.isNotEmpty()) {
-                        if (currentContentBuilder.isEmpty()) {
-                            currentContentBuilder.append(line)
-                        } else {
-                            currentContentBuilder.append("\n").append(line)
-                        }
-                        currentRawBuilder.append("\n").append(line)
-                    }
-                }
-            }
-            addMemo()
-
-            if (result.isEmpty()) {
-                buildPlainMarkdownFallbackMemo(
-                    content = content,
-                    filename = filename,
-                    fallbackTimestampMillis = fallbackTimestampMillis,
-                )?.let(result::add)
-            }
-
-            return result
+        suspend fun parseDocumentLines(
+            lines: Flow<String>,
+            filename: String,
+            fallbackTimestampMillis: Long? = null,
+        ): MarkdownMemoDocument {
+            val builder = MarkdownMemoDocumentBuilder(filename, fallbackTimestampMillis)
+            lines.collect { line -> builder.accept(line) }
+            return builder.build()
         }
 
         fun resolveTimestamp(
@@ -179,6 +133,126 @@ class MarkdownParser
                 tags = extractTags(normalizedContent),
                 imageUrls = extractInlineAttachments(normalizedContent),
             )
+        }
+
+        private fun parseLineSequence(
+            lines: Sequence<String>,
+            filename: String,
+            fallbackTimestampMillis: Long?,
+        ): MarkdownMemoDocument {
+            val builder = MarkdownMemoDocumentBuilder(filename, fallbackTimestampMillis)
+            lines.forEach { line -> builder.accept(line) }
+            return builder.build()
+        }
+
+        private inner class MarkdownMemoDocumentBuilder(
+            private val filename: String,
+            private val fallbackTimestampMillis: Long?,
+        ) {
+            private val result = mutableListOf<MarkdownMemoBlock>()
+            private val seenIds = mutableSetOf<String>()
+            private val timestampCounts = mutableMapOf<String, Int>()
+            private var lineIndex = 0
+            private var sawHeader = false
+            private var currentTimestamp = ""
+            private var currentStartLine = -1
+            private var currentEndLine = -1
+            private var currentContentBuilder = StringBuilder()
+            private var currentRawBuilder = StringBuilder()
+            private var plainFallbackBuilder = StringBuilder()
+
+            fun accept(line: String) {
+                val header = StorageTimestampFormats.parseMemoHeaderLine(line)
+                if (header != null) {
+                    addMemo()
+                    sawHeader = true
+                    currentTimestamp = header.timePart
+                    currentStartLine = lineIndex
+                    currentEndLine = lineIndex
+                    currentContentBuilder = StringBuilder(header.contentPart)
+                    currentRawBuilder = StringBuilder(line)
+                } else if (currentTimestamp.isNotEmpty()) {
+                    appendBodyLine(line)
+                } else if (!sawHeader) {
+                    if (plainFallbackBuilder.isNotEmpty()) {
+                        plainFallbackBuilder.append('\n')
+                    }
+                    plainFallbackBuilder.append(line)
+                }
+                lineIndex++
+            }
+
+            fun build(): MarkdownMemoDocument {
+                addMemo()
+                if (result.isEmpty()) {
+                    buildPlainMarkdownFallbackMemo(
+                        content = plainFallbackBuilder.toString(),
+                        filename = filename,
+                        fallbackTimestampMillis = fallbackTimestampMillis,
+                    )?.let { memo ->
+                        result +=
+                            MarkdownMemoBlock(
+                                memo = memo,
+                                span = MarkdownSourceSpan(startLine = 0, endLine = (lineIndex - 1).coerceAtLeast(0)),
+                            )
+                    }
+                }
+                return MarkdownMemoDocument(result.toList())
+            }
+
+            private fun appendBodyLine(line: String) {
+                if (currentContentBuilder.isEmpty()) {
+                    currentContentBuilder.append(line)
+                } else {
+                    currentContentBuilder.append("\n").append(line)
+                }
+                currentRawBuilder.append("\n").append(line)
+                currentEndLine = lineIndex
+            }
+
+            private fun addMemo() {
+                if (currentTimestamp.isEmpty()) {
+                    return
+                }
+                val fullRaw = currentRawBuilder.toString().trim()
+                val fullContent = currentContentBuilder.toString().trim()
+
+                val offset = timestampCounts.getOrDefault(currentTimestamp, 0)
+                timestampCounts[currentTimestamp] = offset + 1
+
+                val timestampLong =
+                    memoIdentityPolicy.applyTimestampOffset(
+                        baseTimestampMillis =
+                            resolveTimestamp(
+                                dateStr = filename,
+                                timeStr = currentTimestamp,
+                                fallbackTimestampMillis = fallbackTimestampMillis,
+                            ),
+                        occurrenceIndex = offset,
+                    )
+
+                val baseId = memoIdentityPolicy.buildBaseId(filename, currentTimestamp, fullContent)
+                val collisionCount = memoIdentityPolicy.nextCollisionIndex(seenIds, baseId)
+                val id = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionCount)
+                seenIds.add(id)
+
+                result +=
+                    MarkdownMemoBlock(
+                        memo =
+                            Memo(
+                                id = id,
+                                timestamp = timestampLong,
+                                content = fullContent,
+                                rawContent = fullRaw,
+                                dateKey = filename,
+                                localDate = MemoLocalDateResolver.resolve(filename),
+                                tags = extractTags(fullContent),
+                                imageUrls = extractInlineAttachments(fullContent),
+                            ),
+                        span = MarkdownSourceSpan(startLine = currentStartLine, endLine = currentEndLine),
+                    )
+                currentTimestamp = ""
+            }
         }
     }
 

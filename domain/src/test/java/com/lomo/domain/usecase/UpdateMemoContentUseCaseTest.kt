@@ -38,7 +38,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.MemoConstraints
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
@@ -60,18 +60,18 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
             dateKey = "2026_03_24",
         )
 
-    private lateinit var repository: FakeMemoRepository
+    private lateinit var repository: FakeMemoStore
     private lateinit var useCase: UpdateMemoContentUseCase
 
     init {
         beforeTest {
-            repository = FakeMemoRepository(initialMemos = listOf(memo))
+            repository = FakeMemoStore(initialMemos = listOf(memo))
             useCase =
                 UpdateMemoContentUseCase(
-                    repository = repository,
+                    repository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(repository),
                     validator = ValidateMemoContentUseCase(),
                     resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
-                    deleteMemoUseCase = DeleteMemoUseCase(repository),
+                    deleteMemoUseCase = DeleteMemoUseCase(com.lomo.domain.testing.fakes.FakeMemoMutationRepository(repository)),
                 )
         }
 
@@ -90,7 +90,7 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
                 useCase(memo, "new-content")
 
                 repository.updatedMemos shouldBe
-                    listOf(FakeMemoRepository.UpdatedMemo(memo, "new-content"))
+                    listOf(FakeMemoStore.UpdatedMemo(memo, "new-content"))
                 repository.deletedMemoRequests shouldBe emptyList()
                 repository.currentMemos().single().content shouldBe "new-content"
             }

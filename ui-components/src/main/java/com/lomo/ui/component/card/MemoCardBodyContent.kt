@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.component.markdown.MarkdownMediaPresentation
+import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.component.markdown.MarkdownRendererWithTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionScope
@@ -37,6 +39,7 @@ internal fun MemoCardBodyContent(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
@@ -45,7 +48,9 @@ internal fun MemoCardBodyContent(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     val bodyContent: @Composable (MemoTextSelectionRegistrar?) -> Unit = { selectionRegistrar ->
         when (bodyTransitionMode) {
@@ -62,12 +67,15 @@ internal fun MemoCardBodyContent(
                     onTapFeedback = onTapFeedback,
                     onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
+                    onLongClick = onLongClick,
                     processedContent = processedContent,
                     precomputedRenderPlan = precomputedRenderPlan,
                     tags = tags,
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    mediaPresentationResolver = mediaPresentationResolver,
+                    mediaContent = mediaContent,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -107,12 +115,15 @@ internal fun MemoCardBodyContent(
                         onTapFeedback = onTapFeedback,
                         onBodyClick = onBodyClick,
                         onDoubleClick = onDoubleClick,
+                        onLongClick = onLongClick,
                         processedContent = processedContent,
                         precomputedRenderPlan = precomputedRenderPlan,
                         tags = tags,
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                        mediaContent = mediaContent,
                         selectionRegistrar = selectionRegistrar,
                     )
                 }
@@ -137,13 +148,16 @@ private fun MemoCardBodyStateContent(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     selectionRegistrar: MemoTextSelectionRegistrar?,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     when (visualState) {
         MemoCardBodyVisualState.Expanded -> {
@@ -156,9 +170,12 @@ private fun MemoCardBodyStateContent(
                 onTapFeedback = onTapFeedback,
                 onBodyClick = onBodyClick,
                 onDoubleClick = onDoubleClick,
+                onLongClick = onLongClick,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 selectionRegistrar = selectionRegistrar,
             )
         }
@@ -171,6 +188,7 @@ private fun MemoCardBodyStateContent(
                     onTapFeedback = onTapFeedback,
                     onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
+                    onLongClick = onLongClick,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -187,9 +205,12 @@ private fun MemoCardBodyStateContent(
                     onTapFeedback = onTapFeedback,
                     onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
+                    onLongClick = onLongClick,
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    mediaPresentationResolver = mediaPresentationResolver,
+                    mediaContent = mediaContent,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -221,10 +242,13 @@ private fun MemoCardMarkdownContent(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     selectionRegistrar: MemoTextSelectionRegistrar?,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     MarkdownRendererWithTextSelectionRegistrar(
         content = processedContent,
@@ -235,11 +259,14 @@ private fun MemoCardMarkdownContent(
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
         enableTextSelection = allowFreeTextCopy,
         textSelectionRegistrar = selectionRegistrar,
         onTextTapFeedback = onTapFeedback,
         onTextBodyClick = onBodyClick,
         onTextDoubleClick = onDoubleClick,
+        onTextLongClick = onLongClick,
+        mediaContent = mediaContent,
     )
 }
 

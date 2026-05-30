@@ -20,7 +20,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.WebDavClient
-import com.lomo.data.webdav.WebDavRemoteFile
+import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
@@ -62,12 +62,17 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
 
                     override fun list(path: String): List<WebDavRemoteResource> = emptyList()
 
-                    override fun get(path: String): WebDavRemoteFile {
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("getToFile should not be used in this test")
+
+                    override fun getSmallFile(path: String): WebDavSmallRemoteFile {
                         getCalls += 1
                         error("classification should not download remote bytes when timestamps already pick upload")
                     }
 
-                    override fun put(
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
                         contentType: String,
@@ -75,6 +80,15 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
                         expectedEtag: String?,
                         requireAbsent: Boolean,
                     ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = error("putFile should not be used in this test")
 
                     override fun delete(
                         path: String,
@@ -133,16 +147,21 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
 
                     override fun list(path: String): List<WebDavRemoteResource> = emptyList()
 
-                    override fun get(path: String): WebDavRemoteFile {
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("getToFile should not be used in this test")
+
+                    override fun getSmallFile(path: String): WebDavSmallRemoteFile {
                         getCalls.incrementAndGet()
                         val concurrent = inFlight.incrementAndGet()
                         peakConcurrency.accumulateAndGet(concurrent, ::maxOf)
                         Thread.sleep(25)
                         inFlight.decrementAndGet()
-                        return WebDavRemoteFile(path, contentBytes, "etag-$path", 1_000L)
+                        return WebDavSmallRemoteFile(path, contentBytes, "etag-$path", 1_000L)
                     }
 
-                    override fun put(
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
                         contentType: String,
@@ -150,6 +169,15 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
                         expectedEtag: String?,
                         requireAbsent: Boolean,
                     ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = error("putFile should not be used in this test")
 
                     override fun delete(
                         path: String,
@@ -200,12 +228,17 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
 
                     override fun list(path: String): List<WebDavRemoteResource> = emptyList()
 
-                    override fun get(path: String): WebDavRemoteFile {
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("getToFile should not be used in this test")
+
+                    override fun getSmallFile(path: String): WebDavSmallRemoteFile {
                         getCalls += 1
                         error("matching etag fingerprint should avoid downloading remote bytes")
                     }
 
-                    override fun put(
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
                         contentType: String,
@@ -213,6 +246,15 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
                         expectedEtag: String?,
                         requireAbsent: Boolean,
                     ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = error("putFile should not be used in this test")
 
                     override fun delete(
                         path: String,
@@ -265,12 +307,17 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
 
                     override fun list(path: String): List<WebDavRemoteResource> = emptyList()
 
-                    override fun get(path: String): WebDavRemoteFile {
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("getToFile should not be used in this test")
+
+                    override fun getSmallFile(path: String): WebDavSmallRemoteFile {
                         getCalls += 1
                         error("non-memo overlap fallback should not download full remote bytes")
                     }
 
-                    override fun put(
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
                         contentType: String,
@@ -278,6 +325,15 @@ class WebDavInitialSyncClassificationTest : DataFunSpec() {
                         expectedEtag: String?,
                         requireAbsent: Boolean,
                     ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = error("putFile should not be used in this test")
 
                     override fun delete(
                         path: String,

@@ -1,6 +1,7 @@
 package com.lomo.ui.text
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -27,6 +28,7 @@ internal fun MemoParagraphText(
     onTapFeedback: (() -> Unit)? = null,
     onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     MemoParagraphText(
         text = AnnotatedString(text),
@@ -40,6 +42,7 @@ internal fun MemoParagraphText(
         onTapFeedback = onTapFeedback,
         onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
+        onLongClick = onLongClick,
     )
 }
 
@@ -56,6 +59,7 @@ internal fun MemoParagraphText(
     onTapFeedback: (() -> Unit)? = null,
     onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val fallbackColor = colorScheme.onSurface
@@ -69,20 +73,60 @@ internal fun MemoParagraphText(
         remember(text, searchQuery, searchHighlightColor) {
             text.withSearchHighlight(query = searchQuery, highlightColor = searchHighlightColor)
         }
+    val hasSearchHighlights = highlightedText.spanStyles.size > text.spanStyles.size
+    val renderingDecision =
+        remember(
+            highlightedText,
+            text.spanStyles,
+            text.paragraphStyles,
+            selectable,
+            onTapFeedback,
+            onBodyClick,
+            onDoubleClick,
+            onLongClick,
+            hasSearchHighlights,
+        ) {
+            resolveMemoTextRenderingPolicy(
+                MemoTextRenderingRequest(
+                    text = highlightedText.text,
+                    selectionRequired = selectable,
+                    tapHandlingRequired = onTapFeedback != null ||
+                        onBodyClick != null ||
+                        onDoubleClick != null ||
+                        onLongClick != null,
+                    hasLinks = highlightedText.toMemoTextLinkRanges().isNotEmpty(),
+                    hasInlineStyles = text.spanStyles.isNotEmpty() || text.paragraphStyles.isNotEmpty(),
+                    hasSearchHighlights = hasSearchHighlights,
+                ),
+            )
+        }
 
-    MemoComposeParagraphText(
-        text = highlightedText,
-        style = resolvedStyle,
-        modifier = modifier,
-        maxLines = maxLines,
-        overflow = overflow,
-        selectable = selectable,
-        selectionHighlightColor = memoPlatformTextSelectionHighlightColor(colorScheme),
-        defaultLinkColor = memoPlatformTextHandleColor(colorScheme),
-        blockKey = blockKey,
-        selectionRegistrar = selectionRegistrar,
-        onTapFeedback = onTapFeedback,
-        onBodyClick = onBodyClick,
-        onDoubleClick = onDoubleClick,
-    )
+    when (renderingDecision.renderer) {
+        MemoTextRenderer.PlatformText ->
+            Text(
+                text = highlightedText.text,
+                style = resolvedStyle,
+                modifier = modifier,
+                maxLines = maxLines,
+                overflow = overflow,
+            )
+
+        MemoTextRenderer.CustomCanvasText ->
+            MemoComposeParagraphText(
+                text = highlightedText,
+                style = resolvedStyle,
+                modifier = modifier,
+                maxLines = maxLines,
+                overflow = overflow,
+                selectable = selectable,
+                selectionHighlightColor = memoPlatformTextSelectionHighlightColor(colorScheme),
+                defaultLinkColor = memoPlatformTextHandleColor(colorScheme),
+                blockKey = blockKey,
+                selectionRegistrar = selectionRegistrar,
+                onTapFeedback = onTapFeedback,
+                onBodyClick = onBodyClick,
+                onDoubleClick = onDoubleClick,
+                onLongClick = onLongClick,
+            )
+    }
 }

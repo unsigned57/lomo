@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.source.directWriteTextAtomically
+import com.lomo.data.source.ensureWithinDirectory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,43 +17,44 @@ internal suspend fun listFileVaultRootLocalFiles(
         mode.rootDir
             .walkTopDown()
             .onEnter { file ->
-                file == mode.rootDir || !file.name.startsWith(".")
+                file == mode.rootDir || !file.name.startsWith(".") && file.isInsideVaultRoot(mode)
             }.filter(File::isFile)
             .mapNotNull { file ->
                 val relativePath = relativePathFrom(mode.rootDir, file) ?: return@mapNotNull null
-                if (!isSyncableContentPath(relativePath)) {
+                val vaultPath = VaultRootPath.from(relativePath) ?: return@mapNotNull null
+                if (!isSyncableContentPath(vaultPath.value) || !file.isInsideVaultRoot(mode)) {
                     return@mapNotNull null
                 }
-                relativePath to LocalS3File(relativePath, file.lastModified(), file.length())
+                vaultPath.value to LocalS3File(vaultPath.value, file.lastModified(), file.length())
             }.toMap()
     }
 
 internal suspend fun readFileVaultRootBytes(
     mode: S3LocalSyncMode.FileVaultRoot,
-    relativePath: String,
+    relativePath: VaultRootPath,
 ): ByteArray? =
     withContext(Dispatchers.IO) {
-        val file = File(mode.rootDir, relativePath)
+        val file = mode.resolveVaultRootFile(relativePath)
         if (file.exists() && file.isFile) file.readBytes() else null
     }
 
 internal suspend fun readFileVaultRootText(
     mode: S3LocalSyncMode.FileVaultRoot,
-    relativePath: String,
+    relativePath: VaultRootPath,
 ): String? =
     withContext(Dispatchers.IO) {
-        val file = File(mode.rootDir, relativePath)
+        val file = mode.resolveVaultRootFile(relativePath)
         if (file.exists() && file.isFile) file.readText(StandardCharsets.UTF_8) else null
     }
 
 internal suspend fun getFileVaultRootLocalFile(
     mode: S3LocalSyncMode.FileVaultRoot,
-    relativePath: String,
+    relativePath: VaultRootPath,
 ): LocalS3File? =
     withContext(Dispatchers.IO) {
-        val file = File(mode.rootDir, relativePath)
+        val file = mode.resolveVaultRootFile(relativePath)
         if (file.exists() && file.isFile) {
-            LocalS3File(path = relativePath, lastModified = file.lastModified(), size = file.length())
+            LocalS3File(path = relativePath.value, lastModified = file.lastModified(), size = file.length())
         } else {
             null
         }
@@ -60,13 +62,13 @@ internal suspend fun getFileVaultRootLocalFile(
 
 internal suspend fun writeFileVaultRootBytes(
     mode: S3LocalSyncMode.FileVaultRoot,
-    relativePath: String,
+    relativePath: VaultRootPath,
     bytes: ByteArray,
 ) {
     withContext(Dispatchers.IO) {
-        val file = File(mode.rootDir, relativePath)
-        file.parentFile?.mkdirs()
-        if (relativePath.endsWith(S3_MEMO_SUFFIX)) {
+        mode.resolveVaultRootFile(relativePath).parentFile?.mkdirs()
+        val file = mode.resolveVaultRootFile(relativePath)
+        if (relativePath.value.endsWith(S3_MEMO_SUFFIX)) {
             directWriteTextAtomically(file, String(bytes, StandardCharsets.UTF_8))
         } else {
             file.writeBytes(bytes)
@@ -76,9 +78,21 @@ internal suspend fun writeFileVaultRootBytes(
 
 internal suspend fun deleteFileVaultRootFile(
     mode: S3LocalSyncMode.FileVaultRoot,
-    relativePath: String,
+    relativePath: VaultRootPath,
 ) {
     withContext(Dispatchers.IO) {
-        File(mode.rootDir, relativePath).delete()
+        mode.resolveVaultRootFile(relativePath).delete()
     }
 }
+
+internal fun S3LocalSyncMode.FileVaultRoot.resolveVaultRootFile(relativePath: VaultRootPath): File =
+    File(rootDir, relativePath.value).also { target ->
+        ensureWithinDirectory(rootDir, target)
+    }
+
+private fun File.isInsideVaultRoot(mode: S3LocalSyncMode.FileVaultRoot): Boolean =
+    // behavior-contract: silent-result-ok: ensureWithinDirectory throws outside-root; false is the containment answer
+    runCatching {
+        ensureWithinDirectory(mode.rootDir, this)
+        true
+    }.getOrDefault(false)

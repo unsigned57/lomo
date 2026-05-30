@@ -206,6 +206,7 @@ internal class ShareTransferPayloadBuilder(
 
     private fun resolveUriSize(uri: Uri): Long? {
         val queriedSize =
+            // behavior-contract: silent-result-ok: ContentResolver.query may throw; caller falls to other size sources
             runCatching {
                 context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
                     val index = cursor.getColumnIndex(OpenableColumns.SIZE)

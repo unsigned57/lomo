@@ -2,6 +2,7 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.flow.Flow
 
 internal class SafMarkdownStorageBackendDelegate(
     private val context: Context,
@@ -20,6 +21,13 @@ internal class SafMarkdownStorageBackendDelegate(
             directory = directory,
             onMain = { safListMetadataWithIds(context, rootUri, documentAccess) },
             onTrash = { safListTrashMetadataWithIds(context, rootUri, documentAccess) },
+        )
+
+    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safStreamMetadataWithIds(context, rootUri, documentAccess) },
+            onTrash = { safStreamTrashMetadataWithIds(context, rootUri, documentAccess) },
         )
 
     override suspend fun getFileMetadataIn(
@@ -50,6 +58,16 @@ internal class SafMarkdownStorageBackendDelegate(
             directory = directory,
             onMain = { safReadFileByDocumentId(rootUri, documentAccess, documentId) },
             onTrash = { safReadTrashFileByDocumentId(rootUri, documentAccess, documentId) },
+        )
+
+    override fun streamFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): Flow<String> =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safStreamFileByDocumentId(rootUri, documentAccess, documentId) },
+            onTrash = { safStreamTrashFileByDocumentId(rootUri, documentAccess, documentId) },
         )
 
     override suspend fun readFile(uri: Uri): String? = safReadFileUri(documentAccess, uri)

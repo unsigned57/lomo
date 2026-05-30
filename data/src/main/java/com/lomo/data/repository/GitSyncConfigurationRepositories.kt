@@ -3,6 +3,8 @@ package com.lomo.data.repository
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
@@ -52,6 +54,10 @@ class GitSyncConfigurationMutationRepositoryImpl
         }
 
         override suspend fun getToken(): String? = credentialStore.getToken()
+
+        override suspend fun getTokenStatus(): StoredCredentialStatus = credentialStore.tokenStatus
+
+        override suspend fun isTokenConfigured(): Boolean = getTokenStatus().isConfigured
 
         override suspend fun setAuthorInfo(
             name: String,

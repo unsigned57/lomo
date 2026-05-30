@@ -133,6 +133,7 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                                 runtime = runtime,
                                 support = support,
                                 memoMirror = memoMirror,
+                                lifecycleRunner = testRemoteSyncLifecycleRunner(),
                             ),
                         statusExecutor =
                             GitSyncStatusExecutor(

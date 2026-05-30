@@ -9,6 +9,7 @@ import com.lomo.data.source.StorageRootType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
 
 class FakeFileDataSource : FileDataSource {
     // In-memory file storage
@@ -72,6 +73,11 @@ class FakeFileDataSource : FileDataSource {
                 )
             }
     }
+
+    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
+        flow {
+            listMetadataWithIdsIn(directory).forEach { metadata -> emit(metadata) }
+        }
 
     override suspend fun readFileByDocumentIdIn(directory: MemoDirectoryType, documentId: String): String? {
         val key = files.keys.firstOrNull { it.first == directory && documentIds[it] == documentId }

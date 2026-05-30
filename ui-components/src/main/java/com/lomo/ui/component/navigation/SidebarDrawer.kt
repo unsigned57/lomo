@@ -89,6 +89,7 @@ private const val PREVIEW_TAG_SELECTED_BUCKET_OFFSET = 1
 private const val PREVIEW_TAG_SELECTED_MEMO_COUNT = 94
 private const val PREVIEW_TAG_SELECTED_TAG_COUNT = 7
 private const val PREVIEW_TAG_SELECTED_DAY_COUNT = 36
+private val PREVIEW_TODAY: LocalDate = LocalDate.of(2025, 1, 15)
 
 data class SidebarStats(
     val memoCount: Int = 0,
@@ -122,6 +123,7 @@ fun SidebarDrawer(
     username: String,
     stats: SidebarStats,
     memoCountByDate: ImmutableMap<LocalDate, Int>,
+    today: LocalDate,
     tags: ImmutableList<SidebarTag>,
     modifier: Modifier = Modifier,
     rootTagOrder: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
@@ -179,6 +181,7 @@ fun SidebarDrawer(
         sidebarStats(stats = stats)
         sidebarHeatmap(
             memoCountByDate = memoCountByDate,
+            today = today,
             onDateLongPress = onHeatmapDateLongPress,
         )
         sidebarDestinations(
@@ -306,11 +309,13 @@ private fun LazyListScope.sidebarStats(stats: SidebarStats) {
 
 private fun LazyListScope.sidebarHeatmap(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
+    today: LocalDate,
     onDateLongPress: (LocalDate) -> Unit,
 ) {
     item {
         CalendarHeatmap(
             memoCountByDate = memoCountByDate,
+            today = today,
             onDateLongPress = onDateLongPress,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -390,7 +395,7 @@ private fun rememberMediumHapticClick(onClick: () -> Unit): () -> Unit {
 @Preview(showBackground = true, widthDp = 360, heightDp = 780)
 @Composable
 private fun SidebarDrawerPreviewMemo() {
-    val today = LocalDate.now()
+    val today = PREVIEW_TODAY
     val sampleStats =
         SidebarStats(
             memoCount = PREVIEW_MEMO_COUNT,
@@ -426,6 +431,7 @@ private fun SidebarDrawerPreviewMemo() {
             username = "Lomo",
             stats = sampleStats,
             memoCountByDate = memoCountByDate.toImmutableMap(),
+            today = today,
             tags = sampleTags.toImmutableList(),
             currentDestination = SidebarDestination.Memo,
             modifier = Modifier.fillMaxWidth(),
@@ -436,7 +442,7 @@ private fun SidebarDrawerPreviewMemo() {
 @Preview(showBackground = true, widthDp = 360, heightDp = 780)
 @Composable
 private fun SidebarDrawerPreviewTagSelected() {
-    val today = LocalDate.now()
+    val today = PREVIEW_TODAY
     val sampleTags =
         listOf(
             SidebarTag("project", PREVIEW_TAG_SELECTED_PROJECT_COUNT),
@@ -467,6 +473,7 @@ private fun SidebarDrawerPreviewTagSelected() {
                     dayCount = PREVIEW_TAG_SELECTED_DAY_COUNT,
                 ),
             memoCountByDate = memoCountByDate.toImmutableMap(),
+            today = today,
             tags = sampleTags.toImmutableList(),
             currentDestination = SidebarDestination.Tag("project/android"),
             modifier = Modifier.fillMaxWidth(),

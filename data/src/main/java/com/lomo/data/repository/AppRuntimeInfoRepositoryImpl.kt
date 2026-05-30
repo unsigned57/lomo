@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import android.content.Context
+import android.content.pm.PackageInfo
+import androidx.core.content.pm.PackageInfoCompat
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -18,10 +20,21 @@ class AppRuntimeInfoRepositoryImpl
         override suspend fun getCurrentVersionName(): String =
             withContext(Dispatchers.Default) {
                 runCatching {
-                    val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                    packageInfo.versionName.orEmpty()
+                    currentPackageInfo().versionName.orEmpty()
                 }.onFailure { throwable ->
                     Timber.w(throwable, "Failed to read current app version")
                 }.getOrDefault("")
             }
+
+        override suspend fun getCurrentVersionCode(): Long? =
+            withContext(Dispatchers.Default) {
+                runCatching {
+                    PackageInfoCompat.getLongVersionCode(currentPackageInfo())
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Failed to read current app version code")
+                }.getOrNull()
+            }
+
+        private fun currentPackageInfo(): PackageInfo =
+            context.packageManager.getPackageInfo(context.packageName, 0)
     }

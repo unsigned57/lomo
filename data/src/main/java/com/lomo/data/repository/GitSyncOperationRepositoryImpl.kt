@@ -6,8 +6,8 @@ import com.lomo.data.sync.SyncLayoutMigration
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.GitSyncOperationRepository
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -85,37 +85,43 @@ class GitSyncOperationRepositoryImpl
 @Singleton
 class GitSyncInitAndSyncExecutor
     @Inject
-    constructor(
+    internal constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
         private val memoMirror: GitSyncMemoMirror,
+        private val lifecycleRunner: RemoteSyncLifecycleRunner,
     ) {
         suspend fun initOrClone(): GitSyncResult =
-            when (val readyState = loadReadyContext(requireEnabled = false)) {
-                is GitSyncReadyState.Failure -> readyState.result
-                is GitSyncReadyState.Ready -> {
-                    when (val targetState = resolveRepoTarget(readyState.context, INIT_SAF_MIRROR_FAILURE_MESSAGE)) {
-                        is GitSyncTargetState.Failure -> targetState.result
-                        is GitSyncTargetState.Ready -> {
-                            val target = targetState.target
-                            mirrorRepoTargetBeforeGit(target, readyState.context.layout)
-                            val result =
-                                support.runGitIo {
-                                    runtime.gitSyncEngine.initOrClone(target.repoDir, readyState.context.remoteUrl)
-                                }
-                            pushSafMirrorOrError(
-                                runtime = runtime,
-                                support = support,
-                                target = target,
-                                successResult = result,
-                                failureMessage = INIT_SAF_MIRROR_FAILURE_MESSAGE,
-                            ) ?: result
+            runGitLifecycle {
+                when (val readyState = loadReadyContext(requireEnabled = false)) {
+                    is GitSyncReadyState.Failure -> readyState.result
+                    is GitSyncReadyState.Ready -> {
+                        when (
+                            val targetState =
+                                resolveRepoTarget(readyState.context, INIT_SAF_MIRROR_FAILURE_MESSAGE)
+                        ) {
+                            is GitSyncTargetState.Failure -> targetState.result
+                            is GitSyncTargetState.Ready -> {
+                                val target = targetState.target
+                                mirrorRepoTargetBeforeGit(target, readyState.context.layout)
+                                val result =
+                                    support.runGitIo {
+                                        runtime.gitSyncEngine.initOrClone(target.repoDir, readyState.context.remoteUrl)
+                                    }
+                                pushSafMirrorOrError(
+                                    runtime = runtime,
+                                    support = support,
+                                    target = target,
+                                    successResult = result,
+                                    failureMessage = INIT_SAF_MIRROR_FAILURE_MESSAGE,
+                                ) ?: result
+                            }
                         }
                     }
                 }
             }
 
-        suspend fun commitLocal(): GitSyncResult {
+        suspend fun commitLocal(): GitSyncResult = runGitLifecycle {
             val enabled = runtime.dataStore.gitSyncEnabled.first()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val directRootDir = support.resolveRootDir()
@@ -131,7 +137,7 @@ class GitSyncInitAndSyncExecutor
                     !safRootUri.isNullOrBlank() -> support.resolveGitRepoDirForUri(safRootUri)
                     else -> null
                 }
-            return when {
+            when {
                 !enabled -> GitSyncResult.NotConfigured
                 directRootDir == null && layout.allSameDirectory ->
                     GitSyncResult.Success("SAF mode, skipping local commit")
@@ -147,23 +153,215 @@ class GitSyncInitAndSyncExecutor
         }
 
         suspend fun sync(): GitSyncResult =
-            when (val readyState = loadReadyContext(requireEnabled = true)) {
-                is GitSyncReadyState.Failure -> readyState.result
-                is GitSyncReadyState.Ready -> {
-                    when (val targetState = resolveRepoTarget(readyState.context, PREPARE_SAF_MIRROR_FAILURE_MESSAGE)) {
-                        is GitSyncTargetState.Failure -> targetState.result
-                        is GitSyncTargetState.Ready -> {
-                            val target = targetState.target
-                            val initResult =
-                                ensureInitializedRepo(
-                                    target = target,
-                                    remoteUrl = readyState.context.remoteUrl,
+            lifecycleRunner.run(GitSyncLifecycleStages())
+
+        private suspend fun runGitLifecycle(block: suspend () -> GitSyncResult): GitSyncResult {
+            return lifecycleRunner.run(GitSingleBlockLifecycleStages(block))
+        }
+
+        private inner class GitSyncLifecycleStages :
+            RemoteSyncLifecycleStages<
+                GitSyncReadyState,
+                GitSyncPlannedWork,
+                GitSyncPlannedWork,
+                Unit,
+                GitSyncAppliedWork,
+                GitSyncAppliedWork,
+                GitSyncResult,
+                GitSyncResult,
+            > {
+            override val context: RemoteSyncLifecycleContext =
+                RemoteSyncLifecycleContext(
+                    backend = SyncBackendType.GIT,
+                    budget = RemoteSyncBudgetPolicy.Unlimited,
+                )
+
+            override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession): GitSyncReadyState =
+                loadReadyContext(requireEnabled = true)
+
+            override suspend fun plan(
+                snapshot: GitSyncReadyState,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncPlannedWork =
+                when (snapshot) {
+                    is GitSyncReadyState.Failure -> GitSyncPlannedWork(result = snapshot.result)
+                    is GitSyncReadyState.Ready ->
+                        when (
+                            val targetState =
+                                resolveRepoTarget(snapshot.context, PREPARE_SAF_MIRROR_FAILURE_MESSAGE)
+                        ) {
+                            is GitSyncTargetState.Failure -> GitSyncPlannedWork(result = targetState.result)
+                            is GitSyncTargetState.Ready ->
+                                GitSyncPlannedWork(
+                                    context = snapshot.context,
+                                    target = targetState.target,
+                                    status = runtime.gitSyncQueryCoordinator.getStatus(targetState.target.repoDir),
                                 )
-                            initResult ?: finalizeSyncResult(runPrimarySync(target, readyState.context), target)
                         }
-                    }
                 }
+
+            override suspend fun verify(
+                plan: GitSyncPlannedWork,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncPlannedWork = plan
+
+            override suspend fun materializeConflicts(
+                verified: GitSyncPlannedWork,
+                session: RemoteSyncLifecycleSession,
+            ) = Unit
+
+            override suspend fun apply(
+                verified: GitSyncPlannedWork,
+                conflicts: Unit,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncAppliedWork {
+                val target = verified.target
+                val context = verified.context
+                if (target == null || context == null) {
+                    return GitSyncAppliedWork(result = requireNotNull(verified.result), target = null)
+                }
+                val initResult =
+                    ensureInitializedRepo(
+                        target = target,
+                        remoteUrl = context.remoteUrl,
+                    )
+                val result = initResult ?: runPrimarySync(target, context)
+                return GitSyncAppliedWork(result = result, target = target)
             }
+
+            override suspend fun commitMetadata(
+                verified: GitSyncPlannedWork,
+                conflicts: Unit,
+                applied: GitSyncAppliedWork,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncAppliedWork = applied
+
+            override suspend fun finalize(
+                verified: GitSyncPlannedWork,
+                conflicts: Unit,
+                applied: GitSyncAppliedWork,
+                metadata: GitSyncAppliedWork,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncResult =
+                applied.target?.let { target -> finalizeSyncResult(applied.result, target) } ?: applied.result
+
+            override fun summarizeSnapshot(snapshot: GitSyncReadyState): RemoteSyncSnapshotTelemetry =
+                when (snapshot) {
+                    is GitSyncReadyState.Failure -> RemoteSyncSnapshotTelemetry(0, 0, 0)
+                    is GitSyncReadyState.Ready ->
+                        RemoteSyncSnapshotTelemetry(
+                            localFileCount = snapshot.context.directRootDir?.gitTelemetryFileCount() ?: 0,
+                            remoteFileCount = 0,
+                            metadataEntryCount = 0,
+                        )
+                }
+
+            override fun summarizePlan(plan: GitSyncPlannedWork): RemoteSyncActionTelemetry =
+                plan.toTelemetry()
+
+            override fun summarizeVerification(verified: GitSyncPlannedWork): RemoteSyncActionTelemetry =
+                verified.toTelemetry()
+
+            override fun summarizeRefresh(finalized: GitSyncResult): RemoteSyncRefreshTelemetry =
+                RemoteSyncRefreshTelemetry(durationMillis = 0)
+
+            override fun summarizeResult(finalized: GitSyncResult): RemoteSyncLifecycleResultTelemetry =
+                if (finalized is GitSyncResult.Error) {
+                    RemoteSyncLifecycleResultTelemetry.Failure
+                } else {
+                    RemoteSyncLifecycleResultTelemetry.Success
+                }
+
+            override fun mapResult(finalized: GitSyncResult): GitSyncResult = finalized
+
+            override fun mapError(error: Throwable): GitSyncResult =
+                GitSyncResult.Error(error.message ?: "Git sync failed", error)
+
+            override suspend fun release() = Unit
+        }
+
+        private inner class GitSingleBlockLifecycleStages(
+            private val block: suspend () -> GitSyncResult,
+        ) : RemoteSyncLifecycleStages<
+            Unit,
+            Unit,
+            Unit,
+            Unit,
+            GitSyncResult,
+            GitSyncResult,
+            GitSyncResult,
+            GitSyncResult,
+        > {
+            override val context: RemoteSyncLifecycleContext =
+                RemoteSyncLifecycleContext(
+                    backend = SyncBackendType.GIT,
+                    budget = RemoteSyncBudgetPolicy.Unlimited,
+                )
+
+            override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession) = Unit
+
+            override suspend fun plan(
+                snapshot: Unit,
+                session: RemoteSyncLifecycleSession,
+            ) = Unit
+
+            override suspend fun verify(
+                plan: Unit,
+                session: RemoteSyncLifecycleSession,
+            ) = Unit
+
+            override suspend fun materializeConflicts(
+                verified: Unit,
+                session: RemoteSyncLifecycleSession,
+            ) = Unit
+
+            override suspend fun apply(
+                verified: Unit,
+                conflicts: Unit,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncResult = block()
+
+            override suspend fun commitMetadata(
+                verified: Unit,
+                conflicts: Unit,
+                applied: GitSyncResult,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncResult = applied
+
+            override suspend fun finalize(
+                verified: Unit,
+                conflicts: Unit,
+                applied: GitSyncResult,
+                metadata: GitSyncResult,
+                session: RemoteSyncLifecycleSession,
+            ): GitSyncResult = metadata
+
+            override fun summarizeSnapshot(snapshot: Unit): RemoteSyncSnapshotTelemetry =
+                RemoteSyncSnapshotTelemetry(0, 0, 0)
+
+            override fun summarizePlan(plan: Unit): RemoteSyncActionTelemetry =
+                RemoteSyncActionTelemetry(total = 0)
+
+            override fun summarizeVerification(verified: Unit): RemoteSyncActionTelemetry =
+                RemoteSyncActionTelemetry(total = 0)
+
+            override fun summarizeRefresh(finalized: GitSyncResult): RemoteSyncRefreshTelemetry =
+                RemoteSyncRefreshTelemetry(durationMillis = 0)
+
+            override fun summarizeResult(finalized: GitSyncResult): RemoteSyncLifecycleResultTelemetry =
+                if (finalized is GitSyncResult.Error) {
+                    RemoteSyncLifecycleResultTelemetry.Failure
+                } else {
+                    RemoteSyncLifecycleResultTelemetry.Success
+                }
+
+            override fun mapResult(finalized: GitSyncResult): GitSyncResult = finalized
+
+            override fun mapError(error: Throwable): GitSyncResult =
+                GitSyncResult.Error(error.message ?: "Git sync failed", error)
+
+            override suspend fun release() = Unit
+        }
 
         private suspend fun loadReadyContext(requireEnabled: Boolean): GitSyncReadyState {
             val enabled = runtime.dataStore.gitSyncEnabled.first()
@@ -570,6 +768,36 @@ private data class GitSyncTarget(
     val safRootUri: String?,
     val usesSafMirror: Boolean,
     val layout: SyncDirectoryLayout,
+)
+
+private data class GitSyncPlannedWork(
+    val context: GitSyncReadyContext? = null,
+    val target: GitSyncTarget? = null,
+    val status: GitSyncStatus? = null,
+    val result: GitSyncResult? = null,
+) {
+    fun toTelemetry(): RemoteSyncActionTelemetry =
+        if (context != null && target != null && status != null) {
+            val upload = status.aheadCount + if (status.hasLocalChanges) 1 else 0
+            val download = status.behindCount
+            RemoteSyncActionTelemetry(total = upload + download, download = download, upload = upload)
+        } else {
+            RemoteSyncActionTelemetry(total = 0)
+        }
+}
+
+private fun File.gitTelemetryFileCount(): Int =
+    if (!exists() || !isDirectory) {
+        0
+    } else {
+        walkTopDown()
+            .onEnter { file -> file.name != ".git" }
+            .count { file -> file.isFile }
+    }
+
+private data class GitSyncAppliedWork(
+    val result: GitSyncResult,
+    val target: GitSyncTarget?,
 )
 
 private sealed interface GitSyncReadyState {

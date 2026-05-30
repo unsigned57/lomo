@@ -6,14 +6,14 @@ import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import com.lomo.domain.model.S3RemoteIndexState
-import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -223,6 +223,7 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     val autoSyncIntervalWrites = mutableListOf<String>()
     val syncOnRefreshEnabledWrites = mutableListOf<Boolean>()
     val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
+    val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var passwordConfigured = false
     var syncCallCount = 0
@@ -232,6 +233,7 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     var testConnectionCallCount = 0
         private set
     var nextResolveConflictsResult: WebDavSyncResult = WebDavSyncResult.Success("resolved")
+    var nextResolveReviewResult: WebDavSyncResult = WebDavSyncResult.Success("review resolved")
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -342,6 +344,14 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
         return nextResolveConflictsResult
     }
 
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): WebDavSyncResult {
+        reviewResolveRequests += resolution to review
+        return nextResolveReviewResult
+    }
+
     override fun syncState(): Flow<WebDavSyncState> = syncState.asStateFlow()
 }
 
@@ -385,10 +395,14 @@ class FakeS3SyncRepository : S3SyncRepository {
     val autoSyncEnabledWrites = mutableListOf<Boolean>()
     val autoSyncIntervalWrites = mutableListOf<String>()
     val syncOnRefreshEnabledWrites = mutableListOf<Boolean>()
-    val syncPolicies = mutableListOf<S3SyncScanPolicy>()
     val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
+    val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var clearLocalSyncDirectoryCallCount = 0
+        private set
+    var syncCallCount = 0
+        private set
+    var syncForRefreshCallCount = 0
         private set
     var accessKeyConfigured = false
     var secretAccessKeyConfigured = false
@@ -398,6 +412,7 @@ class FakeS3SyncRepository : S3SyncRepository {
     var nextSyncResult: S3SyncResult = S3SyncResult.Success("synced")
     var nextTestConnectionResult: S3SyncResult = S3SyncResult.Success("connected")
     var nextResolveConflictsResult: S3SyncResult = S3SyncResult.Success("resolved")
+    var nextResolveReviewResult: S3SyncResult = S3SyncResult.Success("review resolved")
     var testConnectionCallCount = 0
         private set
 
@@ -578,15 +593,18 @@ class FakeS3SyncRepository : S3SyncRepository {
         syncOnRefreshEnabled.value = enabled
     }
 
-    override suspend fun sync(policy: S3SyncScanPolicy): S3SyncResult {
-        syncPolicies += policy
+    override suspend fun sync(): S3SyncResult {
+        syncCallCount += 1
+        return nextSyncResult
+    }
+
+    override suspend fun syncForRefresh(): S3SyncResult {
+        syncForRefreshCallCount += 1
         return nextSyncResult
     }
 
     override suspend fun getStatus(): S3SyncStatus =
         S3SyncStatus(remoteFileCount = 0, localFileCount = 0, pendingChanges = 0, lastSyncTime = null)
-
-    override suspend fun getRemoteIndexState(): S3RemoteIndexState? = null
 
     override suspend fun testConnection(): S3SyncResult {
         testConnectionCallCount += 1
@@ -599,6 +617,14 @@ class FakeS3SyncRepository : S3SyncRepository {
     ): S3SyncResult {
         resolveRequests += resolution to conflictSet
         return nextResolveConflictsResult
+    }
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): S3SyncResult {
+        reviewResolveRequests += resolution to review
+        return nextResolveReviewResult
     }
 
     override fun syncState(): Flow<S3SyncState> = syncState.asStateFlow()

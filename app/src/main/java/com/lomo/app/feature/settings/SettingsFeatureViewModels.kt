@@ -3,6 +3,9 @@ package com.lomo.app.feature.settings
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -169,6 +172,29 @@ class SettingsDisplayFeatureViewModel(
         scope.launch { appConfigCoordinator.updateThemeMode(mode) }
     }
 
+    fun updateColorSource(source: ColorSource) {
+        scope.launch { appConfigCoordinator.updateColorSource(source) }
+    }
+
+    fun updateFontPreference(preference: FontPreference) {
+        scope.launch { appConfigCoordinator.updateFontPreference(preference) }
+    }
+
+    fun importCustomFont(
+        contents: ByteArray,
+        originalFileName: String,
+        onResult: (CustomFontInfo?) -> Unit = {},
+    ) {
+        scope.launch {
+            val result = appConfigCoordinator.importCustomFont(contents, originalFileName)
+            onResult(result)
+        }
+    }
+
+    fun deleteCustomFont(id: String) {
+        scope.launch { appConfigCoordinator.deleteCustomFont(id) }
+    }
+
     fun updateTypographyFontSizeScale(scale: Float) {
         scope.launch { appConfigCoordinator.updateTypographyFontSizeScale(scale) }
     }
@@ -305,6 +331,9 @@ class SettingsSystemFeatureViewModel(
                                                 apkDownloadUrl = info.apkDownloadUrl,
                                                 apkFileName = info.apkFileName,
                                                 apkSizeBytes = info.apkSizeBytes,
+                                                expectedPackageName = info.expectedPackageName,
+                                                expectedVersionName = info.expectedVersionName,
+                                                expectedVersionCode = info.expectedVersionCode,
                                             ),
                                     )
                             }
@@ -340,6 +369,9 @@ class SettingsSystemFeatureViewModel(
                                             apkDownloadUrl = info.apkDownloadUrl,
                                             apkFileName = info.apkFileName,
                                             apkSizeBytes = info.apkSizeBytes,
+                                            expectedPackageName = info.expectedPackageName,
+                                            expectedVersionName = info.expectedVersionName,
+                                            expectedVersionCode = info.expectedVersionCode,
                                         )
                             }
                         },

@@ -28,20 +28,24 @@ import com.lomo.data.source.MemoDirectoryType
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.slot
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldNotBeNull
+import com.lomo.data.source.FileMetadataWithId
 
 /*
  * Behavior Contract:
  * - Unit under test: MemoRefreshEngine
  * - Behavior focus: refresh deletion planning when file listings temporarily miss previously known memo files.
  * - Observable outcomes: filesToDeleteInDb forwarded to MemoRefreshDbApplier, pending-missing metadata updates,
- *   and missing-state reset when files reappear.
+ *   missing-state reset when files reappear, and streamed metadata access through the workspace reader.
  * - TDD proof: Fails before the fix when a file is deleted from the DB on the first confirmed-missing refresh
  *   instead of entering a pending-deletion confirmation state.
  * - Excludes: Room transaction behavior, parser internals, and storage backend implementation details.
@@ -84,7 +88,11 @@ class MemoRefreshEngineTest : DataFunSpec() {
         MockKAnnotations.init(this)
         engine =
             MemoRefreshEngine(
-                markdownStorageDataSource = markdownStorageDataSource,
+                workspaceReader =
+                    testMemoWorkspaceReader(
+                        markdownStorageDataSource = markdownStorageDataSource,
+                        localFileStateDao = localFileStateDao,
+                    ),
                 localFileStateDao = localFileStateDao,
                 refreshPlanner = MemoRefreshPlanner,
                 refreshParserWorker = refreshParserWorker,
@@ -106,8 +114,8 @@ class MemoRefreshEngineTest : DataFunSpec() {
 
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            stubMetadataStream(MemoDirectoryType.MAIN)
+            stubMetadataStream(MemoDirectoryType.TRASH)
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
@@ -117,6 +125,7 @@ class MemoRefreshEngineTest : DataFunSpec() {
             coVerify(exactly = 0) {
                 markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, any())
             }
+            coVerify(exactly = 0) { markdownStorageDataSource.listMetadataWithIdsIn(any()) }
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
             capturedDeleteSet.captured shouldBe emptySet<Pair<String, Boolean>>()
         }
@@ -136,8 +145,8 @@ class MemoRefreshEngineTest : DataFunSpec() {
 
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            stubMetadataStream(MemoDirectoryType.MAIN)
+            stubMetadataStream(MemoDirectoryType.TRASH)
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
@@ -166,8 +175,8 @@ class MemoRefreshEngineTest : DataFunSpec() {
 
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            stubMetadataStream(MemoDirectoryType.MAIN)
+            stubMetadataStream(MemoDirectoryType.TRASH)
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
@@ -191,17 +200,15 @@ class MemoRefreshEngineTest : DataFunSpec() {
 
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
-            coEvery {
-                markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
-            } returns
-                listOf(
-                    com.lomo.data.source.FileMetadataWithId(
+            stubMetadataStream(
+                MemoDirectoryType.MAIN,
+                FileMetadataWithId(
                         filename = "2026_03_25.md",
                         lastModified = 1_000L,
                         documentId = "doc-1",
-                    ),
-                )
-            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+                ),
+            )
+            stubMetadataStream(MemoDirectoryType.TRASH)
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns emptyParseResult()
 
             engine.refresh()
@@ -230,6 +237,7 @@ class MemoRefreshEngineTest : DataFunSpec() {
                                 timestamp = 1_700_000_000_000,
                                 updatedAt = refreshedFile.lastModified,
                                 content = "imported from s3",
+                                searchContent = "imported from s3",
                                 rawContent = refreshedFile.content,
                                 date = "2026_03_25",
                                 tags = "",
@@ -294,4 +302,16 @@ class MemoRefreshEngineTest : DataFunSpec() {
             mainDatesToReplace = emptySet(),
             trashDatesToReplace = emptySet(),
         )
+
+    private fun stubMetadataStream(
+        directory: MemoDirectoryType,
+        vararg metadata: FileMetadataWithId,
+    ) {
+        every { markdownStorageDataSource.streamMetadataWithIdsIn(directory) } returns
+            if (metadata.isEmpty()) {
+                emptyFlow()
+            } else {
+                flowOf(*metadata)
+            }
+    }
 }

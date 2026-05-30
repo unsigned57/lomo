@@ -17,6 +17,9 @@ internal class SafDocumentAccess(
 ) {
     private var cachedTrashDir: DocumentFile? = null
 
+    internal val contentResolver
+        get() = context.contentResolver
+
     fun root(): DocumentFile? =
         try {
             val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null

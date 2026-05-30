@@ -24,6 +24,7 @@ class WebDavSyncWorker
                 is WebDavSyncResult.Success -> successWorkResult(WORKER_NAME, result.message)
                 is WebDavSyncResult.Error -> errorWorkResult(WORKER_NAME, result.message)
                 is WebDavSyncResult.Conflict -> conflictWorkResult(WORKER_NAME, result.message)
+                is WebDavSyncResult.Review -> conflictWorkResult(WORKER_NAME, result.message)
                 WebDavSyncResult.NotConfigured -> skipWorkResult(WORKER_NAME, result)
             }
         }

@@ -5,7 +5,6 @@ import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,10 +23,7 @@ class FileMediaStorageDataSourceDelegate
                     backendResolver.resolvedMediaRoot(StorageRootType.IMAGE)
                         ?: throw IOException("No image directory configured")
                 val filename = buildImageFilename(uri)
-                when (val vfs = resolvedRoot.vfs) {
-                    is WorkspaceVfs.Saf -> resolvedRoot.backend.saveImage(uri, filename)
-                    is WorkspaceVfs.Direct -> saveToDirectImageDirectory(vfs.rootDir, uri, filename)
-                }
+                resolvedRoot.backend.saveImage(uri, filename)
                 filename
             }
 
@@ -63,22 +59,5 @@ class FileMediaStorageDataSourceDelegate
                     }
                 } ?: "jpg"
             return "img_$timestamp.$extension"
-        }
-
-        private suspend fun saveToDirectImageDirectory(
-            rootDir: File,
-            uri: Uri,
-            filename: String,
-        ) {
-            val inputStream =
-                context.contentResolver.openInputStream(uri)
-                    ?: throw IOException("Cannot open source image URI")
-            if (!rootDir.exists()) {
-                rootDir.mkdirs()
-            }
-            val targetFile = File(rootDir, filename)
-            targetFile.outputStream().use { outputStream ->
-                inputStream.use { input -> input.copyTo(outputStream) }
-            }
         }
     }

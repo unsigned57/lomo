@@ -2,11 +2,14 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.S3CredentialStore
+import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
 import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncStateRepository
@@ -146,18 +149,33 @@ class S3SyncConfigurationMutationRepositoryImpl
             credentialStore.setEncryptionPassword2(password.trim())
         }
 
-        override suspend fun isAccessKeyConfigured(): Boolean = !credentialStore.getAccessKeyId().isNullOrBlank()
+        override suspend fun getAccessKeyStatus(): StoredCredentialStatus = credentialStore.accessKeyIdStatus
+
+        override suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
+            credentialStore.secretAccessKeyStatus
+
+        override suspend fun getSessionTokenStatus(): StoredCredentialStatus = credentialStore.sessionTokenStatus
+
+        override suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
+            credentialStore.encryptionPasswordStatus
+
+        override suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
+            credentialStore.encryptionPassword2Status
+
+        override suspend fun getCredentialState(): CredentialState = credentialStore.credentialState
+
+        override suspend fun isAccessKeyConfigured(): Boolean = getAccessKeyStatus().isConfigured
 
         override suspend fun isSecretAccessKeyConfigured(): Boolean =
-            !credentialStore.getSecretAccessKey().isNullOrBlank()
+            getSecretAccessKeyStatus().isConfigured
 
-        override suspend fun isSessionTokenConfigured(): Boolean = !credentialStore.getSessionToken().isNullOrBlank()
+        override suspend fun isSessionTokenConfigured(): Boolean = getSessionTokenStatus().isConfigured
 
         override suspend fun isEncryptionPasswordConfigured(): Boolean =
-            !credentialStore.getEncryptionPassword().isNullOrBlank()
+            getEncryptionPasswordStatus().isConfigured
 
         override suspend fun isEncryptionPassword2Configured(): Boolean =
-            !credentialStore.getEncryptionPassword2().isNullOrBlank()
+            getEncryptionPassword2Status().isConfigured
 
         override suspend fun setAutoSyncEnabled(enabled: Boolean) {
             dataStore.updateS3AutoSyncEnabled(enabled)

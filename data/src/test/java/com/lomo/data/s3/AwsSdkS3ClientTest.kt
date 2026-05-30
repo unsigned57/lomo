@@ -167,7 +167,7 @@ class AwsSdkS3ClientTest : DataFunSpec() {
             val client = AwsSdkS3Client(config = config, client = sdkClient)
 
             val result =
-                client.putObject(
+                client.putSmallObject(
                     key = "vault/note.md",
                     bytes = "memo".toByteArray(),
                     contentType = "text/markdown; charset=utf-8",

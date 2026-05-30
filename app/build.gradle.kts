@@ -60,6 +60,9 @@ abstract class RenameReleaseArtifactTask : DefaultTask() {
     abstract val artifactVersion: Property<String>
 
     @get:Input
+    abstract val artifactVersionCode: Property<String>
+
+    @get:Input
     abstract val artifactExtension: Property<String>
 
     @get:Optional
@@ -80,8 +83,9 @@ abstract class RenameReleaseArtifactTask : DefaultTask() {
                 .orEmpty()
         if (artifacts.isEmpty()) return
 
+        val releaseVersionSegment = "v${artifactVersion.get()}-vc${artifactVersionCode.get()}"
         if (artifacts.size == 1) {
-            val target = outputDir.resolve("${artifactBaseNameInput.get()}-v${artifactVersion.get()}.$extension")
+            val target = outputDir.resolve("${artifactBaseNameInput.get()}-$releaseVersionSegment.$extension")
             if (artifacts.first().name != target.name) {
                 if (target.exists()) target.delete()
                 check(artifacts.first().renameTo(target)) {
@@ -92,7 +96,7 @@ abstract class RenameReleaseArtifactTask : DefaultTask() {
         }
 
         artifacts.forEachIndexed { index, artifact ->
-            val target = outputDir.resolve("${artifactBaseNameInput.get()}-v${artifactVersion.get()}-${index + 1}.$extension")
+            val target = outputDir.resolve("${artifactBaseNameInput.get()}-$releaseVersionSegment-${index + 1}.$extension")
             if (artifact.name != target.name) {
                 if (target.exists()) target.delete()
                 check(artifact.renameTo(target)) {
@@ -151,8 +155,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 43
-        versionName = "1.5.1"
+        versionCode = 44
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -241,6 +245,7 @@ kover {
 }
 
 val releaseVersionName = android.defaultConfig.versionName ?: "0.0.0"
+val releaseVersionCode = android.defaultConfig.versionCode?.toString() ?: "0"
 
 val verifyReleaseSigningEnv by tasks.registering(VerifyReleaseSigningTask::class) {
     group = "verification"
@@ -269,6 +274,7 @@ tasks
 val renameReleaseApkArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
     artifactBaseNameInput.set(artifactBaseName)
     artifactVersion.set(releaseVersionName)
+    artifactVersionCode.set(releaseVersionCode)
     artifactExtension.set("apk")
     artifactDir.set(layout.buildDirectory.dir("outputs/apk/release"))
 }
@@ -276,6 +282,7 @@ val renameReleaseApkArtifacts by tasks.registering(RenameReleaseArtifactTask::cl
 val renameReleaseBundleArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
     artifactBaseNameInput.set(artifactBaseName)
     artifactVersion.set(releaseVersionName)
+    artifactVersionCode.set(releaseVersionCode)
     artifactExtension.set("aab")
     artifactDir.set(layout.buildDirectory.dir("outputs/bundle/release"))
 }

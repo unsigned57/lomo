@@ -1,10 +1,25 @@
 package com.lomo.ui.component.markdown
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import com.lomo.domain.model.MediaFileExtensions
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
+
+data class MarkdownMediaPresentation(
+    val source: String,
+    val description: String? = null,
+    val kind: String,
+)
+
+typealias MarkdownMediaPresentationResolver = (ModernMarkdownImage) -> MarkdownMediaPresentation?
+
+data class MarkdownMediaPresentationAdapter(
+    val resolver: MarkdownMediaPresentationResolver,
+    val content: @Composable (MarkdownMediaPresentation) -> Unit,
+)
 
 internal sealed interface ModernParagraphItem {
     data class Text(
@@ -16,11 +31,11 @@ internal sealed interface ModernParagraphItem {
     ) : ModernParagraphItem
 
     data class Gallery(
-        val images: List<ModernMarkdownImage>,
+        val images: ImmutableList<ModernMarkdownImage>,
     ) : ModernParagraphItem
 
-    data class VoiceMemo(
-        val url: String,
+    data class Media(
+        val presentation: MarkdownMediaPresentation,
     ) : ModernParagraphItem
 }
 
@@ -29,6 +44,7 @@ internal fun buildModernParagraphItems(
     paragraphNode: ASTNode,
     tokenSpec: ModernMarkdownTokenSpec,
     textStyle: TextStyle,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): List<ModernParagraphItem> {
     val items = mutableListOf<ModernParagraphItem>()
     val galleryImages = mutableListOf<ModernMarkdownImage>()
@@ -56,7 +72,7 @@ internal fun buildModernParagraphItems(
         when (galleryImages.size) {
             0 -> Unit
             1 -> items += ModernParagraphItem.Image(galleryImages.first())
-            else -> items += ModernParagraphItem.Gallery(galleryImages.toList())
+            else -> items += ModernParagraphItem.Gallery(galleryImages.toImmutableList())
         }
         galleryImages.clear()
     }
@@ -70,11 +86,12 @@ internal fun buildModernParagraphItems(
 
     paragraphNode.children.forEach { child ->
         val image = child.extractModernImageOrNull(content)
+        val mediaPresentation = image?.let { mediaPresentationResolver?.invoke(it) }
         when {
-            image != null && image.destination.isVoiceMemoPath() -> {
+            mediaPresentation != null -> {
                 flushText()
                 flushGallery()
-                items += ModernParagraphItem.VoiceMemo(image.destination)
+                items += ModernParagraphItem.Media(mediaPresentation)
             }
 
             image != null -> {
@@ -175,5 +192,3 @@ private const val MARKDOWN_VISIBLE_LINE_BREAK_BUFFER_PADDING = 8
 internal fun ASTNode.isBlankWhitespaceNode(content: String): Boolean =
     (type == MarkdownTokenTypes.WHITE_SPACE || type == MarkdownTokenTypes.TEXT) &&
         extractNodeText(content).isBlank()
-
-internal fun String.isVoiceMemoPath(): Boolean = MediaFileExtensions.hasAudioExtension(this)

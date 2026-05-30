@@ -36,7 +36,7 @@ run_gradle_capture_with_timeout() {
 
   set +e
   timeout "$timeout_seconds" env HOME="$ai_home" \
-    ANDROID_USER_HOME="$ai_android_user_home" \
+    ANDROID_PREFS_ROOT="$ai_android_prefs_root" \
     XDG_DATA_HOME="$ai_xdg_data_home" \
     XDG_CONFIG_HOME="$ai_xdg_config_home" \
     GRADLE_OPTS="$ai_gradle_opts" \

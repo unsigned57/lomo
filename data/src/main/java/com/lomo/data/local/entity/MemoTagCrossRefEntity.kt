@@ -22,16 +22,3 @@ data class MemoTagCrossRefEntity(
     val memoId: String,
     val tag: String,
 )
-
-fun MemoEntity.toTagCrossRefs(): List<MemoTagCrossRefEntity> =
-    decodeStoredMemoStringList(tags)
-        .asSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .distinct()
-        .map { tag ->
-            MemoTagCrossRefEntity(
-                memoId = id,
-                tag = tag,
-            )
-        }.toList()

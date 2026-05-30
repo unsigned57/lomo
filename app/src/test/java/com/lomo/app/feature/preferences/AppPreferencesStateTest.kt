@@ -20,6 +20,7 @@ package com.lomo.app.feature.preferences
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import io.kotest.matchers.shouldBe
@@ -75,7 +76,7 @@ class AppPreferencesStateTest : AppFunSpec() {
                 )
                 appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
-                val state = appConfigRepository.observeAppPreferences().first()
+                val state = appConfigRepository.observeAppPreferences(FakeCustomFontStore()).first()
 
                 state.dateFormat shouldBe "yyyy-MM-dd"
                 state.timeFormat shouldBe "HH:mm"

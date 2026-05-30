@@ -1,18 +1,18 @@
 package com.lomo.ui.theme
 
 import android.content.res.Configuration
+import android.graphics.Typeface as PlatformTypeface
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import java.io.File
 
 // Material Design 3 Typography Scale
 // Reference: https://m3.material.io/styles/typography/type-scale-tokens
 
-// Use system sans-serif as the primary app font.
-// On Android 12+ this maps to a variable font pipeline with proper weight interpolation.
-private val AppSansFamily = FontFamily.SansSerif
 private const val HEADLINE_LARGE_WEIGHT = 450
 private const val TITLE_LARGE_WEIGHT = 520
 private const val TITLE_MEDIUM_WEIGHT = 560
@@ -21,129 +21,101 @@ private const val LABEL_WEIGHT = 560
 private const val MIN_FONT_WEIGHT = 1
 private const val MAX_FONT_WEIGHT = 1000
 
-val Typography =
+/**
+ * Builds the app's [Typography] bound to [family]. Pass [FontFamily.SansSerif] for the system
+ * default (variable-font pipeline on Android 12+) or a [FontFamily] wrapping a user-imported font.
+ *
+ * Replaces the previously hardcoded `val Typography` constant. There is no parallel "raw constant"
+ * path — every consumer goes through `LomoTheme`, which calls this with the resolved family.
+ */
+fun buildAppTypography(family: FontFamily): Typography =
     Typography(
-        displayLarge =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W400,
-                fontSize = 57.sp,
-                lineHeight = 64.sp,
-                letterSpacing = (-0.25).sp,
-            ),
-        displayMedium =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W400,
-                fontSize = 45.sp,
-                lineHeight = 52.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        displaySmall =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W400,
-                fontSize = 36.sp,
-                lineHeight = 44.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        headlineLarge =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(HEADLINE_LARGE_WEIGHT),
-                fontSize = 32.sp,
-                lineHeight = 40.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        headlineMedium =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W500,
-                fontSize = 28.sp,
-                lineHeight = 36.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        headlineSmall =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W500,
-                fontSize = 24.sp,
-                lineHeight = 32.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        titleLarge =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(TITLE_LARGE_WEIGHT),
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                letterSpacing = 0.0.sp,
-            ),
-        titleMedium =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(TITLE_MEDIUM_WEIGHT),
-                fontSize = 16.sp,
-                lineHeight = 24.sp,
-                letterSpacing = 0.15.sp,
-            ),
-        titleSmall =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight.W600,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                letterSpacing = 0.1.sp,
-            ),
-        bodyLarge =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(BODY_WEIGHT),
-                fontSize = 16.sp,
-                lineHeight = 24.sp,
-                letterSpacing = 0.5.sp,
-            ),
-        bodyMedium =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(BODY_WEIGHT),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                letterSpacing = 0.1.sp,
-            ),
-        bodySmall =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(BODY_WEIGHT),
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                letterSpacing = 0.4.sp,
-            ),
-        labelLarge =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(LABEL_WEIGHT),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                letterSpacing = 0.1.sp,
-            ),
-        labelMedium =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(LABEL_WEIGHT),
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                letterSpacing = 0.5.sp,
-            ),
-        labelSmall =
-            TextStyle(
-                fontFamily = AppSansFamily,
-                fontWeight = FontWeight(LABEL_WEIGHT),
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                letterSpacing = 0.5.sp,
-            ),
+        displayLarge = displayStyle(family, sp = 57, lh = 64, ls = -0.25),
+        displayMedium = displayStyle(family, sp = 45, lh = 52, ls = 0.0),
+        displaySmall = displayStyle(family, sp = 36, lh = 44, ls = 0.0),
+        headlineLarge = headlineStyle(family, weight = HEADLINE_LARGE_WEIGHT, sp = 32, lh = 40),
+        headlineMedium = headlineStyle(family, weight = FontWeight.W500.weight, sp = 28, lh = 36),
+        headlineSmall = headlineStyle(family, weight = FontWeight.W500.weight, sp = 24, lh = 32),
+        titleLarge = titleStyle(family, weight = TITLE_LARGE_WEIGHT, sp = 22, lh = 28, ls = 0.0),
+        titleMedium = titleStyle(family, weight = TITLE_MEDIUM_WEIGHT, sp = 16, lh = 24, ls = 0.15),
+        titleSmall = titleStyle(family, weight = FontWeight.W600.weight, sp = 14, lh = 20, ls = 0.1),
+        bodyLarge = bodyStyle(family, weight = BODY_WEIGHT, sp = 16, lh = 24, ls = 0.5),
+        bodyMedium = bodyStyle(family, weight = BODY_WEIGHT, sp = 14, lh = 20, ls = 0.1),
+        bodySmall = bodyStyle(family, weight = BODY_WEIGHT, sp = 12, lh = 16, ls = 0.4),
+        labelLarge = labelStyle(family, weight = LABEL_WEIGHT, sp = 14, lh = 20, ls = 0.1),
+        labelMedium = labelStyle(family, weight = LABEL_WEIGHT, sp = 12, lh = 16, ls = 0.5),
+        labelSmall = labelStyle(family, weight = LABEL_WEIGHT, sp = 11, lh = 16, ls = 0.5),
     )
+
+private fun displayStyle(family: FontFamily, sp: Int, lh: Int, ls: Double): TextStyle =
+    TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight.W400,
+        fontSize = sp.sp,
+        lineHeight = lh.sp,
+        letterSpacing = ls.sp,
+    )
+
+private fun headlineStyle(family: FontFamily, weight: Int, sp: Int, lh: Int): TextStyle =
+    TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight(weight),
+        fontSize = sp.sp,
+        lineHeight = lh.sp,
+        letterSpacing = 0.0.sp,
+    )
+
+private fun titleStyle(family: FontFamily, weight: Int, sp: Int, lh: Int, ls: Double): TextStyle =
+    TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight(weight),
+        fontSize = sp.sp,
+        lineHeight = lh.sp,
+        letterSpacing = ls.sp,
+    )
+
+private fun bodyStyle(family: FontFamily, weight: Int, sp: Int, lh: Int, ls: Double): TextStyle =
+    TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight(weight),
+        fontSize = sp.sp,
+        lineHeight = lh.sp,
+        letterSpacing = ls.sp,
+    )
+
+private fun labelStyle(family: FontFamily, weight: Int, sp: Int, lh: Int, ls: Double): TextStyle =
+    TextStyle(
+        fontFamily = family,
+        fontWeight = FontWeight(weight),
+        fontSize = sp.sp,
+        lineHeight = lh.sp,
+        letterSpacing = ls.sp,
+    )
+
+/**
+ * Resolves a custom-font absolute path (typically returned by `CustomFontStore.resolveFontPath`)
+ * into a Compose [FontFamily]. Falls back to [FontFamily.SansSerif] when the path is null, blank,
+ * or points to a missing file — matching the documented "missing font = system default" contract.
+ */
+fun resolveAppFontFamily(customFontPath: String?): FontFamily {
+    if (customFontPath.isNullOrBlank()) return FontFamily.SansSerif
+    val file = File(customFontPath)
+    if (!file.exists()) return FontFamily.SansSerif
+    return FontFamily(Font(file = file))
+}
+
+/**
+ * Resolves a custom-font path to a raw Android [PlatformTypeface] for non-Compose render surfaces
+ * (e.g. the share-card bitmap renderer). Returns null when the path is null, blank, missing, or
+ * cannot be parsed as a font file.
+ */
+fun resolveCustomCanvasTypeface(customFontPath: String?): PlatformTypeface? {
+    if (customFontPath.isNullOrBlank()) return null
+    val file = File(customFontPath)
+    if (!file.exists()) return null
+    // behavior-contract: silent-result-ok: malformed font file → fall back to platform default Typeface
+    return runCatching { PlatformTypeface.createFromFile(file) }.getOrNull()
+}
 
 private fun TextStyle.adjustWeight(adjustment: Int): TextStyle {
     if (adjustment == 0) return this

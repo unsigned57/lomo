@@ -76,6 +76,11 @@ sealed interface WebDavSyncResult {
         val message: String,
         val conflicts: SyncConflictSet,
     ) : WebDavSyncResult
+
+    data class Review(
+        val message: String,
+        val review: SyncReviewSession,
+    ) : WebDavSyncResult
 }
 
 sealed interface WebDavSyncState {
@@ -114,6 +119,10 @@ sealed interface WebDavSyncState {
     }
 
     data object NotConfigured : WebDavSyncState
+
+    data class ReviewingInitialSync(
+        val review: SyncReviewSession,
+    ) : WebDavSyncState
 
     data class ConflictDetected(
         val conflicts: SyncConflictSet,

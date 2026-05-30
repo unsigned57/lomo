@@ -23,9 +23,8 @@ import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
-import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.S3SyncReason
 import kotlinx.coroutines.test.runTest
 import java.io.File
@@ -117,13 +116,13 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
         val protocolState = S3SyncProtocolState(lastReconcileAt = now - (2 * 60_000L))
 
         (shouldRunIncrementalReconcile(
-                policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                policy = S3SyncWorkIntent.FAST_THEN_RECONCILE,
                 config = config.copy(endpointProfile = S3EndpointProfile.GENERIC_S3),
                 protocolState = protocolState,
                 now = now,
             )).shouldBeTrue()
         (shouldRunIncrementalReconcile(
-                policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                policy = S3SyncWorkIntent.FAST_THEN_RECONCILE,
                 config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
                 protocolState = protocolState,
                 now = now,
@@ -232,6 +231,7 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         ),
                     encodingSupport = encodingSupport,
                     remoteIndexStore = remoteIndexStore,
+                    shardStateStore = DisabledS3RemoteShardStateStore,
                 )
 
             prepared.missingRemotePaths shouldBe setOf(path)
@@ -340,6 +340,7 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         ),
                     encodingSupport = encodingSupport,
                     remoteIndexStore = remoteIndexStore,
+                    shardStateStore = DisabledS3RemoteShardStateStore,
                 )
 
             (rootPath in prepared.missingRemotePaths).shouldBeTrue()
@@ -574,7 +575,6 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         metadataByPath = emptyMap(),
                         plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
                         normalActions = emptyList(),
-                        conflictSet = null,
                         completeSnapshot = false,
                         protocolState = S3SyncProtocolState(indexedRemoteFileCount = 2),
                         remoteFileCountHint = 2,
@@ -646,7 +646,6 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         metadataByPath = emptyMap(),
                         plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
                         normalActions = emptyList(),
-                        conflictSet = null,
                         completeSnapshot = true,
                         protocolState = S3SyncProtocolState(indexedRemoteFileCount = 3, scanEpoch = 7L),
                         remoteFileCountHint = 3,
@@ -723,7 +722,6 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         metadataByPath = emptyMap(),
                         plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
                         normalActions = emptyList(),
-                        conflictSet = null,
                         completeSnapshot = true,
                         protocolState = S3SyncProtocolState(indexedRemoteFileCount = 2, scanEpoch = 7L),
                         remoteFileCountHint = 2,
@@ -782,7 +780,6 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         metadataByPath = emptyMap(),
                         plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
                         normalActions = emptyList(),
-                        conflictSet = null,
                         completeSnapshot = false,
                         protocolState = S3SyncProtocolState(indexedRemoteFileCount = 1, scanEpoch = 5L),
                         remoteFileCountHint = 1,
@@ -1007,11 +1004,11 @@ private class ReconcileProbeClient(
         maxKeys: Int,
     ): S3RemoteListPage = onListPage(prefix, continuationToken, maxKeys)
 
-    override suspend fun getObject(key: String): com.lomo.data.s3.S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): com.lomo.data.s3.S3SmallObjectPayload {
         error("getObject should not be used in reconcile test")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -1019,6 +1016,30 @@ private class ReconcileProbeClient(
     ): com.lomo.data.s3.S3PutObjectResult {
         error("putObject should not be used in reconcile test")
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) = Unit
 

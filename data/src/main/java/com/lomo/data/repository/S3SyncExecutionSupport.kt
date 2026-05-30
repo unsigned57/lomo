@@ -4,8 +4,13 @@ import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.toInitialImportReview
+
+internal data class S3ConflictPreview(
+    val lightweight: Boolean = false,
+)
 
 internal data class PreparedS3Sync(
     val layout: com.lomo.data.sync.SyncDirectoryLayout,
@@ -16,7 +21,6 @@ internal data class PreparedS3Sync(
     val preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
     val plan: S3SyncPlan,
     val normalActions: List<S3SyncAction>,
-    val conflictSet: SyncConflictSet?,
     val completeSnapshot: Boolean,
     val protocolState: S3SyncProtocolState?,
     val remoteFileCountHint: Int?,
@@ -26,6 +30,7 @@ internal data class PreparedS3Sync(
     val localModeFingerprint: String? = null,
     val remoteReconcileState: PreparedRemoteReconcile? = null,
     val observedMissingRemotePaths: Set<String> = emptySet(),
+    val conflictPreview: S3ConflictPreview = S3ConflictPreview(),
 )
 
 internal data class S3ActionExecutionResult(
@@ -51,7 +56,6 @@ internal fun buildLocalOnlyPreparedSync(
     protocolState: S3SyncProtocolState,
     journalEntries: Map<String, S3LocalChangeJournalEntry>,
     localOnlyIncremental: S3IncrementalPreparation,
-    conflictSet: SyncConflictSet?,
     conflictPaths: Set<String>,
 ): PreparedS3Sync =
     PreparedS3Sync(
@@ -62,7 +66,6 @@ internal fun buildLocalOnlyPreparedSync(
         plan = localOnlyIncremental.plan,
         normalActions =
             localOnlyIncremental.plan.actions.filter { it.direction != S3SyncDirection.CONFLICT },
-        conflictSet = conflictSet,
         completeSnapshot = false,
         protocolState = protocolState,
         remoteFileCountHint = protocolState.indexedRemoteFileCount,
@@ -165,7 +168,8 @@ internal fun S3SyncResult.stateAfterRefresh(timestamp: Long): S3SyncState =
     when (this) {
         is S3SyncResult.Success -> S3SyncState.Success(timestamp, message)
         is S3SyncResult.Error -> S3SyncState.Error(message, timestamp)
-        is S3SyncResult.Conflict -> conflicts.toS3ConflictState()
+        is S3SyncResult.Conflict -> S3SyncState.ConflictDetected(conflicts)
+        is S3SyncResult.Review -> S3SyncState.PreviewingInitialSync(review)
         S3SyncResult.NotConfigured -> S3SyncState.NotConfigured
     }
 
@@ -173,7 +177,9 @@ internal fun S3SyncResult.outcomesForRefreshFailure() =
     when (this) {
         is S3SyncResult.Success -> outcomes
         is S3SyncResult.Error -> outcomes
-        is S3SyncResult.Conflict -> emptyList()
+        is S3SyncResult.Conflict,
+        is S3SyncResult.Review,
+        -> emptyList()
         S3SyncResult.NotConfigured -> emptyList()
     }
 
@@ -187,24 +193,9 @@ internal fun S3MemoRefreshPlan.merge(other: S3MemoRefreshPlan): S3MemoRefreshPla
         else -> S3MemoRefreshPlan.None
     }
 
-internal fun determineS3ConflictSessionKind(
+internal fun isS3InitialImportPreview(
     conflictActions: List<S3SyncAction>,
     metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
-): SyncConflictSessionKind {
-    if (conflictActions.isEmpty()) {
-        return SyncConflictSessionKind.STANDARD_CONFLICT
-    }
-    return if (conflictActions.all { action -> action.path !in metadataByPath }) {
-        SyncConflictSessionKind.INITIAL_SYNC_PREVIEW
-    } else {
-        SyncConflictSessionKind.STANDARD_CONFLICT
-    }
-}
+): Boolean = conflictActions.isNotEmpty() && conflictActions.all { action -> action.path !in metadataByPath }
 
-internal fun SyncConflictSet.toS3ConflictState(): S3SyncState =
-    when (sessionKind) {
-        SyncConflictSessionKind.INITIAL_SYNC_PREVIEW -> S3SyncState.PreviewingInitialSync(this)
-        SyncConflictSessionKind.STANDARD_CONFLICT,
-        SyncConflictSessionKind.SYNC_INBOX_REVIEW,
-        -> S3SyncState.ConflictDetected(this)
-    }
+internal fun SyncConflictSet.toS3InitialImportReview(): SyncReviewSession = toInitialImportReview()

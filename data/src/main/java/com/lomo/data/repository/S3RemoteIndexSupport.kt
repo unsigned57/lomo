@@ -2,14 +2,13 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3RemoteIndexDao
 import com.lomo.data.local.entity.S3RemoteIndexEntity
+import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 data class S3RemoteIndexEntry(
     val relativePath: String,
@@ -52,171 +51,83 @@ interface S3RemoteIndexStore {
     suspend fun clear()
 }
 
-object DisabledS3RemoteIndexStore : S3RemoteIndexStore {
-    override val remoteIndexEnabled: Boolean = false
-
-    override suspend fun readAllRelativePaths(): List<String> = emptyList()
-
-    override suspend fun readPresentCount(): Int = 0
-
-    override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> = emptyList()
-
-    override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> = emptyList()
-
-    override suspend fun readOutsideScanBuckets(
-        excludedBuckets: Collection<String>,
-    ): List<S3RemoteIndexEntry> = emptyList()
-
-    override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> = emptyList()
-
-    override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) = Unit
-
-    override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) = Unit
-
-    override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) = Unit
-
-    override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) = Unit
-
-    override suspend fun clear() = Unit
-}
-
-class InMemoryS3RemoteIndexStore(
-    override val remoteIndexEnabled: Boolean = true,
-) : S3RemoteIndexStore {
-    private val mutex = Mutex()
-    private val entries = linkedMapOf<String, S3RemoteIndexEntry>()
-
-    override suspend fun readAllRelativePaths(): List<String> = mutex.withLock { entries.keys.toList() }
-
-    override suspend fun readPresentCount(): Int =
-        mutex.withLock { entries.values.count { entry -> !entry.missingOnLastScan } }
-
-    override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
-        mutex.withLock { relativePaths.mapNotNull(entries::get) }
-
-    override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> =
-        mutex.withLock {
-            val normalizedPrefix = relativePrefix?.trim()?.trim('/')?.takeIf(String::isNotBlank)
-            entries.values.filter { entry ->
-                normalizedPrefix == null ||
-                    entry.relativePath == normalizedPrefix ||
-                    entry.relativePath.startsWith("$normalizedPrefix/")
-            }
-        }
-
-    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
-        mutex.withLock {
-            val excluded = excludedBuckets.toSet()
-            entries.values.filterNot { entry -> entry.scanBucket in excluded }
-        }
-
-    override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
-        mutex.withLock {
-            entries.values
-                .sortedWith(
-                    compareByDescending<S3RemoteIndexEntry> { it.dirtySuspect }
-                        .thenByDescending { it.missingOnLastScan }
-                        .thenByDescending { it.scanPriority }
-                        .thenBy { it.lastVerifiedAt ?: 0L }
-                        .thenBy { it.lastSeenAt },
-                )
-                .take(limit)
-        }
-
-    override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) {
-        if (entries.isEmpty()) return
-        mutex.withLock {
-            entries.forEach { entry -> this.entries[entry.relativePath] = entry }
-        }
-    }
-
-    override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) {
-        if (relativePaths.isEmpty()) return
-        mutex.withLock {
-            relativePaths.forEach(entries::remove)
-        }
-    }
-
-    override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) {
-        mutex.withLock {
-            entries.entries.removeIf { (_, value) -> value.scanEpoch != scanEpoch }
-        }
-    }
-
-    override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) {
-        mutex.withLock {
-            this.entries.clear()
-            entries.forEach { entry -> this.entries[entry.relativePath] = entry }
-        }
-    }
-
-    override suspend fun clear() {
-        mutex.withLock {
-            entries.clear()
-        }
-    }
-}
-
 @Singleton
 class RoomBackedS3RemoteIndexStore
     @Inject
     constructor(
         private val dao: S3RemoteIndexDao,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : S3RemoteIndexStore {
         override val remoteIndexEnabled: Boolean = true
 
-        override suspend fun readAllRelativePaths(): List<String> = dao.getAllRelativePaths()
+        override suspend fun readAllRelativePaths(): List<String> = dao.getAllRelativePaths(activeGeneration())
 
-        override suspend fun readPresentCount(): Int = dao.getPresentCount()
+        override suspend fun readPresentCount(): Int = dao.getPresentCount(activeGeneration())
 
         override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
             if (relativePaths.isEmpty()) {
                 emptyList()
             } else {
-                dao.getByRelativePaths(relativePaths.toList()).map(S3RemoteIndexEntity::toModel)
+                dao.getByRelativePaths(relativePaths.toList(), activeGeneration()).map(S3RemoteIndexEntity::toModel)
             }
 
         override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> {
             val normalizedPrefix = relativePrefix?.trim()?.trim('/')?.takeIf(String::isNotBlank)
+            val generation = activeGeneration()
             return if (normalizedPrefix == null) {
-                dao.getAll().map(S3RemoteIndexEntity::toModel)
+                dao.getAll(generation).map(S3RemoteIndexEntity::toModel)
             } else {
-                dao.getByRelativePrefix(normalizedPrefix, "$normalizedPrefix/%").map(S3RemoteIndexEntity::toModel)
+                dao
+                    .getByRelativePrefix(
+                        relativePrefix = normalizedPrefix,
+                        descendantPattern = "$normalizedPrefix/%",
+                        workspaceGeneration = generation,
+                    ).map(S3RemoteIndexEntity::toModel)
             }
         }
 
-        override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
-            if (excludedBuckets.isEmpty()) {
-                dao.getAll().map(S3RemoteIndexEntity::toModel)
+        override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> {
+            val generation = activeGeneration()
+            return if (excludedBuckets.isEmpty()) {
+                dao.getAll(generation).map(S3RemoteIndexEntity::toModel)
             } else {
-                dao.getOutsideScanBuckets(excludedBuckets.toList()).map(S3RemoteIndexEntity::toModel)
+                dao.getOutsideScanBuckets(excludedBuckets.toList(), generation).map(S3RemoteIndexEntity::toModel)
             }
+        }
 
         override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
-            dao.getReconcileCandidates(limit).map(S3RemoteIndexEntity::toModel)
+            dao
+                .getReconcileCandidates(limit = limit, workspaceGeneration = activeGeneration())
+                .map(S3RemoteIndexEntity::toModel)
 
         override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) {
             if (entries.isEmpty()) return
-            dao.upsertAll(entries.map(S3RemoteIndexEntry::toEntity))
+            val generation = activeGeneration()
+            dao.upsertAll(entries.map { entry -> entry.toEntity(generation) })
         }
 
         override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) {
             if (relativePaths.isEmpty()) return
-            dao.deleteByRelativePaths(relativePaths.toList())
+            dao.deleteByRelativePaths(relativePaths.toList(), activeGeneration())
         }
 
         override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) {
-            dao.deleteOutsideScanEpoch(scanEpoch)
+            dao.deleteOutsideScanEpoch(scanEpoch = scanEpoch, workspaceGeneration = activeGeneration())
         }
 
         override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) {
-            dao.clearAll()
-            upsert(entries)
+            val generation = activeGeneration()
+            dao.clearAll(generation)
+            if (entries.isNotEmpty()) {
+                dao.upsertAll(entries.map { entry -> entry.toEntity(generation) })
+            }
         }
 
         override suspend fun clear() {
-            dao.clearAll()
+            dao.clearAll(activeGeneration())
         }
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
 @Module
@@ -242,8 +153,9 @@ private fun S3RemoteIndexEntity.toModel(): S3RemoteIndexEntry =
         scanEpoch = scanEpoch,
     )
 
-private fun S3RemoteIndexEntry.toEntity(): S3RemoteIndexEntity =
+private fun S3RemoteIndexEntry.toEntity(workspaceGeneration: String): S3RemoteIndexEntity =
     S3RemoteIndexEntity(
+        workspaceGeneration = workspaceGeneration,
         relativePath = relativePath,
         remotePath = remotePath,
         etag = etag,

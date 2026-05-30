@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.File
 import java.time.ZonedDateTime
@@ -135,20 +136,35 @@ class Dav4jvmWebDavClient(
         return resources
     }
 
-    override fun get(path: String): WebDavRemoteFile {
+    override fun getSmallFile(path: String): WebDavSmallRemoteFile =
+        getSmallFile(path, WEBDAV_SMALL_FILE_MAX_BYTES)
+
+    override fun getSmallFile(
+        path: String,
+        maxBytes: Long,
+    ): WebDavSmallRemoteFile {
         val normalizedPath = normalizePath(path)
         val resource = DavResource(httpClient, resolve(normalizedPath), logger)
-        var file: WebDavRemoteFile? = null
+        var file: WebDavSmallRemoteFile? = null
         resource.get(
             "text/markdown",
             Headers.headersOf("Accept-Encoding", "identity"),
             object : ResponseCallback {
                 override fun onResponse(response: OkHttpResponse) {
                     response.use { httpResponse ->
+                        val contentLength = httpResponse.body.contentLength()
+                        if (contentLength > maxBytes) {
+                            throw IOException(
+                                "WebDAV file exceeds small-file limit: path=$normalizedPath " +
+                                    "bytes=$contentLength max=$maxBytes",
+                            )
+                        }
                         file =
-                            WebDavRemoteFile(
+                            WebDavSmallRemoteFile(
                                 path = normalizedPath,
-                                bytes = httpResponse.body.bytes(),
+                                bytes = httpResponse.body.byteStream().use { input ->
+                                    input.readBoundedBytes(maxBytes, normalizedPath)
+                                },
                                 etag = httpResponse.header("ETag"),
                                 lastModified = parseHttpDate(httpResponse.header("Last-Modified")),
                             )
@@ -162,9 +178,10 @@ class Dav4jvmWebDavClient(
     override fun getToFile(
         path: String,
         destination: File,
-    ) {
+    ): WebDavRemoteResource {
         val normalizedPath = normalizePath(path)
         destination.parentFile?.mkdirs()
+        var resource: WebDavRemoteResource? = null
         DavResource(httpClient, resolve(normalizedPath), logger).get(
             OCTET_STREAM,
             Headers.headersOf("Accept-Encoding", "identity"),
@@ -176,13 +193,22 @@ class Dav4jvmWebDavClient(
                                 input.copyTo(output)
                             }
                         }
+                        resource =
+                            WebDavRemoteResource(
+                                path = normalizedPath,
+                                isDirectory = false,
+                                etag = httpResponse.header("ETag"),
+                                lastModified = parseHttpDate(httpResponse.header("Last-Modified")),
+                                size = httpResponse.body.contentLength().takeIf { it >= 0L } ?: destination.length(),
+                            )
                     }
                 }
             },
         )
+        return resource ?: throw IOException("Empty WebDAV response for $normalizedPath")
     }
 
-    override fun put(
+    override fun putSmallFile(
         path: String,
         bytes: ByteArray,
         contentType: String,
@@ -323,6 +349,28 @@ class Dav4jvmWebDavClient(
     }
 }
 
+private fun java.io.InputStream.readBoundedBytes(
+    maxBytes: Long,
+    path: String,
+): ByteArray {
+    val maxSize = maxBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    val output = ByteArrayOutputStream(minOf(maxSize, DEFAULT_SMALL_FILE_BUFFER_BYTES))
+    val buffer = ByteArray(DEFAULT_SMALL_FILE_BUFFER_BYTES)
+    var total = 0
+    while (true) {
+        val read = read(buffer)
+        if (read == -1) {
+            break
+        }
+        total += read
+        if (total > maxSize) {
+            throw IOException("WebDAV file exceeds small-file limit: path=$path bytes=$total max=$maxBytes")
+        }
+        output.write(buffer, 0, read)
+    }
+    return output.toByteArray()
+}
+
 private data class WebDavClientKey(
     val endpointUrl: String,
     val username: String,
@@ -331,6 +379,7 @@ private data class WebDavClientKey(
 
 private fun parseHttpDate(value: String?): Long? =
     value?.let { httpDate ->
+        // behavior-contract: silent-result-ok: non-RFC-1123 dates common on non-compliant servers; null skips timestamp
         runCatching {
             ZonedDateTime.parse(httpDate, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
         }.getOrNull()
@@ -355,3 +404,5 @@ private fun hasSameOrigin(
     targetUrl: HttpUrl,
     rootUrl: HttpUrl,
 ): Boolean = targetUrl.scheme == rootUrl.scheme && targetUrl.host == rootUrl.host && targetUrl.port == rootUrl.port
+
+private const val DEFAULT_SMALL_FILE_BUFFER_BYTES = 8 * 1024

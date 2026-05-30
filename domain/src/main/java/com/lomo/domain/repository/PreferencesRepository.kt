@@ -1,5 +1,7 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 
@@ -161,6 +163,22 @@ interface TypographyPreferencesRepository {
     suspend fun setParagraphSpacingScale(scale: Float)
 }
 
+interface ColorSchemePreferencesRepository {
+    fun getColorSource(): Flow<ColorSource>
+
+    suspend fun setColorSource(source: ColorSource)
+
+    fun getColorHistory(): Flow<List<Int>>
+
+    suspend fun addColorToHistory(argb: Int)
+}
+
+interface FontPreferencesRepository {
+    fun getFontPreference(): Flow<FontPreference>
+
+    suspend fun setFontPreference(preference: FontPreference)
+}
+
 interface PreferencesRepository :
     DateTimePreferencesRepository,
     StoragePreferencesRepository,
@@ -173,4 +191,6 @@ interface PreferencesRepository :
     ShareCardPreferencesRepository,
     SyncInboxPreferencesRepository,
     DraftPreferencesRepository,
-    TypographyPreferencesRepository
+    TypographyPreferencesRepository,
+    ColorSchemePreferencesRepository,
+    FontPreferencesRepository

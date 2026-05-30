@@ -19,6 +19,8 @@ object PreferenceDefaults {
     const val LAN_SHARE_ENABLED = true
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
+    const val COLOR_SOURCE = "dynamic"
+    const val FONT_PREFERENCE = "system"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true
     const val SHARE_CARD_SIGNATURE_TEXT = "Lomo"

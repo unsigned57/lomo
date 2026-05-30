@@ -29,12 +29,14 @@ import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
+import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.SyncReviewSessionKind
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.every
@@ -284,7 +286,10 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            (result is S3SyncResult.Conflict).shouldBeTrue()
+            withClue("Expected review, got $result") { (result is S3SyncResult.Review).shouldBeTrue() }
+            val review = result as S3SyncResult.Review
+            review.review.kind shouldBe SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW
+            review.review.items.single().state shouldBe SyncReviewItemState.CONTENT_DIFFERENCE
         }
 
     private fun `performSync treats identical memo with unusable etag as up to date by reading content on demand`() =
@@ -367,10 +372,13 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            withClue("Expected conflict, got $result") { (result is S3SyncResult.Conflict).shouldBeTrue() }
-            val conflict = result as S3SyncResult.Conflict
-            conflict.conflicts.files.size shouldBe 10
-            (conflict.conflicts.files.all { file -> file.localContent == null && file.remoteContent == null }).shouldBeTrue()
+            withClue("Expected review, got $result") { (result is S3SyncResult.Review).shouldBeTrue() }
+            val review = result as S3SyncResult.Review
+            review.review.kind shouldBe SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW
+            review.review.items.size shouldBe 10
+            review.review.items.all { item ->
+                item.localContent == null && item.incomingContent == null
+            }.shouldBeTrue()
             client.getObjectCalls shouldBe 0
             client.putObjectCalls shouldBe 0
         }
@@ -402,11 +410,13 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
             encodingSupport = encodingSupport,
             fileBridge = fileBridge,
             actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            lifecycleRunner = testRemoteSyncLifecycleRunner(),
             protocolStateStore = DisabledS3SyncProtocolStateStore,
             localChangeJournalStore = DisabledS3LocalChangeJournalStore,
             remoteIndexStore = DisabledS3RemoteIndexStore,
             remoteShardStateStore = DisabledS3RemoteShardStateStore,
-            pendingConflictStore = DisabledPendingSyncConflictStore,
+            pendingConflictStore = InMemoryPendingSyncConflictStore(),
+            pendingReviewStore = InMemoryPendingSyncReviewStore(),
         )
     }
 
@@ -437,7 +447,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
                     metadata = emptyMap(),
                 ),
             payload =
-                S3RemoteObjectPayload(
+                S3SmallObjectPayload(
                     key = key,
                     eTag = eTag,
                     lastModified = lastModified,
@@ -556,12 +566,12 @@ private class RecordingInitialSyncClient(
             nextContinuationToken = null,
         )
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         getObjectCalls += 1
         return requireNotNull(payloadsByKey[key]) { "Missing remote payload for $key" }
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -578,7 +588,7 @@ private class RecordingInitialSyncClient(
                 metadata = metadata,
             )
         payloadsByKey[key] =
-            S3RemoteObjectPayload(
+            S3SmallObjectPayload(
                 key = key,
                 eTag = objectsByKey[key]?.eTag,
                 lastModified = null,
@@ -587,6 +597,30 @@ private class RecordingInitialSyncClient(
             )
         return S3PutObjectResult(eTag = objectsByKey[key]?.eTag)
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) {
         deleteObjectCalls += 1
@@ -599,5 +633,5 @@ private class RecordingInitialSyncClient(
 
 private data class InitialRemoteFixture(
     val objectSummary: S3RemoteObject,
-    val payload: S3RemoteObjectPayload,
+    val payload: S3SmallObjectPayload,
 )

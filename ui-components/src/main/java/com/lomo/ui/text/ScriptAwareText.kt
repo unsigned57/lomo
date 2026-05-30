@@ -41,7 +41,7 @@ fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
         lineHeightStyle =
             if (cjkAware) {
                 LineHeightStyle(
-                    alignment = LineHeightStyle.Alignment.Center,
+                    alignment = LineHeightStyle.Alignment.Proportional,
                     trim = LineHeightStyle.Trim.None,
                 )
             } else {

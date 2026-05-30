@@ -4,7 +4,6 @@ import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
-import java.io.File
 
 internal suspend fun captureRevisionAssets(
     memoState: MemoVersionMemoState,
@@ -26,29 +25,6 @@ internal suspend fun captureRevisionAssets(
                 bytes = resolved.bytes,
             )
         }.sortedBy(ResolvedMemoRevisionAsset::logicalPath)
-
-internal suspend fun restoreRevisionAssets(
-    revisionId: String,
-    store: MemoVersionStore,
-    blobRoot: File,
-    workspaceMediaAccess: WorkspaceMediaAccess,
-) {
-    store.listAssetsForRevision(revisionId).forEach { asset ->
-        val category = asset.logicalPath.toAttachmentCategory() ?: return@forEach
-        val filename = asset.logicalPath.substringAfterLast('/')
-        val bytes =
-            readMemoVersionBlobBytes(
-                store = store,
-                blobRoot = blobRoot,
-                blobHash = asset.blobHash,
-            )
-        workspaceMediaAccess.writeFile(
-            category = category,
-            filename = filename,
-            bytes = bytes,
-        )
-    }
-}
 
 internal fun MemoVersionRevisionRecord.toMemo(
     rawContent: String,
@@ -118,18 +94,6 @@ internal suspend fun MemoVersionStore.hasEquivalentHistoricalRevision(
                 }
         }
     }
-
-internal suspend fun rollbackCurrentMemoState(
-    currentMemo: Memo,
-    persistActiveMemo: suspend (Memo) -> Unit,
-    persistTrashedMemo: suspend (Memo) -> Unit,
-) {
-    when (currentMemo.currentLifecycleState()) {
-        MemoRevisionLifecycleState.ACTIVE -> persistActiveMemo(currentMemo.copy(isDeleted = false))
-        MemoRevisionLifecycleState.TRASHED,
-        MemoRevisionLifecycleState.DELETED -> persistTrashedMemo(currentMemo.copy(isDeleted = true))
-    }
-}
 
 internal fun summaryFor(
     origin: MemoRevisionOrigin,

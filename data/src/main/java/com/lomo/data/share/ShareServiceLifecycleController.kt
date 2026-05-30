@@ -463,9 +463,8 @@ class ShareServiceLifecycleController
                             discoveryStarted = true
                             false
                         }
-                    }
+                }
                 if (alreadyStarted) {
-                    restartActiveDiscoveryScans()
                     return@launch
                 }
                 multicastLockLease.acquire(LanShareMulticastLockOwner.Discovery)
@@ -521,14 +520,15 @@ class ShareServiceLifecycleController
             unregisterNetworkCallbackIfIdle()
         }
 
-        val acceptIncoming: () -> Unit
-            get() = serverRuntime::acceptIncoming
+        val acceptIncoming: () -> Unit = {
+            serverRuntime.acceptIncoming()
+        }
 
-        fun rejectIncoming() {
+        val rejectIncoming: () -> Unit = {
             serverRuntime.rejectIncoming()
         }
 
-        fun refreshServiceRegistration() {
+        val refreshServiceRegistration: () -> Unit = {
             refreshRegistrationDebouncer.trigger()
         }
 
@@ -545,7 +545,7 @@ class ShareServiceLifecycleController
                 multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
                 unregisterNetworkCallbackIfIdle()
             } else {
-                restartActiveDiscoveryScans(snapshots)
+                ensureActiveDiscoveryScans(snapshots)
             }
         }
 
@@ -556,21 +556,43 @@ class ShareServiceLifecycleController
 
         private fun restartActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot> = emptyList()) {
             activeDiscoveryJob?.cancel()
+            startActiveDiscoveryScans(snapshots)
+        }
+
+        private fun ensureActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot> = emptyList()) {
+            if (activeDiscoveryJob?.isActive == true) {
+                return
+            }
+            startActiveDiscoveryScans(snapshots)
+        }
+
+        private fun startActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot>) {
             activeDiscoveryJob =
                 scope.launch {
+                    val schedulePolicy = LanShareActiveDiscoverySchedulePolicy()
                     while (
                         isActive &&
                         synchronized(serviceStateLock) {
                             discoveryStarted
                         }
                     ) {
-                        runActiveDiscoveryScan(snapshots)
-                        delay(ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+                        val delayMs = schedulePolicy.delayBeforeNextScanMs()
+                        if (delayMs > 0) delay(delayMs)
+                        if (
+                            !isActive ||
+                            !synchronized(serviceStateLock) {
+                                discoveryStarted
+                            }
+                        ) {
+                            return@launch
+                        }
+                        val foundDeviceCount = runActiveDiscoveryScan(snapshots)
+                        schedulePolicy.recordScanResult(foundDeviceCount)
                     }
                 }
         }
 
-        private suspend fun runActiveDiscoveryScan(seedSnapshots: List<LanShareActiveNetworkSnapshot>) {
+        private suspend fun runActiveDiscoveryScan(seedSnapshots: List<LanShareActiveNetworkSnapshot>): Int {
             val snapshots =
                 seedSnapshots
                     .ifEmpty {
@@ -582,7 +604,7 @@ class ShareServiceLifecycleController
                             observedLanNetworks.snapshot(),
                         )
                     }
-            if (snapshots.isEmpty()) return
+            if (snapshots.isEmpty()) return 0
 
             val merged =
                 runCatching {
@@ -626,13 +648,13 @@ class ShareServiceLifecycleController
                         snapshots.size,
                     )
             }
+            return merged.size
         }
 
         private companion object {
             private const val TAG = "ShareServiceLifecycle"
             private const val NSD_REFRESH_DEBOUNCE_MS = 500L
             private const val NETWORK_RESTART_DEBOUNCE_MS = 1_000L
-            private const val ACTIVE_DISCOVERY_RETRY_DELAY_MS = 1_000L
             private const val LAN_SHARE_SERVER_BIND_HOST = "0.0.0.0"
         }
     }

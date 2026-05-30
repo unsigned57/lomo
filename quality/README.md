@@ -19,6 +19,9 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 
 - `testing/ai-meaningful-tests.md`
   - Read only when writing, editing, or reviewing tests.
+- `testing-coverage-matrix.md`
+  - Read when changing or reviewing test-quality gates, meaningful-test mode coverage, or retained
+    source-set exclusions.
 - `scripts/`
   - Read scripts directly when debugging shell behavior or environment setup.
 - `detekt-rules/`
@@ -47,6 +50,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
 | I want dependency usage advice | `./gradlew dependencyAnalysisCheck` |
 | I want CVE scanning for dependencies | `./gradlew dependencyVulnerabilityCheck` |
+| I changed release-sensitive resources or strings | `quality/scripts/check_string_resource_parity.sh` and review `quality/resources-release-checklist.md` |
 | Final handoff or pre-merge gate | `./gradlew qualityCheck` |
 
 AI agents inside the sandbox should normally use:
@@ -57,6 +61,8 @@ AI agents inside the sandbox should normally use:
   - `quality/scripts/ai_fast_quality_check.sh`
 - Optional Compose hotspot pass:
   - `quality/scripts/ai_compose_static_analysis.sh`
+- Release resource key parity:
+  - `quality/scripts/check_string_resource_parity.sh`
 - Final handoff:
   - `quality/scripts/ai_quality_check.sh`
     - runs `qualityCheck` first, then the local maintenance report unless `LOMO_SKIP_LOCAL_MAINTENANCE=true`
@@ -157,9 +163,11 @@ Task roles:
   - Runs Android Lint plus Compose compiler metrics/reports for AI-readable static hotspot analysis.
 - `meaningfulTestCheck`
   - Test metadata contract enforcement.
+  - See `quality/testing-coverage-matrix.md` for changed-file versus all-mode source-set coverage.
 - `testStyleCheck`
   - Detekt-based BDD+TDD test-style guardrails for Kotlin tests.
   - Fails on repeatable AI failure modes such as per-test Kotest `init`, relaxed MockK, mocked stateful collaborators, direct `Dispatchers.setMain`, forbidden test stacks, and interaction-only tests with no observable assertion.
+  - See `quality/testing-coverage-matrix.md` for current Detekt source-set coverage and retained exclusions.
 - `coverageCheck`
   - Verifies merged JVM unit-test coverage against the fixed `70%` minimum.
 

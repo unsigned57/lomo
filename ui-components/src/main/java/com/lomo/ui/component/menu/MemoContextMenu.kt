@@ -6,8 +6,6 @@ import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileCopy
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -21,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
+import kotlinx.collections.immutable.ImmutableList
 import kotlin.jvm.JvmInline
 
 @JvmInline
@@ -28,111 +27,40 @@ value class MemoMenuItemId(
     val value: String,
 )
 
-sealed interface MemoMenuReference {
-    data object None : MemoMenuReference
-
-    data class Id(
-        val id: MemoMenuItemId,
-    ) : MemoMenuReference
-
-    data class Payload<T : Any>(
-        val value: T,
-        val id: MemoMenuItemId? = null,
-    ) : MemoMenuReference
-}
-
 data class MemoMenuState(
     val wordCount: Int = 0,
     val createdTime: String = "",
     val content: String = "",
-    val isPinned: Boolean = false,
-    val reference: MemoMenuReference = MemoMenuReference.None,
+    val memoId: MemoMenuItemId? = null,
     val imageUrls: List<String> = emptyList(),
 ) {
-    // Legacy accessor kept for source compatibility. Prefer `memoAs<T>()` in new code.
-    val memo: Any?
-        get() = (reference as? MemoMenuReference.Payload<*>)?.value
-
-    val memoId: MemoMenuItemId?
-        get() =
-            when (reference) {
-                MemoMenuReference.None -> null
-                is MemoMenuReference.Id -> reference.id
-                is MemoMenuReference.Payload<*> -> reference.id
-            }
-
-    constructor(
-        wordCount: Int = 0,
-        createdTime: String = "",
-        content: String = "",
-        isPinned: Boolean = false,
-        memo: Any?,
-        imageUrls: List<String> = emptyList(),
-    ) : this(
-        wordCount = wordCount,
-        createdTime = createdTime,
-        content = content,
-        isPinned = isPinned,
-        reference =
-            if (memo != null) {
-                MemoMenuReference.Payload(memo)
-            } else {
-                MemoMenuReference.None
-            },
-        imageUrls = imageUrls,
-    )
-
     companion object {
         fun withId(
             memoId: MemoMenuItemId,
             wordCount: Int = 0,
             createdTime: String = "",
             content: String = "",
-            isPinned: Boolean = false,
         ): MemoMenuState =
             MemoMenuState(
                 wordCount = wordCount,
                 createdTime = createdTime,
                 content = content,
-                isPinned = isPinned,
-                reference = MemoMenuReference.Id(memoId),
-            )
-
-        fun <T : Any> withPayload(
-            payload: T,
-            wordCount: Int = 0,
-            createdTime: String = "",
-            content: String = "",
-            isPinned: Boolean = false,
-            memoId: MemoMenuItemId? = null,
-        ): MemoMenuState =
-            MemoMenuState(
-                wordCount = wordCount,
-                createdTime = createdTime,
-                content = content,
-                isPinned = isPinned,
-                reference = MemoMenuReference.Payload(payload, memoId),
+                memoId = memoId,
             )
     }
 }
-
-inline fun <reified T : Any> MemoMenuState.memoAs(): T? =
-    (reference as? MemoMenuReference.Payload<*>)?.value as? T
 
 @Composable
 fun MemoContextMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     state: MemoMenuState,
+    actions: ImmutableList<ActionItemUi>,
     modifier: Modifier = Modifier,
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val copyLabel = stringResource(R.string.action_copy)
-    val editLabel = stringResource(R.string.action_edit)
-    val deleteLabel = stringResource(R.string.action_delete)
     val clipboardMemoLabel = stringResource(R.string.clipboard_label_memo)
 
     DropdownMenu(
@@ -154,33 +82,41 @@ fun MemoContextMenu(
             leadingIcon = { Icon(Icons.Outlined.FileCopy, contentDescription = copyLabel) },
         )
 
-        DropdownMenuItem(
-            text = { Text(editLabel) },
-            onClick = {
-                haptic.medium()
-                onEdit()
-                onDismiss()
-            },
-            leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = editLabel) },
-        )
-
-        HorizontalDivider()
-
-        DropdownMenuItem(
-            text = { Text(deleteLabel, color = MaterialTheme.colorScheme.error) },
-            onClick = {
-                haptic.heavy()
-                onDelete()
-                onDismiss()
-            },
-            leadingIcon = {
-                Icon(
-                    Icons.Outlined.Delete,
-                    contentDescription = deleteLabel,
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            },
-        )
+        actions.filter(ActionItemUi::isVisible).forEach { action ->
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = action.label,
+                        color =
+                            if (action.isDestructive) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                    )
+                },
+                onClick = {
+                    performActionItemHaptic(haptic, action.haptic)
+                    action.onClick()
+                    if (action.dismissAfterClick) {
+                        onDismiss()
+                    }
+                },
+                enabled = action.isEnabled,
+                leadingIcon = {
+                    Icon(
+                        action.icon,
+                        contentDescription = action.label,
+                        tint =
+                            if (action.isDestructive) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                    )
+                },
+            )
+        }
 
         HorizontalDivider()
 

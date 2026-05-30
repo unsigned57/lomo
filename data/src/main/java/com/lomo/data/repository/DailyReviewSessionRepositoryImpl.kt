@@ -38,5 +38,6 @@ class DailyReviewSessionRepositoryImpl
             )
         }
 
+        // behavior-contract: silent-result-ok: corrupt stored date string → null treated as no session
         private fun parseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
     }

@@ -55,7 +55,7 @@ class StableDatabaseBaselineCatalogTest : DataFunSpec() {
 
 
     private fun supportedSourceDatabaseVersions_returnsDistinctPreviousStableBaselines_forCurrentRelease() {
-        StableDatabaseBaselineCatalog.supportedSourceDatabaseVersions() shouldBe listOf(54, 46, 45, 44)
+        StableDatabaseBaselineCatalog.supportedSourceDatabaseVersions() shouldBe listOf(55, 54, 46, 45, 44)
     }
 
     private fun retainedPreviousStableBaselineVersions_deduplicatesPatchReleases_and_limitsHistory() {

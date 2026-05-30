@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,10 +33,22 @@ interface MarkdownStorageDataSource {
 
     suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>
 
+    fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId>
+
     suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
     ): String?
+
+    fun streamFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): Flow<String> =
+        flow {
+            readFileByDocumentIdIn(directory, documentId)
+                ?.lineSequence()
+                ?.forEach { line -> emit(line) }
+        }
 
     suspend fun readFileIn(
         directory: MemoDirectoryType,

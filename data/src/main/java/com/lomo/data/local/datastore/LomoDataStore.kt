@@ -78,12 +78,21 @@ interface LomoDisplayPreferencesStore {
     val dateFormat: Flow<String>
     val timeFormat: Flow<String>
     val themeMode: Flow<String>
+    val colorSource: Flow<String>
+    val fontPreference: Flow<String>
+    val colorHistory: Flow<String>
 
     suspend fun updateDateFormat(format: String)
 
     suspend fun updateTimeFormat(format: String)
 
     suspend fun updateThemeMode(mode: String)
+
+    suspend fun updateColorSource(source: String)
+
+    suspend fun updateFontPreference(preference: String)
+
+    suspend fun addColorToHistory(argb: Int)
 }
 
 interface LomoInteractionPreferencesStore {
@@ -402,6 +411,9 @@ internal object LomoDataStoreKeys {
     val DATE_FORMAT = stringPreferencesKey(PreferenceKeys.DATE_FORMAT)
     val TIME_FORMAT = stringPreferencesKey(PreferenceKeys.TIME_FORMAT)
     val THEME_MODE = stringPreferencesKey(PreferenceKeys.THEME_MODE)
+    val COLOR_SOURCE = stringPreferencesKey(PreferenceKeys.COLOR_SOURCE)
+    val COLOR_HISTORY = stringPreferencesKey(PreferenceKeys.COLOR_HISTORY)
+    val FONT_PREFERENCE = stringPreferencesKey(PreferenceKeys.FONT_PREFERENCE)
     val HAPTIC_FEEDBACK_ENABLED = booleanPreferencesKey(PreferenceKeys.HAPTIC_FEEDBACK_ENABLED)
     val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey(PreferenceKeys.CHECK_UPDATES_ON_STARTUP)
     val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)

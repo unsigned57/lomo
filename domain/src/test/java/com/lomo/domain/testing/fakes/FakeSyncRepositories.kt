@@ -3,6 +3,8 @@ package com.lomo.domain.testing.fakes
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
@@ -52,6 +54,7 @@ class FakeUnifiedSyncProvider(
 
     val syncRequests = mutableListOf<UnifiedSyncOperation>()
     val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
+    val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var nextSyncResult: UnifiedSyncResult =
         UnifiedSyncResult.Success(provider = backendType, message = "synced")
@@ -86,13 +89,21 @@ class FakeUnifiedSyncProvider(
         resolveRequests += resolution to conflictSet
         return nextResolveResult
     }
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult {
+        reviewResolveRequests += resolution to review
+        return nextResolveResult
+    }
 }
 
 class FakeSyncInboxRepository : SyncInboxRepository {
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
 
     val syncRequests = mutableListOf<UnifiedSyncOperation>()
-    val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
+    val resolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
     var ensureDirectoryStructureCallCount = 0
         private set
     var nextSyncResult: UnifiedSyncResult =
@@ -111,11 +122,11 @@ class FakeSyncInboxRepository : SyncInboxRepository {
         return nextSyncResult
     }
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
     ): UnifiedSyncResult {
-        resolveRequests += resolution to conflictSet
+        resolveRequests += resolution to review
         return nextResolveResult
     }
 }

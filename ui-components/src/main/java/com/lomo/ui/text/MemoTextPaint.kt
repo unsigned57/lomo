@@ -35,11 +35,11 @@ internal class AndroidMemoTextMeasurer(
     ): Float = paint.measureText(text, start, end)
 }
 
-internal fun TextStyle.toBaseTextPaint(density: Density): TextPaint =
+internal fun TextStyle.toBaseTextPaint(density: Density, customTypeface: Typeface? = null): TextPaint =
     TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
         paint.color = color.toArgb()
         paint.textSize = resolveFontSizePx(density)
-        paint.typeface = resolvePlatformTypeface()
+        paint.typeface = resolvePlatformTypeface(customTypeface)
         paint.letterSpacing = 0f
     }
 
@@ -48,13 +48,14 @@ internal fun TextStyle.toGlyphTextPaint(
     offset: Int,
     defaultLinkColor: Color,
     density: Density,
+    customTypeface: Typeface? = null,
 ): TextPaint {
     val spanStyle = annotatedText.resolveSpanStyle(offset)
     val linkStyle = annotatedText.resolveLinkVisualStyle(offset, defaultLinkColor)
     return TextPaint(Paint.ANTI_ALIAS_FLAG).also { paint ->
         paint.color = resolveGlyphColor(spanStyle, linkStyle).toArgb()
         paint.textSize = resolveFontSizePx(density)
-        paint.typeface = resolveTypeface(spanStyle)
+        paint.typeface = resolveTypeface(spanStyle, customTypeface)
         paint.isUnderlineText =
             linkStyle?.isUnderlineText == true ||
                 spanStyle.textDecoration?.contains(TextDecoration.Underline) == true
@@ -93,10 +94,15 @@ internal fun TextStyle.resolveMemoLetterSpacingPx(density: Density): Float =
         }
     }
 
-internal fun TextStyle.resolvePlatformTypeface(): Typeface {
-    val baseTypeface = if (fontFamily == FontFamily.Monospace) Typeface.MONOSPACE else Typeface.SANS_SERIF
+internal fun TextStyle.resolvePlatformTypeface(customTypeface: Typeface? = null): Typeface {
     val italic = fontStyle == FontStyle.Italic
     val weight = fontWeight?.weight ?: Typeface.NORMAL
+
+    val baseTypeface = if (fontFamily == FontFamily.Monospace) {
+        Typeface.MONOSPACE
+    } else {
+        customTypeface ?: Typeface.SANS_SERIF
+    }
 
     return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
         Typeface.create(baseTypeface, weight, italic)
@@ -125,13 +131,19 @@ private fun TextStyle.resolveFontSizePx(density: Density): Float =
         }
     }
 
-private fun TextStyle.resolveTypeface(spanStyle: SpanStyle): Typeface {
+private fun TextStyle.resolveTypeface(spanStyle: SpanStyle, customTypeface: Typeface? = null): Typeface {
     val resolvedFontFamily = spanStyle.fontFamily ?: fontFamily
     val resolvedFontStyle = spanStyle.fontStyle ?: fontStyle
     val resolvedFontWeight = spanStyle.fontWeight ?: fontWeight
-    val baseTypeface = if (resolvedFontFamily == FontFamily.Monospace) Typeface.MONOSPACE else Typeface.SANS_SERIF
     val italic = resolvedFontStyle == FontStyle.Italic
     val weight = resolvedFontWeight?.weight ?: Typeface.NORMAL
+
+    val baseTypeface = if (resolvedFontFamily == FontFamily.Monospace) {
+        Typeface.MONOSPACE
+    } else {
+        customTypeface ?: Typeface.SANS_SERIF
+    }
+
     return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
         Typeface.create(baseTypeface, weight, italic)
     } else {

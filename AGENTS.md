@@ -1,76 +1,99 @@
 # Lomo Agent Guide
 
-This file is the AI-first entrypoint for the repository. Read this file first, route yourself to the smallest useful next document, and stop descending once the current layer is sufficient.
+This is the AI-first entrypoint for the repository. Read it first, route to the smallest useful next document, and stop descending once the current layer is sufficient.
 
-## 0. Workflow Entrypoint
+## 0. Systemic Fix Mandate
 
-- **Task Management**: If `task.md` exists in the repository root, the AI must read it immediately. The content of `task.md` defines the current requirements and goals. The AI should treat these as the primary objective, complete all tasks, and delete `task.md` upon completion.
-- **Completeness**: Prefer finishing independently verifiable slices in one turn. Do not stop at partial analysis or leave half-wired changes behind.
+The default fix is a systemic fix: change the owning model, abstraction, boundary, policy, or workflow so the whole class of failure becomes impossible or centrally handled.
 
-## 1. Progressive Disclosure Protocol
+Do not start from the smallest code edit. Start from the durable design.
 
-Read in this order and only when the task actually requires the next layer:
+Patch-style fixes are rejected by default:
 
-1. `AGENTS.md` (This document)
-2. `ARCHITECTURE.md`: Stable module responsibilities, dependency direction, and change routing.
-3. `quality/README.md`: Verification commands, quality scripts, and static check policy.
-4. `quality/testing/ai-meaningful-tests.md`: Mandatory before writing, editing, or reviewing tests.
+- no one-off conditionals for a symptom
+- no defensive fallback that hides a broken contract
+- no duplicate helper or local utility when a shared concept is missing
+- no compatibility parameter to avoid updating callers
+- no deprecated old path, feature flag, TODO migration, or parallel implementation
+- no `NoOp`, `Disabled`, or `Empty` placeholder for unfinished architecture
+- no `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` to silence design/static failures
 
-**Rules**: Do not pre-read "just in case". Verify current paths, files, and APIs against the repository with `rg`, `glob`, or direct code reads before acting. Module READMEs may exist for human orientation, but they are not the source of truth.
+If the correct fix requires an abstraction, contract, policy, parser, state model, repository boundary, static rule, or canonical workflow, build that instead of patching the caller.
 
-## 2. Hard Boundaries
+## 1. Systemic Design Gate
 
-- `app` must not import `com.lomo.data.*`.
-- `ui-components` must not import `com.lomo.data.*`.
-- `domain` must not depend on Android, Compose, Lifecycle, Room, Hilt/Dagger, Ktor, JGit, or any `com.lomo.data.*` type.
-- ViewModels must not depend directly on DAO, DataSource, RoomDatabase, repository implementations, Git/WebDAV engines, `DocumentFile`, or direct file-system helpers.
-- New business behavior belongs in `domain` first, then is consumed from `app`, then implemented in `data`.
-- New repository implementations belong in `data/repository`.
-- Do not treat an existing architecture violation as precedent.
-- If architecture-sensitive code changes, include an `Architecture Impact` note with the owning layer and any boundary exception.
+Before any non-trivial bug fix, refactor, architecture change, or behavior change, state and satisfy this gate:
 
-## 3. AI Code Rules
+1. **Problem class**: What class of failures does this represent, beyond the observed symptom?
+2. **Owning concept**: Which model, contract, use case, repository boundary, UI state model, parser/formatter, planner, policy object, or static rule should own the behavior?
+3. **Global fix**: What design change makes the behavior ordinary, centralized, or impossible to misuse?
+4. **Enforcement**: How will types, interfaces, tests, static checks, or one canonical path prevent recurrence?
+5. **Tail deletion**: Which old APIs, duplicate helpers, fallback branches, feature flags, TODOs, DI bindings, tests, and resources must be removed in the same change?
 
-- **Root-Cause Over Patch**: Prefer solutions that eliminate the root cause rather than work around symptoms. A patch is acceptable for an isolated, low-risk bug fix. For architectural issues—cross-cutting duplication, missing abstractions, design-level inconsistencies—the fix must address the structural problem itself. Adding a workaround layer, an extra `if`, or a NoOp fallback on top of a broken abstraction is not an acceptable remedy. When an audit or review identifies an architectural debt, the response must be a structural refactor, not a patch.
-- **Review Grade**: Write with review-grade clarity and correctness. Assume code will be reviewed by Claude.
-- **No Suppress**: Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings`.
-- **Statics First**: Fix static check complaints by refactoring or moving logic, not by suppressing.
-- **BDD + TDD Requirement**: AI must combine Behavior-Driven Development (BDD) and Test-Driven Development (TDD). BDD defines the behavior contract; TDD proves the implementation through a strict red-green-refactor loop. Do not treat either side as optional for feature work, bug fixes, contract changes, or test migrations that touch behavior.
+If these cannot be answered, do not edit code. Investigate until the systemic fix is clear.
 
-  1. **State the behavior first.** Every new or touched test must carry a `Behavior Contract` comment or adjacent contract file that names the capability, Given/When/Then scenarios, observable outcomes, and exclusions. The contract must describe externally visible behavior, not implementation structure.
-  2. **Write the failing test first.** Encode the BDD scenario in a test before touching related production code. The test name should read as behavior, and the assertion must prove a returned value, emitted state/event, persisted/file-system state, mapped error, or explicit ordering contract.
-  3. **Run the test and confirm RED.** Execute `quality/scripts/ai_static_quality_check.sh` or the targeted `./gradlew :<module>:testDebugUnitTest --tests <FQN>` command and **paste / observe a real failure**: either a compilation failure naming the missing symbol, an assertion failure, or an explicit "X tests failed". A green run at this stage means the test is a no-op — go back and tighten it. Do not write a single line of production code until you have seen the failure for *this specific behavior*.
-  4. **Write the minimum implementation to flip the test to GREEN.** Re-run the same command and confirm "BUILD SUCCESSFUL" *with* the test name shown as passing.
-  5. **Refactor under green.** Re-run the test after each non-trivial refactor to keep the green proof.
+Scope search is evidence for the design gate, not the goal. The point is not merely to find similar lines; the point is to identify the missing system concept and fix it once at the correct owner.
 
-  Writing the behavior contract, test, implementation, and running tests only at the end of the session is **not** BDD+TDD even if the final run is green — it loses the red proof that the scenario actually pins the contract. If multiple behaviors are needed for a single change, repeat the loop per behavior; do **not** batch.
+## 2. Patch Exception
 
-  When authoring or editing Kotlin tests, follow `quality/testing/ai-kotlin-test-style.md` to the letter — in particular the **Spec Form** and **Fake-First Collaborator** rules. A Kotest file uses a single `FunSpec({ ... })` constructor block (preferred) or a single `init { ... }` block; **never** open one `init` per `test(...)`. Treat old specs with the per-`test` `init` pattern as migration debt: whenever you edit one of those files for any reason, refactor it into the single-block form in the same change. Do not preserve the anti-pattern out of inertia, and do not invent a new anti-pattern by copying it into a new file.
+A local patch is allowed only for mechanical non-behavioral edits, or when the user explicitly asks for an emergency hotfix.
 
-  Stateful collaborators must be modeled with hand-written `Fake*` or test-harness implementations by default. Do not use `mockk(relaxed = true)` for repositories, DAOs, data sources, file-system providers, preference stores, or stateful use cases. MockK is reserved for stateless boundaries, external framework/SDK seams, failure injection, or ordering checks where ordering is itself the behavior contract. Tests that only verify collaborator calls without an observable outcome are not meaningful.
+When applying an emergency hotfix, label it as temporary in the response and state the systemic fix that should replace it. Do not use emergency hotfix logic as precedent for normal work.
 
-  Refer to `quality/testing/ai-meaningful-tests.md` for the repository policy and `quality/testing/ai-kotlin-test-style.md` for Kotlin authoring guidance.
-- **Reuse Before Rewrite**: Before adding any new helper or utility, search the owning module and the shared `domain` / `ui-components` layers for an existing implementation. Reuse or extract shared logic instead of duplicating it.
-- **Delete Dead Paths**: After refactors, remove obsolete helpers, old entry points, stale DI wiring, and unused resources. Do not keep dead code "just in case".
+## 3. Architecture Gate
 
-## 4. Verification & Commands
+`ARCHITECTURE.md` is the source of truth for module responsibilities, dependency direction, and change routing.
 
-Run commands from the repository root. Prefer `quality/scripts/` for AI verification because they already set repo-local Gradle and Android homes correctly.
+Before any architecture-sensitive change:
+
+1. Read `ARCHITECTURE.md`.
+2. Identify the owning layer and boundary being changed.
+3. Apply the systemic fix at the owning layer, not at the caller.
+4. Do not treat existing architecture violations as precedent.
+5. Include an `Architecture Impact` note naming the owning layer, boundary effect, and any exception.
+
+If the systemic fix changes module ownership, dependency direction, or change routing, update `ARCHITECTURE.md` in the same change.
+
+## 4. Contracts, Fallbacks, And Migration Tails
+
+- Invalid upstream state must be modeled, rejected, or surfaced; do not hide it with `runCatching { ... }.getOrNull()`, `.getOrDefault(...)`, `.getOrElse { <constant> }`, swallowed `Throwable`, `?: emptyList()`, `?: ""`, or `?: 0`.
+- A default or empty branch is valid only when it is a real domain state documented by a `Behavior Contract`.
+- For intentional silent-result `runCatching`, place `// behavior-contract: silent-result-ok: <reason>` immediately before or on the same line.
+- Replacements must be complete in the same change: migrate every caller, update DI/factories/providers, remove the old API, and delete stale tests/resources.
+- `@Deprecated`, compatibility overloads, optional parameters added only to avoid callers, temporary feature flags, and TODO removals are migration tails and are rejected.
+
+## 5. Progressive Disclosure
+
+Read in this order only when the task needs the next layer:
+
+1. `AGENTS.md`: workflow, systemic-fix rules, and architecture gate.
+2. `ARCHITECTURE.md`: stable module responsibilities, dependency direction, and change routing.
+3. `quality/README.md`: verification commands, quality scripts, and static check policy.
+4. `quality/testing/ai-meaningful-tests.md`: mandatory before writing, editing, or reviewing tests.
+5. `quality/testing/ai-kotlin-test-style.md`: mandatory before authoring or editing Kotlin tests.
+
+Verify concrete paths, files, and APIs against the repository before acting. Module READMEs are orientation only, not source of truth.
+
+## 6. Behavior And Tests
+
+- Use BDD + TDD for feature work, bug fixes, contract changes, and behavior-affecting test edits.
+- State the behavior contract first: capability, Given/When/Then scenarios, observable outcomes, and exclusions.
+- Write or update the failing test before production code, run the targeted test or `quality/scripts/ai_static_quality_check.sh`, and observe a real RED failure for that behavior.
+- Implement the systemic fix needed to reach GREEN, then refactor under GREEN.
+- Kotlin tests must follow `quality/testing/ai-kotlin-test-style.md`: single `FunSpec({ ... })` or single `init { ... }`, fake-first stateful collaborators, and no interaction-only tests without observable behavior.
+
+## 7. Verification
+
+Run commands from the repository root. Prefer `quality/scripts/` because they set repo-local Gradle and Android homes.
 
 - **Iterative Check**: `quality/scripts/ai_static_quality_check.sh`
-- **Local Maintenance**: `quality/scripts/ai_local_maintenance_check.sh` for dependency updates, dependency-analysis advice, CVE scanning, and R8 release diagnostics.
+- **Local Maintenance**: `quality/scripts/ai_local_maintenance_check.sh`
 - **Full Gate**: `quality/scripts/ai_quality_check.sh`
-- **AI Scripts**: Use `quality/scripts/` for automated verification because they also produce AI-readable local maintenance reports.
-- **Commit Rule**: Run a full `qualityCheck` before creating any commit. For one unchanged
-  working tree split into multiple consecutive commits, use `quality/scripts/verified_batch_commit.sh`
-  so the batch runs `qualityCheck` before the first commit and after the final commit while the
-  intermediate commits use `git commit --no-verify` through the script.
+- **Commit Rule**: Run full `qualityCheck` before committing. For multiple commits from one unchanged tree, use `quality/scripts/verified_batch_commit.sh`.
 
-Refer to `quality/README.md` for the full command matrix and triage guide.
+## 8. Project Context
 
-## 5. Project Context
-
-- **SDK**: `minSdk` is `26`.
-- **i18n**: Update `values` and `values-zh-rCN`.
-- **Baseline Profile**: release-critical. Inspect `app/baseline-rules.txt`, run `:app:generateReleaseStaticBaselineProfile` to refresh `app/src/main/baselineProfiles/generated.txt`, and keep `app/src/main/baseline-prof.txt` for manual/high-priority coverage gaps (it is not the generated output) when performance or startup logic changes.
-- **Ownership**: Assume other people may be editing the tree; do not overwrite their changes.
+- `minSdk` is `26`.
+- i18n changes must update `values` and `values-zh-rCN`.
+- Baseline Profile is release-critical. For performance or startup changes, inspect `app/baseline-rules.txt`, refresh `app/src/main/baselineProfiles/generated.txt` with `:app:generateReleaseStaticBaselineProfile`, and keep `app/src/main/baseline-prof.txt` for manual/high-priority gaps.
+- Assume others may be editing the tree. Do not overwrite unrelated changes.

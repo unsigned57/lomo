@@ -20,8 +20,8 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.source.FileDataSource
+import com.lomo.data.testing.projectedMemoEntity
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
@@ -42,12 +42,12 @@ import io.kotest.matchers.shouldBe
 /*
  * Behavior Contract:
  * - Unit under test: MemoMutationHandler history scheduling path
- * - Behavior focus: local edit and trash mutations must not wait for memo-version snapshot persistence before
- *   returning their outbox result.
- * - Observable outcomes: update/delete DB mutation calls return the outbox id while history snapshot append is
- *   still suspended, and the history append is eventually invoked with the expected lifecycle state.
- * - TDD proof: Fails before the fix because updateMemoInDb and deleteMemoInDb await
- *   MemoVersionJournal.appendLocalRevision directly, so a slow snapshot append blocks the mutation call.
+ * - Behavior focus: local edit DB mutation must persist only durable DB intent/outbox work, while
+ *   existing trash DB mutation keeps its historical async snapshot behavior outside Slice 2.
+ * - Observable outcomes: update DB mutation returns the outbox id and does not call the in-memory
+ *   version recorder path; delete DB mutation still returns before its existing async history append completes.
+ * - TDD proof: Fails before the Slice 2 repair because updateMemoInDb enqueues LOCAL_EDIT through
+ *   AsyncMemoVersionRecorder immediately after DB/outbox persistence.
  * - Excludes: blob persistence, snapshot prune policy, and file-flush behavior.
  */
 class MemoMutationHistorySchedulingTest : DataFunSpec() {
@@ -56,7 +56,9 @@ class MemoMutationHistorySchedulingTest : DataFunSpec() {
             setUp()
         }
 
-        test("updateMemoInDb returns before history snapshot append completes") { `updateMemoInDb returns before history snapshot append completes`() }
+        test("updateMemoInDb persists durable outbox without in memory history scheduling") {
+            `updateMemoInDb persists durable outbox without in memory history scheduling`()
+        }
 
         test("deleteMemoInDb returns before trashed snapshot append completes") { `deleteMemoInDb returns before trashed snapshot append completes`() }
     }
@@ -94,28 +96,32 @@ class MemoMutationHistorySchedulingTest : DataFunSpec() {
                 markdownStorageDataSource = fileDataSource,
                 mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(dao),
-                memoSearchDao = dao,
+                memoStatisticsDao = dao,
                 localFileStateDao = localFileStateDao,
+                workspaceStore =
+                    testMemoWorkspaceStore(
+                        markdownStorageDataSource = fileDataSource,
+                        localFileStateDao = localFileStateDao,
+                    ),
+                workspaceMediaAccess = ThrowingWorkspaceMediaAccess,
                 savePlanFactory = savePlanFactory,
                 textProcessor = MemoTextProcessor(),
                 dataStore = dataStore,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = MemoIdentityPolicy(),
                 memoVersionJournal = memoVersionJournal,
+                mediaRepository = ThrowingMediaRepository,
                 s3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-                webDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+                webDavLocalChangeRecorder = TestNoOpWebDavLocalChangeRecorder,
+                backgroundScope = immediateTestBackgroundScope(),
             )
     }
 
-    private fun `updateMemoInDb returns before history snapshot append completes`() =
+    private fun `updateMemoInDb persists durable outbox without in memory history scheduling`() =
         runTest {
             val sourceMemo = testMemo(id = "memo-update", updatedAt = 10L, content = "before")
-            val historyGate = CompletableDeferred<Unit>()
-            coEvery { dao.getMemo(sourceMemo.id) } returns MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { dao.insertMemoFileOutbox(any()) } returns 11L
-            coEvery { memoVersionJournal.appendLocalRevision(any(), any(), any()) } coAnswers {
-                historyGate.await()
-            }
 
             val outboxId =
                 withTimeout(200) {
@@ -123,21 +129,14 @@ class MemoMutationHistorySchedulingTest : DataFunSpec() {
                 }
 
             outboxId shouldBe 11L
-            historyGate.complete(Unit)
-            coVerify(timeout = 1_000, exactly = 1) {
-                memoVersionJournal.appendLocalRevision(
-                    match { it.id == sourceMemo.id && it.content == "after" },
-                    MemoRevisionLifecycleState.ACTIVE,
-                    MemoRevisionOrigin.LOCAL_EDIT,
-                )
-            }
+            coVerify(exactly = 0) { memoVersionJournal.appendLocalRevision(any(), any(), any()) }
         }
 
     private fun `deleteMemoInDb returns before trashed snapshot append completes`() =
         runTest {
             val sourceMemo = testMemo(id = "memo-delete", updatedAt = 20L, content = "trash me")
             val historyGate = CompletableDeferred<Unit>()
-            coEvery { dao.getMemo(sourceMemo.id) } returns MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns projectedMemoEntity(sourceMemo)
             coEvery { dao.insertMemoFileOutbox(any()) } returns 21L
             coEvery { memoVersionJournal.appendLocalRevision(any(), any(), any()) } coAnswers {
                 historyGate.await()

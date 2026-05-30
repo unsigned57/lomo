@@ -5,6 +5,7 @@ import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.entity.S3LocalChangeJournalEntity
 import com.lomo.data.local.entity.S3SyncProtocolStateEntity
+import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -18,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 internal const val S3_INCREMENTAL_PROTOCOL_VERSION = 4
 internal const val S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS = 15 * 60_000L
@@ -49,89 +49,52 @@ interface S3SyncProtocolStateStore {
     suspend fun clear()
 }
 
-object DisabledS3SyncProtocolStateStore : S3SyncProtocolStateStore {
-    override val incrementalSyncEnabled: Boolean = false
-
-    override suspend fun read(): S3SyncProtocolState? = null
-
-    override suspend fun write(state: S3SyncProtocolState) = Unit
-
-    override suspend fun clear() = Unit
-}
-
-class InMemoryS3SyncProtocolStateStore(
-    override val incrementalSyncEnabled: Boolean = true,
-) : S3SyncProtocolStateStore {
-    private val mutex = Mutex()
-    private var state: S3SyncProtocolState? = null
-
-    override suspend fun read(): S3SyncProtocolState? = mutex.withLock { state }
-
-    override suspend fun write(state: S3SyncProtocolState) {
-        mutex.withLock {
-            this.state = state
-        }
-    }
-
-    override suspend fun clear() {
-        mutex.withLock {
-            state = null
-        }
-    }
-}
-
 @Singleton
 class RoomBackedS3SyncProtocolStateStore
     @Inject
     constructor(
         private val dao: S3SyncProtocolStateDao,
         @ApplicationContext private val context: Context,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : S3SyncProtocolStateStore {
         override val incrementalSyncEnabled: Boolean = true
 
-        private val json = Json { ignoreUnknownKeys = true }
         private val mutex = Mutex()
-        private var legacyMigrationChecked = false
+        private var legacySidecarDiscardChecked = false
 
         override suspend fun read(): S3SyncProtocolState? =
             mutex.withLock {
-                migrateLegacyStateIfNeeded()
-                dao.getById()?.toModel()
+                discardLegacyStateSidecarIfNeeded()
+                dao.getById(activeGeneration())?.toModel()
             }
 
         override suspend fun write(state: S3SyncProtocolState) {
             mutex.withLock {
-                migrateLegacyStateIfNeeded()
-                dao.upsert(state.toEntity())
+                discardLegacyStateSidecarIfNeeded()
+                dao.upsert(state.toEntity(activeGeneration()))
             }
         }
 
         override suspend fun clear() {
             mutex.withLock {
-                migrateLegacyStateIfNeeded()
-                dao.clearAll()
+                discardLegacyStateSidecarIfNeeded()
+                dao.clearAll(activeGeneration())
             }
         }
 
-        private suspend fun migrateLegacyStateIfNeeded() {
-            if (legacyMigrationChecked) {
+        private suspend fun discardLegacyStateSidecarIfNeeded() {
+            if (legacySidecarDiscardChecked) {
                 return
             }
             withContext(Dispatchers.IO) {
-                val file = stateFile()
-                if (dao.getById() == null && file.exists()) {
-                    runCatching {
-                        json.decodeFromString(S3SyncProtocolState.serializer(), file.readText())
-                    }.getOrNull()?.let { legacy ->
-                        dao.upsert(legacy.toEntity())
-                    }
-                    file.delete()
-                }
-                legacyMigrationChecked = true
+                discardUnscopedLegacyS3Sidecar(stateFile(), "S3 protocol state")
+                legacySidecarDiscardChecked = true
             }
         }
 
         private fun stateFile(): File = File(context.filesDir, "s3_sync_protocol_state.json")
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
 enum class S3LocalChangeKind {
@@ -200,11 +163,6 @@ data class S3LocalChangeJournalEntry(
     }
 }
 
-@Serializable
-private data class S3LocalChangeJournalSnapshot(
-    val entries: List<S3LocalChangeJournalEntry> = emptyList(),
-)
-
 interface S3LocalChangeJournalStore {
     val incrementalSyncEnabled: Boolean
 
@@ -217,69 +175,29 @@ interface S3LocalChangeJournalStore {
     suspend fun clear()
 }
 
-object DisabledS3LocalChangeJournalStore : S3LocalChangeJournalStore {
-    override val incrementalSyncEnabled: Boolean = false
-
-    override suspend fun read(): Map<String, S3LocalChangeJournalEntry> = emptyMap()
-
-    override suspend fun upsert(entry: S3LocalChangeJournalEntry) = Unit
-
-    override suspend fun remove(ids: Collection<String>) = Unit
-
-    override suspend fun clear() = Unit
-}
-
-class InMemoryS3LocalChangeJournalStore(
-    override val incrementalSyncEnabled: Boolean = true,
-) : S3LocalChangeJournalStore {
-    private val mutex = Mutex()
-    private val entries = linkedMapOf<String, S3LocalChangeJournalEntry>()
-
-    override suspend fun read(): Map<String, S3LocalChangeJournalEntry> =
-        mutex.withLock { entries.toMap() }
-
-    override suspend fun upsert(entry: S3LocalChangeJournalEntry) {
-        mutex.withLock {
-            entries[entry.id] = entry
-        }
-    }
-
-    override suspend fun remove(ids: Collection<String>) {
-        mutex.withLock {
-            ids.forEach(entries::remove)
-        }
-    }
-
-    override suspend fun clear() {
-        mutex.withLock {
-            entries.clear()
-        }
-    }
-}
-
 @Singleton
 class RoomBackedS3LocalChangeJournalStore
     @Inject
     constructor(
         private val dao: S3LocalChangeJournalDao,
         @ApplicationContext private val context: Context,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : S3LocalChangeJournalStore {
         override val incrementalSyncEnabled: Boolean = true
 
-        private val json = Json { ignoreUnknownKeys = true }
         private val mutex = Mutex()
-        private var legacyMigrationChecked = false
+        private var legacySidecarDiscardChecked = false
 
         override suspend fun read(): Map<String, S3LocalChangeJournalEntry> =
             mutex.withLock {
-                migrateLegacyJournalIfNeeded()
-                dao.getAll().associate { entity -> entity.id to entity.toModel() }
+                discardLegacyJournalSidecarIfNeeded()
+                dao.getAll(activeGeneration()).associate { entity -> entity.id to entity.toModel() }
             }
 
         override suspend fun upsert(entry: S3LocalChangeJournalEntry) {
             mutex.withLock {
-                migrateLegacyJournalIfNeeded()
-                dao.upsert(entry.toEntity())
+                discardLegacyJournalSidecarIfNeeded()
+                dao.upsert(entry.toEntity(activeGeneration()))
             }
         }
 
@@ -288,37 +206,31 @@ class RoomBackedS3LocalChangeJournalStore
                 return
             }
             mutex.withLock {
-                migrateLegacyJournalIfNeeded()
-                dao.deleteByIds(ids)
+                discardLegacyJournalSidecarIfNeeded()
+                dao.deleteByIds(ids = ids, workspaceGeneration = activeGeneration())
             }
         }
 
         override suspend fun clear() {
             mutex.withLock {
-                migrateLegacyJournalIfNeeded()
-                dao.clearAll()
+                discardLegacyJournalSidecarIfNeeded()
+                dao.clearAll(activeGeneration())
             }
         }
 
         private fun journalFile(): File = File(context.filesDir, "s3_local_change_journal.json")
 
-        private suspend fun migrateLegacyJournalIfNeeded() {
-            if (legacyMigrationChecked) {
+        private suspend fun discardLegacyJournalSidecarIfNeeded() {
+            if (legacySidecarDiscardChecked) {
                 return
             }
             withContext(Dispatchers.IO) {
-                val file = journalFile()
-                if (dao.getAll().isEmpty() && file.exists()) {
-                    runCatching {
-                        json.decodeFromString(S3LocalChangeJournalSnapshot.serializer(), file.readText()).entries
-                    }.getOrDefault(emptyList())
-                        .sortedBy(S3LocalChangeJournalEntry::id)
-                        .forEach { entry -> dao.upsert(entry.toEntity()) }
-                    file.delete()
-                }
-                legacyMigrationChecked = true
+                discardUnscopedLegacyS3Sidecar(journalFile(), "S3 local journal")
+                legacySidecarDiscardChecked = true
             }
         }
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
 interface S3LocalChangeRecorder {
@@ -333,20 +245,6 @@ interface S3LocalChangeRecorder {
     suspend fun recordVoiceUpsert(filename: String)
 
     suspend fun recordVoiceDelete(filename: String)
-}
-
-object NoOpS3LocalChangeRecorder : S3LocalChangeRecorder {
-    override suspend fun recordMemoUpsert(filename: String) = Unit
-
-    override suspend fun recordMemoDelete(filename: String) = Unit
-
-    override suspend fun recordImageUpsert(filename: String) = Unit
-
-    override suspend fun recordImageDelete(filename: String) = Unit
-
-    override suspend fun recordVoiceUpsert(filename: String) = Unit
-
-    override suspend fun recordVoiceDelete(filename: String) = Unit
 }
 
 @Singleton
@@ -406,8 +304,23 @@ internal interface S3IncrementalSyncBindingsModule {
     fun bindS3LocalChangeRecorder(impl: DefaultS3LocalChangeRecorder): S3LocalChangeRecorder
 }
 
-private fun S3SyncProtocolState.toEntity(): S3SyncProtocolStateEntity =
+private fun discardUnscopedLegacyS3Sidecar(
+    file: File,
+    label: String,
+) {
+    if (!file.exists()) {
+        return
+    }
+    // Behavior Contract: legacy S3 JSON sidecars predate workspace generations, so they are untrusted
+    // sync state. Room rows scoped by active generation are the only authoritative source.
+    if (!file.delete() && file.exists()) {
+        error("Unable to delete untrusted legacy $label sidecar: ${file.absolutePath}")
+    }
+}
+
+private fun S3SyncProtocolState.toEntity(workspaceGeneration: String): S3SyncProtocolStateEntity =
     S3SyncProtocolStateEntity(
+        workspaceGeneration = workspaceGeneration,
         protocolVersion = protocolVersion,
         lastSuccessfulSyncAt = lastSuccessfulSyncAt,
         lastFastSyncAt = lastFastSyncAt,
@@ -434,8 +347,9 @@ private fun S3SyncProtocolStateEntity.toModel(): S3SyncProtocolState =
         scanEpoch = scanEpoch,
     )
 
-private fun S3LocalChangeJournalEntry.toEntity(): S3LocalChangeJournalEntity =
+private fun S3LocalChangeJournalEntry.toEntity(workspaceGeneration: String): S3LocalChangeJournalEntity =
     S3LocalChangeJournalEntity(
+        workspaceGeneration = workspaceGeneration,
         id = id,
         kind = kind.name,
         filename = filename,

@@ -6,6 +6,7 @@ import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
 
 class WorkspaceTransitionRepositoryImpl
@@ -16,6 +17,7 @@ class WorkspaceTransitionRepositoryImpl
         private val memoImageDao: MemoImageDao,
         private val memoTrashDao: MemoTrashDao,
         private val localFileStateDao: LocalFileStateDao,
+        private val syncStateResetRepository: SyncStateResetRepository,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit,
     ) : WorkspaceTransitionRepository {
         override suspend fun clearMemoStateAfterWorkspaceTransition() {
@@ -26,6 +28,7 @@ class WorkspaceTransitionRepositoryImpl
                 memoImageDao.clearImageRefs()
                 memoWriteDao.clearAll()
                 memoTrashDao.clearTrash()
+                syncStateResetRepository.resetWorkspaceScopedSyncState()
             }
         }
     }

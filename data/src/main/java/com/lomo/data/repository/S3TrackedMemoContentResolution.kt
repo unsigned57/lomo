@@ -101,7 +101,7 @@ private suspend fun resolveTrackedMemoActionWithContent(
                 fastFingerprint
             } else if (remote.verified) {
                 runNonFatalCatching {
-                    val payload = client.getObject(remote.remotePath)
+                    val payload = client.getSmallObject(remote.remotePath)
                     resolveRemoteContentMd5(payload.metadata, payload.eTag)
                         ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
                 }.getOrNull()
@@ -112,7 +112,7 @@ private suspend fun resolveTrackedMemoActionWithContent(
                     }
                 }.getOrNull()
                     ?: runNonFatalCatching {
-                        val payload = client.getObject(remote.remotePath)
+                        val payload = client.getSmallObject(remote.remotePath)
                         resolveRemoteContentMd5(payload.metadata, payload.eTag)
                             ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
                     }.getOrNull()

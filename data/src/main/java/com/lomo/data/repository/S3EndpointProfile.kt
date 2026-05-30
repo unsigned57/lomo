@@ -70,6 +70,7 @@ enum class S3EndpointProfile(
 }
 
 internal fun inferS3EndpointProfile(endpointUrl: String): S3EndpointProfile {
+    // behavior-contract: silent-result-ok: malformed URI → GENERIC_S3 profile (documented fallback)
     val uri = runCatching { URI(endpointUrl) }.getOrNull() ?: return S3EndpointProfile.GENERIC_S3
     val host = uri.host?.lowercase().orEmpty()
     if (host.isBlank()) {

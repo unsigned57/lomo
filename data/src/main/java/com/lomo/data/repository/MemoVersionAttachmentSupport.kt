@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.domain.model.MediaFileExtensions
+import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 internal fun resolveAttachmentCategory(filename: String): WorkspaceMediaCategory? {
@@ -36,12 +37,19 @@ internal suspend fun resolveRevisionAttachment(
 ): ResolvedMemoRevisionAttachment? {
     val filename = path.substringAfterLast('/')
     val category = resolveAttachmentCategory(filename) ?: return null
-    val bytes = workspaceMediaAccess.readFileBytes(category = category, filename = filename) ?: return null
+    val output = ByteArrayOutputStream()
+    val found =
+        workspaceMediaAccess.readFileToStream(
+            category = category,
+            filename = filename,
+            destination = output,
+        )
+    if (!found) return null
     val logicalPath = "${category.logicalPrefix}$filename"
     val contentEncoding = contentEncodingForAttachment(category, filename)
     return ResolvedMemoRevisionAttachment(
         logicalPath = logicalPath,
         contentEncoding = contentEncoding,
-        bytes = bytes,
+        bytes = output.toByteArray(),
     )
 }

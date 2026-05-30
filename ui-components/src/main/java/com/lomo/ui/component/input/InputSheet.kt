@@ -74,28 +74,13 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 
 data class InputSheetState(
-    val inputValue: TextFieldValue,
-    val previewContent: String? = null,
-    val focusRequestToken: Long = 0L,
-    val isExpanded: Boolean = false,
-    val displayMode: InputEditorDisplayMode = InputEditorDisplayMode.Edit,
-    val availableTags: ImmutableList<String> = persistentListOf(),
-    val isRecording: Boolean = false,
-    val recordingDuration: Long = 0L,
-    val recordingAmplitude: Int = 0,
-    val hints: ImmutableList<String> = persistentListOf(),
-    val attachedGeoLocation: String? = null,
-    val inputToolbarToolOrder: ImmutableList<String> = persistentListOf(),
-    val isBackfillEnabled: Boolean = true,
-    val backfillBadgeText: String? = null,
+    val surface: InputEditorSurfaceState,
 )
 
 sealed interface InputInterceptionResult {
@@ -127,29 +112,16 @@ fun passThroughInputInterceptor(): InputInterceptor = PassThroughInputIntercepto
 data class InputSheetCallbacks(
     val onInputValueChange: (TextFieldValue) -> Unit,
     val onDismiss: () -> Unit,
-    val onToggleExpanded: () -> Unit = {},
-    val onCollapse: () -> Unit = {},
-    val onDisplayModeChange: (InputEditorDisplayMode) -> Unit = {},
-    val onUndo: () -> Unit = {},
-    val onRedo: () -> Unit = {},
-    val onConsumeBackPress: () -> Boolean = { false },
+    val onToggleExpanded: () -> Unit,
+    val onCollapse: () -> Unit,
+    val onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
+    val onConsumeBackPress: () -> Boolean,
     val onSubmit: (String) -> Unit,
-    val canUndo: Boolean = false,
-    val canRedo: Boolean = false,
-    val onImageClick: () -> Unit,
-    val onCameraClick: () -> Unit = {},
-    val onStartRecording: () -> Unit = {},
-    val onStopRecording: () -> Unit = {},
-    val onCancelRecording: () -> Unit = {},
+    val commands: InputEditorCommandHandler,
+    val onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     val inputInterceptor: InputInterceptor = passThroughInputInterceptor(),
     val autoSubmitOnDismiss: Boolean = false,
     val hasDraftPersistence: Boolean = false,
-    val onLocationClick: () -> Unit = {},
-    val onClearLocation: () -> Unit = {},
-    val onBackfillClick: () -> Unit = {},
-    val onBackfillBadgeClick: () -> Unit = {},
-    val onInsertReminder: () -> Unit = {},
-    val onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
 )
 
 data class InputSheetSlots(
@@ -172,17 +144,18 @@ fun InputSheet(
     benchmarkEditorTag: String? = null,
     benchmarkSubmitTag: String? = null,
 ) {
-    val inputValue = state.inputValue
-    val hintText = remember(state.hints) { state.hints.randomOrNull().orEmpty() }
+    val surface = state.surface
+    val inputValue = surface.inputValue
+    val hintText = remember(surface.hints) { surface.hints.randomOrNull().orEmpty() }
     val resolvedDisplayMode =
-        if (state.isExpanded) {
-            state.displayMode
+        if (surface.isExpanded) {
+            surface.displayMode
         } else {
             InputEditorDisplayMode.Edit
         }
     val presentationState =
         rememberInputSheetPresentationState(
-            targetExpanded = state.isExpanded,
+            targetExpanded = surface.isExpanded,
             targetDisplayMode = resolvedDisplayMode,
         )
     val currentInputValue by rememberUpdatedState(inputValue)
@@ -227,7 +200,7 @@ fun InputSheet(
         presentationState = presentationState,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
-        focusRequestToken = state.focusRequestToken,
+        focusRequestToken = surface.focusRequestToken,
         keyboardController = keyboardController,
         onCollapse = callbacks.onCollapse,
         onConsumeBackPress = callbacks.onConsumeBackPress,
@@ -251,7 +224,7 @@ fun InputSheet(
         sessionState = sessionState,
         presentationState = presentationState,
         inputValue = inputValue,
-        previewContent = state.previewContent,
+        previewContent = surface.previewContent,
         hintText = hintText,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
@@ -420,7 +393,7 @@ private fun InputSheetLifecycle(
 ) {
     InputSheetVisibilityEffects(
         isSheetVisible = sessionState.isSheetVisible,
-        isRecording = state.isRecording,
+        isRecording = state.surface.recordingState.isRecording,
         isDismissing = sessionState.isDismissing,
         onSheetVisibleChange = { sessionState.isSheetVisible = it },
         onSheetEntrySettledChange = { sessionState.isSheetEntrySettled = it },
@@ -429,7 +402,7 @@ private fun InputSheetLifecycle(
         isSheetVisible = sessionState.isSheetVisible,
         isSheetEntrySettled = sessionState.isSheetEntrySettled,
         presentationState = presentationState,
-        isRecording = state.isRecording,
+        isRecording = state.surface.recordingState.isRecording,
         isDismissing = sessionState.isDismissing,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
@@ -437,7 +410,7 @@ private fun InputSheetLifecycle(
         keyboardController = keyboardController,
     )
     BackHandler(enabled = true) {
-        if (state.isExpanded) {
+        if (state.surface.isExpanded) {
             onCollapse()
         } else if (!onConsumeBackPress()) {
             onRequestDismiss()

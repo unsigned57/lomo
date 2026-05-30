@@ -27,6 +27,9 @@ object PreferenceKeys {
     const val DATE_FORMAT = "date_format_only"
     const val TIME_FORMAT = "time_format_only"
     const val THEME_MODE = "theme_mode"
+    const val COLOR_SOURCE = "color_source"
+    const val COLOR_HISTORY = "color_history"
+    const val FONT_PREFERENCE = "font_preference"
 
     // Typography
     const val TYPOGRAPHY_FONT_SIZE_SCALE = "typography_font_size_scale"
@@ -124,6 +127,8 @@ object PreferenceKeys {
         const val LAN_SHARE_ENABLED = PreferenceDefaults.LAN_SHARE_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
+        const val COLOR_SOURCE = PreferenceDefaults.COLOR_SOURCE
+        const val FONT_PREFERENCE = PreferenceDefaults.FONT_PREFERENCE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
         const val SHARE_CARD_SHOW_BRAND = PreferenceDefaults.SHARE_CARD_SHOW_BRAND
         const val SHARE_CARD_SIGNATURE_TEXT = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT

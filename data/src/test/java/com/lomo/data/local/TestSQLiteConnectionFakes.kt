@@ -443,7 +443,7 @@ private class JdbcSQLiteStatement(
 
 private fun isReadQuery(sql: String): Boolean {
     val normalized = sql.trimStart().uppercase()
-    return normalized.startsWith("SELECT") || normalized.startsWith("PRAGMA")
+    return normalized.startsWith("SELECT") || (normalized.startsWith("PRAGMA") && "=" !in normalized)
 }
 
 private val VERIFY_EXACTLY = ThreadLocal<Int?>()

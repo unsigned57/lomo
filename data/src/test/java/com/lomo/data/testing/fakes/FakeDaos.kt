@@ -8,7 +8,10 @@ import com.lomo.data.local.dao.DefaultMainListMemoRow
 import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoPinDao
+import com.lomo.data.local.dao.MemoRowIdBounds
 import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoStatisticsDao
+import com.lomo.data.local.dao.MemoStatisticsProjectionRow
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -34,7 +37,28 @@ open class FakeMemoDao : MemoDao {
     val memosByDatesResult = mutableMapOf<List<String>, List<MemoEntity>>()
 
     override fun getAllMemosFlow(): Flow<List<MemoEntity>> = allMemosFlowResult
-    override suspend fun getRandomMemosDirect(limit: Int): List<MemoEntity> = randomMemosResult
+    override suspend fun getRandomMemoRowIdBounds(): MemoRowIdBounds =
+        if (randomMemosResult.isEmpty()) {
+            MemoRowIdBounds(minRowId = null, maxRowId = null, totalCount = 0)
+        } else {
+            MemoRowIdBounds(minRowId = 1L, maxRowId = randomMemosResult.size.toLong(), totalCount = randomMemosResult.size)
+        }
+    override suspend fun getRandomMemosFromRowIdFloor(
+        rowIdFloor: Long,
+        limit: Int,
+    ): List<MemoEntity> =
+        randomMemosResult
+            .drop((rowIdFloor - 1).coerceAtLeast(0L).toInt())
+            .take(limit)
+
+    override suspend fun getRandomMemosBeforeRowIdFloor(
+        rowIdFloor: Long,
+        limit: Int,
+    ): List<MemoEntity> =
+        randomMemosResult
+            .take((rowIdFloor - 1).coerceAtLeast(0L).toInt())
+            .take(limit)
+
     override suspend fun getRecentMemos(limit: Int): List<MemoEntity> = recentMemosResult
     override suspend fun getAllMemoIds(): List<String> = allMemoIdsResult
     override suspend fun getMemosByIds(ids: List<String>): List<MemoEntity> = memosByIdsResult
@@ -74,11 +98,27 @@ open class FakeMemoPinDao : MemoPinDao {
 }
 
 open class FakeDefaultMainListDao : DefaultMainListDao {
+    data class DailyReviewCandidatePageCall(
+        val maxRowId: Long,
+        val cursorIsPinned: Boolean?,
+        val cursorTimestamp: Long?,
+        val cursorId: String?,
+        val limit: Int,
+    )
+
     var pagingSourceRawResult: PagingSource<Int, DefaultMainListMemoRow>? = null
     var countFlowRawResult: Flow<Int> = flowOf(0)
     var getCountFlowResult: Flow<Int>? = null
     var pageResult: List<DefaultMainListMemoRow> = emptyList()
-    var indexResult: Int? = null
+    var dailyReviewCandidateMaxRowIdResult: Long? = null
+    var dailyReviewCandidateCountResult: Int = 0
+    var dailyReviewCandidatePageResult: List<DefaultMainListMemoRow> = emptyList()
+    var dailyReviewCandidatePageHandler: ((DailyReviewCandidatePageCall) -> List<DefaultMainListMemoRow>)? = null
+    var defaultMainListHeadIdsResult: List<String> = emptyList()
+    var dailyReviewCandidateMaxRowIdCallCount: Int = 0
+    val dailyReviewCandidateCountCalls = mutableListOf<Long>()
+    val dailyReviewCandidatePageCalls = mutableListOf<DailyReviewCandidatePageCall>()
+    val defaultMainListHeadIdCalls = mutableListOf<Int>()
 
     override fun getPagingSourceRaw(query: RoomRawQuery): PagingSource<Int, DefaultMainListMemoRow> =
         pagingSourceRawResult ?: object : PagingSource<Int, DefaultMainListMemoRow>() {
@@ -118,47 +158,108 @@ open class FakeDefaultMainListDao : DefaultMainListDao {
     }
 
     override suspend fun getPage(limit: Int, offset: Int): List<DefaultMainListMemoRow> = pageResult
-    override suspend fun getIndex(id: String): Int? = indexResult
+    override suspend fun getDailyReviewCandidateMaxRowId(): Long? {
+        dailyReviewCandidateMaxRowIdCallCount += 1
+        return dailyReviewCandidateMaxRowIdResult
+    }
+    override suspend fun getDailyReviewCandidateCount(maxRowId: Long): Int {
+        dailyReviewCandidateCountCalls += maxRowId
+        return dailyReviewCandidateCountResult
+    }
+    override suspend fun getDailyReviewCandidatePage(
+        maxRowId: Long,
+        cursorIsPinned: Boolean?,
+        cursorTimestamp: Long?,
+        cursorId: String?,
+        limit: Int,
+    ): List<DefaultMainListMemoRow> {
+        val call =
+            DailyReviewCandidatePageCall(
+                maxRowId = maxRowId,
+                cursorIsPinned = cursorIsPinned,
+                cursorTimestamp = cursorTimestamp,
+                cursorId = cursorId,
+                limit = limit,
+            )
+        dailyReviewCandidatePageCalls += call
+        return dailyReviewCandidatePageHandler?.invoke(call) ?: dailyReviewCandidatePageResult
+    }
+    override suspend fun getDefaultMainListHeadIds(limit: Int): List<String> {
+        defaultMainListHeadIdCalls += limit
+        return defaultMainListHeadIdsResult.take(limit.coerceAtLeast(0))
+    }
 }
 
-open class FakeMemoSearchDao : MemoSearchDao {
-    var searchMemosFlowResult: Flow<List<MemoEntity>> = flowOf(emptyList())
-    var searchMemosByFtsRawResult: Flow<List<MemoEntity>> = flowOf(emptyList())
-    var searchMemosByFtsFlowResult: Flow<List<MemoEntity>>? = null
-    var memosByTagFlowResult: Flow<List<MemoEntity>> = flowOf(emptyList())
+open class FakeMemoSearchDao :
+    MemoSearchDao,
+    MemoStatisticsDao {
+    data class TagPageCall(
+        val tag: String,
+        val tagPrefix: String,
+        val limit: Int,
+        val offset: Int,
+    )
+
+    var memosByTagPageResult: List<MemoEntity> = emptyList()
+    var memosByTagPagingRows: List<DefaultMainListMemoRow> = emptyList()
+    var memosByTagPageFlowResult: Flow<List<MemoEntity>> = flowOf(emptyList())
     var allTagsFlowResult: Flow<List<String>> = flowOf(emptyList())
     var tagCountsFlowResult: Flow<List<TagCountRow>> = flowOf(emptyList())
+    var tagCountsResult: List<TagCountRow> = emptyList()
     var memoCountResult: Flow<Int> = flowOf(0)
     var activeDayCountResult: Flow<Int> = flowOf(0)
     var allTimestampsResult: Flow<List<Long>> = flowOf(emptyList())
     var memoCountByDateFlowResult: Flow<List<DateCountRow>> = flowOf(emptyList())
+    var memoStatisticsProjectionResult: List<MemoStatisticsProjectionRow> = emptyList()
     var countMemosAndTrashWithImageResult: Int = 0
 
-    val ftsQueriesCalled = mutableListOf<String>()
-    val getMemosByTagCalls = mutableListOf<Pair<String, String>>()
-    val searchMemosFlowCalls = mutableListOf<String>()
+    val getMemosByTagPageCalls = mutableListOf<TagPageCall>()
+    val getMemosByTagPageFlowCalls = mutableListOf<TagPageCall>()
 
-    override fun searchMemosFlow(query: String): Flow<List<MemoEntity>> {
-        searchMemosFlowCalls += query
-        return searchMemosFlowResult
+    override suspend fun getMemosByTagPage(
+        tag: String,
+        tagPrefix: String,
+        limit: Int,
+        offset: Int,
+    ): List<MemoEntity> {
+        getMemosByTagPageCalls += TagPageCall(tag = tag, tagPrefix = tagPrefix, limit = limit, offset = offset)
+        return memosByTagPageResult
     }
-    override fun searchMemosByFtsRaw(query: RoomRawQuery): Flow<List<MemoEntity>> = searchMemosByFtsRawResult
+    override fun getMemosByTagPageFlow(
+        tag: String,
+        tagPrefix: String,
+        limit: Int,
+        offset: Int,
+    ): Flow<List<MemoEntity>> {
+        getMemosByTagPageFlowCalls += TagPageCall(tag = tag, tagPrefix = tagPrefix, limit = limit, offset = offset)
+        return memosByTagPageFlowResult
+    }
+    override fun getMemosByTagPagingSource(
+        tag: String,
+        tagPrefix: String,
+    ): PagingSource<Int, DefaultMainListMemoRow> =
+        object : PagingSource<Int, DefaultMainListMemoRow>() {
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, DefaultMainListMemoRow> {
+                val offset = params.key ?: 0
+                val rows = memosByTagPagingRows.drop(offset).take(params.loadSize)
+                return LoadResult.Page(
+                    data = rows,
+                    prevKey = null,
+                    nextKey = if (rows.size < params.loadSize) null else offset + rows.size,
+                )
+            }
 
-    override fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>> {
-        ftsQueriesCalled += matchQuery
-        return searchMemosByFtsFlowResult ?: super.searchMemosByFtsFlow(matchQuery)
-    }
-
-    override fun getMemosByTagFlow(tag: String, tagPrefix: String): Flow<List<MemoEntity>> {
-        getMemosByTagCalls += tag to tagPrefix
-        return memosByTagFlowResult
-    }
+            override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
+                state.anchorPosition
+        }
     override fun getAllTagsFlow(): Flow<List<String>> = allTagsFlowResult
     override fun getTagCountsFlow(): Flow<List<TagCountRow>> = tagCountsFlowResult
+    override suspend fun getTagCounts(): List<TagCountRow> = tagCountsResult
     override fun getMemoCount(): Flow<Int> = memoCountResult
     override fun getActiveDayCount(): Flow<Int> = activeDayCountResult
     override fun getAllTimestamps(): Flow<List<Long>> = allTimestampsResult
     override fun getMemoCountByDateFlow(): Flow<List<DateCountRow>> = memoCountByDateFlowResult
+    override suspend fun getMemoStatisticsProjection(): List<MemoStatisticsProjectionRow> = memoStatisticsProjectionResult
     override suspend fun countMemosAndTrashWithImage(imagePath: String, excludeId: String): Int = countMemosAndTrashWithImageResult
 }
 

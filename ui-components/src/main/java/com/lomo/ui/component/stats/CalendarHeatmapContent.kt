@@ -281,12 +281,12 @@ private fun resolveHeatmapColor(
     count: Int,
     colors: HeatmapColors,
 ): Color =
-    when {
-        count == 0 -> colors.empty
-        count <= HEATMAP_LEVEL_ONE_MAX -> colors.level1
-        count <= HEATMAP_LEVEL_TWO_MAX -> colors.level2
-        count <= HEATMAP_LEVEL_THREE_MAX -> colors.level3
-        else -> colors.level4
+    when (resolveHeatmapIntensity(count)) {
+        HeatmapIntensity.Empty -> colors.empty
+        HeatmapIntensity.Level1 -> colors.level1
+        HeatmapIntensity.Level2 -> colors.level2
+        HeatmapIntensity.Level3 -> colors.level3
+        HeatmapIntensity.Level4 -> colors.level4
     }
 
 @Composable

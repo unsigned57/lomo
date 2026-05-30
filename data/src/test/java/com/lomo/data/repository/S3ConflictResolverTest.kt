@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -28,10 +10,12 @@ import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
+import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.webdav.LocalMediaSyncFile
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncResult
@@ -41,12 +25,19 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
@@ -55,10 +46,30 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: S3ConflictResolver
- * - Behavior focus: conflict resolution should reuse indexed remote paths for targeted uploads/downloads without whole-bucket scans and must still map remote fetch failures into S3 error results.
- * - Observable outcomes: S3SyncResult type, remote list/get/put targets, metadata persistence, and post-resolution refresh state.
- * - TDD proof: Fails before the fix because conflict resolution still probes the retired manifest path before applying a KEEP_LOCAL or KEEP_REMOTE choice, so targeted resolution cannot succeed without the old private protocol.
- * - Excludes: AWS SDK transport details, planner internals, metadata persistence internals, and UI rendering.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: apply explicit S3 conflict-resolution choices without whole-bucket scans while preserving conflicts that cannot be safely resolved.
+ *
+ * Scenarios:
+ * - Given indexed metadata, when KEEP_LOCAL or KEEP_REMOTE is chosen, then the resolver uses the indexed object path without remote listing.
+ * - Given MERGE_TEXT can merge memo content, when resolution runs, then the merged memo is written locally and uploaded once.
+ * - Given MERGE_TEXT exceeds the text-merge budget, when resolution runs, then the conflict remains pending and no local write or upload occurs.
+ * - Given incremental S3 stores already contain protocol, journal, and remote-index state, when every MERGE_TEXT conflict is declined by the merge budget, then only pending conflict/UI state changes.
+ * - Given SKIP_FOR_NOW is chosen for a file, when other files are resolved, then skipped files remain pending for review.
+ * - Given remote IO fails, when resolution runs, then the failure is mapped to an S3 error result.
+ *
+ * Observable outcomes:
+ * - S3SyncResult subtype, pending conflict store contents, state-holder value, remote list/get/put targets, protocol state, journal state, remote index state, metadata persistence, local content, and memo refresh side effects.
+ *
+ * TDD proof:
+ * - RED: the MERGE_TEXT budget scenario returned S3SyncResult.Error("Unable to merge conflict...") instead of preserving a pending conflict.
+ * - RED follow-up-2 command: ./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.repository.S3ConflictResolverTest'
+ * - RED follow-up-2 symptom: resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing protocol state failed because protocolStateStore.read() differed from the baseline; lastSuccessfulSyncAt/lastFastSyncAt were updated even though no file resolved.
+ * - GREEN follow-up-2 worker reported: ./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.repository.S3ConflictResolverTest' --tests 'com.lomo.data.git.GitSyncEngineConflictTest' -> BUILD SUCCESSFUL in 44s.
+ * - GREEN WebDav regression worker reported: ./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.repository.WebDavConflictResolverTest' -> BUILD SUCCESSFUL in 18s.
+ *
+ * Excludes:
+ * - AWS SDK transport details, planner internals, metadata persistence internals, and UI rendering.
  */
 class S3ConflictResolverTest : DataFunSpec() {
     init {
@@ -74,11 +85,21 @@ class S3ConflictResolverTest : DataFunSpec() {
 
         test("resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing") { `resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing`() }
 
+        test("resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing protocol state") { `resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing protocol state`() }
+
         test("resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails") { `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() }
 
         test("resolveConflicts maps remote read failure without bucket scan") { `resolveConflicts maps remote read failure without bucket scan`() }
 
         test("resolveConflicts keeps skipped files pending and returns conflict state") { `resolveConflicts keeps skipped files pending and returns conflict state`() }
+
+        test("resolveReview invalidates pending descriptor before applying choices") {
+            `resolveReview invalidates pending descriptor before applying choices`()
+        }
+
+        test("resolveReview meters pending descriptor remote validation") {
+            `resolveReview meters pending descriptor remote validation`()
+        }
     }
 
 
@@ -145,7 +166,7 @@ class S3ConflictResolverTest : DataFunSpec() {
                 ConflictProbeS3Client(
                     onGetObject = { key ->
                         key shouldBe remotePath
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-remote",
                             lastModified = 40L,
@@ -197,7 +218,7 @@ class S3ConflictResolverTest : DataFunSpec() {
                 ConflictProbeS3Client(
                     onGetObject = { key ->
                         key shouldBe remotePath
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-remote",
                             lastModified = 40L,
@@ -311,19 +332,14 @@ class S3ConflictResolverTest : DataFunSpec() {
                 ConflictMetadataDao(
                     initial = listOf(stableMetadata(path = path, remotePath = remotePath)),
                 )
-            coEvery {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "note.md",
-                    content = merged,
-                    append = false,
-                    uri = null,
+            val markdownStorageDataSource =
+                RecordingMarkdownStorageDataSource(metadataLastModified = 60L)
+            val resolver =
+                createResolver(
+                    client = client,
+                    metadataDao = metadataDao,
+                    markdownStorageDataSource = markdownStorageDataSource,
                 )
-            } returns null
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
-            } returns FileMetadata(filename = "note.md", lastModified = 60L)
-            val resolver = createResolver(client = client, metadataDao = metadataDao)
             val conflictSet =
                 conflictSet(
                     path = path,
@@ -343,17 +359,115 @@ class S3ConflictResolverTest : DataFunSpec() {
             result shouldBe S3SyncResult.Success("Conflicts resolved")
             client.putKeys shouldBe listOf(remotePath)
             client.listCalls shouldBe 0
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "note.md",
-                    content = merged,
-                    append = false,
-                    uri = null,
+            markdownStorageDataSource.writes shouldBe
+                listOf(
+                    RecordingMarkdownWrite(
+                        directory = MemoDirectoryType.MAIN,
+                        filename = "note.md",
+                        content = merged,
+                        append = false,
+                    ),
                 )
-            }
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") shouldBe merged
             metadataDao.require(path).remotePath shouldBe remotePath
             (stateHolder.state.value is S3SyncState.Success).shouldBeTrue()
+        }
+
+    private fun `resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing protocol state`() =
+        runTest {
+            val path = "lomo/memo/too-large.md"
+            val remotePath = "prefix/opaque-too-large"
+            val localContent = numberedLines(prefix = "local")
+            val remoteContent = numberedLines(prefix = "remote")
+            val client = ConflictProbeS3Client()
+            val markdownStorageDataSource = RecordingMarkdownStorageDataSource()
+            val metadataDao =
+                ConflictMetadataDao(
+                    initial = listOf(stableMetadata(path = path, remotePath = remotePath)),
+                )
+            val pendingStore = InMemoryPendingSyncConflictStore()
+            val baselineProtocolState =
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = 10L,
+                    lastFastSyncAt = 10L,
+                    lastReconcileAt = 9L,
+                    lastFullRemoteScanAt = 8L,
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                    localModeFingerprint = "legacy",
+                    scanEpoch = 3L,
+                )
+            val protocolStateStore =
+                InMemoryS3SyncProtocolStateStore().apply {
+                    write(baselineProtocolState)
+                }
+            val baselineJournalEntry =
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:too-large.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "too-large.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 50L,
+                )
+            val localChangeJournalStore =
+                InMemoryS3LocalChangeJournalStore().apply {
+                    upsert(baselineJournalEntry)
+                }
+            val baselineRemoteIndexEntry =
+                S3RemoteIndexEntry(
+                    relativePath = path,
+                    remotePath = remotePath,
+                    etag = "etag-1",
+                    remoteLastModified = 10L,
+                    size = 12L,
+                    lastSeenAt = 10L,
+                    lastVerifiedAt = 10L,
+                    scanBucket = S3_SCAN_BUCKET_MEMO,
+                    scanPriority = 100,
+                    scanEpoch = 3L,
+                )
+            val remoteIndexStore =
+                InMemoryS3RemoteIndexStore().apply {
+                    upsert(listOf(baselineRemoteIndexEntry))
+                }
+            val resolver =
+                createResolver(
+                    client = client,
+                    metadataDao = metadataDao,
+                    protocolStateStore = protocolStateStore,
+                    localChangeJournalStore = localChangeJournalStore,
+                    remoteIndexStore = remoteIndexStore,
+                    pendingStore = pendingStore,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                )
+            val conflicts =
+                conflictSet(
+                    path = path,
+                    localContent = localContent,
+                    remoteContent = remoteContent,
+                )
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices = mapOf(path to SyncConflictResolutionChoice.MERGE_TEXT),
+                        ),
+                    conflictSet = conflicts,
+                )
+
+            result shouldBe S3SyncResult.Conflict("Pending conflicts remain", conflicts)
+            client.putKeys shouldBe emptyList()
+            client.listCalls shouldBe 0
+            protocolStateStore.read() shouldBe baselineProtocolState
+            localChangeJournalStore.read() shouldBe mapOf(baselineJournalEntry.id to baselineJournalEntry)
+            remoteIndexStore.readAll() shouldBe listOf(baselineRemoteIndexEntry)
+            markdownStorageDataSource.writes shouldBe emptyList()
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "too-large.md") shouldBe null
+            pendingStore.storedConflict(SyncBackendType.S3) shouldBe conflicts
+            stateHolder.state.value shouldBe S3SyncState.ConflictDetected(conflicts)
+            metadataDao.require(path).remotePath shouldBe remotePath
+            coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync() }
         }
 
     private fun `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() =
@@ -528,8 +642,153 @@ class S3ConflictResolverTest : DataFunSpec() {
                         ),
                 )
             client.putKeys shouldBe listOf(remotePath)
-            pendingStore.read(SyncBackendType.S3) shouldBe conflictSet.copy(files = listOf(conflictSet.files[1]))
+            pendingStore.storedConflict(SyncBackendType.S3) shouldBe conflictSet.copy(files = listOf(conflictSet.files[1]))
             stateHolder.state.value shouldBe S3SyncState.ConflictDetected(conflictSet.copy(files = listOf(conflictSet.files[1])))
+        }
+
+    private fun `resolveReview invalidates pending descriptor before applying choices`() =
+        runTest {
+            val path = "lomo/memo/review.md"
+            val remotePath = "prefix/opaque-review"
+            val review =
+                SyncReviewSession(
+                    source = SyncBackendType.S3,
+                    items =
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = path,
+                                localContent = "# local",
+                                incomingContent = "# incoming",
+                                isBinary = false,
+                                localLastModified = 10L,
+                                incomingLastModified = 20L,
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = 42L,
+                    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+                )
+            val pendingStore = S3TrackingPendingSyncReviewStore()
+            pendingStore.descriptor =
+                PendingSyncReviewDescriptor(
+                    source = SyncBackendType.S3,
+                    workspaceGeneration = "test",
+                    kind = review.kind,
+                    items =
+                        listOf(
+                            PendingSyncReviewItemDescriptor(
+                                relativePath = path,
+                                isBinary = false,
+                                local =
+                                    PendingSyncSideMetadata(
+                                        locator = path,
+                                        contentHash = "local-hash",
+                                        lastModified = 10L,
+                                        size = 7L,
+                                        etag = "local-etag",
+                                    ),
+                                incoming =
+                                    PendingSyncSideMetadata(
+                                        locator = remotePath,
+                                        contentHash = "incoming-hash",
+                                        lastModified = 20L,
+                                        size = 10L,
+                                        etag = null,
+                                    ),
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = 42L,
+                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD,
+                )
+            val client = ConflictProbeS3Client()
+            val metadataDao =
+                ConflictMetadataDao(
+                    initial = listOf(stableMetadata(path = path, remotePath = remotePath)),
+                )
+            val resolver = createReviewResolver(client = client, metadataDao = metadataDao, pendingStore = pendingStore)
+            val resolution = SyncReviewResolution(perItemChoices = mapOf(path to SyncReviewResolutionChoice.KEEP_INCOMING))
+
+            val result = resolver.resolveReview(resolution, review)
+
+            result shouldBe S3SyncResult.Error("Pending S3 review session requires rebuild: STALE_LOCAL")
+            pendingStore.clearCalls shouldBe listOf(SyncBackendType.S3)
+            client.getObjectKeys shouldBe emptyList()
+            client.putKeys shouldBe emptyList()
+        }
+
+    private fun `resolveReview meters pending descriptor remote validation`() =
+        runTest {
+            val path = "lomo/images/review.bin"
+            val review =
+                SyncReviewSession(
+                    source = SyncBackendType.S3,
+                    items =
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = path,
+                                localContent = null,
+                                incomingContent = null,
+                                isBinary = true,
+                                localLastModified = 10L,
+                                incomingLastModified = 20L,
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = 42L,
+                    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+                )
+            val pendingStore = S3TrackingPendingSyncReviewStore()
+            pendingStore.descriptor =
+                PendingSyncReviewDescriptor(
+                    source = SyncBackendType.S3,
+                    workspaceGeneration = "test",
+                    kind = review.kind,
+                    items =
+                        listOf(
+                            PendingSyncReviewItemDescriptor(
+                                relativePath = path,
+                                isBinary = false,
+                                local =
+                                    PendingSyncSideMetadata(
+                                        locator = path,
+                                        contentHash = null,
+                                        lastModified = 10L,
+                                        size = 4L,
+                                        etag = null,
+                                    ),
+                                incoming =
+                                    PendingSyncSideMetadata(
+                                        locator = "prefix/opaque-review",
+                                        contentHash = null,
+                                        lastModified = 20L,
+                                        size = 10L,
+                                        etag = "etag-live",
+                                    ),
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = 42L,
+                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD,
+                )
+            val owner = TestSyncLifecycleExecutionOwner()
+            coEvery { localMediaSyncStore.getFile(path, any()) } returns
+                LocalMediaSyncFile(relativePath = path, lastModified = 10L, size = 4L)
+            val resolver =
+                createReviewResolver(
+                    client = ConflictProbeS3Client(),
+                    metadataDao = ConflictMetadataDao(initial = listOf(stableMetadata(path = path, remotePath = "prefix/opaque-review"))),
+                    pendingStore = pendingStore,
+                    lifecycleRunner = DefaultRemoteSyncLifecycleRunner(owner),
+                )
+            val resolution = SyncReviewResolution(perItemChoices = mapOf(path to SyncReviewResolutionChoice.KEEP_INCOMING))
+
+            val result = resolver.resolveReview(resolution, review)
+
+            result shouldBe S3SyncResult.Error("Pending S3 review session requires rebuild: MISSING_REMOTE")
+            val report = owner.reports.single()
+            report.network.head shouldBe 1
+            report.budget.consumedNetworkOperations shouldBe 1
         }
 
     private fun createResolver(
@@ -540,6 +799,7 @@ class S3ConflictResolverTest : DataFunSpec() {
         remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
         pendingStore: PendingSyncConflictStore = InMemoryPendingSyncConflictStore(),
         transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
+        markdownStorageDataSource: MarkdownStorageDataSource = this.markdownStorageDataSource,
     ): S3ConflictResolver {
         every { clientFactory.create(any()) } returns client
         val runtime =
@@ -568,6 +828,51 @@ class S3ConflictResolverTest : DataFunSpec() {
             localChangeJournalStore = localChangeJournalStore,
             remoteIndexStore = remoteIndexStore,
             pendingConflictStore = pendingStore,
+            transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+            lifecycleRunner = testRemoteSyncLifecycleRunner(),
+        )
+    }
+
+    private fun createReviewResolver(
+        client: ConflictProbeS3Client,
+        metadataDao: ConflictMetadataDao,
+        protocolStateStore: S3SyncProtocolStateStore = InMemoryS3SyncProtocolStateStore(),
+        localChangeJournalStore: S3LocalChangeJournalStore = InMemoryS3LocalChangeJournalStore(),
+        remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
+        pendingStore: PendingSyncReviewStore = InMemoryPendingSyncReviewStore(),
+        transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
+        markdownStorageDataSource: MarkdownStorageDataSource = this.markdownStorageDataSource,
+        lifecycleRunner: RemoteSyncLifecycleRunner = testRemoteSyncLifecycleRunner(),
+    ): S3ReviewResolver {
+        every { clientFactory.create(any()) } returns client
+        val runtime =
+            S3SyncRepositoryContext(
+                dataStore = dataStore,
+                credentialStore = credentialStore,
+                clientFactory = clientFactory,
+                markdownStorageDataSource = markdownStorageDataSource,
+                localMediaSyncStore = localMediaSyncStore,
+                metadataDao = metadataDao,
+                memoSynchronizer = memoSynchronizer,
+                planner = S3SyncPlanner(timestampToleranceMs = 0L),
+                stateHolder = stateHolder,
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = transactionRunner,
+            )
+        val encodingSupport = S3SyncEncodingSupport()
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        val support = S3SyncRepositorySupport(runtime)
+        return S3ReviewResolver(
+            runtime = runtime,
+            support = support,
+            encodingSupport = encodingSupport,
+            fileBridge = fileBridge,
+            protocolStateStore = protocolStateStore,
+            localChangeJournalStore = localChangeJournalStore,
+            remoteIndexStore = remoteIndexStore,
+            pendingReviewStore = pendingStore,
+            transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+            lifecycleRunner = lifecycleRunner,
         )
     }
 
@@ -603,6 +908,9 @@ class S3ConflictResolverTest : DataFunSpec() {
                 ),
             timestamp = 1L,
         )
+
+    private fun numberedLines(prefix: String): String =
+        (0..1_000).joinToString("\n") { index -> "$prefix-$index" }
 }
 
 private class ConflictMetadataDao(
@@ -672,7 +980,7 @@ private class ConflictMetadataDao(
 }
 
 private class ConflictProbeS3Client(
-    private val onGetObject: suspend (String) -> S3RemoteObjectPayload = {
+    private val onGetObject: suspend (String) -> S3SmallObjectPayload = {
         throw AssertionError("Unexpected getObject for $it")
     },
     private val onPutObject: suspend (String, ByteArray) -> S3PutObjectResult = { _, _ ->
@@ -695,12 +1003,12 @@ private class ConflictProbeS3Client(
         throw AssertionError("Conflict resolution should not list remote objects")
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         getObjectKeys += key
         return onGetObject(key)
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -710,10 +1018,141 @@ private class ConflictProbeS3Client(
         return onPutObject(key, bytes)
     }
 
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
+
     override suspend fun deleteObject(key: String) =
         throw AssertionError("Conflict resolution should not delete remote objects")
 
     override fun close() = Unit
+}
+
+private class S3TrackingPendingSyncReviewStore : PendingSyncReviewStore {
+    var descriptor: PendingSyncReviewDescriptor? = null
+    val clearCalls = mutableListOf<SyncBackendType>()
+
+    override suspend fun readDescriptor(source: SyncBackendType): PendingSyncReviewDescriptor? = descriptor
+
+    override suspend fun write(review: SyncReviewSession) = Unit
+
+    override suspend fun clear(source: SyncBackendType) {
+        clearCalls += source
+    }
+}
+
+private data class RecordingMarkdownWrite(
+    val directory: MemoDirectoryType,
+    val filename: String,
+    val content: String,
+    val append: Boolean,
+)
+
+private class RecordingMarkdownStorageDataSource(
+    private val metadataLastModified: Long = 1L,
+) : MarkdownStorageDataSource {
+    private val files: Map<MemoDirectoryType, LinkedHashMap<String, String>> =
+        MemoDirectoryType.entries.associateWith { linkedMapOf() }
+    val writes = mutableListOf<RecordingMarkdownWrite>()
+
+    override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
+        files.getValue(directory).map { (filename, content) ->
+            FileMetadata(
+                filename = filename,
+                lastModified = metadataLastModified,
+                size = content.length.toLong(),
+            )
+        }
+
+    override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
+        files.getValue(directory).keys.map { filename ->
+            FileMetadataWithId(
+                filename = filename,
+                lastModified = metadataLastModified,
+                documentId = filename,
+            )
+        }
+
+    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): kotlinx.coroutines.flow.Flow<FileMetadataWithId> =
+        flow {
+            listMetadataWithIdsIn(directory).forEach { metadata -> emit(metadata) }
+        }
+
+    override suspend fun readFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): String? = files.getValue(directory)[documentId]
+
+    override suspend fun readFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? = files.getValue(directory)[filename]
+
+    override suspend fun readFile(uri: android.net.Uri): String? =
+        error("Unexpected URI read in S3 conflict resolver test")
+
+    override suspend fun saveFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        content: String,
+        append: Boolean,
+        uri: android.net.Uri?,
+    ): String? {
+        writes +=
+            RecordingMarkdownWrite(
+                directory = directory,
+                filename = filename,
+                content = content,
+                append = append,
+            )
+        files.getValue(directory)[filename] =
+            if (append) {
+                files.getValue(directory)[filename].orEmpty() + content
+            } else {
+                content
+            }
+        return null
+    }
+
+    override suspend fun deleteFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        uri: android.net.Uri?,
+    ) {
+        files.getValue(directory).remove(filename)
+    }
+
+    override suspend fun getFileMetadataIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): FileMetadata? =
+        files.getValue(directory)[filename]?.let { content ->
+            FileMetadata(
+                filename = filename,
+                lastModified = metadataLastModified,
+                size = content.length.toLong(),
+            )
+        }
 }
 
 private class ConflictFailingWriteProtocolStateStore(

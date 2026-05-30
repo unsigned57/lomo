@@ -18,13 +18,15 @@ package com.lomo.data.repository
 
 
 
-import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.local.dao.LocalFileStateDao
+import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.projectedTrashMemoEntity
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.MemoIdentityPolicy
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -35,13 +37,20 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
  * - Unit under test: MemoTrashMutationHandler
- * - Behavior focus: file-only trash/restore branching, DB restore gating, unsafe destructive rejection, and attachment cleanup routing.
- * - Observable outcomes: returned Boolean success/failure, thrown unsafe mutation exceptions, file save/delete behavior, LocalFileState updates, and media delete branch selection.
- * - TDD proof: Fails before the fix because top-level trash restore and permanent delete paths only log missing blocks instead of rejecting the unsafe mutation.
+ * - Behavior focus: file-only trash/restore branching, DB restore gating,
+ *   permanent-delete missing-block classification, and unsafe destructive rejection.
+ * - Observable outcomes: returned Boolean success/failure, thrown unsafe mutation
+ *   exceptions, file save/delete behavior, and LocalFileState updates.
+ * - TDD proof: Direct permanent-delete handler cases were removed after the
+ *   focused boundary test proved permanent delete must be owned by lifecycle
+ *   outbox completion instead of this handler as a public success path. The
+ *   missing-trash-block permanent-delete case fails before the repair because
+ *   the handler returns generic success for a missing block.
  * - Excludes: MemoTextProcessor internals, storage backend implementation details, and UI rendering behavior.
  */
 class MemoTrashMutationHandlerTest : DataFunSpec() {
@@ -68,17 +77,10 @@ class MemoTrashMutationHandlerTest : DataFunSpec() {
 
         test("restoreFromTrashInDb persists main memo and removes trash row when source exists") { `restoreFromTrashInDb persists main memo and removes trash row when source exists`() }
 
-        test("deleteFromTrashPermanently keeps attachment when referenced by another trash memo") { `deleteFromTrashPermanently keeps attachment when referenced by another trash memo`() }
+        test("deleteFromTrashFileOnly returns missing trash block without mutating trash file state") {
+            `deleteFromTrashFileOnly returns missing trash block without mutating trash file state`()
+        }
 
-        test("deleteFromTrashPermanently deletes attachment when no memo references remain") { `deleteFromTrashPermanently deletes attachment when no memo references remain`() }
-
-        test("deleteFromTrashPermanently throws when target block cannot be matched safely") { shouldThrow<UnsafeWorkspaceMutationException> { `deleteFromTrashPermanently throws when target block cannot be matched safely`() } }
-
-        test("deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API") { `deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API`() }
-
-        test("clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo") { `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() }
-
-        test("clearAllTrashPermanently returns without touching storage when given empty list") { `clearAllTrashPermanently returns without touching storage when given empty list`() }
     }
 
 
@@ -100,16 +102,16 @@ class MemoTrashMutationHandlerTest : DataFunSpec() {
         MockKAnnotations.init(this)
         handler =
             MemoTrashMutationHandler(
-                markdownStorageDataSource = fileDataSource,
-                mediaStorageDataSource = fileDataSource,
+                workspaceStore =
+                    testMemoWorkspaceStore(
+                        markdownStorageDataSource = fileDataSource,
+                        localFileStateDao = localFileStateDao,
+                    ),
                 memoWriteDao = memoDao,
                 memoTagDao = memoDao,
                 memoImageDao = memoDao,
                 memoTrashDao = memoDao,
-                memoSearchDao = memoDao,
-                localFileStateDao = localFileStateDao,
-                textProcessor = MemoTextProcessor(),
-                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
+                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal, immediateTestBackgroundScope()),
             )
     }
 
@@ -411,15 +413,15 @@ class MemoTrashMutationHandlerTest : DataFunSpec() {
             val sourceMemo =
                 buildMemo(
                     id = "memo_restore",
-                    rawContent = "- 11:00 source text",
-                    content = "source text",
-                    tags = listOf("sync", "restore"),
-                    attachments = listOf("img.png"),
+                    rawContent = "- 11:00 source text #sync #restore ![img](img.png)",
+                    content = "source text #sync #restore ![img](img.png)",
+                    tags = listOf("stale"),
+                    attachments = listOf("stale.png"),
                     deleted = true,
                 )
             coEvery {
                 memoDao.getTrashMemo(sourceMemo.id)
-            } returns TrashMemoEntity.fromDomain(sourceMemo)
+            } returns projectedTrashMemoEntity(sourceMemo)
 
             val result = handler.restoreFromTrashInDb(sourceMemo)
 
@@ -428,8 +430,9 @@ class MemoTrashMutationHandlerTest : DataFunSpec() {
                 memoDao.insertMemo(
                     match {
                         it.id == sourceMemo.id &&
-                            it.content == "source text" &&
-                            it.tags == """["sync","restore"]"""
+                            it.content == "source text #sync #restore ![img](img.png)" &&
+                            it.tags == """["sync","restore"]""" &&
+                            it.imageUrls == """["img.png"]"""
                     },
                 )
             }
@@ -439,113 +442,52 @@ class MemoTrashMutationHandlerTest : DataFunSpec() {
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(sourceMemo.id) }
         }
 
-    private fun `deleteFromTrashPermanently keeps attachment when referenced by another trash memo`() =
+    private fun `deleteFromTrashFileOnly returns missing trash block without mutating trash file state`() =
         runTest {
-            val memo = buildMemo(attachments = listOf("shared.png"), deleted = true)
-            coEvery {
-                fileDataSource.readFileIn(MemoDirectoryType.TRASH, "${memo.dateKey}.md")
-            } returns memo.rawContent
-            coEvery {
-                memoDao.countMemosAndTrashWithImage("shared.png", memo.id)
-            } returns 1
+            val memo = buildMemo(rawContent = "- 10:00 missing permanent delete", deleted = true)
+            val command = MemoLifecycleCommand.permanentDelete(memo)
+            val filename = "${memo.dateKey}.md"
+            coEvery { fileDataSource.readFileIn(MemoDirectoryType.TRASH, filename) } returns "- 09:30 another memo"
 
-            handler.deleteFromTrashPermanently(memo)
+            val result = handler.deleteFromTrashFileOnly(command)
 
-            coVerify(exactly = 1) {
-                memoDao.countMemosAndTrashWithImage("shared.png", memo.id)
+            result shouldBe PermanentDeleteTrashFileCompletion.MissingTrashBlock
+            coVerify(exactly = 0) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, filename) }
+            coVerify(exactly = 0) {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.TRASH,
+                    filename = filename,
+                    content = any(),
+                    append = false,
+                )
             }
-            coVerify(exactly = 0) { fileDataSource.deleteImage("shared.png") }
-            coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
-        }
-
-    private fun `deleteFromTrashPermanently deletes attachment when no memo references remain`() =
-        runTest {
-            val memo = buildMemo(attachments = listOf("orphan.png"), deleted = true)
-            coEvery {
-                fileDataSource.readFileIn(MemoDirectoryType.TRASH, "${memo.dateKey}.md")
-            } returns memo.rawContent
-            coEvery {
-                memoDao.countMemosAndTrashWithImage("orphan.png", memo.id)
-            } returns 0
-
-            handler.deleteFromTrashPermanently(memo)
-
-            coVerify(exactly = 1) {
-                memoDao.countMemosAndTrashWithImage("orphan.png", memo.id)
-            }
-            coVerify(exactly = 1) { fileDataSource.deleteImage("orphan.png") }
-            coVerify(exactly = 1) { memoDao.deleteImageRefsByMemoId(memo.id) }
-            coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
-        }
-
-    fun `deleteFromTrashPermanently throws when target block cannot be matched safely`() =
-        runTest {
-            val memo = buildMemo(attachments = listOf("orphan.png"), deleted = true)
-            coEvery {
-                fileDataSource.readFileIn(MemoDirectoryType.TRASH, "${memo.dateKey}.md")
-            } returns "- 09:30 another memo"
-
-            handler.deleteFromTrashPermanently(memo)
-        }
-
-    private fun `deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API`() =
-        runTest {
-            val memo = buildMemo(attachments = listOf("voice_123.m4a"), deleted = true)
-            coEvery {
-                fileDataSource.readFileIn(MemoDirectoryType.TRASH, "${memo.dateKey}.md")
-            } returns memo.rawContent
-            coEvery {
-                memoDao.countMemosAndTrashWithImage("voice_123.m4a", memo.id)
-            } returns 0
-
-            handler.deleteFromTrashPermanently(memo)
-
-            coVerify(exactly = 1) { fileDataSource.deleteVoiceFile("voice_123.m4a") }
-            coVerify(exactly = 0) { fileDataSource.deleteImage("voice_123.m4a") }
-        }
-
-    private fun `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() =
-        runTest {
-            val memoA1 = TrashMemoEntity.fromDomain(buildMemo(id = "a1", deleted = true).copy(dateKey = "2026_03_01"))
-            val memoA2 = TrashMemoEntity.fromDomain(buildMemo(id = "a2", deleted = true).copy(dateKey = "2026_03_01"))
-            val memoB1 = TrashMemoEntity.fromDomain(buildMemo(id = "b1", deleted = true).copy(dateKey = "2026_03_02"))
-
-            handler.clearAllTrashPermanently(listOf(memoA1, memoA2, memoB1))
-
-            coVerify(exactly = 1) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, "2026_03_01.md") }
-            coVerify(exactly = 1) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, "2026_03_02.md") }
-            coVerify(exactly = 1) { localFileStateDao.deleteByFilename("2026_03_01.md", true) }
-            coVerify(exactly = 1) { localFileStateDao.deleteByFilename("2026_03_02.md", true) }
-            coVerify(exactly = 1) { memoDao.deleteImageRefsByMemoIds(listOf("a1", "a2", "b1")) }
-            coVerify(exactly = 1) { memoDao.clearTrash() }
-            coVerify(exactly = 0) { memoDao.deleteTrashMemoById(any()) }
-            coVerify(exactly = 0) { fileDataSource.saveFileIn(MemoDirectoryType.TRASH, any(), any(), any(), any()) }
-        }
-
-    private fun `clearAllTrashPermanently returns without touching storage when given empty list`() =
-        runTest {
-            handler.clearAllTrashPermanently(emptyList())
-
-            coVerify(exactly = 0) { fileDataSource.deleteFileIn(any(), any(), any()) }
-            coVerify(exactly = 0) { memoDao.clearTrash() }
+            coVerify(exactly = 0) { localFileStateDao.deleteByFilename(filename, true) }
+            coVerify(exactly = 0) { localFileStateDao.upsert(any()) }
         }
 
     private fun buildMemo(
-        id: String = "memo_1",
+        id: String? = null,
         rawContent: String = "- 10:00 memo with attachment",
-        content: String = "memo with attachment",
+        content: String? = null,
         tags: List<String> = emptyList(),
         attachments: List<String> = emptyList(),
         deleted: Boolean = false,
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = 1L,
-            content = content,
+    ): Memo {
+        val dateKey = "2026_02_27"
+        val parsedMemo =
+            MarkdownParser(MemoTextProcessor(), MemoIdentityPolicy())
+                .parseContent(rawContent, dateKey)
+                .singleOrNull()
+
+        return Memo(
+            id = id ?: requireNotNull(parsedMemo) { "Test memo raw content must parse to one memo block" }.id,
+            timestamp = parsedMemo?.timestamp ?: 1L,
+            content = content ?: parsedMemo?.content ?: rawContent,
             rawContent = rawContent,
-            dateKey = "2026_02_27",
+            dateKey = dateKey,
             tags = tags,
             imageUrls = attachments,
             isDeleted = deleted,
         )
+    }
 }

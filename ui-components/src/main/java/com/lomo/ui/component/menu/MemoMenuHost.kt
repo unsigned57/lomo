@@ -1,6 +1,5 @@
 package com.lomo.ui.component.menu
 
-import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SheetState
@@ -12,42 +11,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import com.lomo.ui.R
-import com.lomo.ui.util.copyPlainTextAsync
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 
-/**
- * Encapsulates the Memo Menu BottomSheet logic.
- * @param onEdit Callback for edit action. The host handles dismissal.
- * @param onDelete Callback for delete action. The host handles dismissal.
- * @param content The screen content, which receives a `showMenu: (MemoMenuState) -> Unit` callback.
- *
- * `MemoMenuState` now carries a typed-safe `reference` (`MemoMenuReference.Id/Payload`).
- * Existing `state.memo` usage remains source-compatible.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemoMenuHost(
-    onEdit: (MemoMenuState) -> Unit,
-    onDelete: (MemoMenuState) -> Unit,
-    onShareImage: (MemoMenuState) -> Unit = {},
-    onShareText: (MemoMenuState) -> Unit = {},
-    onLanShare: ((MemoMenuState) -> Unit)? = null,
-    onTogglePin: ((MemoMenuState) -> Unit)? = null,
-    onJump: ((MemoMenuState) -> Unit)? = null,
-    onHistory: ((MemoMenuState) -> Unit)? = null,
-    showHistory: Boolean = false,
-    showJump: Boolean = false,
-    memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: ImmutableList<String> = persistentListOf(),
-    onMemoActionInvoked: (MemoActionId) -> Unit = {},
-    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
-    benchmarkRootTag: String? = null,
-    benchmarkActionAnchorForId: (MemoActionId) -> String? = { null },
+    actions: @Composable (state: MemoMenuState, lifecycle: MemoMenuActionLifecycle) -> ImmutableList<ActionItemUi>,
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
+    onMenuCleared: () -> Unit,
+    actionAutoReorderEnabled: Boolean = true,
+    onActionInvoked: (String) -> Unit = {},
+    onActionOrderChanged: (List<String>) -> Unit = {},
+    benchmarkRootTag: String? = null,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -66,23 +42,15 @@ fun MemoMenuHost(
         sheetState = sheetState,
         scope = scope,
         activeStateProvider = { activeState },
-        clearActiveState = { activeState = null },
-        onEdit = onEdit,
-        onDelete = onDelete,
-        onShareImage = onShareImage,
-        onShareText = onShareText,
-        onLanShare = onLanShare,
-        onTogglePin = onTogglePin,
-        onJump = onJump,
-        onHistory = onHistory,
-        showHistory = showHistory,
-        showJump = showJump,
-        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-        memoActionOrder = memoActionOrder,
-        onMemoActionInvoked = onMemoActionInvoked,
-        onMemoActionOrderChanged = onMemoActionOrderChanged,
+        clearActiveState = {
+            activeState = null
+            onMenuCleared()
+        },
+        actionAutoReorderEnabled = actionAutoReorderEnabled,
+        onActionInvoked = onActionInvoked,
+        onActionOrderChanged = onActionOrderChanged,
         benchmarkRootTag = benchmarkRootTag,
-        benchmarkActionAnchorForId = benchmarkActionAnchorForId,
+        actions = actions,
     )
 }
 
@@ -92,168 +60,35 @@ private fun MemoMenuBottomSheetHost(
     current: MemoMenuState?,
     context: Context,
     sheetState: SheetState,
-    scope: kotlinx.coroutines.CoroutineScope,
+    scope: CoroutineScope,
     activeStateProvider: () -> MemoMenuState?,
     clearActiveState: () -> Unit,
-    onEdit: (MemoMenuState) -> Unit,
-    onDelete: (MemoMenuState) -> Unit,
-    onShareImage: (MemoMenuState) -> Unit,
-    onShareText: (MemoMenuState) -> Unit,
-    onLanShare: ((MemoMenuState) -> Unit)?,
-    onTogglePin: ((MemoMenuState) -> Unit)?,
-    onJump: ((MemoMenuState) -> Unit)?,
-    onHistory: ((MemoMenuState) -> Unit)?,
-    showHistory: Boolean,
-    showJump: Boolean,
-    memoActionAutoReorderEnabled: Boolean,
-    memoActionOrder: ImmutableList<String>,
-    onMemoActionInvoked: (MemoActionId) -> Unit,
-    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit,
+    actionAutoReorderEnabled: Boolean,
+    onActionInvoked: (String) -> Unit,
+    onActionOrderChanged: (List<String>) -> Unit,
     benchmarkRootTag: String?,
-    benchmarkActionAnchorForId: (MemoActionId) -> String?,
+    actions: @Composable (state: MemoMenuState, lifecycle: MemoMenuActionLifecycle) -> ImmutableList<ActionItemUi>,
 ) {
     current?.let { state ->
-        val clipboardMemoLabel = stringResource(R.string.clipboard_label_memo)
+        val lifecycle =
+            remember(context, scope, sheetState, activeStateProvider, clearActiveState) {
+                MemoMenuActionLifecycle(
+                    context = context,
+                    scope = scope,
+                    sheetState = sheetState,
+                    activeStateProvider = activeStateProvider,
+                    clearActiveState = clearActiveState,
+                )
+            }
         MemoMenuBottomSheet(
             state = state,
             sheetState = sheetState,
             onDismissRequest = clearActiveState,
-            onCopy = {
-                // Dispatch the clipboard write IMMEDIATELY (IO-bound, off the main thread) so the
-                // system clipboard preview animates in parallel with the sheet hide animation. The
-                // sheet itself uses the standard hideSheetAndConsumeState lifecycle with a no-op
-                // handler so dismissal motion matches Edit/Delete exactly.
-                copyMemoContent(
-                    context = context,
-                    scope = scope,
-                    label = clipboardMemoLabel,
-                    text = state.content,
-                )
-                hideSheetAndConsumeState(
-                    scope = scope,
-                    sheetState = sheetState,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                    handler = {},
-                )
-            },
-            onShareImage = {
-                clearActiveState()
-                onShareImage(state)
-            },
-            onShareText = {
-                clearActiveState()
-                onShareText(state)
-            },
-            onLanShare =
-                onLanShare?.let { handler ->
-                    {
-                        clearActiveState()
-                        handler(state)
-                    }
-                },
-            onTogglePin =
-                createOptionalStateAction(
-                    handler = onTogglePin,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                ),
-            onJump =
-                createOptionalStateAction(
-                    handler = onJump,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                ),
-            onEdit = {
-                hideSheetAndConsumeState(
-                    scope = scope,
-                    sheetState = sheetState,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                    handler = onEdit,
-                )
-            },
-            onDelete = {
-                hideSheetAndConsumeState(
-                    scope = scope,
-                    sheetState = sheetState,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                    handler = onDelete,
-                )
-            },
-            onHistory =
-                createOptionalStateAction(
-                    handler = onHistory,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                ),
-            showHistory = showHistory,
-            showJump = showJump,
-            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-            memoActionOrder = memoActionOrder,
-            onMemoActionInvoked = onMemoActionInvoked,
-            onMemoActionOrderChanged = onMemoActionOrderChanged,
+            actions = actions(state, lifecycle),
+            actionAutoReorderEnabled = actionAutoReorderEnabled,
+            onActionInvoked = onActionInvoked,
+            onActionOrderChanged = onActionOrderChanged,
             benchmarkRootTag = benchmarkRootTag,
-            actionAnchorForId = benchmarkActionAnchorForId,
         )
-    }
-}
-
-private fun copyMemoContent(
-    context: Context,
-    scope: kotlinx.coroutines.CoroutineScope,
-    label: String,
-    text: String,
-) {
-    val clipboard =
-        androidx.core.content.ContextCompat.getSystemService(
-            context,
-            ClipboardManager::class.java,
-        )
-    clipboard?.copyPlainTextAsync(scope = scope, label = label, text = text)
-}
-
-private fun createOptionalStateAction(
-    handler: ((MemoMenuState) -> Unit)?,
-    activeStateProvider: () -> MemoMenuState?,
-    clearActiveState: () -> Unit,
-): (() -> Unit)? =
-    handler?.let { resolvedHandler ->
-        {
-            consumeState(
-                activeStateProvider = activeStateProvider,
-                clearActiveState = clearActiveState,
-                handler = resolvedHandler,
-            )
-        }
-    }
-
-@OptIn(ExperimentalMaterial3Api::class)
-private fun hideSheetAndConsumeState(
-    scope: kotlinx.coroutines.CoroutineScope,
-    sheetState: SheetState,
-    activeStateProvider: () -> MemoMenuState?,
-    clearActiveState: () -> Unit,
-    handler: (MemoMenuState) -> Unit,
-) {
-    scope.launch { sheetState.hide() }.invokeOnCompletion {
-        consumeState(
-            activeStateProvider = activeStateProvider,
-            clearActiveState = clearActiveState,
-            handler = handler,
-        )
-    }
-}
-
-private fun consumeState(
-    activeStateProvider: () -> MemoMenuState?,
-    clearActiveState: () -> Unit,
-    handler: (MemoMenuState) -> Unit,
-) {
-    val target = activeStateProvider()
-    clearActiveState()
-    if (target != null) {
-        handler(target)
     }
 }

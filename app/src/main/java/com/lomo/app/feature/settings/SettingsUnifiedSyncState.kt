@@ -41,14 +41,8 @@ internal fun unifiedSyncNowSubtitle(
                 provider.presentError(state.error),
             )
         is UnifiedSyncState.NotConfigured -> stringResource(provider.notConfiguredSubtitleResId())
-        is UnifiedSyncState.ConflictDetected ->
-            stringResource(
-                if (state.isPreview) {
-                    R.string.settings_s3_sync_status_initial_preview
-                } else {
-                    provider.conflictSubtitleResId()
-                },
-            )
+        is UnifiedSyncState.ConflictDetected -> stringResource(provider.conflictSubtitleResId())
+        is UnifiedSyncState.ReviewRequired -> stringResource(R.string.settings_s3_sync_status_initial_preview)
     }
 
 @Composable

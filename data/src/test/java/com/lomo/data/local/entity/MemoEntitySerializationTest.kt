@@ -1,23 +1,39 @@
 package com.lomo.data.local.entity
 
-
-import com.lomo.domain.model.Memo
+import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
- * - Unit under test: MemoEntity.fromDomain / MemoEntity.toDomain
- * - Behavior focus: main-table memo serialization keeps user-visible plaintext while list fields stay JSON encoded,
- *   and deserialization continues to read both JSON and legacy CSV list formats.
- * - Observable outcomes: persisted content text, encoded tag/image fields, and decoded domain tag/image lists.
- * - Red phase: Fails before the fix because MemoEntity.fromDomain tokenizes memo.content and stores search text in
- *   the main memo table instead of preserving the original plaintext body.
- * - Excludes: FTS table writes, Room query execution, and stale-content recovery from older persisted rows.
+ * Behavior Contract:
+ * - Unit under test: MemoProjectionProjector plus MemoEntity/TrashMemoEntity.toDomain
+ * - Owning layer: data/local entity.
+ * - Priority tier: P0.
+ * - Capability: serialize canonical memo projections for storage/query and strictly map stored rows back to domain.
+ *
+ * Scenarios:
+ * - Given a memo whose stored tag/attachment lists disagree with content, when projected, then stored list
+ *   fields are JSON encoded from content and visible content remains plaintext.
+ * - Given JSON or legacy CSV stored list fields, when deserialized, then domain tag/image lists are
+ *   restored.
+ * - Given a deleted memo, when projected for trash storage, then trash entity list fields follow the
+ *   same canonical content projection.
+ * Observable outcomes:
+ * - persisted content text, encoded tag/image fields, and decoded domain lists.
+ *
+ * TDD proof:
+ * - RED before the projection fix because entity factories and cross-ref helpers could derive
+ *   serialized fields from stale domain lists independently from write-path search/ref projection.
+ *
+ * Excludes:
+ * - FTS table writes, Room query execution, stale-content recovery, and UI rendering.
  */
 class MemoEntitySerializationTest : DataFunSpec() {
     init {
-        test("fromDomain stores plaintext content plus tag and attachment lists as json text") { `fromDomain stores plaintext content plus tag and attachment lists as json text`() }
+        test("projector stores plaintext content plus canonical tag and attachment lists as json text") {
+            `projector stores plaintext content plus canonical tag and attachment lists as json text`()
+        }
 
         test("toDomain reads json encoded tag and attachment lists") { `toDomain reads json encoded tag and attachment lists`() }
 
@@ -27,22 +43,22 @@ class MemoEntitySerializationTest : DataFunSpec() {
     }
 
 
-    private fun `fromDomain stores plaintext content plus tag and attachment lists as json text`() {
+    private fun `projector stores plaintext content plus canonical tag and attachment lists as json text`() {
         val memo =
             Memo(
                 id = "memo-json",
                 timestamp = 1L,
                 updatedAt = 2L,
-                content = "你好 memo",
-                rawContent = "- 10:00 你好 memo",
+                content = "你好 memo #travel\n![cover](folder,part/image.png)\n[voice](voice_001.m4a)",
+                rawContent = "- 10:00 你好 memo #travel\n![cover](folder,part/image.png)\n[voice](voice_001.m4a)",
                 dateKey = "2026_04_19",
-                tags = listOf("tag,with,comma", "travel"),
-                imageUrls = listOf("folder,part/image.png", "voice_001.m4a"),
+                tags = listOf("stale"),
+                imageUrls = listOf("stale.png"),
             )
 
-        val entity = MemoEntity.fromDomain(memo)
+        val entity = MemoProjectionProjector.projectActive(memo).entity
 
-        entity.tags shouldBe """["tag,with,comma","travel"]"""
+        entity.tags shouldBe """["travel"]"""
         entity.imageUrls shouldBe """["folder,part/image.png","voice_001.m4a"]"""
         entity.content shouldBe memo.content
     }
@@ -54,6 +70,7 @@ class MemoEntitySerializationTest : DataFunSpec() {
                 timestamp = 1L,
                 updatedAt = 2L,
                 content = "body",
+                searchContent = "body",
                 rawContent = "- 10:00 body",
                 date = "2026_04_19",
                 tags = """["tag,with,comma","travel"]""",
@@ -73,6 +90,7 @@ class MemoEntitySerializationTest : DataFunSpec() {
                 timestamp = 1L,
                 updatedAt = 2L,
                 content = "body",
+                searchContent = "body",
                 rawContent = "- 10:00 body",
                 date = "2026_04_19",
                 tags = "work,travel",
@@ -91,20 +109,20 @@ class MemoEntitySerializationTest : DataFunSpec() {
                 id = "trash-json",
                 timestamp = 1L,
                 updatedAt = 2L,
-                content = "body",
-                rawContent = "- 10:00 body",
+                content = "#travel ![cover](folder,part/image.png)",
+                rawContent = "- 10:00 #travel ![cover](folder,part/image.png)",
                 dateKey = "2026_04_19",
-                tags = listOf("tag,with,comma"),
-                imageUrls = listOf("folder,part/image.png"),
+                tags = listOf("stale"),
+                imageUrls = listOf("stale.png"),
                 isDeleted = true,
             )
 
-        val entity = TrashMemoEntity.fromDomain(memo)
+        val entity = MemoProjectionProjector.projectTrash(memo).entity
         val restored = entity.toDomain()
 
-        entity.tags shouldBe """["tag,with,comma"]"""
+        entity.tags shouldBe """["travel"]"""
         entity.imageUrls shouldBe """["folder,part/image.png"]"""
-        restored.tags shouldBe listOf("tag,with,comma")
+        restored.tags shouldBe listOf("travel")
         restored.imageUrls shouldBe listOf("folder,part/image.png")
     }
 }

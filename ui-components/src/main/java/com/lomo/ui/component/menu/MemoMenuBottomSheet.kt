@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,24 +22,12 @@ fun MemoMenuBottomSheet(
     state: MemoMenuState,
     sheetState: SheetState,
     onDismissRequest: () -> Unit,
-    onCopy: () -> Unit,
-    onShareImage: () -> Unit,
-    onShareText: () -> Unit,
-    onLanShare: (() -> Unit)?,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    actions: ImmutableList<ActionItemUi>,
     modifier: Modifier = Modifier,
-    onTogglePin: (() -> Unit)? = null,
-    onJump: (() -> Unit)? = null,
-    onHistory: (() -> Unit)? = null,
-    showHistory: Boolean = false,
-    showJump: Boolean = false,
-    memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: ImmutableList<String> = persistentListOf(),
-    onMemoActionInvoked: (MemoActionId) -> Unit = {},
-    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
+    actionAutoReorderEnabled: Boolean = true,
+    onActionInvoked: (String) -> Unit = {},
+    onActionOrderChanged: (List<String>) -> Unit = {},
     benchmarkRootTag: String? = null,
-    actionAnchorForId: (MemoActionId) -> String? = { null },
 ) {
     ModalBottomSheet(
         modifier = modifier,
@@ -60,24 +47,12 @@ fun MemoMenuBottomSheet(
     ) {
         MemoActionSheet(
             state = state,
-            onCopy = onCopy,
-            onShareImage = onShareImage,
-            onShareText = onShareText,
-            onLanShare = onLanShare,
-            onTogglePin = onTogglePin,
-            onJump = onJump,
-            onEdit = onEdit,
-            onDelete = onDelete,
+            actions = actions,
             onDismiss = onDismissRequest,
-            onHistory = onHistory,
-            showHistory = showHistory,
-            showJump = showJump,
-            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-            memoActionOrder = memoActionOrder,
-            onActionInvoked = onMemoActionInvoked,
-            onActionOrderChanged = onMemoActionOrderChanged,
+            actionAutoReorderEnabled = actionAutoReorderEnabled,
+            onActionInvoked = onActionInvoked,
+            onActionOrderChanged = onActionOrderChanged,
             benchmarkRootTag = benchmarkRootTag,
-            actionAnchorForId = actionAnchorForId,
         )
     }
 }

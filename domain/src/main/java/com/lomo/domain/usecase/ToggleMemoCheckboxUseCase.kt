@@ -1,25 +1,32 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 
 class ToggleMemoCheckboxUseCase
 (
-        private val repository: MemoRepository,
+        private val repository: MemoMutationRepository,
         private val validator: ValidateMemoContentUseCase,
     ) {
+        /**
+         * Toggles the checkbox on [lineIndex] and persists the change.
+         *
+         * @return the updated memo content when a change was applied, or `null` when [lineIndex] is
+         *   not a checkbox line or already in the requested state. Snapshot-backed collections use
+         *   the returned content to apply an optimistic update without re-parsing the line.
+         */
         suspend operator fun invoke(
             memo: Memo,
             lineIndex: Int,
             checked: Boolean,
-        ): Boolean {
+        ): String? {
             val newContent = toggleCheckboxLine(memo.content, lineIndex, checked)
-            if (newContent == memo.content) return false
+            if (newContent == memo.content) return null
 
             validator.requireValidForUpdate(newContent)
             repository.updateMemo(memo, newContent)
-            return true
+            return newContent
         }
 
         private fun toggleCheckboxLine(

@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.domain.model.MediaFileExtensions
 
@@ -16,16 +16,15 @@ internal fun String.looksLikeVoiceAttachmentPath(): Boolean {
  * [MediaStorageDataSource.deleteImage] so the correct SAF/direct sub-root is hit.
  *
  * [s3LocalChangeRecorder] and [webDavLocalChangeRecorder] are invoked per deleted path so sync
- * engines propagate the removal. Callers that intentionally run silently on sync may pass the
- * NoOp defaults.
+ * engines propagate the removal.
  */
 internal suspend fun deleteOrphanAttachments(
     paths: List<String>,
     excludeMemoId: String,
-    memoSearchDao: MemoSearchDao,
+    memoStatisticsDao: MemoStatisticsDao,
     mediaStorageDataSource: MediaStorageDataSource,
-    s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-    webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+    s3LocalChangeRecorder: S3LocalChangeRecorder,
+    webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
 ) {
     paths
         .asSequence()
@@ -34,7 +33,7 @@ internal suspend fun deleteOrphanAttachments(
         .filterNot { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
         .distinct()
         .forEach { path ->
-            if (memoSearchDao.countMemosAndTrashWithImage(path, excludeMemoId) != 0) {
+            if (memoStatisticsDao.countMemosAndTrashWithImage(path, excludeMemoId) != 0) {
                 return@forEach
             }
             if (path.looksLikeVoiceAttachmentPath()) {

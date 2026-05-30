@@ -2,9 +2,12 @@ package com.lomo.app.feature.preferences
 
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.CustomFontStore
+import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -16,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
@@ -25,6 +29,9 @@ data class AppPreferencesState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val colorSource: ColorSource,
+    val fontPreference: FontPreference,
+    val customFontPath: String?,
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
@@ -49,6 +56,9 @@ data class AppPreferencesState(
                 dateFormat = PreferenceDefaults.DATE_FORMAT,
                 timeFormat = PreferenceDefaults.TIME_FORMAT,
                 themeMode = ThemeMode.SYSTEM,
+                colorSource = ColorSource.default(),
+                fontPreference = FontPreference.default(),
+                customFontPath = null,
                 hapticFeedbackEnabled = PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED,
                 showInputHints = PreferenceDefaults.SHOW_INPUT_HINTS,
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
@@ -77,17 +87,25 @@ data class AppPreferencesState(
         }
 }
 
-fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
+fun PreferencesRepository.observeAppPreferences(
+    customFontStore: CustomFontStore,
+): Flow<AppPreferencesState> =
     combine(
         observeBasePreferences(),
         observeSharePreferences(),
         observeShareCardPreferences(),
         observeTypographyPreferences(),
-    ) { base, share, shareCard, typography ->
+        combine(getColorSource(), observeResolvedFontPreference(customFontStore)) { color, font ->
+            DisplaySourcePreferences(colorSource = color, fontResolution = font)
+        },
+    ) { base, share, shareCard, typography, display ->
         AppPreferencesState(
             dateFormat = base.dateFormat,
             timeFormat = base.timeFormat,
             themeMode = base.themeMode,
+            colorSource = display.colorSource,
+            fontPreference = display.fontResolution.preference,
+            customFontPath = display.fontResolution.resolvedPath,
             hapticFeedbackEnabled = base.hapticFeedbackEnabled,
             showInputHints = base.showInputHints,
             doubleTapEditEnabled = share.doubleTapEditEnabled,
@@ -107,6 +125,34 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             typographyParagraphSpacingScale = typography.paragraphSpacingScale,
         )
     }
+
+private fun PreferencesRepository.observeResolvedFontPreference(
+    customFontStore: CustomFontStore,
+): Flow<FontResolution> =
+    getFontPreference().map { preference ->
+        val resolved = when (preference) {
+            is FontPreference.SystemDefault -> null
+            is FontPreference.UserImported -> customFontStore.resolveFontPath(preference.id)
+        }
+        if (preference is FontPreference.UserImported && resolved == null) {
+            // behavior-contract: silent-result-ok: missing user font file → caller falls back to
+            // the system default; clearing the persisted id is the responsibility of the font
+            // settings page, not this read path.
+            FontResolution(FontPreference.SystemDefault, null)
+        } else {
+            FontResolution(preference, resolved)
+        }
+    }
+
+private data class FontResolution(
+    val preference: FontPreference,
+    val resolvedPath: String?,
+)
+
+private data class DisplaySourcePreferences(
+    val colorSource: ColorSource,
+    val fontResolution: FontResolution,
+)
 
 private fun PreferencesRepository.observeBasePreferences(): Flow<BasePreferences> =
     combine(
@@ -215,11 +261,14 @@ private fun PreferencesRepository.observeTypographyPreferences(): Flow<Typograph
         )
     }
 
-fun PreferencesRepository.appPreferencesState(scope: CoroutineScope): StateFlow<AppPreferencesState> =
-    observeAppPreferences()
+fun PreferencesRepository.appPreferencesState(
+    scope: CoroutineScope,
+    customFontStore: CustomFontStore,
+): StateFlow<AppPreferencesState> =
+    observeAppPreferences(customFontStore)
         .stateIn(scope, appWhileSubscribed(), AppPreferencesState.defaults())
 
-fun MemoRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =
+fun MemoStatisticsRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =
     getActiveDayCount()
         .stateIn(scope, appWhileSubscribed(), 0)
 

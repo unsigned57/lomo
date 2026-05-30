@@ -19,17 +19,16 @@ package com.lomo.data.repository
 
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
-import com.lomo.domain.model.SyncConflictSessionKind
-import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
- * - Unit under test: S3 conflict session classification for S3SyncExecutor conflict publishing.
- * - Behavior focus: first-sync overlapping files with no stored metadata must be classified as an initial-sync preview, while established conflicts with sync metadata must stay standard conflicts.
- * - Observable outcomes: returned SyncConflictSessionKind for conflict action sets.
+ * - Unit under test: S3 initial import review classification for S3SyncExecutor review publishing.
+ * - Behavior focus: first-sync overlapping files with no stored metadata must be classified as review, while established conflicts with sync metadata must stay conflict.
+ * - Observable outcomes: returned Boolean review classifier for conflict action sets.
  * - TDD proof: Fails before the fix because S3 conflict classification does not distinguish first-sync overlap from normal conflicts, so the executor can only publish generic ConflictDetected.
  * - Excludes: S3 transport, file content merging, Compose rendering, and metadata DAO I/O.
  */
@@ -51,13 +50,13 @@ class S3ConflictSessionClassifierTest : DataFunSpec() {
                 ),
             )
 
-        val sessionKind =
-            determineS3ConflictSessionKind(
+        val isInitialImportPreview =
+            isS3InitialImportPreview(
                 conflictActions = actions,
                 metadataByPath = emptyMap(),
             )
 
-        sessionKind shouldBe SyncConflictSessionKind.INITIAL_SYNC_PREVIEW
+        isInitialImportPreview shouldBe true
     }
 
     private fun `existing metadata keeps conflict in standard session`() {
@@ -84,12 +83,12 @@ class S3ConflictSessionClassifierTest : DataFunSpec() {
                     ),
             )
 
-        val sessionKind =
-            determineS3ConflictSessionKind(
+        val isInitialImportPreview =
+            isS3InitialImportPreview(
                 conflictActions = actions,
                 metadataByPath = metadata,
             )
 
-        sessionKind shouldBe SyncConflictSessionKind.STANDARD_CONFLICT
+        isInitialImportPreview shouldBe false
     }
 }

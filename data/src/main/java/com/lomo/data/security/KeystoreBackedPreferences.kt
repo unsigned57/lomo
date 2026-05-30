@@ -17,23 +17,25 @@ internal class KeystoreBackedPreferences(
     context: Context,
     preferenceFileName: String,
     keyAlias: String,
-    private val removeCorruptedEntryOnDecryptFailure: Boolean = true,
+    private val removeCorruptedEntryOnDecryptFailure: Boolean = false,
     private val userAuthenticationRequired: Boolean = false,
 ) : SecureStringStore {
     private val keyStoreAlias = "$KEY_ALIAS_PREFIX$keyAlias"
     private val prefs: SharedPreferences =
         context.getSharedPreferences(preferenceFileName, Context.MODE_PRIVATE)
 
-    override fun getString(key: String): String? {
-        val encryptedValue = prefs.getString(key, null) ?: return null
+    override fun readString(key: String): SecureStringReadResult {
+        val encryptedValue = prefs.getString(key, null) ?: return SecureStringReadResult.Missing
         return runCatching { decrypt(encryptedValue) }
-            .onFailure { error ->
-                if (removeCorruptedEntryOnDecryptFailure) {
-                    prefs.edit { remove(key) }
-                } else {
-                    throw IllegalStateException("Failed to decrypt secure preference for key=$key", error)
-                }
-            }.getOrNull()
+            .fold(
+                onSuccess = SecureStringReadResult::Present,
+                onFailure = { error ->
+                    if (removeCorruptedEntryOnDecryptFailure) {
+                        prefs.edit { remove(key) }
+                    }
+                    SecureStringReadResult.Unreadable(error)
+                },
+            )
     }
 
     override fun putString(

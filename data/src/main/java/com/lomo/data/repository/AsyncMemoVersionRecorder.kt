@@ -1,12 +1,11 @@
 package com.lomo.data.repository
 
+import com.lomo.data.di.ApplicationScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,22 +20,21 @@ interface MemoVersionRecorder {
         lifecycleState: MemoRevisionLifecycleState,
         origin: MemoRevisionOrigin,
     )
+
+    suspend fun recordLocalRevision(
+        memo: Memo,
+        lifecycleState: MemoRevisionLifecycleState,
+        origin: MemoRevisionOrigin,
+    )
 }
 
 @Singleton
 class AsyncMemoVersionRecorder
-    private constructor(
+    @Inject
+    constructor(
         private val memoVersionJournal: MemoVersionJournal,
-        private val scope: CoroutineScope,
+        @ApplicationScope private val scope: CoroutineScope,
     ) : MemoVersionRecorder {
-        @Inject
-        constructor(
-            memoVersionJournal: MemoVersionJournal,
-        ) : this(
-            memoVersionJournal = memoVersionJournal,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-        )
-
         private val pendingMutex = Mutex()
         private val pendingRequests = linkedMapOf<String, PendingMemoVersionRecordRequest>()
         private var drainJob: Job? = null
@@ -53,6 +51,18 @@ class AsyncMemoVersionRecorder
                     drainJob = scope.launch { drainPendingRequests() }
                 }
             }
+        }
+
+        override suspend fun recordLocalRevision(
+            memo: Memo,
+            lifecycleState: MemoRevisionLifecycleState,
+            origin: MemoRevisionOrigin,
+        ) {
+            memoVersionJournal.appendLocalRevision(
+                memo = memo,
+                lifecycleState = lifecycleState,
+                origin = origin,
+            )
         }
 
         private suspend fun drainPendingRequests() {

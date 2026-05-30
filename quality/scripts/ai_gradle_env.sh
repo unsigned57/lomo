@@ -7,7 +7,7 @@ lomo_ai_prepare_gradle_env() {
   gradlew="$repo_root/gradlew"
   ai_gradle_user_home="${GRADLE_USER_HOME:-$repo_root/.gradle/task-inspect}"
   ai_home="${LOMO_AI_HOME:-$repo_root/.home}"
-  ai_android_user_home="${LOMO_AI_ANDROID_USER_HOME:-$repo_root/.android}"
+  ai_android_prefs_root="${LOMO_AI_ANDROID_PREFS_ROOT:-$repo_root/.android}"
   ai_xdg_data_home="${LOMO_AI_XDG_DATA_HOME:-$repo_root/.local/share}"
   ai_xdg_config_home="${LOMO_AI_XDG_CONFIG_HOME:-$repo_root/.config}"
   ai_gradle_opts="${GRADLE_OPTS:-}"
@@ -21,7 +21,7 @@ lomo_ai_prepare_gradle_env() {
     exit 1
   fi
 
-  mkdir -p "$ai_gradle_user_home" "$ai_home" "$ai_android_user_home" "$ai_xdg_data_home" "$ai_xdg_config_home"
+  mkdir -p "$ai_gradle_user_home" "$ai_home" "$ai_android_prefs_root" "$ai_xdg_data_home" "$ai_xdg_config_home"
   local wrapper_dists_dir="$ai_gradle_user_home/wrapper/dists"
   local lock_file
 
@@ -35,7 +35,7 @@ lomo_ai_prepare_gradle_env() {
 
 lomo_ai_run_gradle() {
   env HOME="$ai_home" \
-    ANDROID_USER_HOME="$ai_android_user_home" \
+    ANDROID_PREFS_ROOT="$ai_android_prefs_root" \
     XDG_DATA_HOME="$ai_xdg_data_home" \
     XDG_CONFIG_HOME="$ai_xdg_config_home" \
     GRADLE_OPTS="$ai_gradle_opts" \

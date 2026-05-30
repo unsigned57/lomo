@@ -1,7 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.domain.model.S3SyncDirection
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.repository.S3SyncWorkIntent
 
 internal suspend fun prepareRemoteReconcile(
     client: com.lomo.data.s3.LomoS3Client,
@@ -11,7 +11,7 @@ internal suspend fun prepareRemoteReconcile(
     protocolState: S3SyncProtocolState,
     encodingSupport: S3SyncEncodingSupport,
     remoteIndexStore: S3RemoteIndexStore,
-    shardStateStore: S3RemoteShardStateStore = DisabledS3RemoteShardStateStore,
+    shardStateStore: S3RemoteShardStateStore,
     shardPlanner: S3RemoteShardPlanner = S3RemoteShardPlanner(),
     shardScanner: S3RemoteShardScanner = S3RemoteShardScanner(),
     verificationGate: S3RemoteVerificationGate = S3RemoteVerificationGate(),
@@ -235,12 +235,12 @@ private fun buildMissingEntry(
 }
 
 internal fun shouldRunIncrementalReconcile(
-    policy: S3SyncScanPolicy,
+    policy: S3SyncWorkIntent,
     config: S3ResolvedConfig,
     protocolState: S3SyncProtocolState,
     now: Long = System.currentTimeMillis(),
 ): Boolean =
-    policy != S3SyncScanPolicy.FAST_ONLY &&
+    policy != S3SyncWorkIntent.FAST_ONLY &&
         (
             protocolState.remoteScanCursor != null ||
                 protocolState.lastReconcileAt == null ||

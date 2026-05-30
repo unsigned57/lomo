@@ -131,7 +131,10 @@ class ShareAttachmentStorage
         ): Boolean =
             treeUriString
                 ?.takeIf(String::isNotBlank)
-                ?.let { runCatching { DocumentFile.fromTreeUri(context, it.toUri()) }.getOrNull() }
+                ?.let {
+                    // behavior-contract: silent-result-ok: revoked SAF yields null; chain treats as "file not found"
+                    runCatching { DocumentFile.fromTreeUri(context, it.toUri()) }.getOrNull()
+                }
                 ?.findFile(filename)
                 ?.isFile == true
 

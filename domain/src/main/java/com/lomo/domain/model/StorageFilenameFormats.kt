@@ -36,11 +36,20 @@ object StorageFilenameFormats {
 
     fun parseOrNull(raw: String): LocalDate? =
         supportedFormatters.firstNotNullOfOrNull { formatter ->
+            // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
             runCatching { LocalDate.parse(raw, formatter) }.getOrNull()
         }
+
+    fun parseFilenameOrNull(filename: String): LocalDate? =
+        filename
+            .takeIf { it.endsWith(MARKDOWN_EXTENSION) }
+            ?.removeSuffix(MARKDOWN_EXTENSION)
+            ?.let(::parseOrNull)
 
     private fun buildStrictFormatter(pattern: String): DateTimeFormatter =
         DateTimeFormatter
             .ofPattern(pattern.replace("yyyy", "uuuu"), Locale.US)
             .withResolverStyle(ResolverStyle.STRICT)
 }
+
+private const val MARKDOWN_EXTENSION = ".md"

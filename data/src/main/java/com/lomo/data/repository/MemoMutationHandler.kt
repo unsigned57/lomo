@@ -7,6 +7,7 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
+import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
@@ -16,12 +17,11 @@ import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.data.di.ApplicationScope
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.usecase.MemoIdentityPolicy
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -45,36 +45,18 @@ data class SaveDbResult(
 )
 
 interface MemoSaveMutationOperations {
-    suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String? = null,
-    )
-
     suspend fun saveMemoInDb(
         content: String,
         timestamp: Long,
         geoLocation: String? = null,
     ): SaveDbResult
-
-    suspend fun flushSavedMemoToFile(savePlan: MemoSavePlan)
 }
 
 interface MemoUpdateMutationOperations {
-    suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
-    )
-
     suspend fun updateMemoInDb(
         memo: Memo,
         newContent: String,
     ): Long?
-
-    suspend fun flushMemoUpdateToFile(
-        memo: Memo,
-        newContent: String,
-    ): Boolean
 }
 
 interface MemoTrashMutationOperations {
@@ -90,9 +72,16 @@ interface MemoTrashMutationOperations {
 
     suspend fun flushRestoreMemoToFile(memo: Memo): Boolean
 
-    suspend fun deletePermanently(memo: Memo)
+    suspend fun deletePermanentlyInDb(memo: Memo): Long?
 
-    suspend fun clearTrash()
+    suspend fun clearTrash(): Int
+}
+
+interface MemoRevisionRestoreMutationOperations {
+    suspend fun restoreMemoRevisionInDb(
+        currentMemo: Memo,
+        revisionId: String,
+    ): Long
 }
 
 interface MemoOutboxMutationOperations {
@@ -119,41 +108,50 @@ class MemoMutationHandler private constructor(
 ) : MemoSaveMutationOperations by SaveMemoMutationDelegate(runtime, storageFormatProvider),
     MemoUpdateMutationOperations by UpdateMemoMutationDelegate(runtime, storageFormatProvider),
     MemoTrashMutationOperations by TrashMemoMutationDelegate(runtime),
+    MemoRevisionRestoreMutationOperations by RestoreMemoRevisionMutationDelegate(runtime),
     MemoOutboxMutationOperations by MemoOutboxMutationDelegate(runtime, storageFormatProvider) {
     constructor(
         markdownStorageDataSource: MarkdownStorageDataSource,
         mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
         daoBundle: MemoMutationDaoBundle,
-        memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
+        memoStatisticsDao: MemoStatisticsDao,
         localFileStateDao: LocalFileStateDao,
+        workspaceStore: MemoWorkspaceStore,
+        workspaceMediaAccess: WorkspaceMediaAccess,
         savePlanFactory: MemoSavePlanFactory,
         textProcessor: MemoTextProcessor,
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionJournal: MemoVersionJournal,
+        mediaRepository: MediaRepository,
         s3LocalChangeRecorder: S3LocalChangeRecorder,
         webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
         mutationGate: MemoMutationGate = MemoMutationGate(),
-        settingsScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        backgroundScope: CoroutineScope,
     ) : this(
         runtime =
             MemoMutationRuntime(
                 markdownStorageDataSource = markdownStorageDataSource,
                 mediaStorageDataSource = mediaStorageDataSource,
                 daoBundle = daoBundle,
-                memoSearchDao = memoSearchDao,
+                memoStatisticsDao = memoStatisticsDao,
                 localFileStateDao = localFileStateDao,
+                workspaceStore = workspaceStore,
+                workspaceMediaAccess = workspaceMediaAccess,
                 savePlanFactory = savePlanFactory,
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
-                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
+                memoVersionJournal = memoVersionJournal,
+                memoVersionRestoreSupport = JournalMemoVersionRestoreSupport(memoVersionJournal),
+                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal, backgroundScope),
+                mediaRepository = mediaRepository,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
                 webDavLocalChangeRecorder = webDavLocalChangeRecorder,
                 mutationGate = mutationGate,
             ),
-        storageFormatProvider = MemoStorageFormatProvider(dataStore, settingsScope),
+        storageFormatProvider = MemoStorageFormatProvider(dataStore, backgroundScope),
     )
 
     @Inject
@@ -167,19 +165,23 @@ class MemoMutationHandler private constructor(
         memoIdentityDao: MemoIdentityDao,
         memoTrashDao: MemoTrashDao,
         memoOutboxDao: MemoOutboxDao,
-        memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
+        memoStatisticsDao: MemoStatisticsDao,
         database: MemoDatabase,
         localFileStateDao: LocalFileStateDao,
+        workspaceStore: MemoWorkspaceStore,
+        workspaceMediaAccess: WorkspaceMediaAccess,
         savePlanFactory: MemoSavePlanFactory,
         textProcessor: MemoTextProcessor,
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionRecorder: AsyncMemoVersionRecorder,
+        memoVersionJournal: MemoVersionJournal,
+        mediaRepository: MediaRepository,
         s3LocalChangeRecorder: S3LocalChangeRecorder,
         webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
         mutationGate: MemoMutationGate,
-        @ApplicationScope settingsScope: CoroutineScope,
+        @ApplicationScope backgroundScope: CoroutineScope,
     ) : this(
         runtime =
             MemoMutationRuntime(
@@ -200,18 +202,23 @@ class MemoMutationHandler private constructor(
                             }
                         },
                     ),
-                memoSearchDao = memoSearchDao,
+                memoStatisticsDao = memoStatisticsDao,
                 localFileStateDao = localFileStateDao,
+                workspaceStore = workspaceStore,
+                workspaceMediaAccess = workspaceMediaAccess,
                 savePlanFactory = savePlanFactory,
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
+                memoVersionJournal = memoVersionJournal,
+                memoVersionRestoreSupport = JournalMemoVersionRestoreSupport(memoVersionJournal),
                 memoVersionRecorder = memoVersionRecorder,
+                mediaRepository = mediaRepository,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
                 webDavLocalChangeRecorder = webDavLocalChangeRecorder,
                 mutationGate = mutationGate,
             ),
-        storageFormatProvider = MemoStorageFormatProvider(dataStore, settingsScope),
+        storageFormatProvider = MemoStorageFormatProvider(dataStore, backgroundScope),
     )
 }
 
@@ -219,13 +226,18 @@ internal class MemoMutationRuntime(
     val markdownStorageDataSource: MarkdownStorageDataSource,
     val mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
     val daoBundle: MemoMutationDaoBundle,
-    val memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
+    val memoStatisticsDao: MemoStatisticsDao,
     val localFileStateDao: LocalFileStateDao,
+    val workspaceStore: MemoWorkspaceStore,
+    val workspaceMediaAccess: WorkspaceMediaAccess,
     val savePlanFactory: MemoSavePlanFactory,
     val textProcessor: MemoTextProcessor,
     val trashMutationHandler: MemoTrashMutationHandler,
     val memoIdentityPolicy: MemoIdentityPolicy,
+    val memoVersionJournal: MemoVersionJournal,
+    val memoVersionRestoreSupport: MemoVersionRestoreSupport,
     val memoVersionRecorder: MemoVersionRecorder,
+    val mediaRepository: MediaRepository,
     val s3LocalChangeRecorder: S3LocalChangeRecorder,
     val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
     val mutationGate: MemoMutationGate,
@@ -244,7 +256,7 @@ class MemoMutationDaoBundle(
 
 internal class MemoStorageFormatProvider(
     private val dataStore: LomoDataStore,
-    private val settingsScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val settingsScope: CoroutineScope,
 ) {
     private val storageFormatSettings =
         combine(

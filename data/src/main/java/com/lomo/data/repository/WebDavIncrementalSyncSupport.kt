@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
 import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
 import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -48,41 +49,32 @@ interface WebDavLocalChangeJournalStore {
     suspend fun clear()
 }
 
-object DisabledWebDavLocalChangeJournalStore : WebDavLocalChangeJournalStore {
-    override val incrementalSyncEnabled: Boolean = false
-
-    override suspend fun read(): Map<String, WebDavLocalChangeJournalEntry> = emptyMap()
-
-    override suspend fun upsert(entry: WebDavLocalChangeJournalEntry) = Unit
-
-    override suspend fun remove(ids: Collection<String>) = Unit
-
-    override suspend fun clear() = Unit
-}
-
 @Singleton
 class RoomBackedWebDavLocalChangeJournalStore
     @Inject
     constructor(
         private val dao: WebDavLocalChangeJournalDao,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : WebDavLocalChangeJournalStore {
         override val incrementalSyncEnabled: Boolean = true
 
         override suspend fun read(): Map<String, WebDavLocalChangeJournalEntry> =
-            dao.getAll().associate { entity -> entity.id to entity.toModel() }
+            dao.getAll(activeGeneration()).associate { entity -> entity.id to entity.toModel() }
 
         override suspend fun upsert(entry: WebDavLocalChangeJournalEntry) {
-            dao.upsert(entry.toEntity())
+            dao.upsert(entry.toEntity(activeGeneration()))
         }
 
         override suspend fun remove(ids: Collection<String>) {
             if (ids.isEmpty()) return
-            dao.deleteByIds(ids)
+            dao.deleteByIds(ids = ids, workspaceGeneration = activeGeneration())
         }
 
         override suspend fun clear() {
-            dao.clearAll()
+            dao.clearAll(activeGeneration())
         }
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
 interface WebDavLocalChangeRecorder {
@@ -97,20 +89,6 @@ interface WebDavLocalChangeRecorder {
     suspend fun recordVoiceUpsert(filename: String)
 
     suspend fun recordVoiceDelete(filename: String)
-}
-
-object NoOpWebDavLocalChangeRecorder : WebDavLocalChangeRecorder {
-    override suspend fun recordMemoUpsert(filename: String) = Unit
-
-    override suspend fun recordMemoDelete(filename: String) = Unit
-
-    override suspend fun recordImageUpsert(filename: String) = Unit
-
-    override suspend fun recordImageDelete(filename: String) = Unit
-
-    override suspend fun recordVoiceUpsert(filename: String) = Unit
-
-    override suspend fun recordVoiceDelete(filename: String) = Unit
 }
 
 @Singleton
@@ -167,8 +145,9 @@ internal interface WebDavIncrementalSyncBindingsModule {
     fun bindWebDavLocalChangeRecorder(impl: DefaultWebDavLocalChangeRecorder): WebDavLocalChangeRecorder
 }
 
-private fun WebDavLocalChangeJournalEntry.toEntity(): WebDavLocalChangeJournalEntity =
+private fun WebDavLocalChangeJournalEntry.toEntity(workspaceGeneration: String): WebDavLocalChangeJournalEntity =
     WebDavLocalChangeJournalEntity(
+        workspaceGeneration = workspaceGeneration,
         id = id,
         kind = kind.name,
         filename = filename,

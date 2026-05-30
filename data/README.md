@@ -82,8 +82,9 @@ Start in:
 - `MemoVersionJournal`
 - `MemoVersionJournalAppendSupport`
 - `MemoVersionJournalPreviewSupport`
-- `MemoVersionJournalRestoreSupport`
-- `RoomMemoVersionStore`
+- `RestoreMemoRevisionMutationDelegate` for lifecycle/outbox restore execution
+- `MemoVersionRepositoryImpl` and `RoomMemoVersionStore` for version history, blobs,
+  queries, and restore snapshot handoff
 
 ### Workspace path or media issue
 

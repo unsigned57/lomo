@@ -11,6 +11,8 @@ sealed interface AppUpdateInstallState {
 
     data object Installing : AppUpdateInstallState
 
+    data object WaitingForInstallerResult : AppUpdateInstallState
+
     data object Completed : AppUpdateInstallState
 
     data class RequiresInstallPermission(

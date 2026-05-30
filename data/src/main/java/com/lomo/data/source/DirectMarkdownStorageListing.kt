@@ -1,6 +1,9 @@
 package com.lomo.data.source
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -51,6 +54,21 @@ internal suspend fun directListMetadataWithIds(rootDir: File): List<FileMetadata
         )
     }
 
+internal fun directStreamMetadataWithIds(rootDir: File): Flow<FileMetadataWithId> =
+    flow {
+        walkMainMarkdownFiles(rootDir).forEach { file ->
+            val filename = file.relativeLomoPath(rootDir)
+            emit(
+                FileMetadataWithId(
+                    filename = filename,
+                    lastModified = file.lastModified(),
+                    documentId = filename,
+                    uriString = file.absolutePath,
+                ),
+            )
+        }
+    }.flowOn(Dispatchers.IO)
+
 internal suspend fun directListTrashMetadataWithIds(rootDir: File): List<FileMetadataWithId> {
     val trashDir = directTrashDir(rootDir)
     return directListTrashMetadata(rootDir).map {
@@ -61,6 +79,22 @@ internal suspend fun directListTrashMetadataWithIds(rootDir: File): List<FileMet
             uriString = File(trashDir, it.filename).absolutePath,
         )
     }
+}
+
+internal fun directStreamTrashMetadataWithIds(rootDir: File): Flow<FileMetadataWithId> {
+    val trashDir = directTrashDir(rootDir)
+    return flow {
+        walkTrashMarkdownFiles(rootDir).forEach { file ->
+            emit(
+                FileMetadataWithId(
+                    filename = file.name,
+                    lastModified = file.lastModified(),
+                    documentId = file.name,
+                    uriString = File(trashDir, file.name).absolutePath,
+                ),
+            )
+        }
+    }.flowOn(Dispatchers.IO)
 }
 
 internal suspend fun directGetFileMetadata(

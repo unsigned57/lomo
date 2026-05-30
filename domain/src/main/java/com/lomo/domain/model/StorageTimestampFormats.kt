@@ -42,6 +42,7 @@ object StorageTimestampFormats {
 
     fun parseOrNull(raw: String): LocalTime? =
         parseFormatters.firstNotNullOfOrNull { formatter ->
+            // behavior-contract: silent-result-ok: format mismatch is expected; loop tries next
             runCatching { LocalTime.parse(raw, formatter) }.getOrNull()
         }
 
@@ -71,6 +72,7 @@ object StorageTimestampFormats {
         afterDash: String,
     ): ParsedMemoHeader? {
         val position = ParsePosition(0)
+        // behavior-contract: silent-result-ok: parse-with-position null+pos=0 is the no-match signal
         val parsed = runCatching { formatter.parse(afterDash, position) }.getOrNull()
         val end = position.index
         if (parsed == null || end <= 0) {

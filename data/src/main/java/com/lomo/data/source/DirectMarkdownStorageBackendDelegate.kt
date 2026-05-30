@@ -1,6 +1,7 @@
 package com.lomo.data.source
 
 import android.net.Uri
+import kotlinx.coroutines.flow.Flow
 import java.io.File
 
 internal class DirectMarkdownStorageBackendDelegate(
@@ -18,6 +19,13 @@ internal class DirectMarkdownStorageBackendDelegate(
             directory = directory,
             onMain = { directListMetadataWithIds(rootDir) },
             onTrash = { directListTrashMetadataWithIds(rootDir) },
+        )
+
+    override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directStreamMetadataWithIds(rootDir) },
+            onTrash = { directStreamTrashMetadataWithIds(rootDir) },
         )
 
     override suspend fun getFileMetadataIn(
@@ -48,6 +56,16 @@ internal class DirectMarkdownStorageBackendDelegate(
             directory = directory,
             onMain = { directReadFile(rootDir, documentId) },
             onTrash = { directReadTrashFile(rootDir, documentId) },
+        )
+
+    override fun streamFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): Flow<String> =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directStreamFile(rootDir, documentId) },
+            onTrash = { directStreamTrashFile(rootDir, documentId) },
         )
 
     override suspend fun readFile(uri: Uri): String? = directReadFileUri(uri)

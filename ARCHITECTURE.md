@@ -45,7 +45,7 @@ This document is the stable architecture entrypoint for the repository. It descr
 
 ## Enforcement
 
-- `AGENTS.md` carries the AI workflow and hard boundaries.
+- `AGENTS.md` carries the AI workflow and architecture gate.
 - `quality/detekt-rules` enforces repository-specific architecture rules.
 - `quality/README.md` is the verification entrypoint for build, lint, detekt, coverage, and quality scripts.
 

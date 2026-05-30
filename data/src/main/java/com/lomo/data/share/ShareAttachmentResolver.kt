@@ -147,6 +147,7 @@ internal class ShareAttachmentResolver(
     }
 
     private fun findFileInTree(treeUriString: String): DocumentFile? =
+        // behavior-contract: silent-result-ok: revoked SAF → null signals "tree unavailable"
         runCatching {
             DocumentFile.fromTreeUri(context, treeUriString.toUri())
         }.getOrNull()
@@ -161,6 +162,7 @@ internal class ShareAttachmentResolver(
                 ?.length()
                 ?.coerceAtLeast(0L)
         val descriptorSize =
+            // behavior-contract: silent-result-ok: openAssetFileDescriptor may throw; caller falls to other sizes
             runCatching {
                 context.contentResolver.openAssetFileDescriptor(uri, READ_MODE)?.use { descriptor ->
                     descriptor.length.takeIf { it >= 0L }
@@ -170,6 +172,7 @@ internal class ShareAttachmentResolver(
     }
 
     private fun queryAttachmentSize(uri: Uri): Long? =
+        // behavior-contract: silent-result-ok: ContentResolver.query may throw; caller falls to other size sources
         runCatching {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
                 val index = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -193,6 +196,7 @@ internal class ShareAttachmentResolver(
         }
 
         val mime =
+            // behavior-contract: silent-result-ok: getType may throw on revoked providers; null falls to heuristic
             runCatching {
                 context.contentResolver.getType(uri)?.lowercase(java.util.Locale.ROOT)
             }.getOrNull()

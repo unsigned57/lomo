@@ -13,10 +13,6 @@ interface S3SyncTransactionRunner {
     suspend fun <T> runInTransaction(block: suspend () -> T): T
 }
 
-object NoOpS3SyncTransactionRunner : S3SyncTransactionRunner {
-    override suspend fun <T> runInTransaction(block: suspend () -> T): T = block()
-}
-
 @Singleton
 class RoomBackedS3SyncTransactionRunner
     @Inject

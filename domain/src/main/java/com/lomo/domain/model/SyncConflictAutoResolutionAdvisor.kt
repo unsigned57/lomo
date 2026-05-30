@@ -1,16 +1,14 @@
 package com.lomo.domain.model
 
-object SyncConflictAutoResolutionAdvisor {
-    private const val MUCH_NEWER_THRESHOLD_MS = 5 * 60 * 1000L
+private const val MUCH_NEWER_THRESHOLD_MS = 5 * 60 * 1000L
 
+object SyncConflictAutoResolutionAdvisor {
     fun suggestedChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
-        if (file.reviewState == SyncConflictFileReviewState.BLOCKED) return null
         val safeChoice = safeAutoResolutionChoice(file)
         return safeChoice ?: newerSideChoice(file)
     }
 
     fun safeAutoResolutionChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
-        if (file.reviewState == SyncConflictFileReviewState.BLOCKED) return null
         if (file.isBinary) return null
 
         val localContent = file.localContent.orEmpty()
@@ -56,6 +54,61 @@ object SyncConflictAutoResolutionAdvisor {
         return when {
             localTimestamp - remoteTimestamp >= MUCH_NEWER_THRESHOLD_MS -> SyncConflictResolutionChoice.KEEP_LOCAL
             remoteTimestamp - localTimestamp >= MUCH_NEWER_THRESHOLD_MS -> SyncConflictResolutionChoice.KEEP_REMOTE
+            else -> null
+        }
+    }
+}
+
+object SyncReviewAutoResolutionAdvisor {
+    fun suggestedChoice(item: SyncReviewItem): SyncReviewResolutionChoice? =
+        safeAutoResolutionChoice(item) ?: newerSideChoice(item)
+
+    fun safeAutoResolutionChoice(item: SyncReviewItem): SyncReviewResolutionChoice? {
+        if (item.isBinary) return null
+
+        val localContent = item.localContent.orEmpty()
+        val incomingContent = item.incomingContent.orEmpty()
+        val normalizedLocal = localContent.trim()
+        val normalizedIncoming = incomingContent.trim()
+        val newerSideChoice = newerSideChoice(item)
+        val mergeChoice =
+            mergedText(item)
+                ?.takeIf { mergedText ->
+                    mergedText.trim() != normalizedLocal && mergedText.trim() != normalizedIncoming
+                }?.let { SyncReviewResolutionChoice.MERGE_TEXT }
+
+        return when {
+            normalizedLocal == normalizedIncoming -> newerSideChoice ?: SyncReviewResolutionChoice.KEEP_INCOMING
+            normalizedLocal.isBlank() && normalizedIncoming.isBlank() ->
+                newerSideChoice ?: SyncReviewResolutionChoice.KEEP_INCOMING
+
+            normalizedLocal.isBlank() -> SyncReviewResolutionChoice.KEEP_INCOMING
+            normalizedIncoming.isBlank() -> SyncReviewResolutionChoice.KEEP_LOCAL
+            normalizedIncoming.contains(normalizedLocal) -> SyncReviewResolutionChoice.KEEP_INCOMING
+            normalizedLocal.contains(normalizedIncoming) -> SyncReviewResolutionChoice.KEEP_LOCAL
+            mergeChoice != null -> mergeChoice
+            else -> null
+        }
+    }
+
+    fun mergedText(item: SyncReviewItem): String? =
+        if (item.isBinary) {
+            null
+        } else {
+            SyncConflictTextMerge.merge(
+                localText = item.localContent,
+                remoteText = item.incomingContent,
+                localLastModified = item.localLastModified,
+                remoteLastModified = item.incomingLastModified,
+            )
+        }
+
+    private fun newerSideChoice(item: SyncReviewItem): SyncReviewResolutionChoice? {
+        val localTimestamp = item.localLastModified ?: return null
+        val incomingTimestamp = item.incomingLastModified ?: return null
+        return when {
+            localTimestamp - incomingTimestamp >= MUCH_NEWER_THRESHOLD_MS -> SyncReviewResolutionChoice.KEEP_LOCAL
+            incomingTimestamp - localTimestamp >= MUCH_NEWER_THRESHOLD_MS -> SyncReviewResolutionChoice.KEEP_INCOMING
             else -> null
         }
     }

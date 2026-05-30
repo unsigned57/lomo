@@ -4,14 +4,13 @@ import com.lomo.data.local.dao.WebDavLocalFingerprintDao
 import com.lomo.data.local.entity.WebDavLocalFingerprintEntity
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteResource
+import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 data class WebDavLocalFingerprintKey(
     val path: String,
@@ -30,61 +29,15 @@ interface WebDavLocalFingerprintCache {
     suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>)
 }
 
-object DisabledWebDavLocalFingerprintCache : WebDavLocalFingerprintCache {
-    override suspend fun get(key: WebDavLocalFingerprintKey): String? = null
-
-    override suspend fun put(
-        key: WebDavLocalFingerprintKey,
-        fingerprint: String,
-    ) = Unit
-
-    override suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>) = Unit
-}
-
-class InMemoryWebDavLocalFingerprintCache : WebDavLocalFingerprintCache {
-    private val mutex = Mutex()
-    private val entries = linkedMapOf<String, WebDavLocalFingerprintEntity>()
-
-    override suspend fun get(key: WebDavLocalFingerprintKey): String? =
-        mutex.withLock {
-            entries[key.path]
-                ?.takeIf { entity ->
-                    entity.lastModified == key.lastModified &&
-                        entity.size == key.size
-                }?.fingerprint
-        }
-
-    override suspend fun put(
-        key: WebDavLocalFingerprintKey,
-        fingerprint: String,
-    ) {
-        mutex.withLock {
-            entries[key.path] =
-                WebDavLocalFingerprintEntity(
-                    path = key.path,
-                    lastModified = key.lastModified,
-                    size = key.size,
-                    fingerprint = fingerprint,
-                )
-        }
-    }
-
-    override suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>) {
-        val validPaths = validKeys.mapTo(linkedSetOf(), WebDavLocalFingerprintKey::path)
-        mutex.withLock {
-            entries.keys.retainAll(validPaths)
-        }
-    }
-}
-
 @Singleton
 class RoomBackedWebDavLocalFingerprintCache
     @Inject
     constructor(
         private val dao: WebDavLocalFingerprintDao,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : WebDavLocalFingerprintCache {
         override suspend fun get(key: WebDavLocalFingerprintKey): String? =
-            dao.getByPath(key.path)
+            dao.getByPath(path = key.path, workspaceGeneration = activeGeneration())
                 ?.takeIf { entity ->
                     entity.lastModified == key.lastModified &&
                         entity.size == key.size
@@ -96,6 +49,7 @@ class RoomBackedWebDavLocalFingerprintCache
         ) {
             dao.upsert(
                 WebDavLocalFingerprintEntity(
+                    workspaceGeneration = activeGeneration(),
                     path = key.path,
                     lastModified = key.lastModified,
                     size = key.size,
@@ -106,8 +60,10 @@ class RoomBackedWebDavLocalFingerprintCache
 
         override suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>) {
             val validPaths = validKeys.mapTo(linkedSetOf(), WebDavLocalFingerprintKey::path)
-            dao.deleteExcept(validPaths)
+            dao.deleteExcept(paths = validPaths, workspaceGeneration = activeGeneration())
         }
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
 @Singleton

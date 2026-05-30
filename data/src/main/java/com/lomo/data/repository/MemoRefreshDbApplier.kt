@@ -10,6 +10,9 @@ import com.lomo.data.local.dao.ROOM_MAX_BIND_PARAMETER_COUNT
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
+import com.lomo.data.local.projection.ActiveMemoProjection
+import com.lomo.data.local.projection.MemoProjectionProjector
+import com.lomo.data.local.projection.TrashMemoProjection
 import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.model.MemoRevisionLifecycleState
 
@@ -56,18 +59,28 @@ class MemoRefreshDbApplier(
         origin: MemoRevisionOrigin,
     ) {
         val deduplicatedMainMemos = deduplicateMemos(parseResult.mainMemos)
-        val filteredTrashMemos = filterTrashMemos(parseResult.trashMemos, deduplicatedMainMemos)
-        val mainIds = deduplicatedMainMemos.map { it.id }.toSet()
+        val mainProjections =
+            deduplicatedMainMemos.map { entity ->
+                MemoProjectionProjector.projectActive(entity.toDomain())
+            }
+        val projectedMainMemos = mainProjections.map { projection -> projection.entity }
+        val filteredTrashMemos = filterTrashMemos(parseResult.trashMemos, projectedMainMemos)
+        val trashProjections =
+            filteredTrashMemos.map { entity ->
+                MemoProjectionProjector.projectTrash(entity.toDomain())
+            }
+        val projectedTrashMemos = trashProjections.map { projection -> projection.entity }
+        val mainIds = projectedMainMemos.map { it.id }.toSet()
 
         pruneStaleMemos(
             parseResult = parseResult,
-            deduplicatedMainMemos = deduplicatedMainMemos,
-            filteredTrashMemos = filteredTrashMemos,
+            deduplicatedMainMemos = projectedMainMemos,
+            filteredTrashMemos = projectedTrashMemos,
         )
 
         deleteConflictingTrash(mainIds)
-        persistMainMemos(deduplicatedMainMemos)
-        persistTrashMemos(filteredTrashMemos)
+        persistMainMemos(mainProjections)
+        persistTrashMemos(trashProjections)
         upsertMetadata(parseResult.metadataToUpdate)
         filesToDeleteInDb.forEach { (filename, isTrash) ->
             deleteFileRecords(filename, isTrash)
@@ -76,7 +89,7 @@ class MemoRefreshDbApplier(
             changes =
                 buildImportedChanges(
                     previousStates = previousStates,
-                    currentStates = buildCurrentStates(deduplicatedMainMemos, filteredTrashMemos),
+                    currentStates = buildCurrentStates(projectedMainMemos, projectedTrashMemos),
                 ),
             origin = origin,
         )
@@ -130,20 +143,20 @@ class MemoRefreshDbApplier(
         }
     }
 
-    private suspend fun persistMainMemos(memos: List<MemoEntity>) {
-        if (memos.isEmpty()) {
+    private suspend fun persistMainMemos(projections: List<ActiveMemoProjection>) {
+        if (projections.isEmpty()) {
             return
         }
 
-        memoWriteDao.insertMemos(memos)
-        memoTagDao.replaceTagRefsForMemos(memos)
-        memoImageDao.replaceImageRefsForMemos(memos)
+        memoWriteDao.insertMemos(projections.map { projection -> projection.entity })
+        memoTagDao.replaceTagRefsForMemos(projections)
+        memoImageDao.replaceImageRefsForMemos(projections)
     }
 
-    private suspend fun persistTrashMemos(memos: List<TrashMemoEntity>) {
-        if (memos.isNotEmpty()) {
-            memoTrashDao.insertTrashMemos(memos)
-            memoImageDao.replaceImageRefsForTrashMemos(memos)
+    private suspend fun persistTrashMemos(projections: List<TrashMemoProjection>) {
+        if (projections.isNotEmpty()) {
+            memoTrashDao.insertTrashMemos(projections.map { projection -> projection.entity })
+            memoImageDao.replaceImageRefsForTrashMemos(projections)
         }
     }
 

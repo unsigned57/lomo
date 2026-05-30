@@ -27,7 +27,7 @@ import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.testing.fakes.FakeFileDataSource
@@ -56,6 +56,7 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 /*
  * Behavior Contract:
@@ -155,7 +156,10 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
 
             val result = executor.performSync()
 
-            val success = result as S3SyncResult.Success
+            val success =
+                withClue(result.toString()) {
+                    result.shouldBeInstanceOf<S3SyncResult.Success>()
+                }
             success.message shouldBe "S3 sync completed"
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(
                     S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY,
@@ -178,7 +182,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
 
             val result = executor.performSync()
 
-            (result is S3SyncResult.Conflict).shouldBeTrue()
+            (result is S3SyncResult.Review).shouldBeTrue()
             withClue("Expected local scan and remote listing to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 2).shouldBeTrue() }
         }
 
@@ -201,7 +205,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
 
             val result = executor.performSync()
 
-            (result is S3SyncResult.Conflict).shouldBeTrue()
+            (result is S3SyncResult.Review).shouldBeTrue()
             withClue("Expected local scan, remote listing, and metadata load to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 3).shouldBeTrue() }
         }
 
@@ -320,7 +324,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                     payloads =
                         mapOf(
                             memoRemotePath to
-                                S3RemoteObjectPayload(
+                                S3SmallObjectPayload(
                                     key = memoRemotePath,
                                     eTag = "etag-note",
                                     lastModified = 30L,
@@ -367,7 +371,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                         payloads =
                             mapOf(
                                 imagePath to
-                                    S3RemoteObjectPayload(
+                                    S3SmallObjectPayload(
                                         key = imagePath,
                                         eTag = "etag-image",
                                         lastModified = 40L,
@@ -436,7 +440,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
                         payloads =
                             mapOf(
                                 imagePath to
-                                    S3RemoteObjectPayload(
+                                    S3SmallObjectPayload(
                                         key = imagePath,
                                         eTag = "etag-image",
                                         lastModified = 40L,
@@ -495,11 +499,13 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
             encodingSupport = encodingSupport,
             fileBridge = fileBridge,
             actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            lifecycleRunner = testRemoteSyncLifecycleRunner(),
             protocolStateStore = DisabledS3SyncProtocolStateStore,
             localChangeJournalStore = DisabledS3LocalChangeJournalStore,
             remoteIndexStore = DisabledS3RemoteIndexStore,
             remoteShardStateStore = DisabledS3RemoteShardStateStore,
-            pendingConflictStore = DisabledPendingSyncConflictStore,
+            pendingConflictStore = InMemoryPendingSyncConflictStore(),
+            pendingReviewStore = InMemoryPendingSyncReviewStore(),
         )
     }
 }
@@ -606,11 +612,11 @@ private class ParallelUploadProbeClient : LomoS3Client {
         maxKeys: Int?,
     ): List<S3RemoteObject> = emptyList()
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         error("getObject should not be used in upload-only test")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -632,6 +638,30 @@ private class ParallelUploadProbeClient : LomoS3Client {
             inFlightUploads.decrementAndGet()
         }
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -658,11 +688,11 @@ private class ParallelListingProbeClient(
         )
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         error("getObject should not be used in parallel listing test")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -670,6 +700,30 @@ private class ParallelListingProbeClient(
     ): S3PutObjectResult {
         error("putObject should not be used in parallel listing test")
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -713,11 +767,11 @@ private class ParallelPagedListingProbeClient(
         }
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         error("getObject should not be used in paged listing test")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -726,6 +780,30 @@ private class ParallelPagedListingProbeClient(
         error("putObject should not be used in paged listing test")
     }
 
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
+
     override suspend fun deleteObject(key: String) = Unit
 
     override fun close() = Unit
@@ -733,7 +811,7 @@ private class ParallelPagedListingProbeClient(
 
 private class DownloadOnlyClient(
     private val remoteObjects: List<S3RemoteObject>,
-    private val payloads: Map<String, S3RemoteObjectPayload>,
+    private val payloads: Map<String, S3SmallObjectPayload>,
 ) : LomoS3Client {
     override suspend fun verifyAccess(prefix: String) = Unit
 
@@ -742,9 +820,9 @@ private class DownloadOnlyClient(
         maxKeys: Int?,
     ): List<S3RemoteObject> = remoteObjects
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload = requireNotNull(payloads[key])
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload = requireNotNull(payloads[key])
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -752,6 +830,30 @@ private class DownloadOnlyClient(
     ): S3PutObjectResult {
         error("putObject should not be used in download-only test")
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -769,16 +871,40 @@ private class StaticListingClient(
         maxKeys: Int?,
     ): List<S3RemoteObject> = remoteObjects
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         error("getObject should not be used in incremental upload test")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
     ): S3PutObjectResult = S3PutObjectResult(eTag = requireNotNull(uploadedEtags[key]))
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) = Unit
 

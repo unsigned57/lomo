@@ -36,7 +36,7 @@ package com.lomo.domain.usecase
 
 
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -49,10 +49,10 @@ import kotlinx.coroutines.test.runTest
  * - Excludes: sync engine behavior, refresh ordering, and repository internals already covered elsewhere.
  */
 class RefreshMemosUseCaseTest : DomainFunSpec() {
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val syncAndRebuildUseCase =
         SyncAndRebuildUseCase(
-            memoRepository = memoRepository,
+            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
             syncProviderRegistry = SyncProviderRegistry(emptyList()),
             syncPolicyRepository = FakeSyncPolicyRepository(),
         )
