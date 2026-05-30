@@ -40,6 +40,14 @@ class MemoEntitySerializationTest : DataFunSpec() {
         test("toDomain keeps reading legacy csv text") { `toDomain keeps reading legacy csv text`() }
 
         test("trash memo entity uses the same list serialization strategy") { `trash memo entity uses the same list serialization strategy`() }
+
+        test("decodeStoredMemoStringList fallback parses JSON arrays with commas and escapes correctly") {
+            `decodeStoredMemoStringList fallback parses JSON arrays with commas and escapes correctly`()
+        }
+
+        test("decodeStoredMemoStringList fallback handles empty or single quotes correctly") {
+            `decodeStoredMemoStringList fallback handles empty or single quotes correctly`()
+        }
     }
 
 
@@ -124,5 +132,30 @@ class MemoEntitySerializationTest : DataFunSpec() {
         entity.imageUrls shouldBe """["folder,part/image.png"]"""
         restored.tags shouldBe listOf("travel")
         restored.imageUrls shouldBe listOf("folder,part/image.png")
+     }
+
+    private fun `decodeStoredMemoStringList fallback parses JSON arrays with commas and escapes correctly`() {
+        // Standard JSON array parsing
+        decodeStoredMemoStringList("""["travel","life"]""") shouldBe listOf("travel", "life")
+
+        // Element with comma
+        decodeStoredMemoStringList("""["tag,with,comma","travel"]""") shouldBe listOf("tag,with,comma", "travel")
+
+        // Escaped quote
+        decodeStoredMemoStringList("""["tag\"with\"quote","travel"]""") shouldBe listOf("tag\"with\"quote", "travel")
+
+        // Leading/trailing whitespaces
+        decodeStoredMemoStringList("""  [ "travel" , "life" ]  """) shouldBe listOf("travel", "life")
+    }
+
+    private fun `decodeStoredMemoStringList fallback handles empty or single quotes correctly`() {
+        // Empty array
+        decodeStoredMemoStringList("[]") shouldBe emptyList()
+
+        // Array with empty string
+        decodeStoredMemoStringList("""[""]""") shouldBe listOf("")
+
+        // Non-JSON legacy CSV split
+        decodeStoredMemoStringList("travel,life") shouldBe listOf("travel", "life")
     }
 }
