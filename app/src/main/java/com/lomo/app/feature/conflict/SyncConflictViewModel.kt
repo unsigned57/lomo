@@ -2,17 +2,15 @@ package com.lomo.app.feature.conflict
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
-import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.supportsDeferredConflictResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
-import com.lomo.domain.usecase.SyncConflictResolutionResult
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
+import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
-import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +24,7 @@ class SyncConflictViewModel
     @Inject
     constructor(
         private val syncConflictResolutionUseCase: SyncConflictResolutionUseCase,
+        private val syncReviewResolutionUseCase: SyncReviewResolutionUseCase,
         private val backupSyncConflictFilesUseCase: BackupSyncConflictFilesUseCase,
     ) : ViewModel() {
         private val _state = MutableStateFlow<SyncConflictDialogState>(SyncConflictDialogState.Hidden)
@@ -36,6 +35,18 @@ class SyncConflictViewModel
                 SyncConflictDialogState.Showing(
                     conflictSet = conflictSet,
                     perFileChoices = buildSuggestedChoices(conflictSet),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
+        }
+
+        fun showReviewDialog(review: SyncReviewSession) {
+            val blockedPaths = review.blockedPaths()
+            _state.value =
+                SyncConflictDialogState.ReviewShowing(
+                    reviewSession = review,
+                    perItemChoices = buildReviewSuggestedChoices(review, blockedPaths),
+                    blockedPaths = blockedPaths,
                     expandedFilePath = null,
                     isResolving = false,
                 )
@@ -58,6 +69,19 @@ class SyncConflictViewModel
             }
         }
 
+        fun setReviewItemChoice(
+            path: String,
+            choice: SyncReviewResolutionChoice,
+        ) {
+            _state.update { current ->
+                if (current is SyncConflictDialogState.ReviewShowing && path !in current.blockedPaths) {
+                    current.copy(perItemChoices = (current.perItemChoices + (path to choice)).toImmutableMap())
+                } else {
+                    current
+                }
+            }
+        }
+
         fun setAllChoices(choice: SyncConflictResolutionChoice) {
             _state.update { current ->
                 if (current is SyncConflictDialogState.Showing) {
@@ -72,129 +96,124 @@ class SyncConflictViewModel
             }
         }
 
-        fun acceptSuggestedChoices() {
+        fun setAllReviewItemChoices(choice: SyncReviewResolutionChoice) {
             _state.update { current ->
-                if (current is SyncConflictDialogState.Showing) {
-                    current.copy(
-                        perFileChoices =
-                            (current.perFileChoices + buildSuggestedChoices(current.conflictSet)).toImmutableMap(),
-                    )
+                if (current is SyncConflictDialogState.ReviewShowing) {
+                    val allChoices =
+                        current.reviewSession.items
+                            .filterNot { it.relativePath in current.blockedPaths }
+                            .associate { it.relativePath to choice }
+                            .toImmutableMap()
+                    current.copy(perItemChoices = allChoices)
                 } else {
                     current
+                }
+            }
+        }
+
+        fun acceptSuggestedChoices() {
+            _state.update { current ->
+                when (current) {
+                    is SyncConflictDialogState.Showing ->
+                        current.copy(
+                            perFileChoices =
+                                (current.perFileChoices + buildSuggestedChoices(current.conflictSet)).toImmutableMap(),
+                        )
+
+                    is SyncConflictDialogState.ReviewShowing ->
+                        current.copy(
+                            perItemChoices =
+                                (
+                                    current.perItemChoices +
+                                        buildReviewSuggestedChoices(current.reviewSession, current.blockedPaths)
+                                ).toImmutableMap(),
+                        )
+
+                    SyncConflictDialogState.Hidden -> current
                 }
             }
         }
 
         fun autoResolveSafeConflicts() {
             val current = _state.value
-            if (current !is SyncConflictDialogState.Showing || current.isResolving) return
+            when (current) {
+                is SyncConflictDialogState.Showing ->
+                    current.safeAutoResolveChoices()?.let { choices ->
+                        _state.value = current.copy(perFileChoices = choices)
+                        applyResolution()
+                    }
 
-            val safeChoices = buildSafeChoices(current.conflictSet)
-            if (safeChoices.isEmpty()) return
+                is SyncConflictDialogState.ReviewShowing ->
+                    current.safeAutoResolveChoices()?.let { choices ->
+                        _state.value = current.copy(perItemChoices = choices)
+                        applyResolution()
+                    }
 
-            val supportsSkip = current.conflictSet.source.supportsDeferredConflictResolution()
-            if (!supportsSkip && safeChoices.size != current.conflictSet.files.size) return
-
-            val resolvedChoices =
-                current.conflictSet.files.associate { file ->
-                    file.relativePath to
-                        (
-                            safeChoices[file.relativePath]
-                                ?: SyncConflictResolutionChoice.SKIP_FOR_NOW
-                            )
-                }.toImmutableMap()
-
-            _state.value = current.copy(perFileChoices = resolvedChoices)
-            applyResolution()
+                SyncConflictDialogState.Hidden -> Unit
+            }
         }
 
         fun toggleExpandedFile(path: String) {
             _state.update { current ->
-                if (current is SyncConflictDialogState.Showing) {
-                    current.copy(
-                        expandedFilePath = if (current.expandedFilePath == path) null else path,
-                    )
-                } else {
-                    current
+                when (current) {
+                    is SyncConflictDialogState.Showing ->
+                        current.copy(expandedFilePath = if (current.expandedFilePath == path) null else path)
+
+                    is SyncConflictDialogState.ReviewShowing ->
+                        current.copy(expandedFilePath = if (current.expandedFilePath == path) null else path)
+
+                    SyncConflictDialogState.Hidden -> current
                 }
             }
         }
 
         fun applyResolution() {
             val current = _state.value
-            if (current !is SyncConflictDialogState.Showing || current.isResolving) return
+            if (current == SyncConflictDialogState.Hidden || current.isResolving()) return
 
-            _state.value = current.copy(isResolving = true)
+            _state.value = current.withResolving(true)
 
             viewModelScope.launch {
                 runCatching {
-                    val filesToBackup =
-                        current.conflictSet.files.filter { file ->
-                            current.perFileChoices[file.relativePath] != SyncConflictResolutionChoice.SKIP_FOR_NOW
-                        }
-                    backupSyncConflictFilesUseCase(
-                        files = filesToBackup,
-                        localFileReader = { null },
-                    )
-                    when (
-                        val result =
-                            syncConflictResolutionUseCase.resolve(
-                        conflictSet = current.conflictSet,
-                        resolution = SyncConflictResolution(current.perFileChoices),
-                    )
-                    ) {
-                        SyncConflictResolutionResult.Resolved -> {
-                            _state.value = SyncConflictDialogState.Hidden
-                        }
-
-                        is SyncConflictResolutionResult.Pending -> {
-                            val remainingChoices =
-                                current.perFileChoices
-                                    .filterKeys { path ->
-                                        result.conflictSet.files.any { file -> file.relativePath == path }
-                                    }.toImmutableMap()
+                    when (current) {
+                        is SyncConflictDialogState.Showing -> {
+                            val filesToBackup =
+                                current.conflictSet.files.filter { file ->
+                                    current.perFileChoices[file.relativePath] !=
+                                        SyncConflictResolutionChoice.SKIP_FOR_NOW
+                                }
+                            backupSyncConflictFilesUseCase(
+                                files = filesToBackup,
+                                localFileReader = { null },
+                            )
                             _state.value =
-                                SyncConflictDialogState.Showing(
-                                    conflictSet = result.conflictSet,
-                                    perFileChoices =
-                                        (buildSuggestedChoices(result.conflictSet) + remainingChoices).toImmutableMap(),
-                                    expandedFilePath = null,
-                                    isResolving = false,
+                                resolveConflictDialogState(
+                                    current = current,
+                                    useCase = syncConflictResolutionUseCase,
                                 )
                         }
+
+                        is SyncConflictDialogState.ReviewShowing ->
+                            _state.value =
+                                resolveReviewDialogState(
+                                    current = current,
+                                    useCase = syncReviewResolutionUseCase,
+                                )
+
+                        SyncConflictDialogState.Hidden -> Unit
                     }
                 }.onFailure { throwable ->
                     if (throwable is CancellationException) {
                         throw throwable
                     }
                     _state.update { state ->
-                        if (state is SyncConflictDialogState.Showing) {
-                            state.copy(isResolving = false)
-                        } else {
-                            state
+                        when (state) {
+                            is SyncConflictDialogState.Showing -> state.copy(isResolving = false)
+                            is SyncConflictDialogState.ReviewShowing -> state.copy(isResolving = false)
+                            SyncConflictDialogState.Hidden -> state
                         }
                     }
                 }
             }
         }
-
-        private fun buildSuggestedChoices(
-            conflictSet: SyncConflictSet,
-        ): ImmutableMap<String, SyncConflictResolutionChoice> =
-            conflictSet.files.mapNotNull { file ->
-                suggestedChoiceFor(file)?.let { choice -> file.relativePath to choice }
-            }.toMap().toImmutableMap()
-
-        private fun buildSafeChoices(
-            conflictSet: SyncConflictSet,
-        ): ImmutableMap<String, SyncConflictResolutionChoice> =
-            conflictSet.files.mapNotNull { file ->
-                SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(file)?.let { choice ->
-                    file.relativePath to choice
-                }
-            }.toMap().toImmutableMap()
-
-        private fun suggestedChoiceFor(
-            file: com.lomo.domain.model.SyncConflictFile,
-        ): SyncConflictResolutionChoice? = SyncConflictAutoResolutionAdvisor.suggestedChoice(file)
     }

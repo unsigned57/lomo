@@ -33,7 +33,7 @@ import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeGitSyncRepository
@@ -58,7 +58,7 @@ import kotlinx.coroutines.test.runTest
  *   - Given an S3 conflict set, when resolve returns pending, then it returns a pending resolution result and skips refresh.
  *   - Given an S3 conflict set, when resolve fails with an error, then it maps the error to S3SyncFailureException and skips refresh.
  *   - Given a NONE conflict set, when resolved, then it skips remote resolver invocation and refreshes memos directly.
- *   - Given an INBOX conflict set, when resolved successfully, then it invokes resolve on the INBOX repository and refreshes memos.
+ *   - Given an INBOX conflict set, when resolved, then review-only inbox sync rejects conflict resolution and skips refresh.
  * - Observable outcomes: thrown domain exception type and payload, resolver invocation path, and refresh invocation count.
  * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: repository implementation internals, network/filesystem behavior, and UI rendering.
@@ -69,7 +69,7 @@ class SyncConflictResolutionUseCaseTest : DomainFunSpec() {
     private val s3SyncRepository = FakeS3SyncRepository()
     private val syncInboxRepository = FakeSyncInboxRepository()
     private val preferencesRepository = FakePreferencesRepository()
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
 
     private val syncProviderRegistry =
         SyncProviderRegistry(
@@ -88,7 +88,7 @@ class SyncConflictResolutionUseCaseTest : DomainFunSpec() {
     private val useCase =
         SyncConflictResolutionUseCase(
             syncProviderRegistry = syncProviderRegistry,
-            memoRepository = memoRepository,
+            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
         )
 
     /*
@@ -235,23 +235,21 @@ class SyncConflictResolutionUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("inbox source resolves conflicts and refreshes memos on success") {
+        test("inbox source rejects conflict resolution and skips refresh") {
             runTest {
                 val conflictSet = conflictSet(SyncBackendType.INBOX)
                 val resolution = sampleResolution()
                 preferencesRepository.setSyncInboxEnabled(true)
-                syncInboxRepository.nextResolveResult = UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "resolved",
-                )
 
-                useCase.resolve(conflictSet, resolution)
+                shouldThrow<IllegalStateException> {
+                    useCase.resolve(conflictSet, resolution)
+                }
 
                 gitSyncRepository.resolveRequests.size shouldBe 0
                 webDavSyncRepository.resolveRequests.size shouldBe 0
                 s3SyncRepository.resolveRequests.size shouldBe 0
-                syncInboxRepository.resolveRequests shouldBe listOf(resolution to conflictSet)
-                memoRepository.refreshMemosCallCount shouldBe 1
+                syncInboxRepository.resolveRequests shouldBe emptyList()
+                memoRepository.refreshMemosCallCount shouldBe 0
             }
         }
     }

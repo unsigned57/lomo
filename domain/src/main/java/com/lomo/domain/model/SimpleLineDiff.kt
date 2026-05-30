@@ -7,6 +7,19 @@ package com.lomo.domain.model
 object SimpleLineDiff {
     enum class DiffOp { EQUAL, INSERT, DELETE }
 
+    sealed interface DiffResult {
+        data class Computed(
+            val hunks: List<DiffHunk>,
+        ) : DiffResult
+
+        data class TooLarge(
+            val oldLineCount: Int,
+            val newLineCount: Int,
+            val maxMatrixCells: Int,
+            val maxDiffLineCount: Int = DEFAULT_MAX_DIFF_LINE_COUNT,
+        ) : DiffResult
+    }
+
     data class DiffLine(
         val op: DiffOp,
         val text: String,
@@ -19,18 +32,82 @@ object SimpleLineDiff {
     )
 
     private const val CONTEXT_LINES = 3
+    private const val DEFAULT_MAX_MATRIX_CELLS = 250_000
+    private const val DEFAULT_MAX_DIFF_LINE_COUNT = 2_000
 
     fun diff(
         oldText: String,
         newText: String,
-    ): List<DiffHunk> {
-        if (oldText == newText) return emptyList()
+    ): List<DiffHunk> =
+        when (val result = diffResult(oldText = oldText, newText = newText)) {
+            is DiffResult.Computed -> result.hunks
+            is DiffResult.TooLarge -> emptyList()
+        }
 
+    fun diffResult(
+        oldText: String,
+        newText: String,
+        maxMatrixCells: Int = DEFAULT_MAX_MATRIX_CELLS,
+        maxDiffLineCount: Int = DEFAULT_MAX_DIFF_LINE_COUNT,
+    ): DiffResult {
+        if (oldText == newText) return DiffResult.Computed(emptyList())
         val oldLines = oldText.lines()
         val newLines = newText.lines()
+        if (
+            exceedsBudget(
+                oldLineCount = oldLines.size,
+                newLineCount = newLines.size,
+                maxMatrixCells = maxMatrixCells,
+                maxDiffLineCount = maxDiffLineCount,
+            )
+        ) {
+            return DiffResult.TooLarge(
+                oldLineCount = oldLines.size,
+                newLineCount = newLines.size,
+                maxMatrixCells = maxMatrixCells,
+                maxDiffLineCount = maxDiffLineCount,
+            )
+        }
+
         val rawDiff = computeLcs(oldLines, newLines)
-        return groupIntoHunks(rawDiff)
+        return DiffResult.Computed(groupIntoHunks(rawDiff))
     }
+
+    private fun exceedsBudget(
+        oldLineCount: Int,
+        newLineCount: Int,
+        maxMatrixCells: Int,
+        maxDiffLineCount: Int,
+    ): Boolean =
+        exceedsMatrixBudget(
+            oldLineCount = oldLineCount,
+            newLineCount = newLineCount,
+            maxMatrixCells = maxMatrixCells,
+        ) || exceedsDiffLineBudget(
+            oldLineCount = oldLineCount,
+            newLineCount = newLineCount,
+            maxDiffLineCount = maxDiffLineCount,
+        )
+
+    private fun exceedsMatrixBudget(
+        oldLineCount: Int,
+        newLineCount: Int,
+        maxMatrixCells: Int,
+    ): Boolean =
+        matrixCellCount(oldLineCount = oldLineCount, newLineCount = newLineCount) > maxMatrixCells.toLong()
+
+    private fun matrixCellCount(
+        oldLineCount: Int,
+        newLineCount: Int,
+    ): Long =
+        (oldLineCount.toLong() + 1L) * (newLineCount.toLong() + 1L)
+
+    private fun exceedsDiffLineBudget(
+        oldLineCount: Int,
+        newLineCount: Int,
+        maxDiffLineCount: Int,
+    ): Boolean =
+        oldLineCount.toLong() + newLineCount.toLong() > maxDiffLineCount.toLong()
 
     private fun computeLcs(
         oldLines: List<String>,
