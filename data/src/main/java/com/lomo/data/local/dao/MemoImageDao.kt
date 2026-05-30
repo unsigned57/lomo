@@ -4,10 +4,9 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
-import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoImageAttachmentEntity
-import com.lomo.data.local.entity.TrashMemoEntity
-import com.lomo.data.local.entity.toImageAttachmentRefs
+import com.lomo.data.local.projection.ActiveMemoProjection
+import com.lomo.data.local.projection.TrashMemoProjection
 
 @Dao
 interface MemoImageDao {
@@ -23,39 +22,39 @@ interface MemoImageDao {
     @Query("DELETE FROM MemoImageAttachment")
     suspend fun clearImageRefs()
 
-    suspend fun replaceImageRefsForMemo(memo: MemoEntity) {
-        deleteImageRefsByMemoId(memo.id)
-        val refs = memo.toImageAttachmentRefs()
+    suspend fun replaceImageRefsForMemo(projection: ActiveMemoProjection) {
+        deleteImageRefsByMemoId(projection.entity.id)
+        val refs = projection.imageRefs
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)
         }
     }
 
-    suspend fun replaceImageRefsForTrashMemo(memo: TrashMemoEntity) {
-        deleteImageRefsByMemoId(memo.id)
-        val refs = memo.toImageAttachmentRefs()
+    suspend fun replaceImageRefsForTrashMemo(projection: TrashMemoProjection) {
+        deleteImageRefsByMemoId(projection.entity.id)
+        val refs = projection.imageRefs
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)
         }
     }
 
-    suspend fun replaceImageRefsForMemos(memos: List<MemoEntity>) {
-        if (memos.isEmpty()) return
-        memos.map(MemoEntity::id).chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+    suspend fun replaceImageRefsForMemos(projections: List<ActiveMemoProjection>) {
+        if (projections.isEmpty()) return
+        projections.map { it.entity.id }.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
             deleteImageRefsByMemoIds(chunk)
         }
-        val refs = memos.asSequence().flatMap { it.toImageAttachmentRefs().asSequence() }.toList()
+        val refs = projections.asSequence().flatMap { it.imageRefs.asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)
         }
     }
 
-    suspend fun replaceImageRefsForTrashMemos(memos: List<TrashMemoEntity>) {
-        if (memos.isEmpty()) return
-        memos.map(TrashMemoEntity::id).chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+    suspend fun replaceImageRefsForTrashMemos(projections: List<TrashMemoProjection>) {
+        if (projections.isEmpty()) return
+        projections.map { it.entity.id }.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
             deleteImageRefsByMemoIds(chunk)
         }
-        val refs = memos.asSequence().flatMap { it.toImageAttachmentRefs().asSequence() }.toList()
+        val refs = projections.asSequence().flatMap { it.imageRefs.asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)
         }

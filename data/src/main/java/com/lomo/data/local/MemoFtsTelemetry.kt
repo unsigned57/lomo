@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicLong
 internal object MemoFtsTelemetry {
     private val queryCount = AtomicLong(0)
     private val emptyResultCount = AtomicLong(0)
-    private val matchSyntaxErrorCount = AtomicLong(0)
     private val autoRepairCount = AtomicLong(0)
     private val autoRepairTotalDurationMs = AtomicLong(0)
 
@@ -25,11 +24,6 @@ internal object MemoFtsTelemetry {
             queryCount.get(),
             emptyResultCount.get(),
         )
-    }
-
-    fun recordMatchSyntaxError(throwable: Throwable) {
-        val syntaxErrors = matchSyntaxErrorCount.incrementAndGet()
-        Timber.tag(TAG).w(throwable, "FTS MATCH syntax error count=%d", syntaxErrors)
     }
 
     fun recordAutoRepair(durationMs: Long) {

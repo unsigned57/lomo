@@ -15,26 +15,46 @@ data class S3RemoteShardScheduleTelemetrySnapshot(
 
 @Dao
 interface S3RemoteShardStateDao {
-    @Query("SELECT * FROM s3_remote_shard_state")
-    suspend fun getAll(): List<S3RemoteShardStateEntity>
+    @Query("SELECT * FROM s3_remote_shard_state WHERE workspace_generation = :workspaceGeneration")
+    suspend fun getAll(workspaceGeneration: String): List<S3RemoteShardStateEntity>
 
-    @Query("SELECT * FROM s3_remote_shard_state WHERE bucket_id = :bucketId")
-    suspend fun getByBucketId(bucketId: String): S3RemoteShardStateEntity?
+    @Query(
+        """
+        SELECT * FROM s3_remote_shard_state
+        WHERE workspace_generation = :workspaceGeneration AND bucket_id = :bucketId
+        """,
+    )
+    suspend fun getByBucketId(
+        bucketId: String,
+        workspaceGeneration: String,
+    ): S3RemoteShardStateEntity?
 
-    @Query("SELECT * FROM s3_remote_shard_state WHERE bucket_id IN (:bucketIds)")
-    suspend fun getByBucketIds(bucketIds: List<String>): List<S3RemoteShardStateEntity>
+    @Query(
+        """
+        SELECT * FROM s3_remote_shard_state
+        WHERE workspace_generation = :workspaceGeneration AND bucket_id IN (:bucketIds)
+        """,
+    )
+    suspend fun getByBucketIds(
+        bucketIds: List<String>,
+        workspaceGeneration: String,
+    ): List<S3RemoteShardStateEntity>
 
     @Query(
         """
         SELECT *
         FROM s3_remote_shard_state
-        WHERE relative_prefix IS NOT NULL
+        WHERE workspace_generation = :workspaceGeneration
+            AND relative_prefix IS NOT NULL
             AND (:relativePrefix = relative_prefix OR :relativePrefix LIKE relative_prefix || '/%')
         ORDER BY LENGTH(relative_prefix) DESC
         LIMIT 1
         """,
     )
-    suspend fun getMostSpecificAncestor(relativePrefix: String): S3RemoteShardStateEntity?
+    suspend fun getMostSpecificAncestor(
+        relativePrefix: String,
+        workspaceGeneration: String,
+    ): S3RemoteShardStateEntity?
 
     @Query(
         """
@@ -63,9 +83,11 @@ interface S3RemoteShardStateDao {
                 END
             ) AS hasHighVerificationUncertainty
         FROM s3_remote_shard_state
+        WHERE workspace_generation = :workspaceGeneration
         """,
     )
     suspend fun getScheduleTelemetry(
+        workspaceGeneration: String,
         now: Long,
         recentChangeWindowMs: Long,
         uncertaintyWindowMs: Long,
@@ -78,6 +100,6 @@ interface S3RemoteShardStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<S3RemoteShardStateEntity>)
 
-    @Query("DELETE FROM s3_remote_shard_state")
-    suspend fun clearAll()
+    @Query("DELETE FROM s3_remote_shard_state WHERE workspace_generation = :workspaceGeneration")
+    suspend fun clearAll(workspaceGeneration: String)
 }

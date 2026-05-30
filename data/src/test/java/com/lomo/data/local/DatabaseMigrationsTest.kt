@@ -27,9 +27,12 @@ package com.lomo.data.local
 
 
 import androidx.room3.migration.Migration
+import com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy
 import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 
 /*
  * Behavior Contract:
@@ -84,9 +87,31 @@ import io.kotest.matchers.booleans.shouldBeTrue
  */
 class DatabaseMigrationsTest : DataFunSpec() {
     init {
-        test("database version remains 55 for the current target schema") { `database version remains 55 for the current target schema`() }
+        test("database version is 60 for persisted memo statistics projection") {
+            `database version is 60 for persisted memo statistics projection`()
+        }
 
-        test("migration list includes direct 54 to 55 upgrade path") { `migration list includes direct 54 to 55 upgrade path`() }
+        test("migration list includes direct 55 to 56 upgrade path") { `migration list includes direct 55 to 56 upgrade path`() }
+
+        test("migration list includes direct 56 to 57 pending review split path") {
+            `migration list includes direct 56 to 57 pending review split path`()
+        }
+
+        test("migration list includes direct 57 to 58 content flag projection path") {
+            `migration list includes direct 57 to 58 content flag projection path`()
+        }
+
+        test("migration list includes direct 58 to 59 workspace scoped sync state path") {
+            `migration list includes direct 58 to 59 workspace scoped sync state path`()
+        }
+
+        test("migration list includes direct 59 to 60 statistics projection path") {
+            `migration list includes direct 59 to 60 statistics projection path`()
+        }
+
+        test("search content backfill rejects schema-required null memo id and content") {
+            `search content backfill rejects schema-required null memo id and content`()
+        }
 
         test("stable baseline direct migrations only cover retained released source versions") { `stable baseline direct migrations only cover retained released source versions`() }
 
@@ -106,13 +131,33 @@ class DatabaseMigrationsTest : DataFunSpec() {
 
         test("migration 54 to 55 is an explicit no-op release baseline marker") { `migration 54 to 55 is an explicit no-op release baseline marker`() }
 
+        test("migration 55 to 56 backfills durable memo outbox operation identity") {
+            `migration 55 to 56 backfills durable memo outbox operation identity`()
+        }
+
+        test("migration 56 to 57 splits pending review sessions out of pending conflict table") {
+            `migration 56 to 57 splits pending review sessions out of pending conflict table`()
+        }
+
+        test("migration 57 to 58 adds and backfills active memo content flags") {
+            `migration 57 to 58 adds and backfills active memo content flags`()
+        }
+
+        test("migration 58 to 59 clears unscoped sync state and recreates generation scoped tables") {
+            `migration 58 to 59 clears unscoped sync state and recreates generation scoped tables`()
+        }
+
+        test("migration 59 to 60 adds and backfills memo statistics projection columns") {
+            `migration 59 to 60 adds and backfills memo statistics projection columns`()
+        }
+
         test("local file state schema includes missing confirmation columns") { `local file state schema includes missing confirmation columns`() }
 
         test("migration 37 to 38 creates s3 incremental protocol and journal tables") { `migration 37 to 38 creates s3 incremental protocol and journal tables`() }
 
         test("migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index") { `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() }
 
-        test("migration 40 to 41 rebuilds s3 protocol state without manifest column") { `migration 40 to 41 rebuilds s3 protocol state without manifest column`() }
+        test("migration 40 to 41 clears unscoped s3 protocol state") { `migration 40 to 41 clears unscoped s3 protocol state`() }
 
         test("migration 41 to 42 creates s3 remote shard state table") { `migration 41 to 42 creates s3 remote shard state table`() }
 
@@ -122,7 +167,7 @@ class DatabaseMigrationsTest : DataFunSpec() {
 
         test("migration 44 to 45 adds persisted s3 metadata size and fingerprint columns") { `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() }
 
-        test("migration 45 to 46 normalizes webdav metadata with local fingerprint column") { `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() }
+        test("migration 45 to 46 clears unscoped webdav metadata") { `migration 45 to 46 clears unscoped webdav metadata`() }
 
         test("migration 29 to 30 drops retired workspace history tables") { `migration 29 to 30 drops retired workspace history tables`() }
 
@@ -144,12 +189,73 @@ class DatabaseMigrationsTest : DataFunSpec() {
     }
 
 
-    private fun `database version remains 55 for the current target schema`() {
-        MEMO_DATABASE_VERSION shouldBe 55
+    private fun `database version is 60 for persisted memo statistics projection`() {
+        MEMO_DATABASE_VERSION shouldBe 60
     }
 
-    private fun `migration list includes direct 54 to 55 upgrade path`() {
-        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 54 && it.endVersion == 55 }).shouldBeTrue()
+    private fun `migration list includes direct 55 to 56 upgrade path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 55 && it.endVersion == 56 }).shouldBeTrue()
+    }
+
+    private fun `migration list includes direct 56 to 57 pending review split path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 56 && it.endVersion == 57 }).shouldBeTrue()
+    }
+
+    private fun `migration list includes direct 57 to 58 content flag projection path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 57 && it.endVersion == 58 }).shouldBeTrue()
+    }
+
+    private fun `migration list includes direct 58 to 59 workspace scoped sync state path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 58 && it.endVersion == 59 }).shouldBeTrue()
+    }
+
+    private fun `migration list includes direct 59 to 60 statistics projection path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 59 && it.endVersion == 60 }).shouldBeTrue()
+    }
+
+    private fun `search content backfill rejects schema-required null memo id and content`() {
+        val columns = linkedSetOf("id", COLUMN_CONTENT, COLUMN_SEARCH_CONTENT)
+        val nullIdDb =
+            RecordingSQLiteConnection(
+                queryHandler = { sql, _ ->
+                    when {
+                        sql.contains("sqlite_master") -> mockCursor(true)
+                        sql.contains("PRAGMA table_info(`$MEMO_TABLE`)") -> mockColumnsCursor(columns)
+                        sql.contains("SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_SEARCH_CONTENT`") ->
+                            queryResult(
+                                "id",
+                                COLUMN_CONTENT,
+                                COLUMN_SEARCH_CONTENT,
+                                rows = listOf(rowOf(null, "visible content", "visible content")),
+                            )
+                        else -> SQLiteQueryResult.EMPTY
+                    }
+                },
+            )
+        val nullContentDb =
+            RecordingSQLiteConnection(
+                queryHandler = { sql, _ ->
+                    when {
+                        sql.contains("sqlite_master") -> mockCursor(true)
+                        sql.contains("PRAGMA table_info(`$MEMO_TABLE`)") -> mockColumnsCursor(columns)
+                        sql.contains("SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_SEARCH_CONTENT`") ->
+                            queryResult(
+                                "id",
+                                COLUMN_CONTENT,
+                                COLUMN_SEARCH_CONTENT,
+                                rows = listOf(rowOf("memo-null-content", null, "stale")),
+                            )
+                        else -> SQLiteQueryResult.EMPTY
+                    }
+                },
+            )
+
+        shouldThrow<IllegalArgumentException> {
+            backfillMemoSearchContentColumn(nullIdDb)
+        }.message shouldContain "Legacy memo id missing during search content backfill"
+        shouldThrow<IllegalArgumentException> {
+            backfillMemoSearchContentColumn(nullContentDb)
+        }.message shouldContain "Legacy memo content missing during search content backfill"
     }
 
     private fun `stable baseline direct migrations only cover retained released source versions`() {
@@ -361,6 +467,7 @@ class DatabaseMigrationsTest : DataFunSpec() {
 
     private fun `migration 52 to 53 rebuilds memo outbox operation column as integer enum`() {
         val db = RecordingSQLiteConnection()
+        var observedOperationEnumProjection = false
         val outboxColumns =
             setOf(
                 "id",
@@ -390,6 +497,16 @@ class DatabaseMigrationsTest : DataFunSpec() {
                     mockColumnsCursor(outboxColumns)
                 }
 
+                sql.contains("FROM `MemoFileOutbox_legacy_v22`") -> {
+                    observedOperationEnumProjection =
+                        sql.contains("CASE") &&
+                            sql.contains("WHEN CAST(`operation` AS TEXT) = 'CREATE' THEN 0") &&
+                            sql.contains("WHEN CAST(`operation` AS TEXT) = 'UPDATE' THEN 1") &&
+                            sql.contains("WHEN CAST(`operation` AS TEXT) = 'DELETE' THEN 2") &&
+                            sql.contains("WHEN CAST(`operation` AS TEXT) = 'RESTORE' THEN 3")
+                    SQLiteQueryResult.EMPTY
+                }
+
                 else -> {
                     mockCursor(false)
                 }
@@ -402,22 +519,21 @@ class DatabaseMigrationsTest : DataFunSpec() {
             db.execSQL(
                 match {
                     it.contains("CREATE TABLE IF NOT EXISTS `MemoFileOutbox`") &&
-                        it.contains("`operation` INTEGER NOT NULL")
+                        it.contains("`operation` INTEGER NOT NULL") &&
+                        it.contains("`operationId` TEXT NOT NULL") &&
+                        it.contains("`idempotencyKey` TEXT NOT NULL")
                 },
             )
         }
         verify {
             db.execSQL(
                 match {
-                    it.contains("INSERT OR REPLACE INTO `MemoFileOutbox`") &&
-                        it.contains("CASE") &&
-                        it.contains("WHEN CAST(`operation` AS TEXT) = 'CREATE' THEN 0") &&
-                        it.contains("WHEN CAST(`operation` AS TEXT) = 'UPDATE' THEN 1") &&
-                        it.contains("WHEN CAST(`operation` AS TEXT) = 'DELETE' THEN 2") &&
-                        it.contains("WHEN CAST(`operation` AS TEXT) = 'RESTORE' THEN 3")
+                    it.contains("CREATE UNIQUE INDEX IF NOT EXISTS `index_MemoFileOutbox_idempotencyKey`") &&
+                        it.contains("`idempotencyKey`")
                 },
             )
         }
+        observedOperationEnumProjection shouldBe true
     }
 
     private fun `migration 54 to 55 is an explicit no-op release baseline marker`() {
@@ -428,6 +544,366 @@ class DatabaseMigrationsTest : DataFunSpec() {
         db.executedStatements shouldBe emptyList()
     }
 
+    private fun `migration 55 to 56 backfills durable memo outbox operation identity`() {
+        val db = RecordingSQLiteConnection()
+        val outboxColumns =
+            setOf(
+                "id",
+                "operation",
+                "memoId",
+                "memoDate",
+                "memoTimestamp",
+                "memoRawContent",
+                "newContent",
+                "createRawContent",
+                "createdAt",
+                "updatedAt",
+                "retryCount",
+                "lastError",
+                "claimToken",
+                "claimUpdatedAt",
+            )
+        val rawContent = "- 10:00 delete me"
+        val expectedIdentity =
+            MemoFileOutboxIdentityPolicy.forDeleteToTrash(
+                memoId = "memo_1",
+                memoDate = "2026_05_25",
+                memoRawContent = rawContent,
+            )
+
+        db.queryHandler = { sql, _ ->
+            when {
+                sql.contains("sqlite_master") -> {
+                    val tableName = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
+                    mockCursor(tableName == "MemoFileOutbox")
+                }
+
+                sql.contains("PRAGMA table_info(`MemoFileOutbox`)") -> {
+                    mockColumnsCursor(outboxColumns)
+                }
+
+                sql.contains("PRAGMA index_list(`MemoFileOutbox_legacy_v22`)") -> SQLiteQueryResult.EMPTY
+
+                sql.contains("FROM `MemoFileOutbox_legacy_v22`") -> {
+                    queryResult(
+                        "id",
+                        "operation",
+                        "operationId",
+                        "idempotencyKey",
+                        "memoId",
+                        "memoDate",
+                        "memoTimestamp",
+                        "memoRawContent",
+                        "newContent",
+                        "createRawContent",
+                        "createdAt",
+                        "updatedAt",
+                        "retryCount",
+                        "lastError",
+                        "claimToken",
+                        "claimUpdatedAt",
+                        rows =
+                            listOf(
+                                rowOf(
+                                    7L,
+                                    2,
+                                    null,
+                                    null,
+                                    "memo_1",
+                                    "2026_05_25",
+                                    1_795_478_400_000L,
+                                    rawContent,
+                                    null,
+                                    null,
+                                    100L,
+                                    200L,
+                                    3,
+                                    "file failed",
+                                    "stale-claim",
+                                    300L,
+                                ),
+                            ),
+                    )
+                }
+
+                else -> SQLiteQueryResult.EMPTY
+            }
+        }
+
+        MIGRATION_55_56.migrateForTest(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `MemoFileOutbox`") &&
+                        it.contains("`operationId` TEXT NOT NULL") &&
+                        it.contains("`idempotencyKey` TEXT NOT NULL")
+                },
+            )
+        }
+        db.assertExecutedSqlWithArgs(
+            sql =
+                """
+                INSERT OR IGNORE INTO `MemoFileOutbox` (
+                    `id`,
+                    `operation`,
+                    `operationId`,
+                    `idempotencyKey`,
+                    `memoId`,
+                    `memoDate`,
+                    `memoTimestamp`,
+                    `memoRawContent`,
+                    `newContent`,
+                    `createRawContent`,
+                    `createdAt`,
+                    `updatedAt`,
+                    `retryCount`,
+                    `lastError`,
+                    `claimToken`,
+                    `claimUpdatedAt`
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            bindArgs =
+                listOf(
+                    7L,
+                    2,
+                    expectedIdentity.operationId,
+                    expectedIdentity.idempotencyKey,
+                    "memo_1",
+                    "2026_05_25",
+                    1_795_478_400_000L,
+                    rawContent,
+                    null,
+                    null,
+                    100L,
+                    200L,
+                    3,
+                    "file failed",
+                    "stale-claim",
+                    300L,
+                ),
+        )
+    }
+
+    private fun `migration 56 to 57 splits pending review sessions out of pending conflict table`() {
+        val db =
+            RecordingSQLiteConnection(
+                queryHandler = { sql, _ ->
+                    when {
+                        sql.contains("sqlite_master") -> mockCursor(sql.contains("pending_sync_conflict"))
+                        sql.contains("PRAGMA table_info(`pending_sync_conflict`)") ->
+                            mockColumnsCursor(setOf("backend", "session_kind", "timestamp", "payload_json"))
+                        else -> SQLiteQueryResult.EMPTY
+                    }
+                },
+            )
+
+        MIGRATION_56_57.migrateForTest(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `pending_sync_review`") &&
+                        it.contains("`review_kind` TEXT NOT NULL")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR REPLACE INTO `pending_sync_review`") &&
+                        it.contains("SELECT `backend`, `session_kind`, `timestamp`, `payload_json`") &&
+                        it.contains("WHERE `session_kind` != 'CONFLICT'")
+                },
+            )
+        }
+        verify {
+            db.execSQL("ALTER TABLE `pending_sync_conflict` RENAME TO `pending_sync_conflict_legacy_v56`")
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `pending_sync_conflict`") &&
+                        it.contains("`payload_json` TEXT NOT NULL") &&
+                        !it.contains("`session_kind`")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR REPLACE INTO `pending_sync_conflict`") &&
+                        it.contains("FROM `pending_sync_conflict_legacy_v56`") &&
+                        it.contains("WHERE `session_kind` = 'CONFLICT'")
+                },
+            )
+        }
+        verify {
+            db.execSQL("DROP TABLE IF EXISTS `pending_sync_conflict_legacy_v56`")
+        }
+    }
+
+    private fun `migration 57 to 58 adds and backfills active memo content flags`() {
+        val updateSql =
+            """
+            UPDATE `Lomo`
+            SET `hasTodo` = ?, `hasAttachment` = ?, `hasUrl` = ?
+            WHERE `id` = ?
+            """.trimIndent()
+        val db =
+            RecordingSQLiteConnection(
+                queryHandler = { sql, _ ->
+                    when {
+                        sql.contains("sqlite_master") -> mockCursor(true)
+                        sql.contains("PRAGMA table_info(`$MEMO_TABLE`)") ->
+                            mockColumnsCursor(setOf("id", COLUMN_CONTENT))
+
+                        sql.contains("SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_HAS_TODO`") ->
+                            mockMemoContentFlagCursor(
+                                rows =
+                                    listOf(
+                                        MemoContentFlagRow(id = "todo", content = "  -\t[x] indented task"),
+                                        MemoContentFlagRow(id = "audio", content = "[voice](voice_001.m4a)"),
+                                        MemoContentFlagRow(id = "wiki", content = "![[diagram.png]]"),
+                                        MemoContentFlagRow(id = "geo", content = "geo:31.2304,121.4737"),
+                                        MemoContentFlagRow(id = "mailto", content = "mailto:hello@example.com"),
+                                        MemoContentFlagRow(id = "email", content = "hello@example.com"),
+                                    ),
+                            )
+
+                        else -> SQLiteQueryResult.EMPTY
+                    }
+                },
+            )
+
+        MIGRATION_57_58.migrateForTest(db)
+
+        verify {
+            db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `hasTodo` INTEGER NOT NULL DEFAULT 0")
+        }
+        verify {
+            db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `hasAttachment` INTEGER NOT NULL DEFAULT 0")
+        }
+        verify {
+            db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `hasUrl` INTEGER NOT NULL DEFAULT 0")
+        }
+        db.assertExecutedSqlWithArgs(updateSql, listOf(true, false, false, "todo"))
+        db.assertExecutedSqlWithArgs(updateSql, listOf(false, true, false, "audio"))
+        db.assertExecutedSqlWithArgs(updateSql, listOf(false, true, false, "wiki"))
+        listOf("geo", "mailto", "email").forEach { memoId ->
+            db.assertExecutedSqlWithArgs(updateSql, listOf(false, false, true, memoId))
+        }
+    }
+
+    private fun `migration 58 to 59 clears unscoped sync state and recreates generation scoped tables`() {
+        val db = RecordingSQLiteConnection()
+
+        MIGRATION_58_59.migrateForTest(db)
+
+        listOf(
+            "webdav_sync_metadata",
+            "webdav_local_fingerprint",
+            "webdav_local_change_journal",
+            "s3_sync_metadata",
+            "s3_remote_index",
+            "s3_remote_shard_state",
+            "s3_sync_protocol_state",
+            "s3_local_change_journal",
+            "pending_sync_conflict",
+            "pending_sync_review",
+        ).forEach { tableName ->
+            verify(exactly = 1) {
+                db.execSQL("DROP TABLE IF EXISTS `$tableName`")
+            }
+        }
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "webdav_sync_metadata",
+            keyColumn = "relative_path",
+        )
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "s3_sync_metadata",
+            keyColumn = "relative_path",
+        )
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "s3_remote_index",
+            keyColumn = "relative_path",
+        )
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "s3_sync_protocol_state",
+            keyColumn = "id",
+        )
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "pending_sync_conflict",
+            keyColumn = "backend",
+        )
+        assertGenerationScopedCreate(
+            db = db,
+            tableName = "pending_sync_review",
+            keyColumn = "backend",
+        )
+        db.assertDidNotExecuteSql { sql ->
+            sql.contains("INSERT OR REPLACE INTO `webdav_sync_metadata`") ||
+                sql.contains("INSERT OR REPLACE INTO `s3_sync_metadata`") ||
+                sql.contains("INSERT OR REPLACE INTO `pending_sync_conflict`") ||
+                sql.contains("INSERT OR REPLACE INTO `pending_sync_review`")
+        }
+    }
+
+    private fun `migration 59 to 60 adds and backfills memo statistics projection columns`() {
+        val updateSql =
+            """
+            UPDATE `$MEMO_TABLE`
+            SET `$COLUMN_STATISTICS_WORD_COUNT` = ?, `$COLUMN_STATISTICS_CHARACTER_COUNT` = ?
+            WHERE `id` = ?
+            """.trimIndent()
+        val db =
+            RecordingSQLiteConnection(
+                queryHandler = { sql, _ ->
+                    when {
+                        sql.contains("sqlite_master") -> mockCursor(true)
+                        sql.contains("PRAGMA table_info(`$MEMO_TABLE`)") ->
+                            mockColumnsCursor(setOf("id", COLUMN_TIMESTAMP, COLUMN_CONTENT))
+
+                        sql.contains("SELECT `id`, `$COLUMN_TIMESTAMP`, `$COLUMN_CONTENT`") ->
+                            mockMemoStatisticsProjectionCursor(
+                                rows =
+                                    listOf(
+                                        MemoStatisticsProjectionRow(
+                                            id = "memo-words",
+                                            timestamp = 1_795_478_400_000L,
+                                            content = "alpha beta",
+                                        ),
+                                        MemoStatisticsProjectionRow(
+                                            id = "memo-cjk",
+                                            timestamp = 1_795_478_401_000L,
+                                            content = "苏格拉底 memo",
+                                        ),
+                                    ),
+                            )
+
+                        else -> SQLiteQueryResult.EMPTY
+                    }
+                },
+            )
+
+        MIGRATION_59_60.migrateForTest(db)
+
+        verify {
+            db.execSQL("ALTER TABLE `$MEMO_TABLE` ADD COLUMN `$COLUMN_STATISTICS_WORD_COUNT` INTEGER NOT NULL DEFAULT 0")
+        }
+        verify {
+            db.execSQL(
+                "ALTER TABLE `$MEMO_TABLE` ADD COLUMN `$COLUMN_STATISTICS_CHARACTER_COUNT` INTEGER NOT NULL DEFAULT 0",
+            )
+        }
+        db.assertExecutedSqlWithArgs(updateSql, listOf(2, 10, "memo-words"))
+        db.assertExecutedSqlWithArgs(updateSql, listOf(2, 9, "memo-cjk"))
+    }
 
     private fun `local file state schema includes missing confirmation columns`() {
         val db = RecordingSQLiteConnection()
@@ -505,7 +981,7 @@ class DatabaseMigrationsTest : DataFunSpec() {
         }
     }
 
-    private fun `migration 40 to 41 rebuilds s3 protocol state without manifest column`() {
+    private fun `migration 40 to 41 clears unscoped s3 protocol state`() {
         val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
@@ -547,28 +1023,22 @@ class DatabaseMigrationsTest : DataFunSpec() {
         MIGRATION_40_41.migrateForTest(db)
 
         verify(exactly = 1) {
-            db.execSQL("ALTER TABLE `s3_sync_protocol_state` RENAME TO `s3_sync_protocol_state_legacy_v41`")
+            db.execSQL("DROP TABLE IF EXISTS `s3_sync_protocol_state`")
         }
         verify {
             db.execSQL(
                 match {
                     it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_protocol_state`") &&
                         !it.contains("last_manifest_revision") &&
+                        it.contains("`workspace_generation` TEXT NOT NULL") &&
                         it.contains("`remote_scan_cursor` TEXT") &&
-                        it.contains("`scan_epoch` INTEGER NOT NULL DEFAULT 0")
+                        it.contains("`scan_epoch` INTEGER NOT NULL DEFAULT 0") &&
+                        it.contains("PRIMARY KEY(`workspace_generation`, `id`)")
                 },
             )
         }
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("INSERT OR REPLACE INTO `s3_sync_protocol_state`") &&
-                        !it.contains("last_manifest_revision") &&
-                        it.contains("`remote_scan_cursor`") &&
-                        it.contains("`scan_epoch`") &&
-                        it.contains("FROM `s3_sync_protocol_state_legacy_v41`")
-                },
-            )
+        db.assertDidNotExecuteSql { sql ->
+            sql.contains("INSERT OR REPLACE INTO `s3_sync_protocol_state`")
         }
     }
 
@@ -652,7 +1122,7 @@ class DatabaseMigrationsTest : DataFunSpec() {
         }
     }
 
-    private fun `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() {
+    private fun `migration 45 to 46 clears unscoped webdav metadata`() {
         val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
@@ -677,27 +1147,20 @@ class DatabaseMigrationsTest : DataFunSpec() {
         MIGRATION_45_46.migrateForTest(db)
 
         verify(exactly = 1) {
-            db.execSQL("ALTER TABLE `webdav_sync_metadata` RENAME TO `webdav_sync_metadata_legacy_v46`")
+            db.execSQL("DROP TABLE IF EXISTS `webdav_sync_metadata`")
         }
         verify {
             db.execSQL(
                 match {
                     it.contains("CREATE TABLE IF NOT EXISTS `webdav_sync_metadata`") &&
-                        it.contains("`local_fingerprint` TEXT")
+                        it.contains("`workspace_generation` TEXT NOT NULL") &&
+                        it.contains("`local_fingerprint` TEXT") &&
+                        it.contains("PRIMARY KEY(`workspace_generation`, `relative_path`)")
                 },
             )
         }
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("INSERT OR REPLACE INTO `webdav_sync_metadata`") &&
-                        it.contains("NULL") &&
-                        it.contains("FROM `webdav_sync_metadata_legacy_v46`")
-                },
-            )
-        }
-        verify(exactly = 2) {
-            db.execSQL("DROP TABLE IF EXISTS `webdav_sync_metadata_legacy_v46`")
+        db.assertDidNotExecuteSql { sql ->
+            sql.contains("INSERT OR REPLACE INTO `webdav_sync_metadata`")
         }
     }
 
@@ -900,6 +1363,18 @@ class DatabaseMigrationsTest : DataFunSpec() {
             SQLiteQueryResult.EMPTY
         }
 
+    private fun assertGenerationScopedCreate(
+        db: RecordingSQLiteConnection,
+        tableName: String,
+        keyColumn: String,
+    ) {
+        db.assertExecutedSql { sql ->
+            sql.contains("CREATE TABLE IF NOT EXISTS `$tableName`") &&
+                sql.contains("`workspace_generation` TEXT NOT NULL") &&
+                sql.contains("PRIMARY KEY(`workspace_generation`, `$keyColumn`)")
+        }
+    }
+
     private fun mockColumnsCursor(columns: Set<String>): SQLiteQueryResult =
         queryResult(
             "name",
@@ -925,11 +1400,65 @@ class DatabaseMigrationsTest : DataFunSpec() {
                 },
         )
 
+    private fun mockMemoContentFlagCursor(rows: List<MemoContentFlagRow>): SQLiteQueryResult =
+        queryResult(
+            "id",
+            COLUMN_CONTENT,
+            COLUMN_HAS_TODO,
+            COLUMN_HAS_ATTACHMENT,
+            COLUMN_HAS_URL,
+            rows =
+                rows.map { row ->
+                    rowOf(
+                        row.id,
+                        row.content,
+                        row.hasTodo,
+                        row.hasAttachment,
+                        row.hasUrl,
+                    )
+                },
+        )
+
+    private fun mockMemoStatisticsProjectionCursor(rows: List<MemoStatisticsProjectionRow>): SQLiteQueryResult =
+        queryResult(
+            "id",
+            COLUMN_TIMESTAMP,
+            COLUMN_CONTENT,
+            COLUMN_STATISTICS_WORD_COUNT,
+            COLUMN_STATISTICS_CHARACTER_COUNT,
+            rows =
+                rows.map { row ->
+                    rowOf(
+                        row.id,
+                        row.timestamp,
+                        row.content,
+                        row.wordCount,
+                        row.characterCount,
+                    )
+                },
+        )
+
     private data class MemoContentRow(
         val id: String,
         val timestamp: Long,
         val content: String,
         val rawContent: String,
         val date: String,
+    )
+
+    private data class MemoContentFlagRow(
+        val id: String,
+        val content: String,
+        val hasTodo: Int = 0,
+        val hasAttachment: Int = 0,
+        val hasUrl: Int = 0,
+    )
+
+    private data class MemoStatisticsProjectionRow(
+        val id: String,
+        val timestamp: Long,
+        val content: String,
+        val wordCount: Int = 0,
+        val characterCount: Int = 0,
     )
 }

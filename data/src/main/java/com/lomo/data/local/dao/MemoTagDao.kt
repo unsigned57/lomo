@@ -4,9 +4,8 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
-import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
-import com.lomo.data.local.entity.toTagCrossRefs
+import com.lomo.data.local.projection.ActiveMemoProjection
 
 @Dao
 interface MemoTagDao {
@@ -22,20 +21,20 @@ interface MemoTagDao {
     @Query("DELETE FROM MemoTagCrossRef")
     suspend fun clearTagRefs()
 
-    suspend fun replaceTagRefsForMemo(memo: MemoEntity) {
-        deleteTagRefsByMemoId(memo.id)
-        val refs = memo.toTagCrossRefs()
+    suspend fun replaceTagRefsForMemo(projection: ActiveMemoProjection) {
+        deleteTagRefsByMemoId(projection.entity.id)
+        val refs = projection.tagRefs
         if (refs.isNotEmpty()) {
             insertTagRefs(refs)
         }
     }
 
-    suspend fun replaceTagRefsForMemos(memos: List<MemoEntity>) {
-        if (memos.isEmpty()) return
-        memos.map { it.id }.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+    suspend fun replaceTagRefsForMemos(projections: List<ActiveMemoProjection>) {
+        if (projections.isEmpty()) return
+        projections.map { it.entity.id }.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
             deleteTagRefsByMemoIds(chunk)
         }
-        val refs = memos.asSequence().flatMap { it.toTagCrossRefs().asSequence() }.toList()
+        val refs = projections.asSequence().flatMap { it.tagRefs.asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertTagRefs(refs)
         }

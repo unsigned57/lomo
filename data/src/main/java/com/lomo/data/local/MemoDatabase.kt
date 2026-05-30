@@ -13,19 +13,22 @@ import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.dao.PendingSyncConflictDao
+import com.lomo.data.local.dao.PendingSyncReviewDao
+import com.lomo.data.local.dao.RawS3SyncMetadataDao
+import com.lomo.data.local.dao.RawWebDavSyncMetadataDao
 import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3RemoteIndexDao
 import com.lomo.data.local.dao.S3RemoteShardStateDao
-import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncProtocolStateDao
+import com.lomo.data.local.dao.SyncStateResetDao
 import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
 import com.lomo.data.local.dao.WebDavLocalFingerprintDao
-import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
@@ -39,6 +42,7 @@ import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.MemoVersionBlobEntity
 import com.lomo.data.local.entity.MemoVersionCommitEntity
 import com.lomo.data.local.entity.PendingSyncConflictEntity
+import com.lomo.data.local.entity.PendingSyncReviewEntity
 import com.lomo.data.local.entity.S3LocalChangeJournalEntity
 import com.lomo.data.local.entity.S3RemoteIndexEntity
 import com.lomo.data.local.entity.S3RemoteShardStateEntity
@@ -49,7 +53,7 @@ import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
 import com.lomo.data.local.entity.WebDavLocalFingerprintEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 55
+const val MEMO_DATABASE_VERSION = 60
 
 @Database(
     entities =
@@ -75,6 +79,7 @@ const val MEMO_DATABASE_VERSION = 55
             MemoRevisionEntity::class,
             MemoRevisionAssetEntity::class,
             PendingSyncConflictEntity::class,
+            PendingSyncReviewEntity::class,
         ],
     version = MEMO_DATABASE_VERSION,
     exportSchema = true,
@@ -90,6 +95,8 @@ abstract class MemoDatabase : RoomDatabase() {
     abstract fun memoPinDao(): MemoPinDao
 
     abstract fun memoSearchDao(): MemoSearchDao
+
+    abstract fun memoStatisticsDao(): MemoStatisticsDao
 
     abstract fun memoWriteDao(): MemoWriteDao
 
@@ -109,13 +116,13 @@ abstract class MemoDatabase : RoomDatabase() {
 
     abstract fun localFileStateDao(): LocalFileStateDao
 
-    abstract fun webDavSyncMetadataDao(): WebDavSyncMetadataDao
+    abstract fun rawWebDavSyncMetadataDao(): RawWebDavSyncMetadataDao
 
     abstract fun webDavLocalFingerprintDao(): WebDavLocalFingerprintDao
 
     abstract fun webDavLocalChangeJournalDao(): WebDavLocalChangeJournalDao
 
-    abstract fun s3SyncMetadataDao(): S3SyncMetadataDao
+    abstract fun rawS3SyncMetadataDao(): RawS3SyncMetadataDao
 
     abstract fun s3RemoteIndexDao(): S3RemoteIndexDao
 
@@ -126,4 +133,8 @@ abstract class MemoDatabase : RoomDatabase() {
     abstract fun s3LocalChangeJournalDao(): S3LocalChangeJournalDao
 
     abstract fun pendingSyncConflictDao(): PendingSyncConflictDao
+
+    abstract fun pendingSyncReviewDao(): PendingSyncReviewDao
+
+    abstract fun syncStateResetDao(): SyncStateResetDao
 }
