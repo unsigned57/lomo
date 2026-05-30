@@ -1,107 +1,78 @@
 package com.lomo.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room3.Dao
+import androidx.room3.DaoReturnTypeConverters
 import androidx.room3.Query
-import androidx.room3.RawQuery
-import androidx.room3.RoomRawQuery
+import androidx.room3.paging.PagingSourceDaoReturnTypeConverter
 import com.lomo.data.local.entity.MemoEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+@DaoReturnTypeConverters(PagingSourceDaoReturnTypeConverter::class)
 interface MemoSearchDao {
     @Query(
         """
-        SELECT * FROM Lomo 
-        WHERE content LIKE '%' || :query || '%' ESCAPE '\'
-        ORDER BY timestamp DESC, id DESC
+        SELECT Lomo.*
+        FROM Lomo
+        WHERE EXISTS (
+            SELECT 1
+            FROM MemoTagCrossRef
+            WHERE MemoTagCrossRef.memoId = Lomo.id
+              AND (MemoTagCrossRef.tag = :tag OR MemoTagCrossRef.tag LIKE :tagPrefix)
+        )
+        ORDER BY Lomo.timestamp DESC, Lomo.id DESC
+        LIMIT :limit OFFSET :offset
         """,
     )
-    fun searchMemosFlow(query: String): Flow<List<MemoEntity>>
-
-    @RawQuery(observedEntities = [MemoEntity::class])
-    fun searchMemosByFtsRaw(query: RoomRawQuery): Flow<List<MemoEntity>>
-
-    fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>> =
-        searchMemosByFtsRaw(
-            RoomRawQuery(
-                sql =
-                    """
-                    SELECT Lomo.* FROM Lomo
-                    INNER JOIN lomo_fts ON lomo_fts.rowid = Lomo.rowid
-                    WHERE lomo_fts MATCH ?
-                    ORDER BY Lomo.timestamp DESC, Lomo.id DESC
-                    """.trimIndent(),
-                onBindStatement = { statement ->
-                    statement.bindText(index = 1, value = matchQuery)
-                },
-            ),
-        )
+    suspend fun getMemosByTagPage(
+        tag: String,
+        tagPrefix: String,
+        limit: Int,
+        offset: Int,
+    ): List<MemoEntity>
 
     @Query(
         """
         SELECT Lomo.*
         FROM Lomo
-        INNER JOIN MemoTagCrossRef ON MemoTagCrossRef.memoId = Lomo.id
-        WHERE MemoTagCrossRef.tag = :tag OR MemoTagCrossRef.tag LIKE :tagPrefix
+        WHERE EXISTS (
+            SELECT 1
+            FROM MemoTagCrossRef
+            WHERE MemoTagCrossRef.memoId = Lomo.id
+              AND (MemoTagCrossRef.tag = :tag OR MemoTagCrossRef.tag LIKE :tagPrefix)
+        )
         ORDER BY Lomo.timestamp DESC, Lomo.id DESC
+        LIMIT :limit OFFSET :offset
         """,
     )
-    fun getMemosByTagFlow(
+    fun getMemosByTagPageFlow(
         tag: String,
         tagPrefix: String,
+        limit: Int,
+        offset: Int,
     ): Flow<List<MemoEntity>>
+
+    @Query(
+        """
+        SELECT Lomo.*, CASE WHEN MemoPin.memoId IS NULL THEN 0 ELSE 1 END AS isPinned
+        FROM Lomo
+        LEFT JOIN MemoPin ON Lomo.id = MemoPin.memoId
+        WHERE EXISTS (
+            SELECT 1
+            FROM MemoTagCrossRef
+            WHERE MemoTagCrossRef.memoId = Lomo.id
+              AND (MemoTagCrossRef.tag = :tag OR MemoTagCrossRef.tag LIKE :tagPrefix)
+        )
+        ORDER BY isPinned DESC, Lomo.timestamp DESC, Lomo.id DESC
+        """,
+    )
+    fun getMemosByTagPagingSource(
+        tag: String,
+        tagPrefix: String,
+    ): PagingSource<Int, DefaultMainListMemoRow>
 
     @Query("SELECT DISTINCT tag FROM MemoTagCrossRef ORDER BY tag COLLATE NOCASE")
     fun getAllTagsFlow(): Flow<List<String>>
 
-    @Query(
-        """
-        SELECT tag AS name, COUNT(DISTINCT memoId) AS count
-        FROM MemoTagCrossRef
-        GROUP BY tag
-        ORDER BY tag COLLATE NOCASE
-        """,
-    )
-    fun getTagCountsFlow(): Flow<List<TagCountRow>>
-
-    @Query("SELECT COUNT(*) FROM Lomo")
-    fun getMemoCount(): Flow<Int>
-
-    @Query("SELECT COUNT(DISTINCT date) FROM Lomo")
-    fun getActiveDayCount(): Flow<Int>
-
-    @Query("SELECT timestamp FROM Lomo ORDER BY timestamp DESC")
-    fun getAllTimestamps(): Flow<List<Long>>
-
-    @Query(
-        """
-        SELECT date, COUNT(*) AS count
-        FROM Lomo
-        GROUP BY date
-        """,
-    )
-    fun getMemoCountByDateFlow(): Flow<List<DateCountRow>>
-
-    @Query(
-        """
-        SELECT COUNT(*)
-        FROM MemoImageAttachment
-        WHERE imagePath = :imagePath
-          AND memoId != :excludeId
-        """,
-    )
-    suspend fun countMemosAndTrashWithImage(
-        imagePath: String,
-        excludeId: String,
-    ): Int
 }
-
-data class TagCountRow(
-    val name: String,
-    val count: Int,
-)
-
-data class DateCountRow(
-    val date: String,
-    val count: Int,
-)
