@@ -3,27 +3,37 @@ package com.lomo.app.feature.update
 import android.content.Context
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
+import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
 import io.kotest.matchers.shouldBe
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.runs
-import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: AppUpdateDownloadManager
- * - Behavior focus: debug-only simulated in-app update states reuse the shared progress dialog state machine without invoking the real download use case.
- * - Observable outcomes: exposed progressDialogState terminal state and absence of real download-use-case invocation.
- * - Red phase: Fails before the fix because the manager has no debug simulation branch, so debug test-mode updates cannot drive the progress dialog without a real APK download.
- * - Excludes: Compose dialog rendering, settings item visibility wiring, and actual APK transport or installer behavior.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: debug-only simulated in-app update states reuse the shared progress dialog state machine without invoking APK transport.
+ *
+ * Scenarios:
+ * - Given a debug success update, when in-app update starts, then progress reaches Completed and the download repository is not called.
+ * - Given a debug failure update, when in-app update starts, then progress reaches the localized Failed state and the download repository is not called.
+ *
+ * Observable outcomes:
+ * - Exposed progressDialogState terminal state and fake repository download attempt count.
+ *
+ * TDD proof:
+ * - Not applicable - test-only migration; no production change.
+ *
+ * Excludes:
+ * - Compose dialog rendering, settings item visibility wiring, and actual APK transport or installer behavior.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppUpdateDownloadManagerDebugSimulationTest : AppFunSpec() {
@@ -31,17 +41,13 @@ class AppUpdateDownloadManagerDebugSimulationTest : AppFunSpec() {
 
     init {
         extension(MainDispatcherExtension(dispatcher))
-    }
 
-    init {
         test("startInAppUpdate completes a debug success simulation without invoking the real downloader") {
             runTest(dispatcher.scheduler) {
-                val context = mockk<Context>(relaxed = true)
-                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-
-                every { cancelUseCase.invoke() } just runs
-                every { downloadUseCase.invoke(any()) } returns emptyFlow()
+                val context = mockk<Context>()
+                val repository = FakeAppUpdateDownloadRepository()
+                val downloadUseCase = DownloadAndInstallAppUpdateUseCase(repository)
+                val cancelUseCase = CancelAppUpdateDownloadUseCase(repository)
 
                 val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
                 val update = sampleDialogState(debugSimulationScenario = DebugAppUpdateScenario.Success)
@@ -49,24 +55,21 @@ class AppUpdateDownloadManagerDebugSimulationTest : AppFunSpec() {
                 manager.startInAppUpdate(update)
                 advanceUntilIdle()
 
-                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                manager.progressDialogState.value shouldBe
+                    AppUpdateProgressDialogState(
                         update = update,
-                        installState = com.lomo.domain.model.AppUpdateInstallState.Completed,
-                    ))
-                verify(exactly = 0) { downloadUseCase.invoke(any()) }
+                        installState = AppUpdateInstallState.Completed,
+                    )
+                repository.downloadAndInstallCalledCount shouldBe 0
             }
         }
-    }
 
-    init {
         test("startInAppUpdate exposes a failed state for debug failure simulation") {
             runTest(dispatcher.scheduler) {
-                val context = mockk<Context>(relaxed = true)
-                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-
-                every { cancelUseCase.invoke() } just runs
-                every { downloadUseCase.invoke(any()) } returns emptyFlow()
+                val context = mockk<Context>()
+                val repository = FakeAppUpdateDownloadRepository()
+                val downloadUseCase = DownloadAndInstallAppUpdateUseCase(repository)
+                val cancelUseCase = CancelAppUpdateDownloadUseCase(repository)
                 every { context.getString(com.lomo.app.R.string.debug_update_simulation_failed) } returns "Simulated failure"
 
                 val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
@@ -75,11 +78,12 @@ class AppUpdateDownloadManagerDebugSimulationTest : AppFunSpec() {
                 manager.startInAppUpdate(update)
                 advanceUntilIdle()
 
-                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                manager.progressDialogState.value shouldBe
+                    AppUpdateProgressDialogState(
                         update = update,
-                        installState = com.lomo.domain.model.AppUpdateInstallState.Failed("Simulated failure"),
-                    ))
-                verify(exactly = 0) { downloadUseCase.invoke(any()) }
+                        installState = AppUpdateInstallState.Failed("Simulated failure"),
+                    )
+                repository.downloadAndInstallCalledCount shouldBe 0
             }
         }
     }

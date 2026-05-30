@@ -77,6 +77,16 @@ internal fun AppUpdateInstallState.toUpdateProgressPresentation(): UpdateProgres
             )
         }
 
+        AppUpdateInstallState.WaitingForInstallerResult -> {
+            UpdateProgressPresentation(
+                title = UpdateProgressTitle.Installing,
+                tone = UpdateProgressTone.Progress,
+                progressPercent = null,
+                showsDeterminateProgress = false,
+                supportingMessage = UpdateProgressSupportingMessage.Default(UpdateProgressMessageKey.Installing),
+            )
+        }
+
         AppUpdateInstallState.Completed -> {
             UpdateProgressPresentation(
                 title = UpdateProgressTitle.Completed,

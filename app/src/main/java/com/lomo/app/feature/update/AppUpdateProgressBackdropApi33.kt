@@ -31,6 +31,7 @@ internal fun ShaderUpdateProgressBackdrop(modifier: Modifier = Modifier) {
         }
     val shader =
         remember(shaderSource) {
+            // behavior-contract: silent-result-ok: RuntimeShader compile may fail; null triggers fallback backdrop
             runCatching {
                 RuntimeShader(shaderSource)
             }.getOrNull()
