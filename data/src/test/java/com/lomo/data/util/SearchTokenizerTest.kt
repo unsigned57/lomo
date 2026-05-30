@@ -46,6 +46,10 @@ class SearchTokenizerTest : DataFunSpec() {
         test("tokenizeQueryTerms handles mixed alnum and CJK") { `tokenizeQueryTerms handles mixed alnum and CJK`() }
 
         test("tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal") { `tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal`() }
+
+        test("tokenize Emoji text") { `tokenize Emoji text`() }
+
+        test("tokenizeQueryTerms handles Emojis") { `tokenizeQueryTerms handles Emojis`() }
     }
 
 
@@ -96,6 +100,18 @@ class SearchTokenizerTest : DataFunSpec() {
         val input = "OR AND NOT"
         val expected = listOf("or", "and", "not")
 
+        SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
+    }
+
+    private fun `tokenize Emoji text`() {
+        val input = "Hello 😊 🚀 World"
+        val expected = "Hello 😊 🚀 World"
+        SearchTokenizer.tokenize(input) shouldBe expected
+    }
+
+    private fun `tokenizeQueryTerms handles Emojis`() {
+        val input = "AI😊 2026🚀"
+        val expected = listOf("AI", "😊", "2026", "🚀")
         SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
     }
 }
