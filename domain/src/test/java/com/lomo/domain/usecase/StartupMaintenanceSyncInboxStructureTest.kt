@@ -21,14 +21,14 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeAppVersionRepository
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.matchers.shouldBe
@@ -63,9 +63,9 @@ class StartupMaintenanceSyncInboxStructureTest : DomainFunSpec() {
                         return UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
                     }
 
-                    override suspend fun resolveConflicts(
-                        resolution: SyncConflictResolution,
-                        conflictSet: SyncConflictSet,
+                    override suspend fun resolveReview(
+                        resolution: SyncReviewResolution,
+                        review: SyncReviewSession,
                     ): UnifiedSyncResult {
                         return UnifiedSyncResult.Success(SyncBackendType.INBOX, "resolved")
                     }
@@ -74,10 +74,10 @@ class StartupMaintenanceSyncInboxStructureTest : DomainFunSpec() {
                 val mediaRepository = FakeMediaRepository()
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
