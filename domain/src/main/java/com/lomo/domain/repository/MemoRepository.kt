@@ -1,17 +1,22 @@
 package com.lomo.domain.repository
 
 import androidx.paging.PagingSource
+import com.lomo.domain.model.DailyReviewCandidateBoundary
+import com.lomo.domain.model.DailyReviewCandidateCursor
+import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import java.time.LocalDate
+import java.time.ZoneId
 
 /**
- * Core repository for memo data operations: CRUD, search, trash, stats, and sync.
+ * Read-side list access that can serve bounded memo pages without full-list fallbacks.
  */
-interface MemoQueryRepository {
+interface MemoListQueryRepository {
     fun getAllMemosList(): Flow<List<Memo>>
 
     fun getMemosByDateRange(
@@ -25,52 +30,62 @@ interface MemoQueryRepository {
 
     /**
      * Returns a stable page from the default memo ordering used by [getAllMemosList].
-     *
-     * Default implementation preserves backward compatibility for repositories that only expose
-     * flow-based list observation, but concrete implementations should override for efficiency.
      */
     suspend fun getMemosPage(
         limit: Int,
         offset: Int,
-    ): List<Memo> =
-        if (limit <= 0 || offset < 0) {
-            emptyList()
-        } else {
-            getAllMemosList().first().drop(offset).take(limit)
-        }
+    ): List<Memo>
 
     suspend fun getMemoCount(): Int
+}
 
-    fun getMainListPagingSource(
-        query: String,
-        filter: MemoListFilter,
-    ): PagingSource<Int, Memo>
-
-    fun getMainListCountFlow(
-        query: String,
-        filter: MemoListFilter,
-    ): Flow<Int>
+interface DailyReviewCandidateRepository {
+    /**
+     * Captures the stable high-water boundary for a Daily Review candidate session in the default
+     * main-list ordering. Implementations must make later candidate pages exclude rows that sort
+     * ahead of this boundary, even if the backing collection changes after the boundary is captured.
+     */
+    suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary?
 
     /**
-     * Returns the zero-based index of a memo in the repository's default main-list ordering.
+     * Returns candidate ids in default main-list order at or behind [boundary], starting after
+     * [cursor]. [cursor] is null for the first page. Implementations may encode repository-owned
+     * snapshot tokens in [DailyReviewCandidateBoundary.token] and [DailyReviewCandidateCursor.token].
      */
-    suspend fun getDefaultMainListIndex(id: String): Int? =
-        getAllMemosList()
-            .first()
-            .indexOfFirst { memo -> memo.id == id }
-            .takeIf { index -> index >= 0 }
+    suspend fun getDailyReviewCandidatePage(
+        boundary: DailyReviewCandidateBoundary,
+        cursor: DailyReviewCandidateCursor?,
+        limit: Int,
+    ): DailyReviewCandidatePage
+}
+
+interface MainListQueryRepository {
+    fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<Int, Memo>
+
+    fun getMainListCountFlow(spec: MemoQuerySpec): Flow<Int>
+
+    /**
+     * Returns the zero-based index of a memo only when it is inside a bounded head window of the
+     * repository's default main-list ordering. This is an explicit focus/navigation policy, not an
+     * exact whole-list position contract.
+     */
+    suspend fun getDefaultMainListIndexInWindow(
+        id: String,
+        limit: Int,
+    ): Int?
 
     /**
      * Returns one memo by id without forcing callers to reload the whole list.
-     *
-     * Default implementation preserves compatibility for repositories that only expose
-     * flow-based list observation, but concrete implementations should override for efficiency.
      */
-    suspend fun getMemoById(id: String): Memo? =
-        getAllMemosList().first().firstOrNull { memo -> memo.id == id }
+    suspend fun getMemoById(id: String): Memo?
 
     fun isSyncing(): Flow<Boolean>
 }
+
+interface MemoQueryRepository :
+    MemoListQueryRepository,
+    DailyReviewCandidateRepository,
+    MainListQueryRepository
 
 interface MemoMutationRepository {
     suspend fun refreshMemos()
@@ -88,6 +103,11 @@ interface MemoMutationRepository {
 
     suspend fun deleteMemo(memo: Memo)
 
+    suspend fun restoreMemoRevision(
+        currentMemo: Memo,
+        revisionId: String,
+    )
+
     suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
@@ -95,9 +115,14 @@ interface MemoMutationRepository {
 }
 
 interface MemoSearchRepository {
-    fun searchMemosList(query: String): Flow<List<Memo>>
+    fun getMemosByTagPagingSource(tag: String): PagingSource<Int, Memo>
+}
 
-    fun getMemosByTagList(tag: String): Flow<List<Memo>>
+interface MemoStatisticsRepository {
+    suspend fun getMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+    ): MemoStatistics
 
     fun getMemoCountFlow(): Flow<Int>
 
@@ -111,7 +136,7 @@ interface MemoSearchRepository {
 }
 
 interface MemoTrashRepository {
-    fun getDeletedMemosList(): Flow<List<Memo>>
+    fun getDeletedMemosPagingSource(): PagingSource<Int, Memo>
 
     suspend fun restoreMemo(memo: Memo)
 
@@ -119,9 +144,3 @@ interface MemoTrashRepository {
 
     suspend fun clearTrash()
 }
-
-interface MemoRepository :
-    MemoQueryRepository,
-    MemoMutationRepository,
-    MemoSearchRepository,
-    MemoTrashRepository
