@@ -14,6 +14,7 @@ class CheckAppUpdateUseCase(
         return evaluateAppUpdate(
             release = latestRelease,
             currentVersionName = currentVersionName,
+            currentVersionCode = appRuntimeInfoRepository.getCurrentVersionCode(),
         )
     }
 }

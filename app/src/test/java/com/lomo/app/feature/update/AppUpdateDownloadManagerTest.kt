@@ -2,21 +2,27 @@ package com.lomo.app.feature.update
 
 /**
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Unit under test: AppUpdateDownloadManager
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: in-app update downloads expose progress, terminal, permission, duplicate-start, and cancel state through a shared dialog state machine.
+ *
+ * Scenarios:
+ * - Given download progress is emitted, when in-app update starts, then progressDialogState mirrors the latest install state.
+ * - Given the download flow is initially suspended, when in-app update starts, then Preparing appears on the next main-loop turn.
+ * - Given install permission is required, when the use case emits the gate, then the same gate is exposed to the dialog.
+ * - Given a download is active, when a duplicate start is requested, then no second repository download starts.
+ * - Given a download is active, when cancellation is requested, then progress is cleared and repository cancellation is dispatched.
+ *
+ * Observable outcomes:
+ * - Progress dialog state values, fake repository download attempt count, and fake repository cancellation count.
+ *
+ * TDD proof:
+ * - Not applicable - test-only contract migration; no production change.
+ *
+ * Excludes:
+ * - Compose rendering, debug simulation, update release transport, APK verification, and platform installer UI.
  */
-
-
 import android.content.Context
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
@@ -40,7 +46,7 @@ class AppUpdateDownloadManagerTest : AppFunSpec() {
     private val appUpdateDownloadRepository = FakeAppUpdateDownloadRepository()
     private val downloadUseCase = DownloadAndInstallAppUpdateUseCase(appUpdateDownloadRepository)
     private val cancelUseCase = CancelAppUpdateDownloadUseCase(appUpdateDownloadRepository)
-    private val context = mockk<Context>(relaxed = true)
+    private val context = mockk<Context>()
 
     init {
         extension(MainDispatcherExtension(dispatcher))

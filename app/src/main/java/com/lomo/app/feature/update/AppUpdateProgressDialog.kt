@@ -187,6 +187,15 @@ private fun UpdateProgressMainVisual(
             )
         }
 
+        AppUpdateInstallState.WaitingForInstallerResult -> {
+            Icon(
+                imageVector = Icons.Outlined.InstallMobile,
+                contentDescription = null,
+                tint = progressAccentColor(presentation.tone),
+                modifier = Modifier.size(72.dp),
+            )
+        }
+
         AppUpdateInstallState.Completed -> {
             Icon(
                 imageVector = Icons.Outlined.CheckCircleOutline,
@@ -243,6 +252,7 @@ private fun UpdateProgressActions(
             }
 
             AppUpdateInstallState.Installing,
+            AppUpdateInstallState.WaitingForInstallerResult,
             AppUpdateInstallState.Completed,
             -> {
                 UpdateProgressSecondaryAction(

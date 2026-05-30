@@ -3,10 +3,7 @@ package com.lomo.app.feature.update
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class DebugAppUpdateScenario {
@@ -21,6 +18,9 @@ data class AppUpdateDialogState(
     val apkDownloadUrl: String? = null,
     val apkFileName: String? = null,
     val apkSizeBytes: Long? = null,
+    val expectedPackageName: String? = null,
+    val expectedVersionName: String? = null,
+    val expectedVersionCode: Long? = null,
     val debugSimulationScenario: DebugAppUpdateScenario? = null,
 )
 
@@ -28,11 +28,10 @@ data class AppUpdateDialogState(
 class AppUpdateViewModel
     @Inject
     constructor(
-        private val appUpdateChecker: AppUpdateChecker,
+        private val updateStartupOrchestrator: UpdateStartupOrchestrator,
         private val appUpdateDownloadManager: AppUpdateDownloadManager,
     ) : ViewModel() {
-        private val _dialogState = MutableStateFlow<AppUpdateDialogState?>(null)
-        val dialogState: StateFlow<AppUpdateDialogState?> = _dialogState.asStateFlow()
+        val dialogState: StateFlow<AppUpdateDialogState?> = updateStartupOrchestrator.dialogState
         val progressDialogState: StateFlow<AppUpdateProgressDialogState?> = appUpdateDownloadManager.progressDialogState
 
         init {
@@ -40,27 +39,14 @@ class AppUpdateViewModel
         }
 
         fun checkForUpdates() {
-            viewModelScope.launch {
-                try {
-                    val info = appUpdateChecker.checkForStartupUpdate() ?: return@launch
-                    _dialogState.value =
-                        AppUpdateDialogState(
-                            url = info.url,
-                            version = info.version,
-                            releaseNotes = info.releaseNotes,
-                            apkDownloadUrl = info.apkDownloadUrl,
-                            apkFileName = info.apkFileName,
-                            apkSizeBytes = info.apkSizeBytes,
-                        )
-                } catch (_: Exception) {
-                    // Ignore update check errors.
-                }
-            }
+            updateStartupOrchestrator.triggerStartupCheck(viewModelScope)
         }
 
-        fun startInAppUpdate(update: AppUpdateDialogState? = _dialogState.value) {
-            val resolvedUpdate = update ?: return
-            _dialogState.value = null
+        fun startInAppUpdate(update: AppUpdateDialogState? = null) {
+            val resolvedUpdate = update ?: updateStartupOrchestrator.consumeUpdateDialog() ?: return
+            if (update != null) {
+                updateStartupOrchestrator.dismissUpdateDialog()
+            }
             appUpdateDownloadManager.startInAppUpdate(resolvedUpdate)
         }
 
@@ -77,6 +63,6 @@ class AppUpdateViewModel
         }
 
         fun dismissUpdateDialog() {
-            _dialogState.value = null
+            updateStartupOrchestrator.dismissUpdateDialog()
         }
     }
