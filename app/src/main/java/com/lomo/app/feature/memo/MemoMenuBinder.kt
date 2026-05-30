@@ -1,120 +1,45 @@
 package com.lomo.app.feature.memo
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.lomo.app.benchmark.BenchmarkAnchorContract
-import com.lomo.app.util.rememberShareUtils
-import com.lomo.domain.model.Memo
-import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuHost
-import com.lomo.ui.component.menu.MemoMenuState
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.launch
 
 @Composable
 fun MemoMenuBinder(
-    shareCardShowTime: Boolean,
-    shareCardShowSignature: Boolean,
-    shareCardSignatureText: String,
-    onEditMemo: (Memo) -> Unit,
-    onDeleteMemo: (Memo) -> Unit,
-    onLanShare:
-        ((
-            content: String,
-            timestamp: Long,
-        ) -> Unit)?,
-    onTogglePin: ((Memo, Boolean) -> Unit)? = null,
-    onJump: ((MemoMenuState) -> Unit)? = null,
-    onVersionHistory: ((MemoMenuState) -> Unit)? = null,
-    showJump: Boolean = false,
-    showVersionHistory: Boolean = false,
-    memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: ImmutableList<String> = persistentListOf(),
-    onMemoActionInvoked: (MemoActionId) -> Unit = {},
-    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
-    content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
+    commandHandler: MemoMenuCommandHandler,
+    content: @Composable (showMenu: (MemoMenuSelection) -> Unit) -> Unit,
 ) {
-    val context = LocalContext.current
-    val shareUtils = rememberShareUtils()
-    val scope = rememberCoroutineScope()
+    val presentationState = commandHandler.presentationState
+    var activeSelection by remember { mutableStateOf<MemoMenuSelection?>(null) }
 
     MemoMenuHost(
-        onEdit = { state -> state.withMemo(onEditMemo) },
-        onDelete = { state -> state.withMemo(onDeleteMemo) },
-        onShareImage = { state ->
-            scope.launch {
-                shareMemoAsImage(
-                    state = state,
-                    context = context,
-                    shareUtils = shareUtils,
-                    shareCardShowTime = shareCardShowTime,
-                    shareCardShowSignature = shareCardShowSignature,
-                    shareCardSignatureText = shareCardSignatureText,
-                )
-            }
-        },
-        onShareText = { state ->
-            shareUtils.shareMemoText(
-                context = context,
-                content = state.content,
+        actions = { state, lifecycle ->
+            val selection =
+                checkNotNull(activeSelection?.takeIf { selection -> selection.state == state }) {
+                    "MemoMenuBinder requires an active app-owned memo selection for every visible menu."
+                }
+            rememberMemoMenuActions(
+                selection = selection,
+                lifecycle = lifecycle,
+                commandHandler = commandHandler,
             )
         },
-        onLanShare =
-            onLanShare?.let { lanShare ->
-                { state -> state.withMemo { memo -> lanShare(memo.content, memo.timestamp) } }
-            },
-        onTogglePin =
-            if (onTogglePin != null) {
-                { state -> state.withMemo { memo -> onTogglePin(memo, !state.isPinned) } }
-            } else {
-                null
-            },
-        onJump = onJump,
-        onHistory = onVersionHistory,
-        showJump = showJump,
-        showHistory = showVersionHistory,
-        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-        memoActionOrder = memoActionOrder,
-        onMemoActionInvoked = onMemoActionInvoked,
-        onMemoActionOrderChanged = onMemoActionOrderChanged,
+        content = { showMenu ->
+            content { selection ->
+                activeSelection = selection
+                showMenu(selection.state)
+            }
+        },
+        onMenuCleared = { activeSelection = null },
+        actionAutoReorderEnabled = presentationState.memoActionAutoReorderEnabled,
+        onActionInvoked = { key -> MemoActionId.fromStorageKey(key)?.let(commandHandler::recordActionUsage) },
+        onActionOrderChanged = { keys ->
+            commandHandler.changeActionOrder(keys.mapNotNull(MemoActionId::fromStorageKey))
+        },
         benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
-        benchmarkActionAnchorForId = ::benchmarkMemoActionAnchor,
-    ) { showMenu ->
-        content(showMenu)
-    }
-}
-
-private fun benchmarkMemoActionAnchor(actionId: MemoActionId): String? =
-    when (actionId) {
-        MemoActionId.HISTORY -> BenchmarkAnchorContract.MEMO_ACTION_HISTORY
-        MemoActionId.EDIT -> BenchmarkAnchorContract.MEMO_ACTION_EDIT
-        MemoActionId.DELETE -> BenchmarkAnchorContract.MEMO_ACTION_DELETE
-        else -> null
-    }
-
-private suspend fun shareMemoAsImage(
-    state: MemoMenuState,
-    context: android.content.Context,
-    shareUtils: com.lomo.app.util.ShareUtils,
-    shareCardShowTime: Boolean,
-    shareCardShowSignature: Boolean,
-    shareCardSignatureText: String,
-) {
-    val memo = state.memo as? Memo
-    shareUtils.shareMemoAsImage(
-        context = context,
-        content = state.content,
-        showTime = shareCardShowTime,
-        showSignature = shareCardShowSignature,
-        signatureText = shareCardSignatureText,
-        timestamp = memo?.timestamp,
-        tags = memo?.tags.orEmpty(),
-        resolvedImagePaths = state.imageUrls,
     )
-}
-
-private inline fun MemoMenuState.withMemo(block: (Memo) -> Unit) {
-    (memo as? Memo)?.let(block)
 }

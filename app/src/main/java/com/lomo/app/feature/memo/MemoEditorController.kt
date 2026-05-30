@@ -5,6 +5,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -17,19 +19,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.main.MemoUiImageContentResolver
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.input.InputEditorActionBadge
+import com.lomo.ui.component.input.InputEditorCapabilities
+import com.lomo.ui.component.input.InputEditorCommand
+import com.lomo.ui.component.input.InputEditorCommandHandler
 import com.lomo.ui.component.input.InputEditorDisplayMode
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.persistentMapOf
+import com.lomo.ui.component.input.InputEditorRecordingState
+import com.lomo.ui.component.input.InputEditorSurfaceState
+import com.lomo.ui.component.input.InputSheetCallbacks
+import com.lomo.ui.component.input.InputSheetState
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -92,11 +97,12 @@ class MemoEditorController
         }
 
         fun updateInputValue(value: TextFieldValue) {
+            val processedValue = autoContinueListMarker(inputValue, value) ?: value
             undoRedoManager.recordTextChange(
                 previousValue = inputValue,
-                newValue = value,
+                newValue = processedValue,
             )
-            inputValue = value
+            inputValue = processedValue
         }
 
         fun undo() {
@@ -161,13 +167,26 @@ class MemoEditorController
 
 fun MemoEditorController.appendMarkdownBlock(markdown: String) {
     val currentText = inputValue.text
-    val appendedText =
-        if (currentText.isEmpty()) {
-            markdown
-        } else {
-            "$currentText\n$markdown"
-        }
-    updateInputValue(TextFieldValue(appendedText, TextRange(appendedText.length)))
+    val selectionStart = inputValue.selection.start.coerceIn(0, currentText.length)
+    val selectionEnd = inputValue.selection.end.coerceIn(0, currentText.length)
+    val start = minOf(selectionStart, selectionEnd)
+    val end = maxOf(selectionStart, selectionEnd)
+
+    val prefix = currentText.substring(0, start)
+    val suffix = currentText.substring(end)
+
+    val needsLeadingNewline = start > 0 && prefix[start - 1] != '\n'
+    val needsTrailingNewline = end < currentText.length && suffix[0] != '\n'
+
+    val insertion = buildString {
+        if (needsLeadingNewline) append('\n')
+        append(markdown)
+        if (needsTrailingNewline) append('\n')
+    }
+
+    val newText = prefix + insertion + suffix
+    val newCursorPosition = start + insertion.length
+    updateInputValue(TextFieldValue(newText, TextRange(newCursorPosition)))
 }
 
 fun MemoEditorController.appendImageMarkdown(path: String) {
@@ -181,106 +200,148 @@ internal fun MemoEditorController.cancelBackfillSelection() {
 @Composable
 fun rememberMemoEditorController(): MemoEditorController = remember { MemoEditorController() }
 
+internal fun autoContinueListMarker(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue? {
+    val oldText = oldValue.text
+    val newText = newValue.text
+
+    if (newText.length != oldText.length + 1) return null
+    val cursor = newValue.selection.start
+    if (cursor <= 0 || newText[cursor - 1] != '\n') return null
+
+    val newlineIndex = cursor - 1
+
+    var lineStart = newlineIndex - 1
+    while (lineStart >= 0 && oldText[lineStart] != '\n') {
+        lineStart--
+    }
+    lineStart++
+
+    val completedLine = oldText.substring(lineStart, newlineIndex)
+
+    val bulletRegex = Regex("""^([\t ]*)([-*+])([\t ]+\[[ xX]])?([\t ]+)""")
+    val orderedRegex = Regex("""^([\t ]*)(\d+)\.([\t ]+)""")
+
+    val bulletMatch = bulletRegex.find(completedLine)
+    val orderedMatch = orderedRegex.find(completedLine)
+
+    val result = when {
+        bulletMatch != null -> {
+            val indent = bulletMatch.groupValues[1]
+            val symbol = bulletMatch.groupValues[2]
+            val checkbox = bulletMatch.groupValues[3]
+            val trailingSpaces = bulletMatch.groupValues[4]
+
+            val markerLength = bulletMatch.value.length
+            val restText = completedLine.substring(markerLength)
+
+            if (restText.isBlank()) {
+                val prefix = oldText.substring(0, lineStart)
+                val suffix = oldText.substring(newlineIndex)
+                val cleanText = prefix + "\n" + suffix.removePrefix("\n")
+                val newCursor = lineStart + 1
+                TextFieldValue(cleanText, TextRange(newCursor))
+            } else {
+                val newCheckbox = if (checkbox.isNotEmpty()) " [ ]" else ""
+                val nextMarker = indent + symbol + newCheckbox + trailingSpaces
+                val prefix = newText.substring(0, cursor)
+                val suffix = newText.substring(cursor)
+                val updatedText = prefix + nextMarker + suffix
+                TextFieldValue(updatedText, TextRange(cursor + nextMarker.length))
+            }
+        }
+        orderedMatch != null -> {
+            val indent = orderedMatch.groupValues[1]
+            val numStr = orderedMatch.groupValues[2]
+            val trailingSpaces = orderedMatch.groupValues[3]
+
+            val markerLength = orderedMatch.value.length
+            val restText = completedLine.substring(markerLength)
+
+            if (restText.isBlank()) {
+                val prefix = oldText.substring(0, lineStart)
+                val suffix = oldText.substring(newlineIndex)
+                val cleanText = prefix + "\n" + suffix.removePrefix("\n")
+                val newCursor = lineStart + 1
+                TextFieldValue(cleanText, TextRange(newCursor))
+            } else {
+                val nextNum = (numStr.toIntOrNull() ?: 1) + 1
+                val nextMarker = "$indent$nextNum.$trailingSpaces"
+                val prefix = newText.substring(0, cursor)
+                val suffix = newText.substring(cursor)
+                val updatedText = prefix + nextMarker + suffix
+                TextFieldValue(updatedText, TextRange(cursor + nextMarker.length))
+            }
+        }
+        else -> null
+    }
+
+    return result
+}
+
 @Composable
 fun MemoEditorSheetHost(
     controller: MemoEditorController,
-    imageDirectory: String?,
-    onSaveImage: (
-        uri: Uri,
-        onResult: (String) -> Unit,
-        onError: (() -> Unit)?,
-    ) -> Unit,
-    onSubmit: (
-        memo: Memo?,
-        content: String,
-        timestampMillis: Long?,
-    ) -> Unit,
-    rootPath: String? = null,
-    imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
-    quickSaveOnBackEnabled: Boolean = false,
-    onDismiss: () -> Unit = {},
-    onImageDirectoryMissing: (() -> Unit)? = null,
-    onCameraCaptureError: ((Throwable) -> Unit)? = null,
-    availableTags: ImmutableList<String> = persistentListOf(),
-    dateFormat: String = "yyyy-MM-dd",
-    timeFormat: String = "HH:mm",
-    isRecording: Boolean = false,
-    recordingDuration: Long = 0L,
-    recordingAmplitude: Int = 0,
-    isRecordingFlow: StateFlow<Boolean>? = null,
-    recordingDurationFlow: StateFlow<Long>? = null,
-    recordingAmplitudeFlow: StateFlow<Int>? = null,
-    onStartRecording: () -> Unit = {},
-    onStopRecording: () -> Unit = {},
-    onCancelRecording: () -> Unit = {},
-    onLocationClick: () -> Unit = {},
-    onClearLocation: () -> Unit = {},
-    attachedGeoLocation: String? = null,
-    hints: ImmutableList<String> = persistentListOf(),
-    inputToolbarToolOrder: ImmutableList<String> = persistentListOf(),
-    onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
+    surface: MemoEditorSurface,
 ) {
     if (!controller.isVisible) return
 
+    val session = surface.session
     var showBackfillDialog by remember { mutableStateOf(false) }
     var showReminderDialog by remember { mutableStateOf(false) }
     val onReminderRequested = rememberReminderInsertGate(onReady = { showReminderDialog = true })
-    val isRecordingValue = isRecordingFlow?.collectAsStateWithLifecycle()?.value ?: isRecording
-    val recordingDurationValue = recordingDurationFlow?.collectAsStateWithLifecycle()?.value ?: recordingDuration
-    val recordingAmplitudeValue = recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value ?: recordingAmplitude
     val mediaActions =
         rememberMemoEditorMediaActions(
             controller = controller,
-            imageDirectory = imageDirectory,
-            onSaveImage = onSaveImage,
-            onImageDirectoryMissing = onImageDirectoryMissing,
-            onCameraCaptureError = onCameraCaptureError,
+            imageDirectory = session.imageDirectory,
+            onSaveImage = surface.operations.onSaveImage,
+            onImageDirectoryMissing = session.onImageDirectoryMissing,
+            onCameraCaptureError = session.onCameraCaptureError,
         )
     var previewContent by remember { mutableStateOf(controller.inputValue.text) }
-    LaunchedEffect(controller.inputValue.text, rootPath, imageDirectory, imageMap) {
+    LaunchedEffect(controller.inputValue.text, session.rootPath, session.imageDirectory, session.imageMap) {
         previewContent =
             withContext(Dispatchers.Default) {
                 buildMemoEditorPreviewContent(
                     content = controller.inputValue.text,
-                    rootPath = rootPath,
-                    imagePath = imageDirectory,
-                    imageMap = imageMap,
+                    rootPath = session.rootPath,
+                    imagePath = session.imageDirectory,
+                    imageMap = session.imageMap,
                 )
             }
     }
     val sheetState =
         buildMemoEditorSheetState(
             controller = controller,
+            surface = surface,
             previewContent = previewContent,
-            availableTags = availableTags,
-            isRecording = isRecordingValue,
-            recordingDuration = recordingDurationValue,
-            recordingAmplitude = recordingAmplitudeValue,
-            hints = hints,
-            attachedGeoLocation = attachedGeoLocation,
-            inputToolbarToolOrder = inputToolbarToolOrder,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
         )
+    val editorCommandHandler =
+        InputEditorCommandHandler { command ->
+            when (command) {
+                InputEditorCommand.Undo -> controller.undo()
+                InputEditorCommand.Redo -> controller.redo()
+                is InputEditorCommand.Action ->
+                    when (command.id) {
+                        MemoEditorToolbarActionIds.camera -> mediaActions.onCameraClick()
+                        MemoEditorToolbarActionIds.image -> mediaActions.onImageClick()
+                        MemoEditorToolbarActionIds.backfill -> {
+                            if (shouldOpenMemoBackfillDialog(isEditingExistingMemo = controller.editingMemo != null)) {
+                                showBackfillDialog = true
+                            }
+                        }
+                        MemoEditorToolbarActionIds.clearBackfill -> controller.cancelBackfillSelection()
+                        MemoEditorToolbarActionIds.reminder -> onReminderRequested()
+                        else -> surface.commands.dispatch(command)
+                    }
+                else -> surface.commands.dispatch(command)
+            }
+        }
     val sheetCallbacks =
         buildMemoEditorSheetCallbacks(
             controller = controller,
-            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-            onSubmit = onSubmit,
-            onDismiss = onDismiss,
-            mediaActions = mediaActions,
-            onStartRecording = onStartRecording,
-            onStopRecording = onStopRecording,
-            onCancelRecording = onCancelRecording,
-            onLocationClick = onLocationClick,
-            onClearLocation = onClearLocation,
-            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
-            onReminderRequested = onReminderRequested,
-        ) {
-            if (shouldOpenMemoBackfillDialog(isEditingExistingMemo = controller.editingMemo != null)) {
-                showBackfillDialog = true
-            }
-        }
+            surface = surface,
+            editorCommandHandler = editorCommandHandler,
+        )
 
     com.lomo.ui.component.input.InputSheet(
         state = sheetState,
@@ -317,74 +378,75 @@ fun MemoEditorSheetHost(
 
 private fun buildMemoEditorSheetState(
     controller: MemoEditorController,
+    surface: MemoEditorSurface,
     previewContent: String,
-    availableTags: ImmutableList<String>,
-    isRecording: Boolean,
-    recordingDuration: Long,
-    recordingAmplitude: Int,
-    hints: ImmutableList<String>,
-    attachedGeoLocation: String?,
-    inputToolbarToolOrder: ImmutableList<String>,
-    dateFormat: String,
-    timeFormat: String,
-): com.lomo.ui.component.input.InputSheetState =
-    com.lomo.ui.component.input.InputSheetState(
-        inputValue = controller.inputValue,
-        previewContent = previewContent,
-        focusRequestToken = controller.focusRequestToken,
-        isExpanded = controller.mode == MemoEditorMode.Expanded,
-        displayMode = controller.displayMode,
-        availableTags = availableTags,
-        isRecording = isRecording,
-        recordingDuration = recordingDuration,
-        recordingAmplitude = recordingAmplitude,
-        hints = hints,
-        attachedGeoLocation = attachedGeoLocation,
-        inputToolbarToolOrder = inputToolbarToolOrder,
-        isBackfillEnabled = controller.editingMemo == null,
-        backfillBadgeText =
-            controller.backfillSelection.timestampMillis?.let { timestampMillis ->
-                formatMemoBackfillBadgeText(
-                    timestampMillis = timestampMillis,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                )
-            },
+): InputSheetState {
+    val session = surface.session
+    return InputSheetState(
+        surface =
+            InputEditorSurfaceState(
+                inputValue = controller.inputValue,
+                previewContent = previewContent,
+                focusRequestToken = controller.focusRequestToken,
+                isExpanded = controller.mode == MemoEditorMode.Expanded,
+                displayMode = controller.displayMode,
+                availableTags = session.availableTags,
+                recordingState =
+                    InputEditorRecordingState(
+                        isRecording = session.isRecording,
+                        durationMillis = session.recordingDuration,
+                        amplitude = session.recordingAmplitude,
+                    ),
+                hints = session.hints,
+                toolbarOrder =
+                    surface.capabilities.toolbarToolOrder.mapNotNull { id ->
+                        com.lomo.ui.component.input.InputToolbarActionId.fromPersistedId(id)
+                    }.toImmutableList(),
+                capabilities =
+                    InputEditorCapabilities(
+                        toolbarTools =
+                            memoEditorToolbarToolMetadata(
+                                availableActions = surface.capabilities.toolbarActions,
+                                canUndo = controller.canUndo,
+                                canRedo = controller.canRedo,
+                                canBackfill = controller.editingMemo == null,
+                                hasAttachedLocation = session.attachedGeoLocation != null,
+                            ),
+                    ),
+                actionBadge =
+                    controller.backfillSelection.timestampMillis?.let { timestampMillis ->
+                        InputEditorActionBadge(
+                            text =
+                                formatMemoBackfillBadgeText(
+                                    timestampMillis = timestampMillis,
+                                    dateFormat = session.dateFormat,
+                                    timeFormat = session.timeFormat,
+                                ),
+                            icon = Icons.Rounded.History,
+                            command = InputEditorCommand.Action(MemoEditorToolbarActionIds.clearBackfill),
+                        )
+                    },
+            ),
     )
+}
 
 private fun buildMemoEditorSheetCallbacks(
     controller: MemoEditorController,
-    quickSaveOnBackEnabled: Boolean,
-    onSubmit: (
-        memo: Memo?,
-        content: String,
-        timestampMillis: Long?,
-    ) -> Unit,
-    onDismiss: () -> Unit,
-    mediaActions: MemoEditorMediaActions,
-    onStartRecording: () -> Unit,
-    onStopRecording: () -> Unit,
-    onCancelRecording: () -> Unit,
-    onLocationClick: () -> Unit,
-    onClearLocation: () -> Unit,
-    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
-    onReminderRequested: () -> Unit,
-    onBackfillRequested: () -> Unit,
-): com.lomo.ui.component.input.InputSheetCallbacks =
-    com.lomo.ui.component.input.InputSheetCallbacks(
+    surface: MemoEditorSurface,
+    editorCommandHandler: InputEditorCommandHandler,
+): InputSheetCallbacks =
+    InputSheetCallbacks(
         onInputValueChange = controller::updateInputValue,
         onDismiss = {
             controller.close()
-            onDismiss()
+            surface.operations.onDismiss?.invoke()
         },
         onToggleExpanded = controller::toggleExpanded,
         onCollapse = { controller.setExpanded(false) },
         onDisplayModeChange = controller::updateDisplayMode,
-        onUndo = controller::undo,
-        onRedo = controller::redo,
         onConsumeBackPress = controller::consumeBackPress,
         onSubmit = { content ->
-            onSubmit(
+            surface.operations.onSubmit(
                 controller.editingMemo,
                 content,
                 controller.backfillSelection.timestampMillisForCreateSubmit(
@@ -393,21 +455,10 @@ private fun buildMemoEditorSheetCallbacks(
             )
             controller.close()
         },
-        canUndo = controller.canUndo,
-        canRedo = controller.canRedo,
-        autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
+        commands = editorCommandHandler,
+        onToolbarOrderChanged = surface.operations.onToolbarOrderChanged,
+        autoSubmitOnDismiss = surface.capabilities.quickSaveOnBackEnabled && controller.editingMemo == null,
         hasDraftPersistence = controller.editingMemo == null,
-        onImageClick = mediaActions.onImageClick,
-        onCameraClick = mediaActions.onCameraClick,
-        onStartRecording = onStartRecording,
-        onStopRecording = onStopRecording,
-        onCancelRecording = onCancelRecording,
-        onLocationClick = onLocationClick,
-        onClearLocation = onClearLocation,
-        onBackfillClick = onBackfillRequested,
-        onBackfillBadgeClick = controller::cancelBackfillSelection,
-        onInsertReminder = onReminderRequested,
-        onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
     )
 
 private data class MemoEditorMediaActions(
