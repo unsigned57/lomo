@@ -1,19 +1,29 @@
 package com.lomo.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room3.Dao
+import androidx.room3.DaoReturnTypeConverters
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
+import androidx.room3.paging.PagingSourceDaoReturnTypeConverter
 import com.lomo.data.local.entity.TrashMemoEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+@DaoReturnTypeConverters(PagingSourceDaoReturnTypeConverter::class)
 interface MemoTrashDao {
     @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC")
-    fun getDeletedMemosFlow(): Flow<List<TrashMemoEntity>>
+    suspend fun getDeletedMemos(): List<TrashMemoEntity>
+
+    @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC LIMIT :limit OFFSET :offset")
+    fun getDeletedMemosPage(
+        limit: Int,
+        offset: Int,
+    ): Flow<List<TrashMemoEntity>>
 
     @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC")
-    suspend fun getDeletedMemos(): List<TrashMemoEntity>
+    fun getDeletedMemosPagingSource(): PagingSource<Int, TrashMemoEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrashMemos(memos: List<TrashMemoEntity>)

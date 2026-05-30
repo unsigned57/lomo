@@ -8,6 +8,7 @@ internal fun createS3SyncMetadataTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_SYNC_METADATA_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `relative_path` TEXT NOT NULL,
             `remote_path` TEXT NOT NULL,
             `etag` TEXT,
@@ -19,7 +20,7 @@ internal fun createS3SyncMetadataTable(db: SQLiteConnection) {
             `last_synced_at` INTEGER NOT NULL,
             `last_resolved_direction` TEXT NOT NULL,
             `last_resolved_reason` TEXT NOT NULL,
-            PRIMARY KEY(`relative_path`)
+            PRIMARY KEY(`workspace_generation`, `relative_path`)
         )
         """.trimIndent(),
     )
@@ -29,6 +30,7 @@ internal fun createS3RemoteIndexTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_REMOTE_INDEX_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `relative_path` TEXT NOT NULL,
             `remote_path` TEXT NOT NULL,
             `etag` TEXT,
@@ -41,7 +43,7 @@ internal fun createS3RemoteIndexTable(db: SQLiteConnection) {
             `dirty_suspect` INTEGER NOT NULL,
             `missing_on_last_scan` INTEGER NOT NULL,
             `scan_epoch` INTEGER NOT NULL,
-            PRIMARY KEY(`relative_path`)
+            PRIMARY KEY(`workspace_generation`, `relative_path`)
         )
         """.trimIndent(),
     )
@@ -61,13 +63,14 @@ internal fun createS3RemoteShardStateTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_REMOTE_SHARD_STATE_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `bucket_id` TEXT NOT NULL,
             `relative_prefix` TEXT,
             `last_scanned_at` INTEGER NOT NULL,
             `last_object_count` INTEGER NOT NULL,
             `last_duration_ms` INTEGER NOT NULL,
             `last_change_count` INTEGER NOT NULL,
-            PRIMARY KEY(`bucket_id`)
+            PRIMARY KEY(`workspace_generation`, `bucket_id`)
         )
         """.trimIndent(),
     )
@@ -102,6 +105,7 @@ internal fun createS3SyncProtocolStateTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_SYNC_PROTOCOL_STATE_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `id` INTEGER NOT NULL,
             `protocol_version` INTEGER NOT NULL,
             `last_successful_sync_at` INTEGER,
@@ -113,7 +117,7 @@ internal fun createS3SyncProtocolStateTable(db: SQLiteConnection) {
             `local_mode_fingerprint` TEXT,
             `remote_scan_cursor` TEXT,
             `scan_epoch` INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY(`id`)
+            PRIMARY KEY(`workspace_generation`, `id`)
         )
         """.trimIndent(),
     )
@@ -123,12 +127,13 @@ internal fun createS3LocalChangeJournalTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_LOCAL_CHANGE_JOURNAL_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `id` TEXT NOT NULL,
             `kind` TEXT NOT NULL,
             `filename` TEXT NOT NULL,
             `change_type` TEXT NOT NULL,
             `updated_at` INTEGER NOT NULL,
-            PRIMARY KEY(`id`)
+            PRIMARY KEY(`workspace_generation`, `id`)
         )
         """.trimIndent(),
     )

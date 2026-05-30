@@ -38,7 +38,7 @@ internal fun createMemoTable(
     if (withContentIndex) {
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS `index_${tableName}_$COLUMN_CONTENT` " +
-                "ON `$tableName` (`$COLUMN_CONTENT`)",
+            "ON `$tableName` (`$COLUMN_CONTENT`)",
         )
     }
 }
@@ -66,6 +66,8 @@ internal fun createMemoFileOutboxTable(db: SQLiteConnection) {
         CREATE TABLE IF NOT EXISTS `$MEMO_FILE_OUTBOX_TABLE` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             `operation` INTEGER NOT NULL,
+            `operationId` TEXT NOT NULL,
+            `idempotencyKey` TEXT NOT NULL,
             `memoId` TEXT NOT NULL,
             `memoDate` TEXT NOT NULL,
             `memoTimestamp` INTEGER NOT NULL,
@@ -91,6 +93,14 @@ internal fun createMemoFileOutboxTable(db: SQLiteConnection) {
         "CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_claimUpdatedAt` " +
             "ON `$MEMO_FILE_OUTBOX_TABLE` (`claimUpdatedAt`)",
     )
+    db.execSQL(
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_MemoFileOutbox_operationId` " +
+            "ON `$MEMO_FILE_OUTBOX_TABLE` (`operationId`)",
+    )
+    db.execSQL(
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_MemoFileOutbox_idempotencyKey` " +
+            "ON `$MEMO_FILE_OUTBOX_TABLE` (`idempotencyKey`)",
+    )
 }
 
 internal fun createMemoPinTable(db: SQLiteConnection) {
@@ -110,6 +120,7 @@ internal fun createWebDavSyncMetadataTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$WEBDAV_SYNC_METADATA_TABLE` (
+            `workspace_generation` TEXT NOT NULL,
             `relative_path` TEXT NOT NULL,
             `remote_path` TEXT NOT NULL,
             `etag` TEXT,
@@ -119,7 +130,7 @@ internal fun createWebDavSyncMetadataTable(db: SQLiteConnection) {
             `last_synced_at` INTEGER NOT NULL,
             `last_resolved_direction` TEXT NOT NULL,
             `last_resolved_reason` TEXT NOT NULL,
-            PRIMARY KEY(`relative_path`)
+            PRIMARY KEY(`workspace_generation`, `relative_path`)
         )
         """.trimIndent(),
     )

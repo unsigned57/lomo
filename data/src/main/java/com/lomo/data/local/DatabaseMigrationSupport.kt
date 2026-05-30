@@ -1,6 +1,9 @@
 package com.lomo.data.local
 
 import androidx.sqlite.SQLiteConnection
+import com.lomo.data.local.entity.MemoFileOutboxIdentity
+import com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy
+import com.lomo.data.local.entity.MemoFileOutboxOp
 
 internal const val LEGACY_MEMOS_TABLE = "memos"
 private const val LEGACY_FILE_SYNC_METADATA_TABLE = "file_sync_metadata"
@@ -24,6 +27,22 @@ private const val MEMO_FILE_OUTBOX_LEGACY_TABLE = "MemoFileOutbox_legacy_v22"
 internal const val LEGACY_ROW_ID_TEXT_EXPR = "'legacy_' || rowid"
 internal const val CURRENT_TIME_MILLIS_SQL = "(CAST(strftime('%s','now') AS INTEGER) * 1000)"
 internal const val UPDATE_OPERATION_SQL = "1"
+private const val OUTBOX_COLUMN_ID = 0
+private const val OUTBOX_COLUMN_OPERATION = 1
+private const val OUTBOX_COLUMN_OPERATION_ID = 2
+private const val OUTBOX_COLUMN_IDEMPOTENCY_KEY = 3
+private const val OUTBOX_COLUMN_MEMO_ID = 4
+private const val OUTBOX_COLUMN_MEMO_DATE = 5
+private const val OUTBOX_COLUMN_MEMO_TIMESTAMP = 6
+private const val OUTBOX_COLUMN_MEMO_RAW_CONTENT = 7
+private const val OUTBOX_COLUMN_NEW_CONTENT = 8
+private const val OUTBOX_COLUMN_CREATE_RAW_CONTENT = 9
+private const val OUTBOX_COLUMN_CREATED_AT = 10
+private const val OUTBOX_COLUMN_UPDATED_AT = 11
+private const val OUTBOX_COLUMN_RETRY_COUNT = 12
+private const val OUTBOX_COLUMN_LAST_ERROR = 13
+private const val OUTBOX_COLUMN_CLAIM_TOKEN = 14
+private const val OUTBOX_COLUMN_CLAIM_UPDATED_AT = 15
 
 internal fun migrateLegacyMemosTable(db: SQLiteConnection) {
     val columns = db.tableColumns(LEGACY_MEMOS_TABLE)
@@ -250,42 +269,172 @@ internal fun normalizeMemoFileOutboxTable(db: SQLiteConnection) {
     createMemoFileOutboxTable(db)
 
     val projection = memoFileOutboxProjection(columns)
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `$MEMO_FILE_OUTBOX_TABLE` (
-            `id`,
-            `operation`,
-            `memoId`,
-            `memoDate`,
-            `memoTimestamp`,
-            `memoRawContent`,
-            `newContent`,
-            `createRawContent`,
-            `createdAt`,
-            `updatedAt`,
-            `retryCount`,
-            `lastError`,
-            `claimToken`,
-            `claimUpdatedAt`
-        )
-        SELECT
-            ${projection.idExpr},
-            ${projection.operationExpr},
-            ${projection.memoIdExpr},
-            ${projection.memoDateExpr},
-            ${projection.memoTimestampExpr},
-            ${projection.memoRawContentExpr},
-            ${projection.newContentExpr},
-            ${projection.createRawContentExpr},
-            ${projection.createdAtExpr},
-            ${projection.updatedAtExpr},
-            ${projection.retryCountExpr},
-            ${projection.lastErrorExpr},
-            ${projection.claimTokenExpr},
-            ${projection.claimUpdatedAtExpr}
-        FROM `$MEMO_FILE_OUTBOX_LEGACY_TABLE`
-        """.trimIndent(),
-    )
+    migrateMemoFileOutboxRows(db, projection)
 
     db.execSQL("$DROP_TABLE_IF_EXISTS `$MEMO_FILE_OUTBOX_LEGACY_TABLE`")
 }
+
+private fun migrateMemoFileOutboxRows(
+    db: SQLiteConnection,
+    projection: MemoFileOutboxProjection,
+) {
+    val rows = readMemoFileOutboxRows(db, projection)
+    rows.forEach { row ->
+        val identity = row.resolveIdentity()
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO `$MEMO_FILE_OUTBOX_TABLE` (
+                `id`,
+                `operation`,
+                `operationId`,
+                `idempotencyKey`,
+                `memoId`,
+                `memoDate`,
+                `memoTimestamp`,
+                `memoRawContent`,
+                `newContent`,
+                `createRawContent`,
+                `createdAt`,
+                `updatedAt`,
+                `retryCount`,
+                `lastError`,
+                `claimToken`,
+                `claimUpdatedAt`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            arrayOf<Any?>(
+                row.id,
+                row.operation.persistedValue,
+                identity.operationId,
+                identity.idempotencyKey,
+                row.memoId,
+                row.memoDate,
+                row.memoTimestamp,
+                row.memoRawContent,
+                row.newContent,
+                row.createRawContent,
+                row.createdAt,
+                row.updatedAt,
+                row.retryCount,
+                row.lastError,
+                row.claimToken,
+                row.claimUpdatedAt,
+            ),
+        )
+    }
+}
+
+private fun readMemoFileOutboxRows(
+    db: SQLiteConnection,
+    projection: MemoFileOutboxProjection,
+): List<MemoFileOutboxMigrationRow> =
+    db.query(
+        """
+        SELECT
+            ${projection.idExpr} AS `id`,
+            ${projection.operationExpr} AS `operation`,
+            ${projection.operationIdExpr} AS `operationId`,
+            ${projection.idempotencyKeyExpr} AS `idempotencyKey`,
+            ${projection.memoIdExpr} AS `memoId`,
+            ${projection.memoDateExpr} AS `memoDate`,
+            ${projection.memoTimestampExpr} AS `memoTimestamp`,
+            ${projection.memoRawContentExpr} AS `memoRawContent`,
+            ${projection.newContentExpr} AS `newContent`,
+            ${projection.createRawContentExpr} AS `createRawContent`,
+            ${projection.createdAtExpr} AS `createdAt`,
+            ${projection.updatedAtExpr} AS `updatedAt`,
+            ${projection.retryCountExpr} AS `retryCount`,
+            ${projection.lastErrorExpr} AS `lastError`,
+            ${projection.claimTokenExpr} AS `claimToken`,
+            ${projection.claimUpdatedAtExpr} AS `claimUpdatedAt`
+        FROM `$MEMO_FILE_OUTBOX_LEGACY_TABLE`
+        ORDER BY `id` ASC
+        """.trimIndent(),
+    ).use { cursor ->
+        buildList {
+            while (cursor.moveToNext()) {
+                add(
+                    MemoFileOutboxMigrationRow(
+                        id = cursor.getNullableLong(OUTBOX_COLUMN_ID),
+                        operation =
+                            MemoFileOutboxOp.fromPersistedValue(
+                                requireNotNull(cursor.getNullableInt(OUTBOX_COLUMN_OPERATION)) {
+                                    "Memo outbox migration row missing operation"
+                                },
+                            ),
+                        operationId = cursor.getString(OUTBOX_COLUMN_OPERATION_ID),
+                        idempotencyKey = cursor.getString(OUTBOX_COLUMN_IDEMPOTENCY_KEY),
+                        memoId =
+                            requireNotNull(cursor.getString(OUTBOX_COLUMN_MEMO_ID)) {
+                                "Memo outbox migration row missing memoId"
+                            },
+                        memoDate =
+                            requireNotNull(cursor.getString(OUTBOX_COLUMN_MEMO_DATE)) {
+                                "Memo outbox migration row missing memoDate"
+                            },
+                        memoTimestamp = cursor.getLong(OUTBOX_COLUMN_MEMO_TIMESTAMP),
+                        memoRawContent =
+                            requireNotNull(cursor.getString(OUTBOX_COLUMN_MEMO_RAW_CONTENT)) {
+                                "Memo outbox migration row missing memoRawContent"
+                            },
+                        newContent = cursor.getString(OUTBOX_COLUMN_NEW_CONTENT),
+                        createRawContent = cursor.getString(OUTBOX_COLUMN_CREATE_RAW_CONTENT),
+                        createdAt = cursor.getLong(OUTBOX_COLUMN_CREATED_AT),
+                        updatedAt = cursor.getLong(OUTBOX_COLUMN_UPDATED_AT),
+                        retryCount = cursor.getInt(OUTBOX_COLUMN_RETRY_COUNT),
+                        lastError = cursor.getString(OUTBOX_COLUMN_LAST_ERROR),
+                        claimToken = cursor.getString(OUTBOX_COLUMN_CLAIM_TOKEN),
+                        claimUpdatedAt = cursor.getNullableLong(OUTBOX_COLUMN_CLAIM_UPDATED_AT),
+                    ),
+                )
+            }
+        }
+    }
+
+private data class MemoFileOutboxMigrationRow(
+    val id: Long?,
+    val operation: MemoFileOutboxOp,
+    val operationId: String?,
+    val idempotencyKey: String?,
+    val memoId: String,
+    val memoDate: String,
+    val memoTimestamp: Long,
+    val memoRawContent: String,
+    val newContent: String?,
+    val createRawContent: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val retryCount: Int,
+    val lastError: String?,
+    val claimToken: String?,
+    val claimUpdatedAt: Long?,
+) {
+    fun resolveIdentity(): MemoFileOutboxIdentity {
+        if (operationId != null || idempotencyKey != null) {
+            return MemoFileOutboxIdentity(
+                operationId =
+                    requireNotNull(operationId) {
+                        "Memo outbox migration row missing operationId for $memoId"
+                    },
+                idempotencyKey =
+                    requireNotNull(idempotencyKey) {
+                        "Memo outbox migration row missing idempotencyKey for $memoId"
+                    },
+            )
+        }
+        return MemoFileOutboxIdentityPolicy.forOutboxOperation(
+            operation = operation,
+            memoId = memoId,
+            memoDate = memoDate,
+            memoRawContent = memoRawContent,
+            newContent = newContent,
+            createRawContent = createRawContent,
+        )
+    }
+}
+
+private fun SQLiteQueryCursor.getNullableLong(index: Int): Long? =
+    if (getString(index) == null) null else getLong(index)
+
+private fun SQLiteQueryCursor.getNullableInt(index: Int): Int? =
+    if (getString(index) == null) null else getInt(index)

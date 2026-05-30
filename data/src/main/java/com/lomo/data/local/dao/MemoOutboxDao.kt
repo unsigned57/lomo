@@ -9,8 +9,20 @@ import com.lomo.data.local.entity.MemoFileOutboxEntity
 
 @Dao
 interface MemoOutboxDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMemoFileOutbox(item: MemoFileOutboxEntity): Long
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMemoFileOutboxIgnoringDuplicate(item: MemoFileOutboxEntity): Long
+
+    @Query("SELECT id FROM MemoFileOutbox WHERE idempotencyKey = :idempotencyKey LIMIT 1")
+    suspend fun getMemoFileOutboxIdByIdempotencyKey(idempotencyKey: String): Long?
+
+    @Transaction
+    suspend fun insertMemoFileOutbox(item: MemoFileOutboxEntity): Long {
+        val insertedId = insertMemoFileOutboxIgnoringDuplicate(item)
+        if (insertedId != -1L) return insertedId
+        return requireNotNull(getMemoFileOutboxIdByIdempotencyKey(item.idempotencyKey)) {
+            "Memo file outbox duplicate insert did not resolve existing id for ${item.idempotencyKey}"
+        }
+    }
 
     @Query("SELECT * FROM MemoFileOutbox ORDER BY id ASC LIMIT :limit")
     suspend fun getMemoFileOutboxBatch(limit: Int): List<MemoFileOutboxEntity>

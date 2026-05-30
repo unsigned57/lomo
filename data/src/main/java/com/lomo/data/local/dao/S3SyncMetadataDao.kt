@@ -28,10 +28,33 @@ data class S3SyncPlannerMetadataSnapshot(
     val lastResolvedReason: String,
 )
 
-@Dao
 interface S3SyncMetadataDao {
-    @Query("SELECT * FROM s3_sync_metadata")
     suspend fun getAll(): List<S3SyncMetadataEntity>
+
+    suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot>
+
+    suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot>
+
+    suspend fun getByRelativePaths(relativePaths: List<String>): List<S3SyncMetadataEntity>
+
+    suspend fun upsertAll(entities: List<S3SyncMetadataEntity>)
+
+    suspend fun deleteByRelativePath(relativePath: String)
+
+    suspend fun deleteByRelativePaths(relativePaths: List<String>)
+
+    suspend fun clearAll()
+
+    suspend fun replaceAll(entities: List<S3SyncMetadataEntity>) {
+        clearAll()
+        upsertAll(entities)
+    }
+}
+
+@Dao
+interface RawS3SyncMetadataDao {
+    @Query("SELECT * FROM s3_sync_metadata WHERE workspace_generation = :workspaceGeneration")
+    suspend fun getAll(workspaceGeneration: String): List<S3SyncMetadataEntity>
 
     @Query(
         """
@@ -48,9 +71,10 @@ interface S3SyncMetadataDao {
             last_resolved_direction AS lastResolvedDirection,
             last_resolved_reason AS lastResolvedReason
         FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration
         """,
     )
-    suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot>
+    suspend fun getAllPlannerMetadataSnapshots(workspaceGeneration: String): List<S3SyncPlannerMetadataSnapshot>
 
     @Query(
         """
@@ -60,28 +84,56 @@ interface S3SyncMetadataDao {
             etag AS etag,
             remote_last_modified AS remoteLastModified
         FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration
         """,
     )
-    suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot>
+    suspend fun getAllRemoteMetadataSnapshots(workspaceGeneration: String): List<S3SyncRemoteMetadataSnapshot>
 
-    @Query("SELECT * FROM s3_sync_metadata WHERE relative_path IN (:relativePaths)")
-    suspend fun getByRelativePaths(relativePaths: List<String>): List<S3SyncMetadataEntity>
+    @Query(
+        """
+        SELECT * FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration AND relative_path IN (:relativePaths)
+        """,
+    )
+    suspend fun getByRelativePaths(
+        relativePaths: List<String>,
+        workspaceGeneration: String,
+    ): List<S3SyncMetadataEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<S3SyncMetadataEntity>)
 
-    @Query("DELETE FROM s3_sync_metadata WHERE relative_path = :relativePath")
-    suspend fun deleteByRelativePath(relativePath: String)
+    @Query(
+        """
+        DELETE FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration AND relative_path = :relativePath
+        """,
+    )
+    suspend fun deleteByRelativePath(
+        relativePath: String,
+        workspaceGeneration: String,
+    )
 
-    @Query("DELETE FROM s3_sync_metadata WHERE relative_path IN (:relativePaths)")
-    suspend fun deleteByRelativePaths(relativePaths: List<String>)
+    @Query(
+        """
+        DELETE FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration AND relative_path IN (:relativePaths)
+        """,
+    )
+    suspend fun deleteByRelativePaths(
+        relativePaths: List<String>,
+        workspaceGeneration: String,
+    )
 
-    @Query("DELETE FROM s3_sync_metadata")
-    suspend fun clearAll()
+    @Query("DELETE FROM s3_sync_metadata WHERE workspace_generation = :workspaceGeneration")
+    suspend fun clearAll(workspaceGeneration: String)
 
     @Transaction
-    suspend fun replaceAll(entities: List<S3SyncMetadataEntity>) {
-        clearAll()
+    suspend fun replaceAll(
+        entities: List<S3SyncMetadataEntity>,
+        workspaceGeneration: String,
+    ) {
+        clearAll(workspaceGeneration)
         upsertAll(entities)
     }
 }

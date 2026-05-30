@@ -5,6 +5,8 @@ import androidx.sqlite.SQLiteConnection
 internal data class MemoFileOutboxProjection(
     val idExpr: String,
     val operationExpr: String,
+    val operationIdExpr: String,
+    val idempotencyKeyExpr: String,
     val memoIdExpr: String,
     val memoDateExpr: String,
     val memoTimestampExpr: String,
@@ -30,6 +32,7 @@ private fun pickMemoFileOutboxOperationExpr(columns: Set<String>): String {
             WHEN CAST(`operation` AS TEXT) = 'UPDATE' THEN 1
             WHEN CAST(`operation` AS TEXT) = 'DELETE' THEN 2
             WHEN CAST(`operation` AS TEXT) = 'RESTORE' THEN 3
+            WHEN CAST(`operation` AS TEXT) = 'PERMANENT_DELETE' THEN 4
             ELSE NULL
         END
     """.trimIndent()
@@ -115,6 +118,8 @@ internal fun memoFileOutboxProjection(columns: Set<String>): MemoFileOutboxProje
     MemoFileOutboxProjection(
         idExpr = pickNullableIntExpr(columns, "id"),
         operationExpr = pickMemoFileOutboxOperationExpr(columns),
+        operationIdExpr = pickNullableTextExpr(columns, "operationId"),
+        idempotencyKeyExpr = pickNullableTextExpr(columns, "idempotencyKey"),
         memoIdExpr = pickTextExpr(columns, "memoId", "id"),
         memoDateExpr = pickTextExpr(columns, "memoDate", "date"),
         memoTimestampExpr = pickIntExpr(columns, "memoTimestamp", COLUMN_TIMESTAMP),
