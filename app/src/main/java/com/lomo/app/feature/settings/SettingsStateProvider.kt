@@ -1,7 +1,12 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.UnifiedSyncState
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -20,7 +25,7 @@ class SettingsStateProvider(
     private data class GitIdentityState(
         val enabled: Boolean,
         val remoteUrl: String,
-        val patConfigured: Boolean,
+        val patStatus: StoredCredentialStatus,
         val authorName: String,
         val authorEmail: String,
     )
@@ -39,7 +44,7 @@ class SettingsStateProvider(
         val baseUrl: String,
         val endpointUrl: String,
         val username: String,
-        val passwordConfigured: Boolean,
+        val passwordStatus: StoredCredentialStatus,
     )
 
     private data class WebDavSyncSettingsState(
@@ -142,6 +147,19 @@ class SettingsStateProvider(
             appConfigCoordinator.timeFormat,
             appConfigCoordinator.themeMode,
             combine(
+                appConfigCoordinator.colorSource,
+                appConfigCoordinator.fontPreference,
+                appConfigCoordinator.availableCustomFonts,
+                appConfigCoordinator.colorHistory,
+            ) { colorSource, fontPreference, customFonts, colorHistory ->
+                DisplaySources(
+                    colorSource = colorSource,
+                    fontPreference = fontPreference,
+                    customFonts = customFonts,
+                    colorHistory = colorHistory
+                )
+            },
+            combine(
                 appConfigCoordinator.typographyFontSizeScale,
                 appConfigCoordinator.typographyLineHeightScale,
                 appConfigCoordinator.typographyLetterSpacingScale,
@@ -149,11 +167,15 @@ class SettingsStateProvider(
             ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
                 floatArrayOf(fontSize, lineHeight, letterSpacing, paragraphSpacing)
             }
-        ) { dateFormat, timeFormat, themeMode, typography ->
+        ) { dateFormat, timeFormat, themeMode, sources, typography ->
             DisplaySectionState(
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 themeMode = themeMode,
+                colorSource = sources.colorSource,
+                fontPreference = sources.fontPreference,
+                availableCustomFonts = sources.customFonts.toImmutableList(),
+                colorHistory = sources.colorHistory.toImmutableList(),
                 typographyFontSizeScale = typography[0],
                 typographyLineHeightScale = typography[1],
                 typographyLetterSpacingScale = typography[2],
@@ -164,15 +186,26 @@ class SettingsStateProvider(
             started = settingsWhileSubscribed(),
             initialValue =
                 DisplaySectionState(
-                    appConfigCoordinator.dateFormat.value,
-                    appConfigCoordinator.timeFormat.value,
-                    appConfigCoordinator.themeMode.value,
-                    appConfigCoordinator.typographyFontSizeScale.value,
-                    appConfigCoordinator.typographyLineHeightScale.value,
-                    appConfigCoordinator.typographyLetterSpacingScale.value,
-                    appConfigCoordinator.typographyParagraphSpacingScale.value,
+                    dateFormat = appConfigCoordinator.dateFormat.value,
+                    timeFormat = appConfigCoordinator.timeFormat.value,
+                    themeMode = appConfigCoordinator.themeMode.value,
+                    colorSource = appConfigCoordinator.colorSource.value,
+                    fontPreference = appConfigCoordinator.fontPreference.value,
+                    availableCustomFonts = appConfigCoordinator.availableCustomFonts.value.toImmutableList(),
+                    colorHistory = appConfigCoordinator.colorHistory.value.toImmutableList(),
+                    typographyFontSizeScale = appConfigCoordinator.typographyFontSizeScale.value,
+                    typographyLineHeightScale = appConfigCoordinator.typographyLineHeightScale.value,
+                    typographyLetterSpacingScale = appConfigCoordinator.typographyLetterSpacingScale.value,
+                    typographyParagraphSpacingScale = appConfigCoordinator.typographyParagraphSpacingScale.value,
                 ),
         )
+
+    private data class DisplaySources(
+        val colorSource: ColorSource,
+        val fontPreference: FontPreference,
+        val customFonts: List<CustomFontInfo>,
+        val colorHistory: List<Int>,
+    )
 
     private val lanShareState: StateFlow<LanShareSectionState> =
         combine(
@@ -254,11 +287,11 @@ class SettingsStateProvider(
         combine(
             gitCoordinator.gitSyncEnabled,
             gitCoordinator.gitRemoteUrl,
-            gitCoordinator.gitPatConfigured,
+            gitCoordinator.gitPatStatus,
             gitCoordinator.gitAuthorName,
             gitCoordinator.gitAuthorEmail,
-        ) { enabled, remoteUrl, patConfigured, authorName, authorEmail ->
-            GitIdentityState(enabled, remoteUrl, patConfigured, authorName, authorEmail)
+        ) { enabled, remoteUrl, patStatus, authorName, authorEmail ->
+            GitIdentityState(enabled, remoteUrl, patStatus, authorName, authorEmail)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
@@ -266,7 +299,7 @@ class SettingsStateProvider(
                 GitIdentityState(
                     enabled = gitCoordinator.gitSyncEnabled.value,
                     remoteUrl = gitCoordinator.gitRemoteUrl.value,
-                    patConfigured = gitCoordinator.gitPatConfigured.value,
+                    patStatus = gitCoordinator.gitPatStatus.value,
                     authorName = gitCoordinator.gitAuthorName.value,
                     authorEmail = gitCoordinator.gitAuthorEmail.value,
                 ),
@@ -304,7 +337,7 @@ class SettingsStateProvider(
             GitSectionState(
                 enabled = identity.enabled,
                 remoteUrl = identity.remoteUrl,
-                patConfigured = identity.patConfigured,
+                patStatus = identity.patStatus,
                 authorName = identity.authorName,
                 authorEmail = identity.authorEmail,
                 autoSyncEnabled = syncSettings.autoSyncEnabled,
@@ -322,7 +355,7 @@ class SettingsStateProvider(
                 GitSectionState(
                     enabled = gitIdentityState.value.enabled,
                     remoteUrl = gitIdentityState.value.remoteUrl,
-                    patConfigured = gitIdentityState.value.patConfigured,
+                    patStatus = gitIdentityState.value.patStatus,
                     authorName = gitIdentityState.value.authorName,
                     authorEmail = gitIdentityState.value.authorEmail,
                     autoSyncEnabled = gitSyncSettingsState.value.autoSyncEnabled,
@@ -358,15 +391,15 @@ class SettingsStateProvider(
             webDavIdentityInputs,
             webDavCoordinator.webDavEndpointUrl,
             webDavCoordinator.webDavUsername,
-            webDavCoordinator.passwordConfigured,
-        ) { baseInputs, endpointUrl, username, passwordConfigured ->
+            webDavCoordinator.passwordStatus,
+        ) { baseInputs, endpointUrl, username, passwordStatus ->
             WebDavIdentityState(
                 enabled = baseInputs.first,
                 provider = baseInputs.second,
                 baseUrl = baseInputs.third,
                 endpointUrl = endpointUrl,
                 username = username,
-                passwordConfigured = passwordConfigured,
+                passwordStatus = passwordStatus,
             )
         }.stateIn(
             scope = scope,
@@ -378,7 +411,7 @@ class SettingsStateProvider(
                     baseUrl = webDavCoordinator.webDavBaseUrl.value,
                     endpointUrl = webDavCoordinator.webDavEndpointUrl.value,
                     username = webDavCoordinator.webDavUsername.value,
-                    passwordConfigured = webDavCoordinator.passwordConfigured.value,
+                    passwordStatus = webDavCoordinator.passwordStatus.value,
                 ),
         )
 
@@ -416,7 +449,7 @@ class SettingsStateProvider(
                 baseUrl = identity.baseUrl,
                 endpointUrl = identity.endpointUrl,
                 username = identity.username,
-                passwordConfigured = identity.passwordConfigured,
+                passwordStatus = identity.passwordStatus,
                 autoSyncEnabled = syncSettings.autoSyncEnabled,
                 autoSyncInterval = syncSettings.autoSyncInterval,
                 syncOnRefreshEnabled = syncSettings.syncOnRefreshEnabled,
@@ -434,7 +467,7 @@ class SettingsStateProvider(
                     baseUrl = webDavIdentityState.value.baseUrl,
                     endpointUrl = webDavIdentityState.value.endpointUrl,
                     username = webDavIdentityState.value.username,
-                    passwordConfigured = webDavIdentityState.value.passwordConfigured,
+                    passwordStatus = webDavIdentityState.value.passwordStatus,
                     autoSyncEnabled = webDavSyncSettingsState.value.autoSyncEnabled,
                     autoSyncInterval = webDavSyncSettingsState.value.autoSyncInterval,
                     syncOnRefreshEnabled = webDavSyncSettingsState.value.syncOnRefreshEnabled,

@@ -9,7 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -48,7 +48,7 @@ fun LanShareSettingsSection(
                 SwitchPreferenceItem(
                     title = stringResource(R.string.share_e2e_enabled_title),
                     subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
-                    icon = Icons.Default.Lock,
+                    icon = Icons.Outlined.Lock,
                     checked = state.e2eEnabled,
                     onCheckedChange = onToggleE2e,
                 )
@@ -90,7 +90,7 @@ private fun LanSharePairingSettings(
                         R.string.settings_lan_share_pairing_not_set
                     },
                 ),
-            icon = Icons.Default.Lock,
+            icon = Icons.Outlined.Lock,
             onClick = onOpenPairingDialog,
         )
     }

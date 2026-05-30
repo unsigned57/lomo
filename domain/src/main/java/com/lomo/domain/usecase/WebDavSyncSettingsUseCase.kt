@@ -1,5 +1,7 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.CredentialState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -31,6 +33,10 @@ interface WebDavSyncSettingsStateObservation {
 }
 
 interface WebDavSyncCredentialObservation {
+    suspend fun getPasswordStatus(): StoredCredentialStatus
+
+    suspend fun getCredentialState(): CredentialState
+
     suspend fun isPasswordConfigured(): Boolean
 }
 
@@ -117,6 +123,10 @@ private class WebDavSyncSettingsStateObservationImpl(
 private class WebDavSyncCredentialObservationImpl(
     private val webDavSyncRepository: WebDavSyncRepository,
 ) : WebDavSyncCredentialObservation {
+    override suspend fun getPasswordStatus(): StoredCredentialStatus = webDavSyncRepository.getPasswordStatus()
+
+    override suspend fun getCredentialState(): CredentialState = webDavSyncRepository.getCredentialState()
+
     override suspend fun isPasswordConfigured(): Boolean = webDavSyncRepository.isPasswordConfigured()
 }
 

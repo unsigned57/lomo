@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDownloadManager
+import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +20,10 @@ class SettingsViewModel
     @Inject
     constructor(
         coordinatorFactory: SettingsCoordinatorFactory,
+        exportAllNotesArchiveUseCase: ExportAllNotesArchiveUseCase,
+        importAllNotesArchiveUseCase: ImportAllNotesArchiveUseCase,
+        exportEncryptedSettingsUseCase: ExportEncryptedSettingsUseCase,
+        importEncryptedSettingsUseCase: ImportEncryptedSettingsUseCase,
         appUpdateChecker: AppUpdateChecker? = null,
         getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
         appUpdateDownloadManager: AppUpdateDownloadManager? = null,
@@ -98,6 +106,14 @@ class SettingsViewModel
                 appUpdateChecker = appUpdateChecker,
                 getCurrentAppVersionUseCase = getCurrentAppVersionUseCase,
                 appUpdateDownloadManager = appUpdateDownloadManager,
+            )
+        val migrationFeature =
+            SettingsMigrationFeatureViewModel(
+                scope = viewModelScope,
+                exportAllNotesArchiveUseCase = exportAllNotesArchiveUseCase,
+                importAllNotesArchiveUseCase = importAllNotesArchiveUseCase,
+                exportEncryptedSettingsUseCase = exportEncryptedSettingsUseCase,
+                importEncryptedSettingsUseCase = importEncryptedSettingsUseCase,
             )
         val lanShareFeature =
             SettingsLanShareFeatureViewModel(

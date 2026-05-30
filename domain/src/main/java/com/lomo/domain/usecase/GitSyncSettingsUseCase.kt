@@ -1,6 +1,7 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncRepository
@@ -29,6 +30,8 @@ interface GitSyncSettingsStateObservation {
 }
 
 interface GitSyncSettingsValidation {
+    suspend fun getTokenStatus(): StoredCredentialStatus
+
     suspend fun isTokenConfigured(): Boolean
 
     fun isValidRemoteUrl(url: String): Boolean
@@ -128,7 +131,9 @@ private class GitSyncSettingsValidationImpl(
     private val gitSyncRepository: GitSyncRepository,
     private val gitRemoteUrlUseCase: GitRemoteUrlUseCase,
 ) : GitSyncSettingsValidation {
-    override suspend fun isTokenConfigured(): Boolean = gitSyncRepository.getToken() != null
+    override suspend fun getTokenStatus(): StoredCredentialStatus = gitSyncRepository.getTokenStatus()
+
+    override suspend fun isTokenConfigured(): Boolean = gitSyncRepository.isTokenConfigured()
 
     override fun isValidRemoteUrl(url: String): Boolean = gitRemoteUrlUseCase.isValid(url)
 }

@@ -15,12 +15,16 @@ class SettingsDialogState {
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)
     var showLanguageDialog by mutableStateOf(false)
-    var showTypographyPage by mutableStateOf(false)
+    var activeSubPage by mutableStateOf(SettingsSubPage.NONE)
     var showShareCardSignatureDialog by mutableStateOf(false)
     var shareCardSignatureInput by mutableStateOf("")
     var showMemoSnapshotCountDialog by mutableStateOf(false)
     var showMemoSnapshotAgeDialog by mutableStateOf(false)
     var pendingSnapshotDisableTarget by mutableStateOf<SettingsSnapshotDisableTarget?>(null)
+
+    var showMigrationExportSettingsPasswordDialog by mutableStateOf(false)
+    var showMigrationImportSettingsPasswordDialog by mutableStateOf(false)
+    var migrationPasswordInput by mutableStateOf("")
 
     var showLanPairingDialog by mutableStateOf(false)
     var lanPairingCodeInput by mutableStateOf("")
@@ -90,4 +94,15 @@ fun rememberSettingsDialogState(): SettingsDialogState = remember { SettingsDial
 
 enum class SettingsSnapshotDisableTarget {
     MEMO,
+}
+
+enum class SettingsSubPage {
+    NONE,
+    SYNC_BACKUP,
+    STORAGE_FORMATS,
+    INTERACTION_SECURITY,
+    TYPOGRAPHY,
+    COLOR_PALETTE,
+    FONT,
+    ABOUT
 }

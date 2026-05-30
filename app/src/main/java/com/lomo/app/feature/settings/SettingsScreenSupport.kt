@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.lomo.domain.model.SyncBackendType
@@ -77,6 +79,96 @@ private fun rememberTreePickerAction(
             }
         }
     return { launcher.launch(null) }
+}
+
+@Composable
+internal fun rememberMigrationPickerActions(
+    migrationFeature: SettingsMigrationFeatureViewModel,
+    snackbarHostState: SnackbarHostState,
+    unknownErrorMessage: String,
+): MigrationPickerActions {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportSettingsPassword = remember { mutableStateOf("") }
+    val importSettingsPassword = remember { mutableStateOf("") }
+    val createNotesArchiveLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            migrationFeature.exportNotesArchive {
+                context.contentResolver.openOutputStream(uri)
+            }
+        }
+    val openNotesArchiveLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            migrationFeature.importNotesArchive {
+                context.contentResolver.openInputStream(uri)
+            }
+        }
+    val createSettingsLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            migrationFeature.exportEncryptedSettings(
+                password = exportSettingsPassword.value,
+                openOutput = { context.contentResolver.openOutputStream(uri) },
+            )
+        }
+    val openSettingsLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri ?: return@rememberLauncherForActivityResult
+            migrationFeature.importEncryptedSettings(
+                password = importSettingsPassword.value,
+                openInput = { context.contentResolver.openInputStream(uri) },
+            )
+        }
+    return MigrationPickerActions(
+        exportNotesArchive = {
+            runCatching {
+                createNotesArchiveLauncher.launch("lomo-notes.zip")
+            }.onFailure { throwable ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                    )
+                }
+            }
+        },
+        importNotesArchive = {
+            runCatching {
+                openNotesArchiveLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+            }.onFailure { throwable ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                    )
+                }
+            }
+        },
+        exportEncryptedSettings = { password ->
+            exportSettingsPassword.value = password
+            runCatching {
+                createSettingsLauncher.launch("lomo-settings.json")
+            }.onFailure { throwable ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                    )
+                }
+            }
+        },
+        importEncryptedSettings = { password ->
+            importSettingsPassword.value = password
+            runCatching {
+                openSettingsLauncher.launch(arrayOf("application/json", "application/octet-stream", "*/*"))
+            }.onFailure { throwable ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        throwable.message?.takeIf(String::isNotBlank) ?: unknownErrorMessage,
+                    )
+                }
+            }
+        },
+    )
 }
 
 private fun persistTreePermission(
@@ -154,11 +246,20 @@ internal fun HandleGitConflictState(
 internal fun HandleWebDavConflictState(
     syncState: UnifiedSyncState,
     onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
+    onShowReviewDialog: (com.lomo.domain.model.SyncReviewSession) -> Unit,
 ) {
     LaunchedEffect(syncState) {
-        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
-        if (conflictState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
-        onShowConflictDialog(conflictState.conflicts)
+        when (syncState) {
+            is UnifiedSyncState.ConflictDetected -> {
+                if (syncState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
+                onShowConflictDialog(syncState.conflicts)
+            }
+            is UnifiedSyncState.ReviewRequired -> {
+                if (syncState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
+                onShowReviewDialog(syncState.review)
+            }
+            else -> Unit
+        }
     }
 }
 
@@ -166,10 +267,19 @@ internal fun HandleWebDavConflictState(
 internal fun HandleS3ConflictState(
     syncState: UnifiedSyncState,
     onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
+    onShowReviewDialog: (com.lomo.domain.model.SyncReviewSession) -> Unit,
 ) {
     LaunchedEffect(syncState) {
-        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
-        if (conflictState.provider != SyncBackendType.S3) return@LaunchedEffect
-        onShowConflictDialog(conflictState.conflicts)
+        when (syncState) {
+            is UnifiedSyncState.ConflictDetected -> {
+                if (syncState.provider != SyncBackendType.S3) return@LaunchedEffect
+                onShowConflictDialog(syncState.conflicts)
+            }
+            is UnifiedSyncState.ReviewRequired -> {
+                if (syncState.provider != SyncBackendType.S3) return@LaunchedEffect
+                onShowReviewDialog(syncState.review)
+            }
+            else -> Unit
+        }
     }
 }

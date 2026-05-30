@@ -8,16 +8,6 @@ import com.lomo.app.R
 import java.io.File
 
 @Composable
-internal fun s3CredentialSubtitle(configured: Boolean): String =
-    stringResource(
-        if (configured) {
-            R.string.settings_s3_access_key_configured
-        } else {
-            R.string.settings_s3_access_key_not_set
-        },
-    )
-
-@Composable
 internal fun s3LocalSyncDirectorySubtitle(pathOrUri: String): String =
     pathOrUri
         .takeIf(String::isNotBlank)

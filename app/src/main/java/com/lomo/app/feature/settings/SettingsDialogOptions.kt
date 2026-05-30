@@ -39,6 +39,7 @@ fun SettingsDialogHost(
     features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
+    migrationPickers: MigrationPickerActions,
     onApplyLanguageTag: (String) -> Unit,
 ) {
     DisplayPreferenceDialogs(
@@ -63,6 +64,10 @@ fun SettingsDialogHost(
         features = features,
         dialogState = dialogState,
         options = options,
+    )
+    MigrationPreferenceDialogs(
+        dialogState = dialogState,
+        migrationPickers = migrationPickers,
     )
     LanShareDialogs(
         uiState = uiState,

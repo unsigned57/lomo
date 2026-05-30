@@ -1,11 +1,14 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.lomo.app.R
 import com.lomo.ui.component.dialog.SelectionDialog
 import kotlinx.collections.immutable.ImmutableList
@@ -113,6 +116,7 @@ internal fun ShareCardPreferenceDialogs(
             OutlinedTextField(
                 value = dialogState.shareCardSignatureInput,
                 onValueChange = { dialogState.shareCardSignatureInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_share_card_signature_hint)) },
             )
@@ -129,6 +133,79 @@ internal fun ShareCardPreferenceDialogs(
         },
         dismissButton = {
             TextButton(onClick = { dialogState.showShareCardSignatureDialog = false }) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+internal fun MigrationPreferenceDialogs(
+    dialogState: SettingsDialogState,
+    migrationPickers: MigrationPickerActions,
+) {
+    MigrationPasswordDialog(
+        visible = dialogState.showMigrationExportSettingsPasswordDialog,
+        title = stringResource(R.string.settings_migration_export_settings_password_title),
+        confirmLabel = stringResource(R.string.settings_migration_export_settings),
+        password = dialogState.migrationPasswordInput,
+        onPasswordChange = { dialogState.migrationPasswordInput = it },
+        onDismiss = { dialogState.showMigrationExportSettingsPasswordDialog = false },
+        onConfirm = {
+            dialogState.showMigrationExportSettingsPasswordDialog = false
+            migrationPickers.exportEncryptedSettings(dialogState.migrationPasswordInput)
+        },
+    )
+    MigrationPasswordDialog(
+        visible = dialogState.showMigrationImportSettingsPasswordDialog,
+        title = stringResource(R.string.settings_migration_import_settings_password_title),
+        confirmLabel = stringResource(R.string.settings_migration_import_settings),
+        password = dialogState.migrationPasswordInput,
+        onPasswordChange = { dialogState.migrationPasswordInput = it },
+        onDismiss = { dialogState.showMigrationImportSettingsPasswordDialog = false },
+        onConfirm = {
+            dialogState.showMigrationImportSettingsPasswordDialog = false
+            migrationPickers.importEncryptedSettings(dialogState.migrationPasswordInput)
+        },
+    )
+}
+
+@Composable
+private fun MigrationPasswordDialog(
+    visible: Boolean,
+    title: String,
+    confirmLabel: String,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    if (!visible) {
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = password,
+                onValueChange = onPasswordChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_migration_password_hint)) },
+                visualTransformation = PasswordVisualTransformation(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = password.isNotBlank(),
+                onClick = onConfirm,
+            ) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.action_cancel))
             }
         },

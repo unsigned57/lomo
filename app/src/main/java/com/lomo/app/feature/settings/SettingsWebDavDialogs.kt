@@ -2,12 +2,14 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -83,6 +85,7 @@ private fun WebDavBaseUrlDialog(
             OutlinedTextField(
                 value = dialogState.webDavBaseUrlInput,
                 onValueChange = { dialogState.webDavBaseUrlInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_webdav_base_url_hint)) },
                 isError = dialogState.webDavBaseUrlInput.isNotBlank() && !isUrlValid,
@@ -123,6 +126,7 @@ private fun WebDavEndpointUrlDialog(
             OutlinedTextField(
                 value = dialogState.webDavEndpointUrlInput,
                 onValueChange = { dialogState.webDavEndpointUrlInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_webdav_endpoint_url_hint)) },
                 isError = dialogState.webDavEndpointUrlInput.isNotBlank() && !isUrlValid,
@@ -162,6 +166,7 @@ private fun WebDavUsernameDialog(
             OutlinedTextField(
                 value = dialogState.webDavUsernameInput,
                 onValueChange = { dialogState.webDavUsernameInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_webdav_username_hint)) },
             )
@@ -230,6 +235,7 @@ private fun WebDavPasswordDialogContent(
         OutlinedTextField(
             value = dialogState.webDavPasswordInput,
             onValueChange = { dialogState.webDavPasswordInput = it },
+            modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text(stringResource(R.string.settings_webdav_password_hint)) },
             visualTransformation =

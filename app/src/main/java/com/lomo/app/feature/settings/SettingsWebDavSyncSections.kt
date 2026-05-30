@@ -2,7 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
@@ -143,14 +143,12 @@ private fun WebDavAccountPreferences(
     PreferenceItem(
         title = stringResource(R.string.settings_webdav_password),
         subtitle =
-            stringResource(
-                if (state.passwordConfigured) {
-                    R.string.settings_webdav_password_configured
-                } else {
-                    R.string.settings_webdav_password_not_set
-                },
+            credentialStatusSubtitle(
+                status = state.passwordStatus,
+                configuredResId = R.string.settings_webdav_password_configured,
+                missingResId = R.string.settings_webdav_password_not_set,
             ),
-        icon = Icons.Default.Lock,
+        icon = Icons.Outlined.Lock,
         onClick = onOpenPasswordDialog,
     )
 }

@@ -22,7 +22,7 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeUnifiedSyncProvider
 import io.kotest.matchers.shouldBe
@@ -47,14 +47,14 @@ import kotlinx.coroutines.test.runTest
  */
 class RemoteSyncSettingsSharedTest : DomainFunSpec() {
     private val syncPolicyRepository = FakeSyncPolicyRepository(initialBackend = SyncBackendType.GIT)
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val fakeGitProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.GIT)
     private val fakeInboxProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.INBOX)
     private val syncProviderRegistry = SyncProviderRegistry(
         providers = listOf(fakeGitProvider, fakeInboxProvider)
     )
     private val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-        memoRepository = memoRepository,
+        memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
         syncProviderRegistry = syncProviderRegistry,
         syncPolicyRepository = syncPolicyRepository,
     )

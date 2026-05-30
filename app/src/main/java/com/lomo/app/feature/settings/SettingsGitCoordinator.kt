@@ -5,7 +5,9 @@ import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +35,7 @@ class SettingsGitCoordinator(
     private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
     scope: CoroutineScope,
 ) : SettingsGitFeatureSupport {
-    val gitSyncEnabled: StateFlow<Boolean> =
+    private val sharedEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeGitSyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.GIT_SYNC_ENABLED)
@@ -43,6 +45,9 @@ class SettingsGitCoordinator(
             .observeRemoteUrl()
             .map { it ?: "" }
             .settingsStateIn(scope, "")
+
+    private val _gitPatStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val gitPatStatus: StateFlow<StoredCredentialStatus> = _gitPatStatus.asStateFlow()
 
     private val _gitPatConfigured = MutableStateFlow(false)
     val gitPatConfigured: StateFlow<Boolean> = _gitPatConfigured.asStateFlow()
@@ -57,31 +62,26 @@ class SettingsGitCoordinator(
             .observeAuthorEmail()
             .settingsStateIn(scope, PreferenceDefaults.GIT_AUTHOR_EMAIL)
 
-    val gitAutoSyncEnabled: StateFlow<Boolean> =
+    private val sharedAutoSyncEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeAutoSyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.GIT_AUTO_SYNC_ENABLED)
 
-    val gitAutoSyncInterval: StateFlow<String> =
+    private val sharedAutoSyncInterval: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeAutoSyncInterval()
             .settingsStateIn(scope, PreferenceDefaults.GIT_AUTO_SYNC_INTERVAL)
 
-    val gitSyncOnRefreshEnabled: StateFlow<Boolean> =
+    private val sharedSyncOnRefreshEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
             .settingsStateIn(scope, PreferenceDefaults.GIT_SYNC_ON_REFRESH)
 
-    val gitLastSyncTime: StateFlow<Long> =
+    private val sharedLastSyncTime: StateFlow<Long> =
         gitSyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { value -> value ?: 0L }
             .settingsStateIn(scope, 0L)
-
-    val gitSyncState: StateFlow<UnifiedSyncState> =
-        gitSyncSettingsUseCase
-            .observeSyncState()
-            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsGitConnectionTestState>(SettingsGitConnectionTestState.Idle)
@@ -93,11 +93,11 @@ class SettingsGitCoordinator(
     val refreshPatConfigured: suspend () -> SettingsOperationError? =
         {
             runWithError("Failed to read Git token state") {
-                _gitPatConfigured.value = gitSyncSettingsUseCase.isTokenConfigured()
+                setGitPatStatus(gitSyncSettingsUseCase.getTokenStatus())
             }
         }
 
-    val updateGitSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateGitSyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update Git sync setting") {
                 gitSyncSettingsUseCase.updateGitSyncEnabled(enabled)
@@ -121,7 +121,7 @@ class SettingsGitCoordinator(
         { token ->
             runWithError("Failed to update Git token") {
                 gitSyncSettingsUseCase.updateToken(token)
-                _gitPatConfigured.value = token.isNotBlank()
+                setGitPatStatus(token.toCredentialStatus())
             }
         }
 
@@ -139,33 +139,29 @@ class SettingsGitCoordinator(
             }
         }
 
-    val updateGitAutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateGitAutoSyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update Git auto-sync setting") {
                 gitSyncSettingsUseCase.updateAutoSyncEnabled(enabled)
             }
         }
 
-    val updateGitAutoSyncInterval: suspend (String) -> SettingsOperationError? =
+    private val updateGitAutoSyncIntervalInternal: suspend (String) -> SettingsOperationError? =
         { interval ->
             runWithError("Failed to update Git auto-sync interval") {
                 gitSyncSettingsUseCase.updateAutoSyncInterval(interval)
             }
         }
 
-    val updateGitSyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+    private val updateGitSyncOnRefreshInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update Git sync-on-refresh setting") {
                 gitSyncSettingsUseCase.updateSyncOnRefreshEnabled(enabled)
             }
         }
 
-    val triggerGitSyncNow: suspend () -> SettingsOperationError? =
-        {
-            runWithError("Failed to run Git sync") {
-                gitSyncSettingsUseCase.triggerSyncNow()
-            }
-        }
+    private val triggerGitSyncNowInternal: suspend () -> SettingsOperationError? =
+        { runWithError("Failed to run Git sync") { gitSyncSettingsUseCase.triggerSyncNow() } }
 
     val resolveGitConflictUsingRemote: suspend () -> SettingsOperationError? =
         {
@@ -241,6 +237,40 @@ class SettingsGitCoordinator(
     override val resetConnectionTestState: () -> Unit =
         { _connectionTestState.value = SettingsGitConnectionTestState.Idle }
 
+    private val remoteSyncSettingsCoordinator =
+        RemoteSyncSettingsCoordinator(
+            enabled = sharedEnabled,
+            autoSyncEnabled = sharedAutoSyncEnabled,
+            autoSyncInterval = sharedAutoSyncInterval,
+            syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
+            lastSyncTime = sharedLastSyncTime,
+            rawSyncState = gitSyncSettingsUseCase.observeSyncState(),
+            mapToUnifiedSyncState = { it },
+            updateEnabledAction = updateGitSyncEnabledInternal,
+            updateAutoSyncEnabledAction = updateGitAutoSyncEnabledInternal,
+            updateAutoSyncIntervalAction = updateGitAutoSyncIntervalInternal,
+            updateSyncOnRefreshEnabledAction = updateGitSyncOnRefreshInternal,
+            triggerSyncNowAction = triggerGitSyncNowInternal,
+            testConnectionAction = testGitConnection,
+        )
+
+    val gitSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.enabled
+    val gitAutoSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.autoSyncEnabled
+    val gitAutoSyncInterval: StateFlow<String> = remoteSyncSettingsCoordinator.autoSyncInterval
+    val gitSyncOnRefreshEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.syncOnRefreshEnabled
+    val gitLastSyncTime: StateFlow<Long> = remoteSyncSettingsCoordinator.lastSyncTime
+    val gitSyncState: StateFlow<UnifiedSyncState> =
+        remoteSyncSettingsCoordinator.syncState.settingsStateIn(scope, UnifiedSyncState.Idle)
+    val updateGitSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateEnabled
+    val updateGitAutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncEnabled
+    val updateGitAutoSyncInterval: suspend (String) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncInterval
+    val updateGitSyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateSyncOnRefreshEnabled
+    val triggerGitSyncNow: suspend () -> SettingsOperationError? = remoteSyncSettingsCoordinator::triggerSyncNow
+
     private suspend fun runWithError(
         fallbackMessage: String,
         action: suspend () -> Unit,
@@ -250,6 +280,18 @@ class SettingsGitCoordinator(
             specificError = { throwable -> throwable.toGitOperationErrorOrNull() },
             action = action,
         )
+
+    private fun setGitPatStatus(status: StoredCredentialStatus) {
+        _gitPatStatus.value = status
+        _gitPatConfigured.value = status.isConfigured
+    }
+
+    private fun String.toCredentialStatus(): StoredCredentialStatus =
+        if (isBlank()) {
+            StoredCredentialStatus.Missing
+        } else {
+            StoredCredentialStatus.Present
+        }
 }
 
 private fun GitSyncResult.Error.toOperationError(): SettingsOperationError.GitSync =

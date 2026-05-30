@@ -23,7 +23,7 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeS3SyncRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.matchers.shouldBe
@@ -42,7 +42,7 @@ class S3SyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var s3SyncRepository: FakeS3SyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoRepository
+    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: S3SyncSettingsUseCase
 
     init {
@@ -50,14 +50,14 @@ class S3SyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             s3SyncRepository = FakeS3SyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoRepository()
+            memoRepository = FakeMemoStore()
             useCase =
                 S3SyncSettingsUseCase(
                     s3SyncRepository = s3SyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
-                            memoRepository = memoRepository,
+                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                             syncProviderRegistry = SyncProviderRegistry(emptyList()),
                             syncPolicyRepository = syncPolicyRepository,
                         ),

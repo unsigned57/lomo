@@ -2,8 +2,8 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Link
@@ -265,21 +265,21 @@ private fun S3EndpointPreferences(
     PreferenceItem(
         title = stringResource(R.string.settings_s3_bucket),
         subtitle = state.bucket.ifBlank { stringResource(R.string.settings_not_set) },
-        icon = Icons.Default.Folder,
+        icon = Icons.Outlined.FolderOpen,
         onClick = onOpenBucketDialog,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_prefix),
         subtitle = state.prefix.ifBlank { stringResource(R.string.settings_s3_prefix_root) },
-        icon = Icons.Default.Folder,
+        icon = Icons.Outlined.FolderOpen,
         onClick = onOpenPrefixDialog,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_local_sync_directory),
         subtitle = s3LocalSyncDirectorySubtitle(state.localSyncDirectory),
-        icon = Icons.Default.Folder,
+        icon = Icons.Outlined.FolderOpen,
         onClick = onSelectLocalSyncDirectory,
     )
     if (state.localSyncDirectory.isNotBlank()) {
@@ -303,29 +303,37 @@ private fun S3CredentialPreferences(
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_access_key_id),
-        subtitle = s3CredentialSubtitle(state.accessKeyConfigured),
-        icon = Icons.Default.Lock,
+        subtitle =
+            credentialStatusSubtitle(
+                status = state.accessKeyStatus,
+                configuredResId = R.string.settings_s3_access_key_configured,
+                missingResId = R.string.settings_s3_access_key_not_set,
+            ),
+        icon = Icons.Outlined.Lock,
         onClick = onOpenAccessKeyIdDialog,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_secret_access_key),
-        subtitle = s3CredentialSubtitle(state.secretAccessKeyConfigured),
-        icon = Icons.Default.Lock,
+        subtitle =
+            credentialStatusSubtitle(
+                status = state.secretAccessKeyStatus,
+                configuredResId = R.string.settings_s3_access_key_configured,
+                missingResId = R.string.settings_s3_access_key_not_set,
+            ),
+        icon = Icons.Outlined.Lock,
         onClick = onOpenSecretAccessKeyDialog,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_session_token),
         subtitle =
-            stringResource(
-                if (state.sessionTokenConfigured) {
-                    R.string.settings_s3_session_token_configured
-                } else {
-                    R.string.settings_s3_session_token_not_set
-                },
+            credentialStatusSubtitle(
+                status = state.sessionTokenStatus,
+                configuredResId = R.string.settings_s3_session_token_configured,
+                missingResId = R.string.settings_s3_session_token_not_set,
             ),
-        icon = Icons.Default.Lock,
+        icon = Icons.Outlined.Lock,
         onClick = onOpenSessionTokenDialog,
     )
 }
@@ -358,21 +366,19 @@ private fun S3EncryptionPreferences(
     PreferenceItem(
         title = stringResource(R.string.settings_s3_encryption_mode),
         subtitle = encryptionModeLabel,
-        icon = Icons.Default.Lock,
+        icon = Icons.Outlined.Lock,
         onClick = onOpenEncryptionModeDialog,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_encryption_password),
         subtitle =
-            stringResource(
-                if (state.encryptionPasswordConfigured) {
-                    R.string.settings_s3_encryption_password_configured
-                } else {
-                    R.string.settings_s3_encryption_password_not_set
-                },
+            credentialStatusSubtitle(
+                status = state.encryptionPasswordStatus,
+                configuredResId = R.string.settings_s3_encryption_password_configured,
+                missingResId = R.string.settings_s3_encryption_password_not_set,
             ),
-        icon = Icons.Default.Lock,
+        icon = Icons.Outlined.Lock,
         enabled = state.encryptionMode != S3EncryptionMode.NONE,
         showChevron = state.encryptionMode != S3EncryptionMode.NONE,
         onClick = onOpenEncryptionPasswordDialog,
@@ -386,14 +392,12 @@ private fun S3EncryptionPreferences(
             PreferenceItem(
                 title = stringResource(R.string.settings_s3_encryption_password2),
                 subtitle =
-                    stringResource(
-                        if (state.encryptionPassword2Configured) {
-                            R.string.settings_s3_encryption_password2_configured
-                        } else {
-                            R.string.settings_s3_encryption_password2_not_set
-                        },
+                    credentialStatusSubtitle(
+                        status = state.encryptionPassword2Status,
+                        configuredResId = R.string.settings_s3_encryption_password2_configured,
+                        missingResId = R.string.settings_s3_encryption_password2_not_set,
                     ),
-                icon = Icons.Default.Lock,
+                icon = Icons.Outlined.Lock,
                 onClick = onOpenEncryptionPassword2Dialog,
             )
             SettingsDivider()
@@ -416,7 +420,7 @@ private fun S3EncryptionPreferences(
                     SwitchPreferenceItem(
                         title = stringResource(R.string.settings_s3_rclone_directory_name_encryption),
                         subtitle = stringResource(R.string.settings_s3_rclone_directory_name_encryption_subtitle),
-                        icon = Icons.Default.Lock,
+                        icon = Icons.Outlined.Lock,
                         checked = state.rcloneDirectoryNameEncryption,
                         onCheckedChange = onToggleRcloneDirectoryNameEncryption,
                     )
@@ -438,7 +442,7 @@ private fun S3EncryptionPreferences(
             SwitchPreferenceItem(
                 title = stringResource(R.string.settings_s3_rclone_data_encryption),
                 subtitle = stringResource(R.string.settings_s3_rclone_data_encryption_subtitle),
-                icon = Icons.Default.Lock,
+                icon = Icons.Outlined.Lock,
                 checked = state.rcloneDataEncryptionEnabled,
                 onCheckedChange = onToggleRcloneDataEncryptionEnabled,
             )

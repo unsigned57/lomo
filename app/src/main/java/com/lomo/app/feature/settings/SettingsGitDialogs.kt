@@ -2,12 +2,14 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -78,6 +80,7 @@ private fun GitRemoteUrlDialog(
             OutlinedTextField(
                 value = dialogState.gitRemoteUrlInput,
                 onValueChange = { dialogState.gitRemoteUrlInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
                 isError = dialogState.gitRemoteUrlInput.isNotBlank() && !isUrlValid,
@@ -148,6 +151,7 @@ private fun GitPatDialogContent(dialogState: SettingsDialogState) {
         OutlinedTextField(
             value = dialogState.gitPatInput,
             onValueChange = { dialogState.gitPatInput = it },
+            modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text(stringResource(R.string.settings_git_pat_hint)) },
             visualTransformation =
@@ -187,6 +191,7 @@ private fun GitAuthorNameDialog(
             OutlinedTextField(
                 value = dialogState.gitAuthorNameInput,
                 onValueChange = { dialogState.gitAuthorNameInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_git_author_name_hint)) },
             )
@@ -224,6 +229,7 @@ private fun GitAuthorEmailDialog(
             OutlinedTextField(
                 value = dialogState.gitAuthorEmailInput,
                 onValueChange = { dialogState.gitAuthorEmailInput = it },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_git_author_email_hint)) },
             )
