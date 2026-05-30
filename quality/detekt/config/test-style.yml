@@ -7,9 +7,6 @@ lomo-test-style:
   active: true
   excludes:
     - "**/androidTest/**"
-    - "**/MainViewModelTest.kt"
-    - "**/SyncConflictViewModelTest.kt"
-    - "**/MainViewModelInitialImportStateTest.kt"
     - "**/data/src/test/**"
     - "**/domain/src/test/**"
     - "**/ui-components/src/test/**"

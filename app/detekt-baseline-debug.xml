@@ -1,0 +1,180 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CanBeNonNullable:DeleteViewportEntryCompensation.kt:compensation: DeleteViewportEntryPlacement?</ID>
+    <ID>CanBeNonNullable:GalleryScreen.kt:aspectByMemoId: ImmutableMap&lt;String, Float&gt;?</ID>
+    <ID>ForbiddenMethodCall:BenchmarkAnchorContract.kt:BenchmarkAnchorContract$lowercase()</ID>
+    <ID>ForbiddenMethodCall:SettingsErrorPresenter.kt:lowercase()</ID>
+    <ID>ForbiddenMethodCall:ShareCardMarkdownHtmlStyleHelpers.kt:lowercase()</ID>
+    <ID>ImplicitDefaultLocale:ShareCardDisplayFormatter.kt:ShareCardDisplayFormatter$pattern.format(name)</ID>
+    <ID>ImplicitDefaultLocale:StatisticsPresentationPolicy.kt:"%,d".format(n)</ID>
+    <ID>ImplicitDefaultLocale:StatisticsPresentationPolicy.kt:"%.1fK".format(n / NUMBER_FORMAT_THOUSAND_DIVISOR)</ID>
+    <ID>ImplicitDefaultLocale:StatisticsPresentationPolicy.kt:"%.1fM".format(n / NUMBER_FORMAT_MILLION_DIVISOR)</ID>
+    <ID>ImplicitDefaultLocale:StatisticsScreen.kt:"%.1f".format(stats.averageWordsPerMemo)</ID>
+    <ID>InjectDispatcher:AppScope.kt:AppScopeModule$Default</ID>
+    <ID>InjectDispatcher:AppUpdateDownloadManager.kt:AppUpdateDownloadManager$Main</ID>
+    <ID>InjectDispatcher:AudioPlayerManager.kt:Main</ID>
+    <ID>InjectDispatcher:GalleryImageDimensionResolver.kt:GalleryImageDimensionResolver$IO</ID>
+    <ID>InjectDispatcher:ImageMapProvider.kt:ImageMapProvider$Default</ID>
+    <ID>InjectDispatcher:LomoApplication.kt:LomoApplication$Default</ID>
+    <ID>InjectDispatcher:LomoApplication.kt:LomoApplication$IO</ID>
+    <ID>InjectDispatcher:LomoApplication.kt:LomoApplication$Main</ID>
+    <ID>InjectDispatcher:LomoImageLoaderConfig.kt:IO</ID>
+    <ID>InjectDispatcher:LomoWidget.kt:LomoWidget$IO</ID>
+    <ID>InjectDispatcher:MainScreen.kt:Default</ID>
+    <ID>InjectDispatcher:MemoEditorController.kt:Default</ID>
+    <ID>InjectDispatcher:MemoEditorViewModel.kt:MemoEditorViewModel$IO</ID>
+    <ID>InjectDispatcher:MemoListContent.kt:Default</ID>
+    <ID>InjectDispatcher:NewMemoCreationCoordinator.kt:NewMemoCreationCoordinator$Unconfined</ID>
+    <ID>InjectDispatcher:RecordingCoordinator.kt:RecordingCoordinator$IO</ID>
+    <ID>InjectDispatcher:RecordingViewModel.kt:RecordingViewModel$Default</ID>
+    <ID>InjectDispatcher:ShareUtils.kt:ShareUtils$Default</ID>
+    <ID>InjectDispatcher:ShareUtils.kt:ShareUtils$IO</ID>
+    <ID>InjectDispatcher:ShareUtils.kt:ShareUtils$Main</ID>
+    <ID>InjectDispatcher:SidebarViewModel.kt:SidebarViewModel$Default</ID>
+    <ID>InjectDispatcher:StatisticsShare.kt:BitmapStatisticsPngSource$Default</ID>
+    <ID>InjectDispatcher:WidgetUpdater.kt:WidgetUpdater$IO</ID>
+    <ID>InstanceOfCheckForException:MainWorkspaceCoordinator.kt:MainWorkspaceCoordinator$error is CancellationException</ID>
+    <ID>LongParameterList:DailyReviewScreen.kt:@Composable private fun DailyReviewPager</ID>
+    <ID>LongParameterList:DailyReviewScreen.kt:@Composable private fun DailyReviewPagerPage</ID>
+    <ID>LongParameterList:DailyReviewScreen.kt:@Composable private fun DailyReviewScreenContent</ID>
+    <ID>LongParameterList:DailyReviewViewModel.kt:DailyReviewViewModel</ID>
+    <ID>LongParameterList:DeleteViewportEntryCollapseFrame.kt:internal fun resolveDeleteViewportEntryCollapseFrame: DeleteViewportEntryCollapseFrame?</ID>
+    <ID>LongParameterList:DeleteViewportEntryCollapseFrame.kt:private fun hasBottomEntryBatch: Boolean</ID>
+    <ID>LongParameterList:GalleryGridContent.kt:@OptIn(ExperimentalFoundationApi::class) @Composable fun GalleryGridContent</ID>
+    <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun BoxScope.GalleryReelChrome</ID>
+    <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun BoxScope.GalleryReelContent</ID>
+    <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun GalleryReelPage</ID>
+    <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun GalleryReelScreenEffects</ID>
+    <ID>LongParameterList:GalleryScreen.kt:@Composable private fun GalleryScreenContent</ID>
+    <ID>LongParameterList:GalleryScreen.kt:@Composable private fun GalleryScreenEffects</ID>
+    <ID>LongParameterList:GalleryScreen.kt:@Composable private fun GalleryScreenMenuContent</ID>
+    <ID>LongParameterList:MainActivity.kt:@Composable private fun MainActivityRoot</ID>
+    <ID>LongParameterList:MainMemoFilterPanel.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun MainMemoFilterSheet</ID>
+    <ID>LongParameterList:MainMemoFilterPanelSections.kt:@Composable internal fun MainMemoFilterSheetContent</ID>
+    <ID>LongParameterList:MainMemoListStateHolder.kt:MainMemoListStateHolder</ID>
+    <ID>LongParameterList:MainScreen.kt:@Composable fun MainScreen</ID>
+    <ID>LongParameterList:MainScreen.kt:@Composable internal fun MainScreenInteractionBindings</ID>
+    <ID>LongParameterList:MainScreen.kt:@Composable private fun MainScreenTransientEffects</ID>
+    <ID>LongParameterList:MainScreenEventEffects.kt:@Composable fun HandleAppActionEvents</ID>
+    <ID>LongParameterList:MainScreenEventEffects.kt:@Composable fun MainScreenEventEffectsHost</ID>
+    <ID>LongParameterList:MainScreenLayout.kt:@Composable internal fun MainScreenAnimatedBody</ID>
+    <ID>LongParameterList:MainScreenLayout.kt:@Composable private fun MainReadyContent</ID>
+    <ID>LongParameterList:MainScreenLayout.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun MainScreenNavigationRender</ID>
+    <ID>LongParameterList:MainScreenLayout.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun MainScreenRenderHost</ID>
+    <ID>LongParameterList:MainScreenNavigationActions.kt:@Composable fun MainScreenNavigationActionHost</ID>
+    <ID>LongParameterList:MainScreenNavigationActions.kt:@Composable fun rememberMainScreenActions: MainScreenActions</ID>
+    <ID>LongParameterList:MainScreenScaffold.kt:@Composable private fun MainScreenScaffoldBody</ID>
+    <ID>LongParameterList:MainScreenScaffold.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun MainScreenScaffoldContent</ID>
+    <ID>LongParameterList:MainScreenStateHosts.kt:@Composable internal fun MainScreenContentHost</ID>
+    <ID>LongParameterList:MainScreenStateHosts.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun MainScreenNavigationContent</ID>
+    <ID>LongParameterList:MainViewModel.kt:MainViewModel</ID>
+    <ID>LongParameterList:MemoCardListAnimation.kt:@Composable private fun MemoCardDeleteAnimatedContainer</ID>
+    <ID>LongParameterList:MemoCardListAnimation.kt:@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem</ID>
+    <ID>LongParameterList:MemoEditorController.kt:private fun buildMemoEditorSheetCallbacks: com.lomo.ui.component.input.InputSheetCallbacks</ID>
+    <ID>LongParameterList:MemoEditorController.kt:private fun buildMemoEditorSheetState: com.lomo.ui.component.input.InputSheetState</ID>
+    <ID>LongParameterList:MemoInteractionHost.kt:@Composable fun MemoInteractionHost</ID>
+    <ID>LongParameterList:MemoListContent.kt:@Composable internal fun MemoListItem</ID>
+    <ID>LongParameterList:MemoVersionHistorySheet.kt:@Composable private fun MemoVersionHistoryBody</ID>
+    <ID>LongParameterList:MemoVersionHistorySheet.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun MemoVersionHistorySheet</ID>
+    <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedLazyColumn</ID>
+    <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedListColumn</ID>
+    <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedListRow</ID>
+    <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun rememberMemoPagedListMotionOwners: MemoPagedListMotionOwners</ID>
+    <ID>LongParameterList:PagedMemoListContent.kt:@OptIn( androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ) @Composable internal fun MemoListContent</ID>
+    <ID>LongParameterList:ReminderInsertDialog.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun ReminderDialogContent</ID>
+    <ID>LongParameterList:SearchScreen.kt:@Composable private fun SearchScreenContent</ID>
+    <ID>LongParameterList:SearchScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun FloatingSearchBar</ID>
+    <ID>LongParameterList:SearchScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun SearchScreenScaffold</ID>
+    <ID>LongParameterList:SearchViewModel.kt:SearchViewModel</ID>
+    <ID>LongParameterList:SettingsGitSyncSections.kt:@Composable fun GitSyncSettingsSection</ID>
+    <ID>LongParameterList:SettingsGitSyncSections.kt:@Composable private fun GitSyncAdvancedContent</ID>
+    <ID>LongParameterList:SettingsHomeHeroState.kt:internal fun computeSettingsHomeHeroState: SettingsHomeHeroState</ID>
+    <ID>LongParameterList:SettingsQuickControls.kt:@Composable internal fun SettingsPreferencesQuickGroup</ID>
+    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable fun S3SyncSettingsSection</ID>
+    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3ConnectionPreferences</ID>
+    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3EncryptionPreferences</ID>
+    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3SyncAdvancedContent</ID>
+    <ID>LongParameterList:SettingsScreen.kt:@Composable private fun SettingsSubPagesAnimatedContent</ID>
+    <ID>LongParameterList:SettingsScreenLayout.kt:@Composable private fun SettingsBody</ID>
+    <ID>LongParameterList:SettingsScreenLayout.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun SettingsScreenScaffold</ID>
+    <ID>LongParameterList:SettingsScreenSyncContainers.kt:@Composable internal fun S3SyncSettingsSectionContainer</ID>
+    <ID>LongParameterList:SettingsSections.kt:@Composable fun FormatsSettingsSection</ID>
+    <ID>LongParameterList:SettingsWebDavSyncSections.kt:@Composable fun WebDavSyncSettingsSection</ID>
+    <ID>LongParameterList:SettingsWebDavSyncSections.kt:@Composable private fun WebDavSyncAdvancedContent</ID>
+    <ID>LongParameterList:ShareCardBitmapRenderer.kt:ShareCardBitmapRenderer$fun render: Bitmap</ID>
+    <ID>LongParameterList:ShareCardBitmapRendererCanvas.kt:internal fun buildShareCardComposition: ShareCardComposition</ID>
+    <ID>LongParameterList:ShareDeviceDiscoverySection.kt:@Composable internal fun DeviceDiscoverySection</ID>
+    <ID>LongParameterList:ShareDialogHost.kt:@Composable fun ShareDialogHost</ID>
+    <ID>LongParameterList:ShareDialogHost.kt:@Composable private fun ShareDialogContent</ID>
+    <ID>LongParameterList:ShareScreen.kt:@Composable private fun ShareScreenBody</ID>
+    <ID>LongParameterList:ShareScreen.kt:@Composable private fun ShareScreenContent</ID>
+    <ID>LongParameterList:ShareScreen.kt:@Composable private fun ShareSettingsSection</ID>
+    <ID>LongParameterList:ShareSections.kt:@Composable fun LanShareSettingsCard</ID>
+    <ID>LongParameterList:TagFilterScreen.kt:@Composable private fun TagFilterScreenContent</ID>
+    <ID>LongParameterList:TagFilterViewModel.kt:TagFilterViewModel</ID>
+    <ID>LongParameterList:TrashScreen.kt:@Composable private fun TrashMemoCardItem</ID>
+    <ID>LongParameterList:TrashScreen.kt:@Composable private fun TrashScreenDialogs</ID>
+    <ID>NestedScopeFunctions:MainActivityLaunchRouting.kt:let(uris::add)</ID>
+    <ID>NestedScopeFunctions:ShareUtils.kt:ShareUtils$let { putExtra(Intent.EXTRA_TITLE, it) }</ID>
+    <ID>NoNameShadowing:GalleryMosaicPlanner.kt:tile</ID>
+    <ID>NoNameShadowing:MemoInteractionHost.kt:content</ID>
+    <ID>ReplaceSafeCallChainWithRun:AudioPlayerManager.kt:AudioPlayerManager$player?.duration?.let { dur -&gt; if (dur &gt; 0) _duration.value = dur }</ID>
+    <ID>ReplaceSafeCallChainWithRun:GalleryReelScreen.kt:currentMemo?.imageUrls?.getOrNull(activeImageIndex)</ID>
+    <ID>ReplaceSafeCallChainWithRun:GalleryReelScreen.kt:initialMemo?.imageUrls?.size</ID>
+    <ID>ReplaceSafeCallChainWithRun:LomoNavHost.kt:viewerMemo?.imageUrls?.size</ID>
+    <ID>ReplaceSafeCallChainWithRun:MainScreen.kt:displayedVisibleUiMemos.firstOrNull()?.memo?.id</ID>
+    <ID>ReplaceSafeCallChainWithRun:MainViewModel.kt:lastAutomaticRefreshMark?.elapsedNow()?.inWholeMilliseconds</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoEditorController.kt:isRecordingFlow?.collectAsStateWithLifecycle()?.value</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoEditorController.kt:recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoEditorController.kt:recordingDurationFlow?.collectAsStateWithLifecycle()?.value</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoGeoUriSupport.kt:MEMO_GEO_ZOOM_REGEX.find(compact)?.groupValues?.get(1)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoUiMapper.kt:MemoUiMapper$cached?.model?.precomputedRenderPlan</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoUiMapper.kt:MemoUiMapper$cached?.model?.processedContent</ID>
+    <ID>ReplaceSafeCallChainWithRun:OptimisticTopMemoCoordinator.kt:OptimisticTopMemoCoordinator$pending?.memo?.id</ID>
+    <ID>ReplaceSafeCallChainWithRun:PagedMemoListContentSupport.kt:memoListItemAt( index = index, visiblePagedMemoStartIndex = visiblePagedMemoStartIndex, visiblePagedMemos = visiblePagedMemos, pagedMemos = pagedMemos, )?.memo?.id</ID>
+    <ID>ReplaceSafeCallChainWithRun:SettingsErrorPresenter.kt:rawDetail ?.lineSequence() ?.map(String::trim) ?.filter(String::isNotBlank) ?.toList()</ID>
+    <ID>ReplaceSafeCallChainWithRun:ShareCardBitmapRenderer.kt:ShareCardBitmapRenderer$title?.trim()?.takeIf { it.isNotEmpty() }</ID>
+    <ID>ReplaceSafeCallChainWithRun:ShareCardBitmapRendererBody.kt:markerMatch ?.groupValues ?.get(IMAGE_MARKER_INDEX_GROUP) ?.toIntOrNull()</ID>
+    <ID>ReplaceSafeCallChainWithRun:ShareCardBitmapRendererCanvas.kt:displayTags .takeIf { it.isNotEmpty() } ?.joinToString(separator = TAG_JOIN_SEPARATOR) { "#$it" } ?.let { buildStaticLayout(it, paintSet.tagPaint, spec.contentWidth, maxLines = MAX_TAG_LINES) }</ID>
+    <ID>ReplaceSafeCallChainWithRun:ShareCardBitmapRendererCanvas.kt:tagLayout?.height?.toFloat()?.plus(spec.tagBottomSpacing)</ID>
+    <ID>ReplaceSafeCallChainWithRun:ShareCardBitmapRendererCanvas.kt:titleLayout?.height?.toFloat()?.plus(spec.titleBottomSpacing)</ID>
+    <ID>SuspendFunSwallowedCancellation:DailyReviewViewModel.kt:DailyReviewViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:DeleteAnimationRunner.kt:runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:LomoApplication.kt:LomoApplication$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:LomoApplication.kt:LomoApplication.&lt;no name provided&gt;$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:LomoWidget.kt:LomoWidget$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:MainVersionHistoryCoordinator.kt:MainVersionHistoryCoordinator$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:MainViewModel.kt:MainViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:MainWorkspaceCoordinator.kt:MainWorkspaceCoordinator$catch (error: Exception) { if (error is CancellationException) { throw error } // Best-effort background sync. }</ID>
+    <ID>SuspendFunSwallowedCancellation:MemoEditorViewModel.kt:MemoEditorViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:RecordingViewModel.kt:RecordingViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SearchViewModel.kt:SearchViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsActionCoordinator.kt:SettingsActionCoordinator$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsFeatureViewModels.kt:SettingsSystemFeatureViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsGitCoordinator.kt:SettingsGitCoordinator$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsLanShareCoordinator.kt:SettingsLanShareCoordinator$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsMigrationFeatureViewModel.kt:SettingsMigrationFeatureViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SettingsSyncCoordinatorSupport.kt:runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:ShareUtils.kt:ShareUtils$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:ShareViewModel.kt:ShareViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:StatisticsScreen.kt:runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:StatisticsViewModel.kt:StatisticsViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:SyncConflictViewModel.kt:SyncConflictViewModel$runCatching</ID>
+    <ID>SuspendFunSwallowedCancellation:TagFilterViewModel.kt:TagFilterViewModel$runCatching</ID>
+    <ID>UnusedPrivateFunction:MemoListContent.kt:private fun Modifier.memoVisibilityModifier: Modifier</ID>
+    <ID>UnusedPrivateFunction:SettingsWebDavCoordinator.kt:private fun WebDavSyncResult.toOperationErrorOrNull: SettingsOperationError.WebDavSync?</ID>
+    <ID>UnusedPrivateFunction:TrashScreen.kt:private fun Modifier.trashItemDeleteModifier: Modifier</ID>
+    <ID>UnusedPrivateProperty:MemoListContent.kt:private const val MEMO_ITEM_HIDDEN_ALPHA = 0f</ID>
+    <ID>UnusedPrivateProperty:MemoListContent.kt:private const val MEMO_ITEM_VISIBLE_ALPHA = 1f</ID>
+    <ID>UnusedPrivateProperty:MemoListItemMotion.kt:private const val MEMO_DELETE_FADE_DURATION_MILLIS = 300</ID>
+    <ID>UnusedPrivateProperty:TrashViewModel.kt:TrashViewModel$private val appConfigUiCoordinator: AppConfigUiCoordinator</ID>
+    <ID>UnusedVariable:MainScreen.kt:val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()</ID>
+    <ID>UseOrEmpty:SettingsGitCoordinator.kt:SettingsGitCoordinator$it ?: ""</ID>
+    <ID>UseOrEmpty:SettingsS3Coordinator.kt:SettingsS3Coordinator$it ?: ""</ID>
+    <ID>UseOrEmpty:SettingsWebDavCoordinator.kt:SettingsWebDavCoordinator$it ?: ""</ID>
+    <ID>UseOrEmpty:TagFilterViewModel.kt:TagFilterViewModel$savedStateHandle.get&lt;String&gt;("tagName") ?: ""</ID>
+    <ID>VarCouldBeVal:ShareViewModel.kt:ShareViewModel$private var memoContentBacking: String = resolveShareMemoContent( savedStateHandle = savedStateHandle, payloadKey = memoPayloadKey, )</ID>
+  </CurrentIssues>
+</SmellBaseline>

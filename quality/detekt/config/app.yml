@@ -96,6 +96,10 @@ lomo-architecture:
     active: true
   AppBuildDependencyBoundary:
     active: true
+    allowedDataProjectDependencies:
+      # Batch 4C: current app->data edge is reported by the rule but temporarily allowed
+      # until the production dependency migration removes it.
+      - 'implementation(project(":data"))'
   ViewModelBoundary:
     active: true
   UseCaseLocation:
@@ -129,3 +133,7 @@ lomo-architecture:
       - Binds
       - Multibinds
       - HiltViewModel
+  NoSwallowedResult:
+    active: true
+  NoDeprecatedKept:
+    active: true

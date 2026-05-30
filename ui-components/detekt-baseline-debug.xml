@@ -1,0 +1,98 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>AbstractClassCanBeInterface:MarkdownBlockKey.kt:MarkdownBlockKey$MarkdownBlockKey</ID>
+    <ID>CanBeNonNullable:LazyListMotionState.kt:placement: LazyListMotionPlacement?</ID>
+    <ID>CanBeNonNullable:MemoMenuHost.kt:current: MemoMenuState?</ID>
+    <ID>CanBeNonNullable:MemoMenuHost.kt:onLanShare: ((MemoMenuState) -&gt; Unit)?</ID>
+    <ID>DoubleMutabilityForCollection:SidebarDrawerTagTree.kt:var currentLevelNodes = rootNodes</ID>
+    <ID>ForbiddenMethodCall:MarkdownSemanticDocument.kt:lowercase()</ID>
+    <ID>ForbiddenMethodCall:MemoTextAnnotations.kt:lowercase()</ID>
+    <ID>ImplicitDefaultLocale:HourlyActivityChart.kt:"%d:00".format(data.hour)</ID>
+    <ID>ImplicitDefaultLocale:PeriodReportCard.kt:"%.1f / day".format(dailyAvg)</ID>
+    <ID>ImplicitDefaultLocale:WeeklyHourHeatmap.kt:"%d:00".format(data.hour)</ID>
+    <ID>InjectDispatcher:ClipboardCopy.kt:IO</ID>
+    <ID>InjectDispatcher:ModernMarkdownRenderer.kt:Default</ID>
+    <ID>LongParameterList:CalendarHeatmapContent.kt:@Composable internal fun HeatmapInteractiveContent</ID>
+    <ID>LongParameterList:CalendarHeatmapContent.kt:@Composable private fun HeatmapScrollableCanvas</ID>
+    <ID>LongParameterList:InputEditorTextField.kt:@Composable internal fun InputEditorTextField</ID>
+    <ID>LongParameterList:InputEditorToolbarComponents.kt:@Composable internal fun InputEditorToolbar</ID>
+    <ID>LongParameterList:InputEditorToolbarComponents.kt:@Composable private fun InputToolbarScrollableTools</ID>
+    <ID>LongParameterList:InputEditorToolbarComponents.kt:@Composable private fun InputToolbarToolButton</ID>
+    <ID>LongParameterList:InputSheet.kt:@Composable private fun InputSheetLifecycle</ID>
+    <ID>LongParameterList:InputSheetComponents.kt:@Composable internal fun InputEditorPanel</ID>
+    <ID>LongParameterList:InputSheetComponents.kt:@Composable private fun ColumnScope.InputEditorBodyContent</ID>
+    <ID>LongParameterList:InputSheetComponents.kt:@Composable private fun InputEditorToolbarSection</ID>
+    <ID>LongParameterList:InputSheetContent.kt:@Composable internal fun InputSheetContent</ID>
+    <ID>LongParameterList:InputSheetContent.kt:@Composable private fun InputSheetBody</ID>
+    <ID>LongParameterList:InputSheetFocusEffects.kt:@Composable internal fun InputSheetFocusRequestEffects</ID>
+    <ID>LongParameterList:LazyListRemoveFrame.kt:internal fun resolveRemoveFrame: LazyListRemoveFrame?</ID>
+    <ID>LongParameterList:MarkdownRenderer.kt:@Composable private fun MarkdownRendererContent</ID>
+    <ID>LongParameterList:MemoActionSheet.kt:@Composable private fun ActionItemRow</ID>
+    <ID>LongParameterList:MemoActionSheet.kt:@Composable private fun rememberResolvedMemoActionSheetActions: ImmutableList&lt;MemoActionSheetAction&gt;</ID>
+    <ID>LongParameterList:MemoActionSheet.kt:@Composable private fun sh.calvin.reorderable.ReorderableCollectionItemScope.ReorderableActionChip</ID>
+    <ID>LongParameterList:MemoActionSheetDefaults.kt:@Composable internal fun rememberDefaultMemoActionSheetActions: ImmutableList&lt;MemoActionSheetAction&gt;</ID>
+    <ID>LongParameterList:MemoActionSheetDefaults.kt:@Composable private fun rememberMemoActionHandlers: MemoActionHandlers</ID>
+    <ID>LongParameterList:MemoCard.kt:@Composable private fun MemoCardBody</ID>
+    <ID>LongParameterList:MemoCardBodyContent.kt:@Composable internal fun MemoCardBodyContent</ID>
+    <ID>LongParameterList:MemoCardBodyContent.kt:@Composable private fun MemoCardBodyStateContent</ID>
+    <ID>LongParameterList:MemoCardBodyContent.kt:@Composable private fun MemoCardMarkdownContent</ID>
+    <ID>LongParameterList:MemoComposeParagraphText.kt:private fun Modifier.memoParagraphPointerInput: Modifier</ID>
+    <ID>LongParameterList:MemoMenuBottomSheet.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun MemoMenuBottomSheet</ID>
+    <ID>LongParameterList:MemoMenuHost.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun MemoMenuBottomSheetHost</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable internal fun ModernMarkdownBlock</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable private fun ModernMarkdownBlockQuote</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable private fun ModernMarkdownHeading</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable private fun ModernMarkdownParagraph</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable private fun RenderModernMarkdownStandardBlock</ID>
+    <ID>LongParameterList:ModernMarkdownAstRenderer.kt:@Composable private fun RenderModernMarkdownStructuredBlock</ID>
+    <ID>LongParameterList:ModernMarkdownListRenderer.kt:@Composable internal fun ModernMarkdownOrderedList</ID>
+    <ID>LongParameterList:ModernMarkdownListRenderer.kt:@Composable internal fun ModernMarkdownUnorderedList</ID>
+    <ID>LongParameterList:ModernMarkdownListRenderer.kt:@Composable private fun ModernMarkdownListItem</ID>
+    <ID>LongParameterList:SidebarDrawer.kt:private fun LazyListScope.sidebarDestinations</ID>
+    <ID>LongParameterList:SidebarDrawerTagTreeItems.kt:internal fun LazyListScope.sidebarTags</ID>
+    <ID>LongParameterList:SyncConflictResolutionDialog.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun SyncConflictResolutionDialog</ID>
+    <ID>LongParameterList:WeeklyHourHeatmap.kt:@Composable private fun WeeklyHeatmapCanvas</ID>
+    <ID>NestedScopeFunctions:CalendarHeatmap.kt:with(density) { 9.sp.toPx() }</ID>
+    <ID>NestedScopeFunctions:HourlyActivityChart.kt:with(density) { LABEL_FONT_SIZE.toPx() }</ID>
+    <ID>NestedScopeFunctions:MemoMenuHost.kt:let { handler -&gt; { clearActiveState() handler(state) } }</ID>
+    <ID>NestedScopeFunctions:WeeklyHourHeatmap.kt:with(density) { LABEL_FONT_SIZE.toPx() }</ID>
+    <ID>NullableBooleanCheck:SidebarDrawerTagTreeItems.kt:expandedNodes[node.fullPath] ?: false</ID>
+    <ID>NullableBooleanCheck:SidebarDrawerTagTreeItems.kt:expandedNodes[path] ?: false</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownImageCache.kt:(this as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize?.let { size -&gt; if (size.width &gt; 0f &amp;&amp; size.height &gt; 0f) { size.width / size.height } else { null } }</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticDocumentParser.kt:children .firstOrNull { it.type == GFMTokenTypes.CHECK_BOX } ?.extractNodeText(content) ?.let { checkbox -&gt; checkbox.contains("[x]", ignoreCase = true) }</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticDocumentParser.kt:children .firstOrNull { it.type == MarkdownElementTypes.LIST_ITEM } ?.children ?.firstOrNull { it.type == MarkdownTokenTypes.LIST_NUMBER } ?.extractNodeText(content) ?.takeWhile(Char::isDigit) ?.toIntOrNull()</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticDocumentParser.kt:node.children .firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION } ?.extractNodeText(content) ?.trim()</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticDocumentParser.kt:node.children .firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL } ?.extractLinkLabelText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticDocumentParser.kt:node.children .firstOrNull { it.type == MarkdownElementTypes.LINK_TITLE } ?.extractLinkTitleText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:children .firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL } ?.extractLinkLabelText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:children .firstOrNull { it.type == MarkdownTokenTypes.AUTOLINK || it.type == GFMTokenTypes.GFM_AUTOLINK } ?.extractNodeText(content) ?.trim()</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:findFirstDescendant(MarkdownElementTypes.LINK_DESTINATION) ?.extractNodeText(content) ?.trim()</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:findFirstDescendant(MarkdownElementTypes.LINK_TITLE) ?.extractLinkTitleText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:linkNode .children .firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL } ?.extractLinkLabelText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:linkNode .findFirstDescendant(MarkdownElementTypes.LINK_DESTINATION) ?.extractNodeText(content) ?.trim()</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:linkNode .findFirstDescendant(MarkdownElementTypes.LINK_TITLE) ?.extractLinkTitleText(content) ?.takeIf(String::isNotEmpty)</ID>
+    <ID>ReplaceSafeCallChainWithRun:MarkdownSemanticInlineParser.kt:linkNode?.children?.firstOrNull { it.type == MarkdownElementTypes.LINK_TEXT }</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoActionSheetDefaults.kt:action.id?.storageKey?.let { key -&gt; key to action }</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoTextAnnotations.kt:spanStyles .lastOrNull { range -&gt; offset in range.start until range.end &amp;&amp; range.item.background != Color.Unspecified } ?.item ?.background</ID>
+    <ID>ReplaceSafeCallChainWithRun:MemoUrlVisualStyle.kt:coveringStyles .lastOrNull { it.item.color != Color.Unspecified } ?.item ?.color</ID>
+    <ID>ReplaceSafeCallChainWithRun:ModernMarkdownAstSupport.kt:inlineLink .children .firstOrNull { it.type == MarkdownElementTypes.LINK_TEXT } ?.extractModernPlainText(content) ?.trim() ?.takeIf { it.isNotEmpty() }</ID>
+    <ID>ReplaceSafeCallChainWithRun:ModernMarkdownAstSupport.kt:tokenType ?.let { target -&gt; children.firstOrNull { it.type == target } } ?.extractNodeText(content) ?.trim()</ID>
+    <ID>ReplaceSafeCallChainWithRun:ModernMarkdownListRenderer.kt:children .firstOrNull { it.type == MarkdownTokenTypes.LIST_NUMBER } ?.extractNodeText(content) ?.trim() ?.takeIf { it.isNotEmpty() }</ID>
+    <ID>ReplaceSafeCallChainWithRun:ModernMarkdownRenderPlan.kt:checkboxNode?.extractNodeText(content)?.contains("[x]", ignoreCase = true)</ID>
+    <ID>UnusedPrivateFunction:CalendarHeatmap.kt:@Preview(showBackground = true, widthDp = 360) @Composable private fun CalendarHeatmapPreview</ID>
+    <ID>UnusedPrivateFunction:MarkdownImageCache.kt:@Preview(showBackground = true) @Composable private fun MarkdownImagePlaceholdersPreview</ID>
+    <ID>UnusedPrivateFunction:SidebarDrawer.kt:@Preview(showBackground = true, widthDp = 360, heightDp = 780) @Composable private fun SidebarDrawerPreviewMemo</ID>
+    <ID>UnusedPrivateFunction:SidebarDrawer.kt:@Preview(showBackground = true, widthDp = 360, heightDp = 780) @Composable private fun SidebarDrawerPreviewTagSelected</ID>
+    <ID>UnusedPrivateFunction:Theme.kt:@Preview(name = "Theme Dark", showBackground = true) @Composable private fun LomoThemeDarkPreview</ID>
+    <ID>UnusedPrivateFunction:Theme.kt:@Preview(name = "Theme Light", showBackground = true) @Composable private fun LomoThemeLightPreview</ID>
+    <ID>UnusedPrivateProperty:MarkdownKnownTagFilter.kt:MarkdownKnownTagFilter$private val LEADING_EMPTY_LINES_REGEX = Regex("^(?:[ \\t]*\\n)+")</ID>
+    <ID>UnusedPrivateProperty:ModernMarkdownRenderPlan.kt:private val LEADING_EMPTY_LINES_REGEX = Regex("^(?:[ \\t]*\\n)+")</ID>
+    <ID>UseOrEmpty:DiffViewer.kt:line.newLineNumber?.toString() ?: ""</ID>
+    <ID>UseOrEmpty:DiffViewer.kt:line.oldLineNumber?.toString() ?: ""</ID>
+    <ID>UseOrEmpty:SyncConflictResolutionDialog.kt:file.localContent ?: ""</ID>
+    <ID>UseOrEmpty:SyncConflictResolutionDialog.kt:file.remoteContent ?: ""</ID>
+    <ID>UseOrEmpty:WeeklyHourHeatmap.kt:weeklyHourDistribution[day] ?: emptyMap()</ID>
+  </CurrentIssues>
+</SmellBaseline>

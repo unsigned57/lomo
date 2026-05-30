@@ -2,6 +2,20 @@ plugins {
     `kotlin-dsl`
 }
 
+java {
+    sourceCompatibility = JavaVersion.toVersion(25)
+    targetCompatibility = JavaVersion.toVersion(25)
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(
+            org.jetbrains.kotlin.gradle.dsl.JvmTarget
+                .fromTarget("25"),
+        )
+    }
+}
+
 dependencies {
     implementation("org.ow2.asm:asm:9.8")
 

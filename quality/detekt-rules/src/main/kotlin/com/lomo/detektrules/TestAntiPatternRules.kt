@@ -20,7 +20,7 @@ internal class NoRelaxedMockkRule(
         if (expression.calleeExpression?.text != "mockk") return
         if (!expression.valueArguments.any { argument -> argument.text.contains("relaxed = true") }) return
 
-        val typeText = expression.mockedTypeText()
+        val typeText = expression.getMockedTypeText()
         if (typeText != null && typeText.isAllowedRelaxedMockType()) return
 
         reportElement(
@@ -49,11 +49,6 @@ internal class NoRelaxedMockkRule(
                 "Avoid relaxed MockK annotations. Model behavior with a Fake* or test harness.",
             ),
         )
-    }
-
-    private fun KtCallExpression.mockedTypeText(): String? {
-        val typeArgText = typeArguments.singleOrNull()?.typeReference?.text?.trim()
-        return typeArgText ?: (parent as? KtProperty)?.typeReference?.text?.trim()
     }
 
     private fun String.isAllowedRelaxedMockType(): Boolean {

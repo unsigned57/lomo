@@ -3,6 +3,9 @@ package com.lomo.baseline
 import org.gradle.api.Action
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.tasks.TaskProvider
+
+internal const val STATIC_BASELINE_PROFILE_MAX_TOTAL_ENTRIES_PROPERTY = "lomo.staticBaselineProfile.maxTotalEntries"
 
 class StaticBaselineProfilePlugin : Plugin<Project> {
     override fun apply(project: Project) {
@@ -43,17 +46,7 @@ class StaticBaselineProfilePlugin : Plugin<Project> {
         variant: Any,
     ) {
         val variantName = checkNotNull(variant.invokeNoArg("getName")) { "variant.name returned null" } as String
-        val taskName = "generate${variantName.replaceFirstChar { it.uppercase() }}StaticBaselineProfile"
-        val taskProvider = project.tasks.register(taskName, StaticBaselineProfileTask::class.java)
-        taskProvider.configure {
-            group = "baseline profile"
-            description = "Generate static baseline profile for the $variantName variant."
-            projectDirPath.set(project.layout.projectDirectory.asFile.absolutePath)
-            rulesFile.set(project.layout.projectDirectory.file("baseline-rules.txt"))
-            outputProfile.set(
-                project.layout.projectDirectory.dir("src/main/baselineProfiles").file("generated.txt"),
-            )
-        }
+        val taskProvider = registerStaticBaselineProfileTask(project, variantName)
 
         val artifacts = checkNotNull(variant.invokeNoArg("getArtifacts")) { "variant.artifacts returned null" }
         val scopeAll = enumConstant(artifacts.javaClass.classLoader, "com.android.build.api.variant.ScopedArtifacts\$Scope", "ALL")
@@ -120,4 +113,39 @@ class StaticBaselineProfilePlugin : Plugin<Project> {
             java.lang.Short.TYPE -> java.lang.Short::class.java
             else -> type
         }
+}
+
+internal fun registerStaticBaselineProfileTask(
+    project: Project,
+    variantName: String,
+): TaskProvider<StaticBaselineProfileTask> {
+    val taskName = "generate${variantName.replaceFirstChar { it.uppercase() }}StaticBaselineProfile"
+    val configuredMaxTotalEntries = project.staticBaselineProfileMaxTotalEntries()
+    return project.tasks.register(taskName, StaticBaselineProfileTask::class.java) {
+        group = "baseline profile"
+        description = "Generate static baseline profile for the $variantName variant."
+        projectDirPath.set(project.layout.projectDirectory.asFile.absolutePath)
+        rulesFile.set(project.layout.projectDirectory.file("baseline-rules.txt"))
+        outputProfile.set(
+            project.layout.projectDirectory.dir("src/main/baselineProfiles").file("generated.txt"),
+        )
+        reportFile.set(
+            project.layout.buildDirectory.file("reports/baseline-profile/${variantName}/static-baseline-profile-report.txt"),
+        )
+        configuredMaxTotalEntries?.let(maxTotalEntries::set)
+    }
+}
+
+private fun Project.staticBaselineProfileMaxTotalEntries(): Int? {
+    val rawValue = findProperty(STATIC_BASELINE_PROFILE_MAX_TOTAL_ENTRIES_PROPERTY) ?: return null
+    val valueText = rawValue.toString()
+    val value =
+        valueText.toIntOrNull()
+            ?: throw IllegalArgumentException(
+                "$STATIC_BASELINE_PROFILE_MAX_TOTAL_ENTRIES_PROPERTY must be a non-negative integer: $valueText",
+            )
+    require(value >= 0) {
+        "$STATIC_BASELINE_PROFILE_MAX_TOTAL_ENTRIES_PROPERTY must be a non-negative integer: $valueText"
+    }
+    return value
 }

@@ -128,3 +128,7 @@ lomo-architecture:
       - Binds
       - Multibinds
       - HiltViewModel
+  NoSwallowedResult:
+    active: true
+  NoDeprecatedKept:
+    active: true
