@@ -26,9 +26,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.image.lomoSharedKeyImageRequest
 import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.memo.memoMenuState
+import com.lomo.app.feature.memo.memoMenuSelection
 import com.lomo.ui.component.image.RetainedAsyncImage
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlin.math.max
@@ -46,7 +46,7 @@ fun GalleryGridContent(
     timeFormat: String,
     contentPadding: PaddingValues,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,7 +100,7 @@ private data class GalleryMosaicCellContext(
     val dateFormat: String,
     val timeFormat: String,
     val onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    val onShowMenu: (MemoMenuState) -> Unit,
+    val onShowMenu: (MemoMenuSelection) -> Unit,
     val onResolveImageAspect: suspend (String) -> Unit,
 )
 
@@ -194,7 +194,7 @@ private fun GalleryGridCell(
     dateFormat: String,
     timeFormat: String,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -222,7 +222,7 @@ private fun GalleryGridCell(
                     },
                     onLongClick = {
                         onShowMenu(
-                            memoMenuState(
+                            memoMenuSelection(
                                 memo = uiModel.memo,
                                 dateFormat = dateFormat,
                                 timeFormat = timeFormat,

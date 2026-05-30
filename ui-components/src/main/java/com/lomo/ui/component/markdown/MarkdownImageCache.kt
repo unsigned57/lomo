@@ -38,6 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.compose.rememberConstraintsSizeResolver
 import kotlinx.collections.immutable.ImmutableList
 import coil3.request.ImageRequest
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
@@ -99,10 +100,17 @@ internal fun MarkdownImageBlock(
     val destination = image.destination
     val context = LocalContext.current
     val defaultContentDescription = stringResource(R.string.markdown_image_content_description)
+    val sizeResolver = rememberConstraintsSizeResolver()
 
     val model =
-        remember(destination, context) {
-            ImageRequest.Builder(context).data(destination).build()
+        remember(destination, context, sizeResolver) {
+            ImageRequest
+                .Builder(context)
+                .data(destination)
+                .memoryCacheKey(destination)
+                .placeholderMemoryCacheKey(destination)
+                .size(sizeResolver)
+                .build()
         }
 
     var aspectRatio by remember(destination) { mutableStateOf(MarkdownImageCache.get(destination)) }
@@ -118,21 +126,20 @@ internal fun MarkdownImageBlock(
             sharedElementKey = sharedElementKey,
         )
 
-    val ratio = aspectRatio
-    val modifier =
-        Modifier.rememberImageBlockModifier(
-            ratio = ratio,
-            destination = destination,
-            onImageClick = onImageClick,
-            sharedModifier = sharedModifier,
-        )
-
     val painter = rememberAsyncImagePainter(model)
     val state by painter.state.collectAsState()
     val retainedSuccessPainter = rememberRetainedSuccessPainter(modelKey = destination, state = state)
 
     val newAspectRatio = state.resolvedAspectRatio()
     val successPainter = state.successPainter()
+    val ratio = resolveMarkdownImageLayoutRatio(cachedRatio = aspectRatio, freshRatio = newAspectRatio)
+    val modifier =
+        Modifier.rememberImageBlockModifier(
+            ratio = ratio,
+            destination = destination,
+            onImageClick = onImageClick,
+            sharedModifier = sharedModifier,
+        ).then(sizeResolver)
 
     LaunchedEffect(destination, newAspectRatio) {
         if (newAspectRatio != null && newAspectRatio != aspectRatio) {
@@ -255,7 +262,7 @@ private fun Modifier.rememberSharedImageModifier(
 
 @Composable
 private fun Modifier.rememberImageBlockModifier(
-    ratio: Float?,
+    ratio: Float,
     destination: String,
     onImageClick: ((String) -> Unit)?,
     sharedModifier: Modifier,
@@ -265,7 +272,7 @@ private fun Modifier.rememberImageBlockModifier(
             .fillMaxWidth()
             .clip(RoundedCornerShape(MARKDOWN_IMAGE_CORNER_RADIUS))
             .padding(vertical = MARKDOWN_IMAGE_VERTICAL_PADDING)
-    val ratioModifier = ratio?.let { baseModifier.aspectRatio(it) } ?: baseModifier
+    val ratioModifier = baseModifier.aspectRatio(ratio)
     val clickableModifier =
         onImageClick?.let { clickHandler ->
             ratioModifier.clickable { clickHandler(destination) }
