@@ -4,8 +4,6 @@
     <string name="sidebar_tags">标签</string>
     <string name="sidebar_trash">回收站</string>
     <string name="sidebar_daily_review">随机漫步</string>
-    <string name="cd_undo">撤销</string>
-    <string name="cd_redo">重做</string>
     <string name="sidebar_gallery">画廊</string>
     <string name="sidebar_statistics">统计</string>
     <string name="sidebar_settings">设置</string>
@@ -57,19 +55,10 @@
     <string name="input_mode_edit">编辑</string>
     <string name="input_mode_preview">预览</string>
     <string name="input_preview_empty">还没有可预览的内容</string>
-    <string name="cd_add_image">添加图片</string>
-    <string name="cd_take_photo">拍照</string>
-    <string name="cd_add_checkbox">添加复选框</string>
-    <string name="cd_add_underline">添加下划线</string>
-    <string name="cd_add_reminder">添加提醒</string>
-    <string name="cd_add_tag">添加标签</string>
     <string name="cd_send">发送</string>
     <string name="recording_in_progress">正在录音</string>
     <string name="cd_cancel_recording">取消录音</string>
     <string name="cd_stop_recording">停止录音</string>
-    <string name="cd_add_voice_memo">录制语音</string>
-    <string name="cd_attach_location">附加位置</string>
-    <string name="cd_backfill_memo">补录笔记</string>
     <string name="action_history">历史版本</string>
     <string name="sync_conflict_title_standard">解决同步冲突</string>
     <string name="sync_conflict_title_initial_preview">检查首次同步差异</string>
@@ -89,6 +78,7 @@
     <string name="sync_conflict_apply_resolution">应用并保存</string>
     <string name="sync_conflict_resolving">正在解决冲突…</string>
     <string name="sync_conflict_no_text_diffs">未发现明确的文本差异。</string>
+    <string name="sync_conflict_text_diff_too_large">文本差异过大，无法显示。</string>
     <string name="sync_conflict_section_auto">可自动处理</string>
     <string name="sync_conflict_section_manual">需要手动检查</string>
     <string name="sync_conflict_section_ready">可应用</string>
@@ -99,6 +89,9 @@
     <string name="sync_conflict_close">关闭</string>
     <string name="sync_conflict_expand">展开</string>
     <string name="sync_conflict_collapse">收起</string>
+    <!-- Picker -->
+    <string name="seconds_wheel_picker_content_description">秒数选择器</string>
+    <string name="seconds_wheel_picker_state_description">已选中 %1$s 秒</string>
     <!-- Relative Time -->
     <string name="relative_time_just_now">刚刚</string>
     <plurals name="relative_time_minutes_ago">
@@ -110,4 +103,5 @@
     <plurals name="relative_time_days_ago">
         <item quantity="other">%1$d 天前</item>
     </plurals>
+    <string name="reminder_done">已完成</string>
 </resources>

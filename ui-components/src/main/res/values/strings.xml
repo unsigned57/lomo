@@ -5,8 +5,6 @@
     <string name="sidebar_tags">Tags</string>
     <string name="sidebar_trash">Trash</string>
     <string name="sidebar_daily_review">Random Walk</string>
-    <string name="cd_undo">Undo</string>
-    <string name="cd_redo">Redo</string>
     <string name="sidebar_gallery">Gallery</string>
     <string name="sidebar_statistics">Statistics</string>
     <string name="sidebar_settings">Settings</string>
@@ -61,19 +59,10 @@
     <string name="input_mode_edit">Edit</string>
     <string name="input_mode_preview">Preview</string>
     <string name="input_preview_empty">Nothing to preview yet</string>
-    <string name="cd_add_image">Add Image</string>
-    <string name="cd_take_photo">Take Photo</string>
-    <string name="cd_add_checkbox">Add Checkbox</string>
-    <string name="cd_add_underline">Underline</string>
-    <string name="cd_add_reminder">Add reminder</string>
-    <string name="cd_add_tag">Add Tag</string>
     <string name="cd_send">Send</string>
     <string name="recording_in_progress">Recording in progress</string>
     <string name="cd_cancel_recording">Cancel recording</string>
     <string name="cd_stop_recording">Stop recording</string>
-    <string name="cd_add_voice_memo">Voice Memo</string>
-    <string name="cd_attach_location">Attach Location</string>
-    <string name="cd_backfill_memo">Backfill Memo</string>
     <string name="action_history">History</string>
     <string name="sync_conflict_title_standard">Resolve Sync Conflicts</string>
     <string name="sync_conflict_title_initial_preview">Review First Sync Differences</string>
@@ -93,6 +82,7 @@
     <string name="sync_conflict_apply_resolution">Apply Resolution</string>
     <string name="sync_conflict_resolving">Resolving conflicts…</string>
     <string name="sync_conflict_no_text_diffs">No exact text differences found.</string>
+    <string name="sync_conflict_text_diff_too_large">Text diff is too large to display.</string>
     <string name="sync_conflict_section_auto">Safe to Auto-resolve</string>
     <string name="sync_conflict_section_manual">Manual Review Required</string>
     <string name="sync_conflict_section_ready">Ready to Apply</string>
@@ -103,6 +93,9 @@
     <string name="sync_conflict_close">Close</string>
     <string name="sync_conflict_expand">Expand</string>
     <string name="sync_conflict_collapse">Collapse</string>
+    <!-- Picker -->
+    <string name="seconds_wheel_picker_content_description">Seconds picker</string>
+    <string name="seconds_wheel_picker_state_description">%1$s seconds selected</string>
     <!-- Relative Time -->
     <string name="relative_time_just_now">Just now</string>
     <plurals name="relative_time_minutes_ago">
@@ -117,4 +110,5 @@
         <item quantity="one">%1$d day ago</item>
         <item quantity="other">%1$d days ago</item>
     </plurals>
+    <string name="reminder_done">done</string>
 </resources>
