@@ -2,21 +2,30 @@ package com.lomo.app.feature.memo
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.menu.MemoMenuState
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.collections.immutable.persistentListOf
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: memo jump navigation handler.
- * - Behavior focus: non-main memo menus must request main-list focus for the target memo and then navigate
- *   back to the main list using one shared action.
- * - Observable outcomes: boolean handled result and ordered focus/navigation callbacks.
- * - Red phase: Fails before the fix because Gallery, Search, Tag, and Review inline separate jump handlers,
- *   and there is no shared handler that guarantees focus is requested before main navigation.
- * - Excludes: NavHost back-stack implementation, Compose rendering, and LazyList scroll physics.
+ * - Owning layer: app/feature/memo.
+ * - Priority tier: P1.
+ * - Capability: route jump commands from an app-owned typed memo selection.
+ *
+ * Scenarios:
+ * - Given a memo selection from a non-main menu, when jump is requested, then main-list focus is requested
+ *   before navigating back to the main list.
+ *
+ * Observable outcomes:
+ * - Boolean handled result and ordered focus/navigation callbacks.
+ *
+ * TDD proof:
+ * - RED: Fails before the boundary fix because jump extracted Memo through a shared ui-components payload accessor.
+ *
+ * Excludes:
+ * - NavHost back-stack implementation, Compose rendering, and LazyList scroll physics.
  */
 class MemoJumpNavigationHandlerTest : AppFunSpec() {
     init {
@@ -25,29 +34,18 @@ class MemoJumpNavigationHandlerTest : AppFunSpec() {
 
             val handled =
                 handleMemoJumpToMain(
-                    state = MemoMenuState.withPayload(memo("memo-42")),
+                    selection =
+                        memoMenuSelection(
+                            memo = memo("memo-42"),
+                            dateFormat = "yyyy-MM-dd",
+                            timeFormat = "HH:mm",
+                        ),
                     requestFocusMemo = { memoId -> calls += "focus:$memoId" },
                     navigateToMain = { calls += "navigate" },
                 )
 
             ((handled)) shouldBe true
             (calls) shouldBe (listOf("focus:memo-42", "navigate"))
-        }
-    }
-
-    init {
-        test("jump ignores menu states without memo payload") {
-            val calls = mutableListOf<String>()
-
-            val handled =
-                handleMemoJumpToMain(
-                    state = MemoMenuState(),
-                    requestFocusMemo = { memoId -> calls += "focus:$memoId" },
-                    navigateToMain = { calls += "navigate" },
-                )
-
-            ((handled)) shouldBe false
-            (calls) shouldBe (emptyList<String>())
         }
     }
 

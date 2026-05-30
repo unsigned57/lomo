@@ -156,8 +156,7 @@ internal fun MainMemoDateRangeSection(
     onClearStartDate: () -> Unit,
     onClearEndDate: () -> Unit,
 ) {
-    MainMemoFilterSectionCard(
-        icon = Icons.Rounded.CalendarMonth,
+    MainMemoDateRangeSectionCard(
         title = stringResource(R.string.main_filter_section_time_range),
         isActive = hasDateFilter,
     ) {
@@ -191,6 +190,7 @@ internal fun MainMemoDateFieldContent(
     value: String,
     hasValue: Boolean,
 ) {
+    val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
@@ -198,24 +198,19 @@ internal fun MainMemoDateFieldContent(
         Icon(
             imageVector = Icons.Rounded.CalendarMonth,
             contentDescription = null,
-            tint =
-                if (hasValue) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+            tint = colors.iconColor,
             modifier = Modifier.size(20.dp),
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.labelColor,
             textAlign = TextAlign.Center,
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = colors.valueColor,
             textAlign = TextAlign.Center,
         )
     }
@@ -230,11 +225,12 @@ internal fun BoxScope.MainMemoDateFieldClearAction(onClear: () -> Unit) {
                 .size(24.dp)
                 .align(Alignment.TopEnd),
     ) {
+        val colors = mainMemoDateFieldColors(hasValue = true, colorScheme = MaterialTheme.colorScheme)
         Icon(
             imageVector = Icons.Rounded.Close,
             contentDescription = stringResource(R.string.action_clear),
             modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = colors.clearActionColor,
         )
     }
 }

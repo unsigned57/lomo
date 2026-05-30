@@ -60,33 +60,42 @@ internal fun rememberMemoItemInsertAnimation(
     ) {
         when {
             shouldAnimateNewMemoSpace -> {
-                spaceFraction.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
-                contentAlpha.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
-                withFrameNanos { }
-                spaceFraction.animateTo(
-                    targetValue = MEMO_ITEM_VISIBLE_ALPHA,
-                    animationSpec =
-                        tween(
-                            durationMillis = MEMO_INSERT_SPACE_ANIMATION_DURATION_MILLIS,
-                            easing = MotionTokens.EasingStandard,
-                        ),
-                )
-                onNewMemoSpacePrepared(memoId)
+                // Notify in finally so a row recycled/disposed mid-animation (the paging refresh that
+                // delivers the new memo recomposes the list) still advances the session instead of
+                // leaving it stuck — a stuck session refuses future inserts and disables placement springs.
+                try {
+                    spaceFraction.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
+                    contentAlpha.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
+                    withFrameNanos { }
+                    spaceFraction.animateTo(
+                        targetValue = MEMO_ITEM_VISIBLE_ALPHA,
+                        animationSpec =
+                            tween(
+                                durationMillis = MEMO_INSERT_SPACE_ANIMATION_DURATION_MILLIS,
+                                easing = MotionTokens.EasingStandard,
+                            ),
+                    )
+                } finally {
+                    onNewMemoSpacePrepared(memoId)
+                }
             }
 
             shouldAnimateNewMemoReveal -> {
-                spaceFraction.snapTo(MEMO_ITEM_VISIBLE_ALPHA)
-                contentAlpha.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
-                withFrameNanos { }
-                contentAlpha.animateTo(
-                    targetValue = MEMO_ITEM_VISIBLE_ALPHA,
-                    animationSpec =
-                        tween(
-                            durationMillis = MEMO_NEW_ITEM_REVEAL_DURATION_MILLIS,
-                            easing = MotionTokens.EasingStandard,
-                        ),
-                )
-                onNewMemoRevealConsumed(memoId)
+                try {
+                    spaceFraction.snapTo(MEMO_ITEM_VISIBLE_ALPHA)
+                    contentAlpha.snapTo(MEMO_ITEM_HIDDEN_ALPHA)
+                    withFrameNanos { }
+                    contentAlpha.animateTo(
+                        targetValue = MEMO_ITEM_VISIBLE_ALPHA,
+                        animationSpec =
+                            tween(
+                                durationMillis = MEMO_NEW_ITEM_REVEAL_DURATION_MILLIS,
+                                easing = MotionTokens.EasingStandard,
+                            ),
+                    )
+                } finally {
+                    onNewMemoRevealConsumed(memoId)
+                }
             }
 
             shouldHoldGapReadyMemoHidden -> {

@@ -1,63 +1,94 @@
 /*
  * Behavior Contract:
- * - Unit under test: ShareRoutePayloadStoreTest
- * - Owning layer: app
- * - Priority tier: P0
+ * - Unit under test: ShareRoutePayloadStore.
+ * - Owning layer: app navigation.
+ * - Priority tier: P1.
+ * - Capability: keep share route arguments small while allowing memo payload recovery after route
+ *   restoration.
  *
  * Scenarios:
- * - Happy: standard happy path for ShareRoutePayloadStoreTest.
- * - Boundary: boundary and edge cases for ShareRoutePayloadStoreTest.
- * - Failure: failure and error scenarios for ShareRoutePayloadStoreTest.
- * - Must-not-happen: invariants are never violated for ShareRoutePayloadStoreTest.
+ * - Given memo content is stored for a share route, when the key is consumed in the same process, then
+ *   the content is returned once.
+ * - Given a share route key survives but the process-memory registry is gone, when the store is backed
+ *   by a persistent cache, then consuming the key restores the memo content once.
+ * - Given memo content has already been consumed from the persistent cache, when process-memory
+ *   consumption state is lost again, then the same key cannot restore the old payload a second time.
+ * - Given memo content is consumed from process memory while a persistent cache entry also exists,
+ *   when process-memory state is lost afterward, then the same key cannot restore the old payload
+ *   from disk.
+ * - Given an unknown key, when it is consumed, then no content is returned.
  *
- * - Behavior focus: test behavioral outcomes of ShareRoutePayloadStoreTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Observable outcomes:
+ * - returned memo content and null results after one-time consumption or missing keys.
+ *
+ * TDD proof:
+ * - The memory-hit one-time-consumption scenario fails before implementation because consuming the
+ *   in-memory payload returns before invalidating the matching on-disk payload.
+ *
+ * Excludes:
+ * - NavHost rendering, route serialization, LAN transfer, and app backup policy.
  */
 
 package com.lomo.app.navigation
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
+import java.nio.file.Files
 
 class ShareRoutePayloadStoreTest : AppFunSpec() {
     init {
         afterTest {
             ShareRoutePayloadStore.clearForTest()
         }
-    }
 
-    init {
-        test("consumeMemoContent returns stored value once") {
+        test("given memo content is stored when consumed then content is returned once") {
             val key = ShareRoutePayloadStore.putMemoContent("memo body")
 
-            (ShareRoutePayloadStore.consumeMemoContent(key)) shouldBe ("memo body")
-            (ShareRoutePayloadStore.consumeMemoContent(key)) shouldBe null
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe "memo body"
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe null
+        }
+
+        test("given process registry is cleared when persistent cache is configured then content is restored once") {
+            val cacheDir = Files.createTempDirectory("share-route-payload-store-test").toFile()
+            ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
+            val key = ShareRoutePayloadStore.putMemoContent("memo body after process restart")
+
+            ShareRoutePayloadStore.clearMemoryForTest()
+
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe "memo body after process restart"
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe null
+            cacheDir.deleteRecursively()
+        }
+
+        test("given persistent payload was consumed when memory state is cleared again then old payload is unavailable") {
+            val cacheDir = Files.createTempDirectory("share-route-payload-store-repeat-test").toFile()
+            ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
+            val key = ShareRoutePayloadStore.putMemoContent("memo body after restart")
+
+            ShareRoutePayloadStore.clearMemoryForTest()
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe "memo body after restart"
+
+            ShareRoutePayloadStore.clearMemoryForTest()
+
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe null
+            cacheDir.deleteRecursively()
+        }
+
+        test("given memory payload was consumed when memory state is cleared then old disk payload is unavailable") {
+            val cacheDir = Files.createTempDirectory("share-route-payload-store-memory-repeat-test").toFile()
+            ShareRoutePayloadStore.configurePersistentCacheForTest(cacheDir)
+            val key = ShareRoutePayloadStore.putMemoContent("memo body from memory")
+
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe "memo body from memory"
+
+            ShareRoutePayloadStore.clearMemoryForTest()
+
+            ShareRoutePayloadStore.consumeMemoContent(key) shouldBe null
+            cacheDir.deleteRecursively()
+        }
+
+        test("given unknown key when consumed then null is returned") {
+            ShareRoutePayloadStore.consumeMemoContent("missing") shouldBe null
         }
     }
-
-    init {
-        test("consumeMemoContent returns null for unknown key") {
-            (ShareRoutePayloadStore.consumeMemoContent("missing")) shouldBe null
-        }
-    }
-
 }

@@ -19,7 +19,7 @@ package com.lomo.app.feature.common
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.ui.component.menu.MemoActionId
+import com.lomo.app.feature.memo.MemoActionId
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -60,7 +60,7 @@ class AppConfigUiCoordinatorScopedMemoActionUsageTest : AppFunSpec() {
                     )
                 )
 
-                AppConfigUiCoordinator(appConfigRepository).recordMemoActionUsage(
+                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).recordMemoActionUsage(
                     scope = MemoActionOrderScopes.GALLERY,
                     actionId = MemoActionId.EDIT.storageKey,
                 )
@@ -88,7 +88,7 @@ class AppConfigUiCoordinatorScopedMemoActionUsageTest : AppFunSpec() {
             runTest {
                 val order = listOf(MemoActionId.JUMP.storageKey, MemoActionId.COPY.storageKey)
 
-                AppConfigUiCoordinator(appConfigRepository).updateMemoActionOrder(
+                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).updateMemoActionOrder(
                     scope = MemoActionOrderScopes.REVIEW,
                     order = order,
                 )

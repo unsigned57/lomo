@@ -4,13 +4,14 @@ import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
-import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
@@ -18,47 +19,42 @@ import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
-import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
-import com.lomo.domain.usecase.CreateMemoUseCase
-import com.lomo.domain.usecase.DailyReviewQueryUseCase
-import com.lomo.domain.usecase.DailyReviewSessionUseCase
-import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
+import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
-import com.lomo.domain.usecase.MemoStatisticsUseCase
-import com.lomo.domain.usecase.ObserveDraftTextUseCase
+import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
-import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
-import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
+import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
 import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
 import com.lomo.domain.usecase.InboxUnifiedSyncProvider
-import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
-import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import dagger.Module
@@ -70,10 +66,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DomainCoreBindingsModule {
-    @Provides
-    @Singleton
-    fun provideApplyMainMemoFilterUseCase(): ApplyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase()
-
     @Provides
     @Singleton
     fun provideValidateMemoContentUseCase(): ValidateMemoContentUseCase = ValidateMemoContentUseCase()
@@ -93,6 +85,12 @@ object DomainCoreBindingsModule {
     @Provides
     @Singleton
     fun provideResolveMainMemoQueryUseCase(): ResolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase()
+
+    @Provides
+    @Singleton
+    fun provideMarkReminderDoneUseCase(
+        reminderCoordinator: ReminderCoordinator,
+    ): MarkReminderDoneUseCase = MarkReminderDoneUseCase(reminderCoordinator)
 
     @Provides
     @Singleton
@@ -125,104 +123,6 @@ object DomainCoreBindingsModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
-object DomainMemoBindingsModule {
-    @Provides
-    @Singleton
-    fun provideDeleteMemoUseCase(
-        memoRepository: MemoRepository,
-    ): DeleteMemoUseCase = DeleteMemoUseCase(memoRepository)
-
-    @Provides
-    @Singleton
-    fun provideSyncAndRebuildUseCase(
-        memoRepository: MemoRepository,
-        syncProviderRegistry: SyncProviderRegistry,
-        syncPolicyRepository: SyncPolicyRepository,
-    ): SyncAndRebuildUseCase =
-        SyncAndRebuildUseCase(
-            memoRepository = memoRepository,
-            syncProviderRegistry = syncProviderRegistry,
-            syncPolicyRepository = syncPolicyRepository,
-        )
-
-    @Provides
-    @Singleton
-    fun provideRefreshMemosUseCase(syncAndRebuildUseCase: SyncAndRebuildUseCase): RefreshMemosUseCase =
-        RefreshMemosUseCase(syncAndRebuildUseCase)
-
-    @Provides
-    @Singleton
-    fun provideToggleMemoCheckboxUseCase(
-        memoRepository: MemoRepository,
-        validateMemoContentUseCase: ValidateMemoContentUseCase,
-    ): ToggleMemoCheckboxUseCase =
-        ToggleMemoCheckboxUseCase(
-            repository = memoRepository,
-            validator = validateMemoContentUseCase,
-        )
-
-    @Provides
-    @Singleton
-    fun provideUpdateMemoContentUseCase(
-        memoRepository: MemoRepository,
-        validateMemoContentUseCase: ValidateMemoContentUseCase,
-        resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
-        deleteMemoUseCase: DeleteMemoUseCase,
-    ): UpdateMemoContentUseCase =
-        UpdateMemoContentUseCase(
-            repository = memoRepository,
-            validator = validateMemoContentUseCase,
-            resolveMemoUpdateActionUseCase = resolveMemoUpdateActionUseCase,
-            deleteMemoUseCase = deleteMemoUseCase,
-        )
-
-    @Provides
-    @Singleton
-    fun provideCreateMemoUseCase(
-        memoRepository: MemoRepository,
-        initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
-        validateMemoContentUseCase: ValidateMemoContentUseCase,
-        ): CreateMemoUseCase =
-        CreateMemoUseCase(
-            memoRepository = memoRepository,
-            initializeWorkspaceUseCase = initializeWorkspaceUseCase,
-            validator = validateMemoContentUseCase,
-        )
-
-    @Provides
-    @Singleton
-    fun provideDailyReviewQueryUseCase(
-        memoRepository: MemoRepository,
-    ): DailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
-
-    @Provides
-    @Singleton
-    fun provideDailyReviewSessionUseCase(
-        dailyReviewSessionRepository: DailyReviewSessionRepository,
-    ): DailyReviewSessionUseCase =
-        DailyReviewSessionUseCase(dailyReviewSessionRepository)
-
-    @Provides
-    @Singleton
-    fun provideMemoStatisticsUseCase(
-        memoRepository: MemoRepository,
-    ): MemoStatisticsUseCase = MemoStatisticsUseCase(memoRepository)
-
-    @Provides
-    @Singleton
-    fun provideObserveDraftTextUseCase(
-        preferencesRepository: PreferencesRepository,
-    ): ObserveDraftTextUseCase = ObserveDraftTextUseCase(preferencesRepository)
-
-    @Provides
-    @Singleton
-    fun provideSetDraftTextUseCase(
-        preferencesRepository: PreferencesRepository,
-    ): SetDraftTextUseCase = SetDraftTextUseCase(preferencesRepository)
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
 object DomainWorkspaceBindingsModule {
     @Provides
     @Singleton
@@ -251,6 +151,35 @@ object DomainWorkspaceBindingsModule {
             directorySettingsRepository = directorySettingsRepository,
             workspaceStateResolver = workspaceStateResolver,
         )
+
+    @Provides
+    @Singleton
+    fun provideExportAllNotesArchiveUseCase(
+        migrationArchiveRepository: MigrationArchiveRepository,
+    ): ExportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationArchiveRepository)
+
+    @Provides
+    @Singleton
+    fun provideImportAllNotesArchiveUseCase(
+        migrationArchiveRepository: MigrationArchiveRepository,
+        workspaceStateResolver: WorkspaceStateResolver,
+    ): ImportAllNotesArchiveUseCase =
+        ImportAllNotesArchiveUseCase(
+            repository = migrationArchiveRepository,
+            workspaceStateResolver = workspaceStateResolver,
+        )
+
+    @Provides
+    @Singleton
+    fun provideExportEncryptedSettingsUseCase(
+        migrationArchiveRepository: MigrationArchiveRepository,
+    ): ExportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(migrationArchiveRepository)
+
+    @Provides
+    @Singleton
+    fun provideImportEncryptedSettingsUseCase(
+        migrationArchiveRepository: MigrationArchiveRepository,
+    ): ImportEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(migrationArchiveRepository)
 
     @Provides
     @Singleton
@@ -405,18 +334,27 @@ object DomainSyncBindingsModule {
     @Provides
     @Singleton
     fun provideRestoreMemoRevisionUseCase(
-        memoVersionRepository: MemoVersionRepository,
+        memoMutationRepository: MemoMutationRepository,
     ): RestoreMemoRevisionUseCase =
-        RestoreMemoRevisionUseCase(memoVersionRepository)
+        RestoreMemoRevisionUseCase(memoMutationRepository)
 
     @Provides
     @Singleton
     fun provideSyncConflictResolutionUseCase(
         syncProviderRegistry: SyncProviderRegistry,
-        memoRepository: MemoRepository,
+        memoMutationRepository: MemoMutationRepository,
     ): SyncConflictResolutionUseCase =
         SyncConflictResolutionUseCase(
             syncProviderRegistry = syncProviderRegistry,
-            memoRepository = memoRepository,
+            memoRepository = memoMutationRepository,
+        )
+
+    @Provides
+    @Singleton
+    fun provideSyncReviewResolutionUseCase(
+        syncProviderRegistry: SyncProviderRegistry,
+    ): SyncReviewResolutionUseCase =
+        SyncReviewResolutionUseCase(
+            syncProviderRegistry = syncProviderRegistry,
         )
 }

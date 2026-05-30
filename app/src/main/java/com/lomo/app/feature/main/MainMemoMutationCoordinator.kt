@@ -22,5 +22,11 @@ class MainMemoMutationCoordinator
             memo: Memo,
             lineIndex: Int,
             checked: Boolean,
-        ): Boolean = toggleMemoCheckboxUseCase(memo, lineIndex, checked)
+        ): String? {
+            val updatedContent = toggleMemoCheckboxUseCase(memo, lineIndex, checked)
+            if (updatedContent != null) {
+                appWidgetRepository.updateAllWidgets()
+            }
+            return updatedContent
+        }
     }

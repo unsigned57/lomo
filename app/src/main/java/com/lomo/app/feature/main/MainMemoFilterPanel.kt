@@ -20,19 +20,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
+import com.lomo.ui.component.picker.ExpressivePickerDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -158,12 +156,12 @@ internal fun MainMemoFilterHeader() {
 }
 
 @Composable
-internal fun MainMemoFilterSectionCard(
-    icon: ImageVector,
+internal fun MainMemoDateRangeSectionCard(
     title: String,
     isActive: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val iconColors = mainMemoDateRangeIconColors(isActive = isActive, colorScheme = MaterialTheme.colorScheme)
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = AppSpacing.Small),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -173,18 +171,13 @@ internal fun MainMemoFilterSectionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = iconColors.containerColor,
                     shape = RoundedCornerShape(AppSpacing.Small),
                 ) {
                     Icon(
-                        imageVector = icon,
+                        imageVector = Icons.Rounded.CalendarMonth,
                         contentDescription = null,
-                        tint =
-                            if (isActive) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                        tint = iconColors.iconColor,
                         modifier = Modifier.padding(AppSpacing.Small),
                     )
                 }
@@ -282,6 +275,7 @@ internal fun MainMemoDateField(
     onClear: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
+    val colors = mainMemoDateFieldColors(hasValue = hasValue, colorScheme = MaterialTheme.colorScheme)
     Surface(
         modifier =
             modifier
@@ -291,7 +285,7 @@ internal fun MainMemoDateField(
                     onPick()
                 },
         shape = RoundedCornerShape(AppSpacing.Small),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = colors.containerColor,
     ) {
         Box(
             modifier =
@@ -328,56 +322,35 @@ internal fun MainMemoDatePickerDialog(
             initialSelectedDateMillis = initialDate?.toEpochMillis(),
         )
     val selectedDate = datePickerState.selectedDateMillis?.toLocalDate()
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            FilledTonalButton(
-                onClick = {
-                    if (selectedDate == null) {
-                        haptic.error()
-                    } else {
-                        haptic.medium()
-                        onConfirm(selectedDate)
-                    }
-                },
-                enabled = selectedDate != null,
-            ) {
-                Text(text = stringResource(R.string.main_filter_date_dialog_action_apply))
+    val canClear = initialDate != null || selectedDate != null
+    ExpressivePickerDialog(
+        title = title,
+        confirmLabel = stringResource(R.string.main_filter_date_dialog_action_apply),
+        confirmEnabled = selectedDate != null,
+        onConfirm = {
+            if (selectedDate == null) {
+                haptic.error()
+            } else {
+                haptic.medium()
+                onConfirm(selectedDate)
             }
         },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall)) {
-                if (initialDate != null || selectedDate != null) {
-                    TextButton(
-                        onClick = {
-                            haptic.medium()
-                            onConfirm(null)
-                        },
-                    ) {
-                        Text(text = stringResource(R.string.action_clear))
-                    }
-                }
-                TextButton(
-                    onClick = {
-                        haptic.medium()
-                        onDismiss()
-                    },
-                ) {
-                    Text(text = stringResource(R.string.action_cancel))
-                }
+        dismissLabel = stringResource(R.string.action_cancel),
+        onDismiss = {
+            haptic.medium()
+            onDismiss()
+        },
+        neutralLabel = if (canClear) stringResource(R.string.action_clear) else null,
+        onNeutral = if (canClear) {
+            {
+                haptic.medium()
+                onConfirm(null)
             }
+        } else {
+            null
         },
     ) {
-        DatePicker(
-            state = datePickerState,
-            showModeToggle = false,
-            title = {
-                Text(
-                    text = title,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp),
-                )
-            },
-        )
+        ExpressiveDatePickerSurface(state = datePickerState)
     }
 }
 

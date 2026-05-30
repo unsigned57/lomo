@@ -21,7 +21,6 @@ internal const val WIKI_IMAGE_ALT_SEPARATOR = '|'
 
 internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
 internal val MARKDOWN_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
-private val EXTRACT_IMAGE_URL_REGEX = Regex("""!\[.*?\]\((.*?)\)""")
 private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
 internal class MemoUiImageContentResolver {
     fun buildProcessedContent(
@@ -67,20 +66,31 @@ internal class MemoUiImageContentResolver {
                     val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
                     "![$alt]($finalUrl)"
                 }
-            }
+        }
         return linkifyMemoGeoUris(mediaResolvedContent)
     }
 
-    fun extractImageUrls(content: String): ImmutableList<String> {
-        val imageUrls = mutableListOf<String>()
-        EXTRACT_IMAGE_URL_REGEX.findAll(content).forEach { match ->
-            val url = match.groupValues[1]
-            if (url.isNotBlank()) {
-                imageUrls.add(url)
-            }
-        }
-        return imageUrls.toImmutableList()
-    }
+    fun resolveProjectedImageUrls(
+        imageUrls: List<String>,
+        rootPath: String?,
+        imagePath: String?,
+        imageMap: Map<String, Uri>,
+    ): ImmutableList<String> =
+        imageUrls
+            .asSequence()
+            .filterNot(::isAudioAttachmentPath)
+            .map { imageUrl ->
+                val resolved =
+                    resolveImageModel(
+                        imageUrl = imageUrl,
+                        isWikiStyle = false,
+                        rootPath = rootPath,
+                        imagePath = imagePath,
+                        imageMap = imageMap,
+                    )
+                ((resolved as? File)?.absolutePath ?: resolved.toString())
+            }.toList()
+            .toImmutableList()
 
     private fun resolveImageModel(
         imageUrl: String,
@@ -254,6 +264,7 @@ private fun resolveRelativeFile(
 }
 
 internal fun parseUriPath(value: String): String? =
+    // behavior-contract: silent-result-ok: URISyntaxException on malformed input means "no path component"
     runCatching {
         URI(value).path
     }.getOrNull()

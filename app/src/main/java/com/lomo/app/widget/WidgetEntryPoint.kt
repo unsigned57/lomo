@@ -1,6 +1,6 @@
 package com.lomo.app.widget
 
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoListQueryRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -12,5 +12,5 @@ import dagger.hilt.components.SingletonComponent
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
-    fun memoRepository(): MemoRepository
+    fun memoListQueryRepository(): MemoListQueryRepository
 }

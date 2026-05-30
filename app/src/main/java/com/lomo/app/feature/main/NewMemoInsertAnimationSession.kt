@@ -25,22 +25,16 @@ internal class NewMemoInsertAnimationSession(
     var state by mutableStateOf(initialState)
         private set
 
-    fun arm(previousTopMemoId: String?): Boolean {
-        if (
-            state.awaitingInsertedTopMemo ||
-            state.blankSpaceMemoId != null ||
-            state.gapReadyMemoId != null ||
-            state.pendingRevealMemoId != null
-        ) {
-            return false
-        }
-
+    fun arm(previousTopMemoId: String?) {
+        // A new creation always supersedes any in-flight (or abandoned) staging run. A run can be
+        // dropped mid-way (the paging refresh that delivers the new memo can recompose/dispose the
+        // row), and a refusing arm() would then permanently block future insertions and leave
+        // placement springs disabled. Re-arming fresh keeps every creation animatable.
         state =
             NewMemoInsertAnimationState(
                 awaitingInsertedTopMemo = true,
                 previousTopMemoId = previousTopMemoId,
             )
-        return true
     }
 
     fun markInsertedTopMemoReady(insertedTopMemoId: String?): String? {

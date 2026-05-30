@@ -1,8 +1,5 @@
 package com.lomo.app.feature.main
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -26,7 +23,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -38,15 +34,17 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.MemoVersionHistoryUiMapper
 import com.lomo.app.feature.memo.appendImageMarkdown
 import com.lomo.app.feature.memo.appendMarkdownBlock
+import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.util.activityHiltViewModel
 import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoRevision
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -230,7 +228,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
                     listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
                 },
                 scrollListToAbsoluteTop = {
-                    listState.scrollToItem(0)
+                    listState.animateScrollToItem(0)
                 },
                 createMemo = { request ->
                     latestNewMemoInsertAnimationSession.value.arm(
@@ -262,12 +260,6 @@ private fun MainScreenNewMemoInsertAnimationEffect(
     newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
 ) {
     val currentState = newMemoInsertAnimationSession.state
-    val isListPinnedAtTop by
-        remember(listState) {
-            androidx.compose.runtime.derivedStateOf {
-                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-            }
-        }
 
     LaunchedEffect(
         currentListTopMemoId,
@@ -276,7 +268,6 @@ private fun MainScreenNewMemoInsertAnimationEffect(
         currentState.blankSpaceMemoId,
         currentState.previousTopMemoId,
         currentState.gapReadyMemoId,
-        isListPinnedAtTop,
     ) {
         when {
             currentState.awaitingInsertedTopMemo -> {
@@ -285,10 +276,12 @@ private fun MainScreenNewMemoInsertAnimationEffect(
                     isInsertedTopMemoReadyForSpaceStage(
                         state = currentState,
                         currentListTopMemoId = currentListTopMemoId,
-                        isListPinnedAtTop = listState.firstVisibleItemIndex == 0 &&
-                            listState.firstVisibleItemScrollOffset == 0,
                     )
                 ) {
+                    // A paging-refresh prepend re-anchors the list on the previous top item, leaving the new
+                    // row above the viewport. Re-pin to the absolute top before opening the blank-space gap so
+                    // the staged animation runs on a visible row instead of stalling off-screen.
+                    listState.scrollToItem(0)
                     newMemoInsertAnimationSession.markInsertedTopMemoReady(
                         insertedTopMemoId = currentListTopMemoId,
                     )
@@ -332,6 +325,7 @@ internal data class MainScreenUiSnapshot(
     val shareCardShowTime: Boolean,
     val shareCardShowSignature: Boolean,
     val shareCardSignatureText: String,
+    val customFontPath: String?,
     val uiState: MainViewModel.MainScreenState,
     val pendingNewMemoCreationRequest: PendingNewMemoCreationRequest?,
 )
@@ -350,14 +344,14 @@ internal data class MainScreenHostState(
 )
 
 internal typealias MainScreenInteractionContent =
-    @Composable ((MemoMenuState) -> Unit, (Memo) -> Unit) -> Unit
+    @Composable ((MemoMenuSelection) -> Unit, (Memo) -> Unit) -> Unit
 
-private data class MainScreenInteractionCallbacks(
+internal data class MainScreenInteractionCallbacks(
     val onCreateMemo: (String, String?, Long?) -> Unit,
     val onCameraCaptureError: (Throwable) -> Unit,
     val onStartRecording: () -> Unit,
     val onStopRecording: () -> Unit,
-    val onVersionHistory: (MemoMenuState) -> Unit,
+    val onVersionHistory: (MemoMenuSelection) -> Unit,
 )
 
 @Composable
@@ -460,6 +454,7 @@ internal fun MainScreenInteractionBindings(
     shareCardShowTime: Boolean,
     shareCardShowSignature: Boolean,
     shareCardSignatureText: String,
+    customFontPath: String?,
     dateFormat: String,
     timeFormat: String,
     quickSaveOnBackEnabled: Boolean,
@@ -488,7 +483,7 @@ internal fun MainScreenInteractionBindings(
         ) { permissions ->
             val granted = permissions.values.any { it }
             if (granted) {
-                fetchLastKnownLocation(context, editorController::appendMarkdownBlock)
+                appendLastKnownLocation(context, editorController::appendMarkdownBlock)
             }
         }
 
@@ -502,61 +497,61 @@ internal fun MainScreenInteractionBindings(
             snackbarHostState = snackbarHostState,
             unknownErrorMessage = unknownErrorMessage,
         )
+    val memoMenuCommandHandler =
+        rememberMemoMenuCommandHandler(
+            presentationState =
+                MemoMenuPresentationState(
+                    shareCardShowTime = shareCardShowTime,
+                    shareCardShowSignature = shareCardShowSignature,
+                    shareCardSignatureText = shareCardSignatureText,
+                    customFontPath = customFontPath,
+                    showVersionHistory = true,
+                    memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                    memoActionOrder = memoActionOrder,
+                ),
+            onEditMemo = editorController::openForEdit,
+            onDeleteMemo = dependencies.mainViewModel.deleteMemo,
+            onLanShare =
+                if (lanShareEnabled) {
+                    { request -> onNavigateToShare(request.content, request.timestamp) }
+                } else {
+                    null
+                },
+            onTogglePin = dependencies.mainViewModel.setMemoPinned,
+            onVersionHistory = interactionCallbacks.onVersionHistory,
+            onMemoActionInvoked = dependencies.mainViewModel.recordMemoActionUsage,
+            onMemoActionOrderChanged = dependencies.mainViewModel.updateMemoActionOrder,
+        )
+
+    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val onAttachLocation =
+        mainMemoAttachLocationCommand(
+            context = context,
+            onPermissionRequired = { locationPermissionLauncher.launch(mainMemoLocationPermissions()) },
+            onLocationMarkdown = editorController::appendMarkdownBlock,
+        )
+    val editorSurface =
+        rememberMainMemoEditorSurface(
+            dependencies = dependencies,
+            interactionCallbacks = interactionCallbacks,
+            imageDirectory = imageDirectory,
+            rootDirectory = rootDirectory,
+            imageMap = stableImageMap,
+            availableTags = availableTags,
+            inputHints = inputHints,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+            inputToolbarToolOrder = inputToolbarToolOrder,
+            isRecording = isRecording,
+            onImageDirectoryMissing = directoryGuideController::requestImage,
+            onAttachLocation = onAttachLocation,
+        )
 
     MemoInteractionHost(
-        shareCardShowTime = shareCardShowTime,
-        shareCardShowSignature = shareCardShowSignature,
-        shareCardSignatureText = shareCardSignatureText,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        imageDirectory = imageDirectory,
-        rootPath = rootDirectory,
-        imageMap = stableImageMap,
+        menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
-        quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-        memoActionOrder = memoActionOrder,
-        onMemoActionInvoked = dependencies.mainViewModel.recordMemoActionUsage,
-        onMemoActionOrderChanged = dependencies.mainViewModel.updateMemoActionOrder,
-        inputToolbarToolOrder = inputToolbarToolOrder,
-        onInputToolbarToolOrderChanged = dependencies.mainViewModel.updateInputToolbarToolOrder,
-        onDeleteMemo = dependencies.mainViewModel.deleteMemo,
-        onUpdateMemo = dependencies.editorViewModel::updateMemo,
-        onCreateMemoWithTimestamp = interactionCallbacks.onCreateMemo,
-        onSaveImage = dependencies.editorViewModel::saveImage,
-        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
-        onDismiss = dependencies.editorViewModel::discardInputs,
-        onImageDirectoryMissing = directoryGuideController::requestImage,
-        onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
-        availableTags = availableTags,
-        isRecordingFlow = dependencies.recordingViewModel.isRecording,
-        recordingDurationFlow = dependencies.recordingViewModel.recordingDuration,
-        recordingAmplitudeFlow = dependencies.recordingViewModel.recordingAmplitude,
-        onStartRecording = interactionCallbacks.onStartRecording,
-        onCancelRecording = dependencies.recordingViewModel::cancelRecording,
-        onStopRecording = interactionCallbacks.onStopRecording,
-        onLocationClick = {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (hasPermission) {
-                fetchLastKnownLocation(context, editorController::appendMarkdownBlock)
-            } else {
-                locationPermissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                    ),
-                )
-            }
-        },
-        onClearLocation = {},
-        attachedGeoLocation = null,
-        hints = inputHints,
-        onVersionHistory = interactionCallbacks.onVersionHistory,
-        onTogglePin = dependencies.mainViewModel.setMemoPinned,
-        showVersionHistory = true,
+        editorSurface = editorSurface,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
     }
@@ -617,10 +612,7 @@ private fun rememberMainScreenInteractionCallbacks(
                 }
             },
             onVersionHistory = { state ->
-                val memo = state.memo as? Memo
-                if (memo != null) {
-                    dependencies.mainViewModel.loadVersionHistory(memo)
-                }
+                dependencies.mainViewModel.loadVersionHistory(state.memo)
             },
         )
     }
@@ -717,30 +709,6 @@ private fun VersionHistoryOverlay(
 
         MainVersionHistoryState.Hidden -> {
             Unit
-        }
-    }
-}
-
-private fun fetchLastKnownLocation(
-    context: android.content.Context,
-    onResult: (String) -> Unit,
-) {
-    val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager
-        ?: return
-    val hasPermission = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-    ) == PackageManager.PERMISSION_GRANTED
-    if (!hasPermission) return
-    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-    for (provider in providers) {
-        val location = runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
-        if (location != null) {
-            onResult(formatMemoGeoUri(location.latitude, location.longitude))
-            return
         }
     }
 }

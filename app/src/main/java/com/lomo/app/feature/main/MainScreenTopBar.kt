@@ -50,7 +50,11 @@ internal fun MainTopBar(
             }
         },
         actions = {
-            if (isFilterActive) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isFilterActive,
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandHorizontally(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkHorizontally(),
+            ) {
                 MainTopBarIconButton(
                     icon = Icons.Rounded.Close,
                     contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_clear_filter),

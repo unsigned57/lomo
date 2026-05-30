@@ -182,4 +182,70 @@ object NavigationTransitions {
                     ),
             )
     }
+
+    val searchEnter: NavEnterTransition = {
+        fadeIn(
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationMedium2,
+                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                ),
+        ) +
+            scaleIn(
+                initialScale = SEARCH_INITIAL_SCALE,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationMedium2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+            )
+    }
+
+    val searchExit: NavExitTransition = {
+        fadeOut(
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationShort4,
+                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                ),
+        ) +
+            scaleOut(
+                targetScale = SEARCH_INITIAL_SCALE,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationShort4,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+            )
+    }
+
+    val searchPopEnter: NavEnterTransition = {
+        fadeIn(
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationMedium2,
+                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                ),
+        )
+    }
+
+    val searchPopExit: NavExitTransition = {
+        fadeOut(
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationMedium2,
+                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                ),
+        ) +
+            scaleOut(
+                targetScale = SEARCH_INITIAL_SCALE,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationMedium2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+            )
+    }
+
+    private const val SEARCH_INITIAL_SCALE: Float = 0.94f
 }

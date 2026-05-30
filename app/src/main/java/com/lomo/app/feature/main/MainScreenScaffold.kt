@@ -29,7 +29,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.component.menu.PrewarmMemoMenuMotion
 import kotlinx.collections.immutable.ImmutableSet
 
@@ -58,7 +58,8 @@ internal fun MainScreenScaffoldContent(
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     scrollbarEnabled: Boolean,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     isFilterActive: Boolean,
     onScrollToTop: () -> Unit,
     isMemoFilterSheetVisible: Boolean,
@@ -115,7 +116,9 @@ internal fun MainScreenScaffoldContent(
             onTagClick = actions.onSidebarTagClick,
             onImageClick = actions.onNavigateToImage,
             onShowMemoMenu = onShowMemoMenu,
+            onReminderClick = onReminderClick,
             onSettings = actions.onSettings,
+            isFilterActive = isFilterActive,
         )
     }
 
@@ -199,8 +202,10 @@ private fun MainScreenScaffoldBody(
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    isFilterActive: Boolean,
 ) {
     Box(
         modifier =
@@ -232,8 +237,9 @@ private fun MainScreenScaffoldBody(
             onTagClick = onTagClick,
             onImageClick = onImageClick,
             onShowMemoMenu = onShowMemoMenu,
+            onReminderClick = onReminderClick,
             onSettings = onSettings,
+            isFilterActive = isFilterActive,
         )
     }
 }
-

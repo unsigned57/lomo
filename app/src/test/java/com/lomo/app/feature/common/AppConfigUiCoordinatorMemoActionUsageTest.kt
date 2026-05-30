@@ -19,7 +19,7 @@ package com.lomo.app.feature.common
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.ui.component.menu.MemoActionId
+import com.lomo.app.feature.memo.MemoActionId
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -60,7 +60,7 @@ class AppConfigUiCoordinatorMemoActionUsageTest : AppFunSpec() {
                     )
                 )
 
-                AppConfigUiCoordinator(appConfigRepository).recordMemoActionUsage(MemoActionId.EDIT.storageKey)
+                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).recordMemoActionUsage(MemoActionId.EDIT.storageKey)
 
                 val resultOrder = appConfigRepository.getMemoActionOrder().first()
                 resultOrder shouldBe listOf(
@@ -82,7 +82,7 @@ class AppConfigUiCoordinatorMemoActionUsageTest : AppFunSpec() {
                 appConfigRepository.setMemoActionAutoReorderEnabled(true)
                 appConfigRepository.setMemoActionOrder(order = emptyList())
 
-                AppConfigUiCoordinator(appConfigRepository).recordMemoActionUsage(MemoActionId.DELETE.storageKey)
+                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).recordMemoActionUsage(MemoActionId.DELETE.storageKey)
 
                 val resultOrder = appConfigRepository.getMemoActionOrder().first()
                 resultOrder shouldBe listOf(
@@ -109,7 +109,7 @@ class AppConfigUiCoordinatorMemoActionUsageTest : AppFunSpec() {
                 )
                 appConfigRepository.setMemoActionOrder(order = initialOrder)
 
-                AppConfigUiCoordinator(appConfigRepository).recordMemoActionUsage(MemoActionId.HISTORY.storageKey)
+                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).recordMemoActionUsage(MemoActionId.HISTORY.storageKey)
 
                 val resultOrder = appConfigRepository.getMemoActionOrder().first()
                 resultOrder shouldBe initialOrder

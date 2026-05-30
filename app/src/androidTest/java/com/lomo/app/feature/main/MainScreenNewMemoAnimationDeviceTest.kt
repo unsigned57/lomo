@@ -287,6 +287,7 @@ class MainScreenNewMemoAnimationDeviceTest {
                 isRefreshing = false,
                 onRefresh = {},
                 onTodoClick = { _, _, _ -> },
+                onReminderClick = { _, _ -> },
                 dateFormat = "yyyy-MM-dd",
                 timeFormat = "HH:mm",
                 onTagClick = {},

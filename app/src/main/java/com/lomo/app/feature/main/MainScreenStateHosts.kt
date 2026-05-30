@@ -28,7 +28,7 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.FlowPreview
@@ -98,6 +98,7 @@ internal fun collectMainScreenUiSnapshot(
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
+        customFontPath = appPreferences.customFontPath,
         uiState = uiState,
         pendingNewMemoCreationRequest = pendingNewMemoCreationRequest,
     )
@@ -164,12 +165,15 @@ internal fun MainScreenConflictHost(
                 state = dependencies.conflictViewModel.state,
                 onFileChoiceChanged = dependencies.conflictViewModel::setFileChoice,
                 onAllChoicesChanged = dependencies.conflictViewModel::setAllChoices,
+                onReviewItemChoiceChanged = dependencies.conflictViewModel::setReviewItemChoice,
+                onAllReviewItemChoicesChanged = dependencies.conflictViewModel::setAllReviewItemChoices,
                 onAcceptSuggestions = dependencies.conflictViewModel::acceptSuggestedChoices,
                 onAutoResolveSafeConflicts = dependencies.conflictViewModel::autoResolveSafeConflicts,
                 onToggleExpanded = dependencies.conflictViewModel::toggleExpandedFile,
                 onApply = dependencies.conflictViewModel::applyResolution,
                 onDismiss = dependencies.conflictViewModel::dismiss,
                 onShowConflictDialog = dependencies.conflictViewModel::showConflictDialog,
+                onShowReviewDialog = dependencies.conflictViewModel::showReviewDialog,
             )
         }
     com.lomo.app.feature.conflict.SyncConflictDialogHost(controller = conflictController)
@@ -215,6 +219,7 @@ internal fun MainScreenContentHost(
         shareCardShowTime = screenState.shareCardShowTime,
         shareCardShowSignature = screenState.shareCardShowSignature,
         shareCardSignatureText = screenState.shareCardSignatureText,
+        customFontPath = screenState.customFontPath,
         dateFormat = screenState.dateFormat,
         timeFormat = screenState.timeFormat,
         quickSaveOnBackEnabled = screenState.quickSaveOnBackEnabled,
@@ -279,7 +284,7 @@ private fun MainScreenNavigationContent(
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
     onNavigateToStatistics: () -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
 ) {
     var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
@@ -335,6 +340,7 @@ private fun MainScreenNavigationContent(
             onHeatmapDateLongPress = onHeatmapDateLongPress,
             onScrollToTop = onScrollToTop,
             onShowMemoMenu = onShowMemoMenu,
+            onReminderClick = dependencies.mainViewModel.markReminderDone,
             onOpenEditor = onOpenEditor,
             onSidebarTagReorder = dependencies.sidebarViewModel::updateTagOrder,
         )

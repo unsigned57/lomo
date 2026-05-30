@@ -1,57 +1,41 @@
 package com.lomo.app.feature.main
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
-import com.lomo.app.media.AudioPlayerManager
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
-import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.app.testing.fakes.FakeAppVersionRepository
+import com.lomo.app.testing.fakes.FakeAppWidgetRepository
+import com.lomo.app.testing.fakes.FakeAudioPlayerManager
+import com.lomo.app.testing.fakes.FakeGitSyncRepository
+import com.lomo.app.testing.fakes.FakeMediaRepository
+import com.lomo.app.testing.fakes.FakeMemoVersionRepository
+import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.app.testing.fakes.FakeS3SyncRepository
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
+import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
+import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
+import com.lomo.domain.usecase.FakeDispatcherProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.UnifiedSyncOperation
-import com.lomo.domain.model.UnifiedSyncResult
-import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.GitSyncRepository
-import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.MemoVersionRepository
-import com.lomo.domain.repository.S3SyncRepository
-import com.lomo.domain.repository.SyncInboxRepository
-import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
 import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
+import com.lomo.domain.usecase.MainMemoListQueryUseCase
+import com.lomo.domain.usecase.MarkReminderDoneUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
+import com.lomo.domain.usecase.SetMemoPinnedUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
@@ -60,7 +44,6 @@ import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -76,7 +59,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -99,7 +81,7 @@ import kotlinx.coroutines.test.runTest
 class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
-    private val repository = FakeMemoRepository()
+    private val repository = FakeMemoStore()
     private val sidebarStateHolder = MainSidebarStateHolder()
     private val appConfigRepository = FakeAppConfigRepository()
     private val appWidgetRepository = FakeAppWidgetRepository()
@@ -107,15 +89,16 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val audioPlayerManager by lazy { FakeAudioPlayerManager() }
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
     private val switchRootStorageUseCase by lazy { FakeSwitchRootStorageUseCase(rootLocationFlow) }
+    private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
 
-    private lateinit var gitSyncRepo: GitSyncRepository
-    private lateinit var mediaRepository: MediaRepository
-    private lateinit var webDavSyncRepository: WebDavSyncRepository
-    private lateinit var s3SyncRepository: S3SyncRepository
-    private lateinit var syncInboxRepository: SyncInboxRepository
-    private lateinit var syncPolicyRepository: SyncPolicyRepository
-    private lateinit var appVersionRepository: AppVersionRepository
-    private lateinit var memoVersionRepository: MemoVersionRepository
+    private lateinit var gitSyncRepo: FakeGitSyncRepository
+    private lateinit var mediaRepository: FakeMediaRepository
+    private lateinit var webDavSyncRepository: FakeWebDavSyncRepository
+    private lateinit var s3SyncRepository: FakeS3SyncRepository
+    private lateinit var syncInboxRepository: FakeSyncInboxRepository
+    private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
+    private lateinit var appVersionRepository: FakeAppVersionRepository
+    private lateinit var memoVersionRepository: FakeMemoVersionRepository
 
     private var appScope: CoroutineScope? = null
 
@@ -133,33 +116,21 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
         beforeTest {
             appScope = CoroutineScope(SupervisorJob() + testDispatcher)
 
-            gitSyncRepo = mockk()
-            mediaRepository = mockk()
-            webDavSyncRepository = mockk()
-            s3SyncRepository = mockk()
-            syncInboxRepository = mockk()
-            syncPolicyRepository = mockk()
-            appVersionRepository = mockk()
-            memoVersionRepository = mockk()
+            gitSyncRepo = FakeGitSyncRepository()
+            mediaRepository = FakeMediaRepository()
+            webDavSyncRepository = FakeWebDavSyncRepository()
+            s3SyncRepository = FakeS3SyncRepository()
+            syncInboxRepository = FakeSyncInboxRepository()
+            syncPolicyRepository = FakeSyncPolicyRepository()
+            appVersionRepository = FakeAppVersionRepository()
+            memoVersionRepository = FakeMemoVersionRepository()
 
             repository.setActiveMemos(emptyList())
             repository.resetCallCounts()
             appConfigRepository.setLocation(StorageArea.ROOT, null)
             rootLocationFlow.value = null
             switchRootStorageUseCase.reset()
-
-            // Stub only the strictly required StartupCoordinator initialization queries
-            every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
-            every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
-            every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(false)
-            every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
-            every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
-            every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
-            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
-            coEvery { appVersionRepository.getLastAppVersionOnce() } returns "1.0.0"
-            coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
-            coEvery { syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) } returns
-                UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
+            appVersionRepository.lastAppVersion = "1.0.0"
         }
 
         afterTest {
@@ -341,21 +312,26 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun createViewModel(): MainViewModel =
         MainViewModel(
-            memoUiCoordinator = MemoUiCoordinator(repository),
+            mainMemoListQueryUseCase = mainMemoListQueryUseCase(),
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+            setMemoPinnedUseCase = setMemoPinnedUseCase(),
             appConfigStateProvider = createAppConfigStateProvider(),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
             sidebarStateHolder = sidebarStateHolder,
             versionHistoryCoordinator =
                 MainVersionHistoryCoordinator(
                     loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
-                    restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(memoVersionRepository),
+                    restoreMemoRevisionUseCase =
+                        RestoreMemoRevisionUseCase(
+                            com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
+                        ),
                 ),
             memoUiMapper = MemoUiMapper(),
             imageMapProvider = imageMapProvider,
             mainMemoMutationCoordinator =
                 MainMemoMutationCoordinator(
-                    deleteMemoUseCase = DeleteMemoUseCase(repository),
-                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase()),
+                    deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
+                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository), ValidateMemoContentUseCase()),
                     appWidgetRepository = appWidgetRepository,
                 ),
             workspaceCoordinator =
@@ -364,7 +340,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     refreshMemosUseCase =
                         RefreshMemosUseCase(
                             SyncAndRebuildUseCase(
-                                memoRepository = repository,
+                                memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                                 syncProviderRegistry = syncProviderRegistry(),
                                 syncPolicyRepository = syncPolicyRepository,
                             ),
@@ -380,7 +356,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                             initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                             syncAndRebuildUseCase =
                                 SyncAndRebuildUseCase(
-                                    memoRepository = repository,
+                                    memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                                     syncProviderRegistry = syncProviderRegistry(),
                                     syncPolicyRepository = syncPolicyRepository,
                                 ),
@@ -392,11 +368,32 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         createAppConfigStateProvider(),
                     audioPlayerManager = audioPlayerManager,
                 ),
+            markReminderDoneUseCase =
+                MarkReminderDoneUseCase(com.lomo.app.testing.fakes.FakeReminderCoordinator()),
+            dispatcherProvider = dispatcherProvider,
+        )
+
+    private fun mainMemoListQueryUseCase(): MainMemoListQueryUseCase {
+        val fakeQueryRepository = com.lomo.app.testing.fakes.FakeMemoQueryRepository(repository)
+        return MainMemoListQueryUseCase(
+            mainListQueryRepository = fakeQueryRepository,
+            memoListQueryRepository = fakeQueryRepository,
+        )
+    }
+
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
+        ObserveActiveDayCountUseCase(
+            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(repository),
+        )
+
+    private fun setMemoPinnedUseCase(): SetMemoPinnedUseCase =
+        SetMemoPinnedUseCase(
+            com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
         )
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
-            AppConfigUiCoordinator(appConfigRepository),
+            AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
             appScope!!,
         )
 
@@ -407,7 +404,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     GitUnifiedSyncProvider(gitSyncRepo),
                     WebDavUnifiedSyncProvider(webDavSyncRepository),
                     S3UnifiedSyncProvider(s3SyncRepository),
-                    InboxUnifiedSyncProvider(syncInboxRepository, mockk(relaxed = true)),
+                    InboxUnifiedSyncProvider(syncInboxRepository, appConfigRepository),
                 ),
         )
 
@@ -437,7 +434,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     ) {
         testDispatcher.scheduler.advanceUntilIdle()
         if (viewModel.uiState.value == expected) return
-        
+
         kotlinx.coroutines.withTimeout(timeoutMillis) {
             viewModel.uiState.first { it == expected }
         }
@@ -445,7 +442,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun clearViewModel(viewModel: MainViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
-        
+
         // Cancel appScope to cleanly close all StateFlow collections in AppConfigStateProvider
         appScope?.cancel()
 
@@ -462,19 +459,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun settleMainDispatcher() {
         testDispatcher.scheduler.advanceUntilIdle()
-    }
-
-    class FakeAppWidgetRepository : AppWidgetRepository(mockk()) {
-        override suspend fun updateAllWidgets() {}
-    }
-
-    class FakeAudioPlayerManager : AudioPlayerManager(mockk(relaxed = true), mockk(relaxed = true)) {
-        override fun play(uri: String) {}
-        override fun seekTo(positionMs: Long) {}
-        override fun pause() {}
-        override fun stop() {}
-        override fun release() {}
-        override fun updateProgress() {}
     }
 
     class DummyDirectorySettingsRepository : DirectorySettingsRepository {

@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import android.net.Uri
 import androidx.collection.LruCache
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.ParseRemindersUseCase
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
 import com.lomo.ui.component.card.shouldShowMemoCardExpand
 import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
@@ -123,9 +124,17 @@ class MemoUiMapper
 
                     else -> null
                 }
-            val imageUrls = imageContentResolver.extractImageUrls(processedContent)
+            val imageUrls =
+                imageContentResolver.resolveProjectedImageUrls(
+                    imageUrls = memo.imageUrls,
+                    rootPath = rootPath,
+                    imagePath = imagePath,
+                    imageMap = imageMap,
+                )
             val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
             val collapsedSummary = buildMemoCardCollapsedSummary(displayContent, memo.tags)
+
+            val reminders = ParseRemindersUseCase()(memo.content).toImmutableList()
 
             return MemoUiModel(
                 memo = memo,
@@ -135,6 +144,7 @@ class MemoUiMapper
                 imageUrls = imageUrls,
                 shouldShowExpand = shouldShowExpand,
                 collapsedSummary = collapsedSummary,
+                reminders = reminders,
             )
         }
 
@@ -165,8 +175,8 @@ class MemoUiMapper
                     rootPath = rootPath,
                     imagePath = imagePath,
                     imageDependencySignature =
-                        buildMemoUiImageDependencySignature(
-                            content = displayContent,
+                        buildImageMapDependencySignatureForPaths(
+                            imagePaths = memo.imageUrls.filterNot(::isAudioAttachmentPath).toSet(),
                             imageMap = imageMap,
                         ),
                 )

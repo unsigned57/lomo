@@ -208,6 +208,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
                     onNavigateToShare = navigateToShare,
                     onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
                     onNavigateToMain = { navController.popBackStackOrNavigateMain() },
+                    onNavigateToTag = { otherTag -> navController.navigate(NavRoute.Tag(otherTag)) },
                     lanShareEnabled = lanShareEnabled,
                 )
             }
@@ -275,7 +276,12 @@ private fun NavGraphBuilder.addNonSharedDestinations(
         TrashScreen(onBackClick = popBackStackSafely)
     }
 
-    composable<NavRoute.Search> {
+    composable<NavRoute.Search>(
+        enterTransition = NavigationTransitions.searchEnter,
+        exitTransition = NavigationTransitions.searchExit,
+        popEnterTransition = NavigationTransitions.searchPopEnter,
+        popExitTransition = NavigationTransitions.searchPopExit,
+    ) {
         val mainViewModel: MainViewModel = activityHiltViewModel()
         SearchScreen(
             onBackClick = popBackStackSafely,
@@ -341,6 +347,7 @@ private fun NavGraphBuilder.addImageViewerDestination(
                     dateFormat = appPreferences.dateFormat,
                     timeFormat = appPreferences.timeFormat,
                     onBackClick = popBackStackSafely,
+                    onTodoClick = mainViewModel.updateMemo,
                 )
             }
         }
