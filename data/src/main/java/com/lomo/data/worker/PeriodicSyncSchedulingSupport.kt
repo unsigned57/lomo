@@ -2,33 +2,20 @@ package com.lomo.data.worker
 
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.lomo.data.sync.SyncExistingWorkPolicy
+import com.lomo.data.sync.SyncScheduledWork
+import com.lomo.data.sync.SyncWorkCadence
+import com.lomo.data.sync.SyncWorkNetworkRequirement
 import java.time.Duration
-
-internal val DEFAULT_REMOTE_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(1)
-
-private const val AUTO_SYNC_MINUTES_30 = 30L
-private const val AUTO_SYNC_HOURS_1 = 1L
-private const val AUTO_SYNC_HOURS_6 = 6L
-private const val AUTO_SYNC_HOURS_12 = 12L
-private const val AUTO_SYNC_HOURS_24 = 24L
-
-private val REMOTE_AUTO_SYNC_INTERVALS =
-    mapOf(
-        "30min" to Duration.ofMinutes(AUTO_SYNC_MINUTES_30),
-        "1h" to Duration.ofHours(AUTO_SYNC_HOURS_1),
-        "6h" to Duration.ofHours(AUTO_SYNC_HOURS_6),
-        "12h" to Duration.ofHours(AUTO_SYNC_HOURS_12),
-        "24h" to Duration.ofHours(AUTO_SYNC_HOURS_24),
-    )
-
-internal fun parseRemoteAutoSyncInterval(interval: String): Duration =
-    REMOTE_AUTO_SYNC_INTERVALS[interval] ?: DEFAULT_REMOTE_AUTO_SYNC_INTERVAL
 
 internal fun connectedNetworkConstraints(): Constraints =
     Constraints
@@ -53,6 +40,50 @@ internal inline fun <reified T : ListenableWorker> buildPeriodicSyncWorkRequest(
             inputData?.let(::setInputData)
             setConstraints(constraints)
         }.build()
+
+internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncScheduledWork(
+    scheduledWork: SyncScheduledWork,
+    inputData: Data? = null,
+) {
+    when (val cadence = scheduledWork.cadence) {
+        is SyncWorkCadence.Periodic ->
+            enqueueUniquePeriodicWork(
+                scheduledWork.uniqueWorkName,
+                scheduledWork.existingWorkPolicy.toPeriodicWorkPolicy(),
+                buildPeriodicSyncWorkRequest<T>(
+                    interval = cadence.interval,
+                    constraints = scheduledWork.networkRequirement.toWorkConstraints(),
+                    inputData = inputData,
+                ),
+            )
+
+        SyncWorkCadence.OneTime ->
+            enqueueUniqueWork(
+                scheduledWork.uniqueWorkName,
+                scheduledWork.existingWorkPolicy.toOneTimeWorkPolicy(),
+                buildOneTimeSyncWorkRequest<T>(
+                    constraints = scheduledWork.networkRequirement.toWorkConstraints(),
+                    inputData = inputData,
+                ),
+            )
+    }
+}
+
+private fun SyncExistingWorkPolicy.toPeriodicWorkPolicy(): ExistingPeriodicWorkPolicy =
+    when (this) {
+        SyncExistingWorkPolicy.Replace -> ExistingPeriodicWorkPolicy.REPLACE
+    }
+
+private fun SyncExistingWorkPolicy.toOneTimeWorkPolicy(): ExistingWorkPolicy =
+    when (this) {
+        SyncExistingWorkPolicy.Replace -> ExistingWorkPolicy.REPLACE
+    }
+
+private fun SyncWorkNetworkRequirement.toWorkConstraints(): Constraints =
+    when (this) {
+        SyncWorkNetworkRequirement.Connected -> connectedNetworkConstraints()
+        SyncWorkNetworkRequirement.UnmeteredCharging -> unmeteredChargingConstraints()
+    }
 
 internal inline fun <reified T : ListenableWorker> buildOneTimeSyncWorkRequest(
     constraints: Constraints,
