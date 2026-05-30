@@ -14,4 +14,9 @@ object AppModule {
     @Provides
     @Singleton
     fun provideAudioPlayerController(manager: AudioPlayerManager): AudioPlayerController = manager
+
+    @Provides
+    @Singleton
+    fun provideDispatcherProvider(): com.lomo.domain.usecase.DispatcherProvider =
+        com.lomo.domain.usecase.DefaultDispatcherProvider()
 }

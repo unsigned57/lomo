@@ -4,95 +4,91 @@ import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
- * - Unit under test: Main-screen new-memo insert animation advancement policy.
- * - Behavior focus: once prepend creation has already recovered the list to the absolute top, the staged insert
- *   must not ask for any additional post-insert top re-anchor; as soon as the new memo is the list's first item
- *   and the list remains pinned at top, the policy must start the blank-space stage even if the real viewport top
- *   still shows the previous memo while the new row is hidden.
- * - Observable outcomes: boolean decisions for post-insert top re-anchor suppression and inserted-memo
- *   readiness.
- * - Red phase: Fails before the fix because the policy still requires the viewport top to equal the inserted
- *   memo before blank-space prep can begin, which leaves the prepend animation stalled until manual scrolling or
- *   a compensating re-anchor happens.
- * - Excludes: LazyColumn measurement, actual animation frames, repository persistence, and gesture dispatch.
- */
-/*
+ * Behavior Contract:
+ * - Unit under test: isInsertedTopMemoReadyForSpaceStage (main-screen new-memo insert advancement policy)
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: decide when an armed insertion can open its blank-space stage, based solely on a new top memo id
+ *   appearing - the viewport re-pin after a prepend is performed by the effect, not gated here.
+ *
+ * Scenarios:
+ * - Given an armed session whose current top still equals the previous top, when checked, then not ready.
+ * - Given the insertion wait already cleared (not awaiting), when checked, then not ready.
+ * - Given an armed session and a different top memo id, when checked, then ready (even though the prepend left the
+ *   viewport anchored on the previous memo).
+ * - Given an armed session over a previously empty list and the first top memo id, when checked, then ready.
+ *
+ * Observable outcomes:
+ * - The boolean readiness decision.
+ *
+ * TDD proof:
+ * - RED: the prior policy took an isListPinnedAtTop gate and returned false while the list was not pinned; after a
+ *   paging-refresh prepend re-anchors the list on the previous top, that gate is never satisfied, so the staged
+ *   animation stalled and the new row stayed in the off-screen top (reported "memo appears in the invisible top area").
+ *   Calling the policy without the pin gate fails to compile against the old three-argument signature.
+ * - RED command: `./gradlew :app:testDebugUnitTest --tests 'com.lomo.app.feature.main.MainScreenNewMemoInsertAnimationPolicyTest'`.
+ * - GREEN: readiness depends only on awaiting + a new top memo id; the effect scrolls to the absolute top before advancing.
+ *
+ * Excludes:
+ * - LazyColumn measurement, animation frames, repository persistence, and gesture dispatch.
+ *
  * Test Change Justification:
- * - Reason category: product contract changed.
- * - Old behavior/assertion being replaced: the previous policy tests treated the real viewport top as a required
- *   readiness gate and allowed a compensating post-insert top pin to recover from that gate.
- * - Why the previous assertion is no longer correct: the requested animation order is "jump to top first, then
- *   open gap, then fade in". Keeping a viewport-top gate after insertion blocks the gap stage exactly when the
- *   new row is still intentionally hidden.
- * - Coverage preserved by: the updated tests still protect top-pinned readiness, overlap avoidance, and no extra
- *   post-insert recovery, while now locking the no-manual-scroll prepend contract.
- * - Why this is not fitting the test to the implementation: the new assertions capture the reported user-visible
- *   stall and flash conditions rather than a private refactor detail.
+ * - Reason category: production contract change.
+ * - Old behavior/assertion being replaced: readiness required isListPinnedAtTop == true.
+ * - Why old assertion is no longer correct: the prepend re-anchors the viewport away from the absolute top, so a pin
+ *   gate blocks the gap stage exactly when the new row is still hidden; the effect re-pins on detection instead.
+ * - Coverage preserved by: still locking same-top and not-awaiting rejection plus new-top readiness.
+ * - Why this is not fitting the test to the implementation: the assertions encode the reported off-screen-stall fix
+ *   (advance on new-top, re-pin in the effect) rather than an internal detail.
  */
 class MainScreenNewMemoInsertAnimationPolicyTest : AppFunSpec() {
     init {
-        test("policy does not start blank-space stage before a different first memo is inserted") {
-            val state =
-                NewMemoInsertAnimationState(
-                    awaitingInsertedTopMemo = true,
-                    previousTopMemoId = "memo-00",
-                )
+        test("not ready before a different first memo is inserted") {
+            val state = NewMemoInsertAnimationState(
+                awaitingInsertedTopMemo = true,
+                previousTopMemoId = "memo-00",
+            )
 
-            ((isInsertedTopMemoReadyForSpaceStage(
-                    state = state,
-                    currentListTopMemoId = "memo-00",
-                    isListPinnedAtTop = true,
-                ))) shouldBe false
+            isInsertedTopMemoReadyForSpaceStage(
+                state = state,
+                currentListTopMemoId = "memo-00",
+            ) shouldBe false
+        }
+
+        test("not ready after the insertion wait has already cleared") {
+            val state = NewMemoInsertAnimationState(
+                awaitingInsertedTopMemo = false,
+                blankSpaceMemoId = "memo-new",
+            )
+
+            isInsertedTopMemoReadyForSpaceStage(
+                state = state,
+                currentListTopMemoId = "memo-new",
+            ) shouldBe false
+        }
+
+        test("ready once the inserted memo becomes list top even though the prepend left the viewport unpinned") {
+            val state = NewMemoInsertAnimationState(
+                awaitingInsertedTopMemo = true,
+                previousTopMemoId = "memo-00",
+            )
+
+            isInsertedTopMemoReadyForSpaceStage(
+                state = state,
+                currentListTopMemoId = "memo-new",
+            ) shouldBe true
+        }
+
+        test("ready when the first memo appears over a previously empty list") {
+            val state = NewMemoInsertAnimationState(
+                awaitingInsertedTopMemo = true,
+                previousTopMemoId = null,
+            )
+
+            isInsertedTopMemoReadyForSpaceStage(
+                state = state,
+                currentListTopMemoId = "memo-new",
+            ) shouldBe true
         }
     }
-
-    init {
-        test("policy does not start blank-space stage after the insertion wait has already cleared") {
-            val state =
-                NewMemoInsertAnimationState(
-                    awaitingInsertedTopMemo = false,
-                    blankSpaceMemoId = "memo-new",
-                )
-
-            ((isInsertedTopMemoReadyForSpaceStage(
-                    state = state,
-                    currentListTopMemoId = "memo-new",
-                    isListPinnedAtTop = true,
-                ))) shouldBe false
-        }
-    }
-
-    init {
-        test("policy starts blank-space stage once inserted memo becomes list top while list is pinned at top") {
-            val state =
-                NewMemoInsertAnimationState(
-                    awaitingInsertedTopMemo = true,
-                    previousTopMemoId = "memo-00",
-                )
-
-            ((isInsertedTopMemoReadyForSpaceStage(
-                    state = state,
-                    currentListTopMemoId = "memo-new",
-                    isListPinnedAtTop = true,
-                ))) shouldBe true
-        }
-    }
-
-    init {
-        test("policy does not start blank-space stage while the list is not pinned at absolute top") {
-            val state =
-                NewMemoInsertAnimationState(
-                    awaitingInsertedTopMemo = true,
-                    previousTopMemoId = "memo-00",
-                )
-
-            ((isInsertedTopMemoReadyForSpaceStage(
-                    state = state,
-                    currentListTopMemoId = "memo-new",
-                    isListPinnedAtTop = false,
-                ))) shouldBe false
-        }
-    }
-
 }

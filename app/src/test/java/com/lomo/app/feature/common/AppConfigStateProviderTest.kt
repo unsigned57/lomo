@@ -59,7 +59,7 @@ class AppConfigStateProviderTest : AppFunSpec() {
 
                 val provider =
                     AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
                         appScope = backgroundScope,
                     )
 

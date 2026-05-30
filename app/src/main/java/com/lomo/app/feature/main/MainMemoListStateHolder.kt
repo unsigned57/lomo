@@ -5,18 +5,18 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
-import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -26,7 +26,7 @@ private const val SEARCH_DEBOUNCE_MILLIS = 150L
 private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
-private const val DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
+internal const val DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 
 sealed interface GalleryUiMemosState {
     data object Loading : GalleryUiMemosState
@@ -38,13 +38,14 @@ sealed interface GalleryUiMemosState {
 
 internal class MainMemoListStateHolder(
     scope: CoroutineScope,
-    memoUiCoordinator: MemoUiCoordinator,
+    mainMemoListQueryUseCase: MainMemoListQueryUseCase,
     memoUiMapper: MemoUiMapper,
     searchQuery: StateFlow<String>,
     memoListFilter: StateFlow<MemoListFilter>,
     rootDirectory: StateFlow<String?>,
     imageDirectory: StateFlow<String?>,
     imageMap: StateFlow<Map<String, android.net.Uri>>,
+    dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
 ) {
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private val mainMemoQueryInput: StateFlow<MemoQueryInput> =
@@ -59,7 +60,7 @@ internal class MainMemoListStateHolder(
             MemoQueryInput(query = "", filter = MemoListFilter()),
         )
 
-    private val mappingInput: StateFlow<UiMemoMappingInput> =
+    private val mappingInput: Flow<UiMemoMappingInput> =
         combine(rootDirectory, imageDirectory, imageMap) {
             rootDir,
             imageDir,
@@ -75,21 +76,10 @@ internal class MainMemoListStateHolder(
             )
         }.distinctUntilChanged { old, new ->
             old.hasSameUiDependencies(new)
-        }.stateIn(
-            scope,
-            appWhileSubscribed(),
-            UiMemoMappingInput(
-                memos = emptyList(),
-                rootDirectory = null,
-                imageDirectory = null,
-                imageMap = emptyMap(),
-                imageDependencySignature = "",
-                prioritizedMemoIds = emptySet(),
-            ),
-        )
+        }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val memoPagingData: Flow<PagingData<Memo>> =
+    private val memoPagingData: StateFlow<PagingData<Memo>?> =
         mainMemoQueryInput
             .flatMapLatest { queryInput ->
                 Pager(
@@ -99,32 +89,33 @@ internal class MainMemoListStateHolder(
                             initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
                             prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
                             enablePlaceholders = true,
-                            jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD,
+                            jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
                         ),
                     pagingSourceFactory = {
-                        memoUiCoordinator.mainListPagingSource(
+                        mainMemoListQueryUseCase.getMainListPagingSource(
                             queryInput.query,
                             queryInput.filter,
                         )
                     },
                 ).flow
             }.cachedIn(scope)
+            .stateIn(scope, appWhileSubscribed(), null)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val mainListTotalCount: StateFlow<Int> =
         mainMemoQueryInput
             .flatMapLatest { queryInput ->
-                memoUiCoordinator.mainListCount(queryInput.query, queryInput.filter)
+                mainMemoListQueryUseCase.getMainListCountFlow(queryInput.query, queryInput.filter)
             }.distinctUntilChanged()
             .stateIn(scope, appWhileSubscribed(), 0)
 
     val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
-        combine(memoPagingData, mappingInput) {
-            pagingData,
-            currentMappingInput,
-            ->
+        combine(
+            mappingInput,
+            memoPagingData.filterNotNull(),
+        ) { currentMappingInput, pagingData ->
             pagingData.map { memo ->
-                withContext(Dispatchers.Default) {
+                withContext(dispatcherProvider.default) {
                     memoUiMapper.mapToUiModel(
                         memo = memo,
                         rootPath = currentMappingInput.rootDirectory,
@@ -137,7 +128,7 @@ internal class MainMemoListStateHolder(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val galleryUiMemosState: StateFlow<GalleryUiMemosState> =
-        memoUiCoordinator.galleryMemos().mapToUiModels(
+        mainMemoListQueryUseCase.getGalleryMemosList().mapToUiModels(
             rootDirectory = rootDirectory,
             imageDirectory = imageDirectory,
             imageMap = imageMap,

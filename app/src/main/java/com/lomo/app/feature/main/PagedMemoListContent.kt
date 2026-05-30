@@ -36,7 +36,7 @@ import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.common.lazyListMotionItem
 import com.lomo.ui.component.common.rememberLazyListMotionState
 import com.lomo.ui.component.common.toLazyListMotionViewportSnapshot
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
@@ -53,10 +53,11 @@ private data class MemoPagedListDisplayConfig(
 
 private data class MemoPagedListActions(
     val onTodoClick: (Memo, Int, Boolean) -> Unit,
+    val onReminderDone: (String, String) -> Unit,
     val onMemoDoubleClick: (Memo) -> Unit,
     val onTagClick: (String) -> Unit,
     val onImageClick: (ImageViewerRequest) -> Unit,
-    val onShowMemoMenu: (MemoMenuState) -> Unit,
+    val onShowMemoMenu: (MemoMenuSelection) -> Unit,
     val onExpandedMemoChange: (String, Boolean) -> Unit,
     val onNewMemoSpacePrepared: (String) -> Unit,
     val onNewMemoRevealConsumed: (String) -> Unit,
@@ -106,6 +107,7 @@ internal fun MemoListContent(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onTagClick: (String) -> Unit,
@@ -117,7 +119,7 @@ internal fun MemoListContent(
     doubleTapEditEnabled: Boolean = true,
     freeTextCopyEnabled: Boolean = false,
     scrollbarEnabled: Boolean = true,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
     val itemSnapshotList = pagedMemos.itemSnapshotList
@@ -167,6 +169,7 @@ internal fun MemoListContent(
             onNewMemoRevealConsumed = onNewMemoRevealConsumed,
             listState = listState,
             onTodoClick = onTodoClick,
+            onReminderClick = onReminderClick,
             dateFormat = dateFormat,
             timeFormat = timeFormat,
             onMemoDoubleClick = onMemoDoubleClick,
@@ -195,6 +198,7 @@ private fun MemoPagedListColumn(
     onNewMemoRevealConsumed: (String) -> Unit,
     listState: LazyListState,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
@@ -203,7 +207,7 @@ private fun MemoPagedListColumn(
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
 ) {
     val visiblePagedMemos =
         rememberRetainedVisibleItems(
@@ -233,6 +237,7 @@ private fun MemoPagedListColumn(
     val actions =
         MemoPagedListActions(
             onTodoClick = onTodoClick,
+            onReminderDone = onReminderClick,
             onMemoDoubleClick = onMemoDoubleClick,
             onTagClick = onTagClick,
             onImageClick = onImageClick,
@@ -526,6 +531,11 @@ private fun MemoPagedListItem(
         shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
         bottomSpacing = bottomSpacing,
         onTodoClick = actions.onTodoClick,
+        onReminderClick =
+            createMainReminderDoneClickAction(
+                memoId = uiModel.memo.id,
+                onReminderDone = actions.onReminderDone,
+            ),
         dateFormat = displayConfig.dateFormat,
         timeFormat = displayConfig.timeFormat,
         onMemoDoubleClick = actions.onMemoDoubleClick,

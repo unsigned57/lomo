@@ -36,6 +36,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.presentation.markdown.MemoMarkdownMediaContent
+import com.lomo.app.presentation.markdown.MemoMarkdownMediaPresentationResolver
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.ui.benchmark.benchmarkAnchor
@@ -383,6 +385,8 @@ private fun VersionContentPreview(
             modifier = Modifier.fillMaxWidth(),
             maxVisibleBlocks = VERSION_PREVIEW_MAX_VISIBLE_BLOCKS,
             precomputedRenderPlan = precomputedRenderPlan,
+            mediaPresentationResolver = MemoMarkdownMediaPresentationResolver,
+            mediaContent = { presentation -> MemoMarkdownMediaContent(presentation) },
         )
     }
 }

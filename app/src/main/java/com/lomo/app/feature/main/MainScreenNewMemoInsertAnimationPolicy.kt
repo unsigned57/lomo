@@ -3,9 +3,8 @@ package com.lomo.app.feature.main
 internal fun isInsertedTopMemoReadyForSpaceStage(
     state: NewMemoInsertAnimationState,
     currentListTopMemoId: String?,
-    isListPinnedAtTop: Boolean,
 ): Boolean {
-    if (!state.awaitingInsertedTopMemo || !isListPinnedAtTop) {
+    if (!state.awaitingInsertedTopMemo) {
         return false
     }
     if (currentListTopMemoId == null || currentListTopMemoId == state.previousTopMemoId) {

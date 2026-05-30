@@ -44,7 +44,6 @@ import com.lomo.ui.component.common.lazyListMotionItem
 import com.lomo.ui.component.common.rememberLazyListMotionState
 import com.lomo.ui.component.common.resolveLazyListItemMotionPolicy
 import com.lomo.ui.component.common.toLazyListMotionViewportSnapshot
-import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
@@ -81,12 +80,13 @@ fun MemoCardList(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState? = null,
     freeTextCopyEnabled: Boolean = false,
     onImageClick: (ImageViewerRequest) -> Unit = {},
     onTodoClick: ((Memo, Int, Boolean) -> Unit)? = null,
+    onTagClick: (String) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
     showScrollbar: Boolean = false,
@@ -156,6 +156,7 @@ fun MemoCardList(
                     onShowMenu = onShowMenu,
                     onImageClick = onImageClick,
                     onTodoClick = onTodoClick,
+                    onTagClick = onTagClick,
                     animation = animation,
                     entranceState = entranceState,
                     isDeleting = uiModel.memo.id in deletingMemoIds,
@@ -205,9 +206,10 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onTodoClick: ((Memo, Int, Boolean) -> Unit)?,
+    onTagClick: (String) -> Unit,
     animation: MemoCardListAnimation,
     entranceState: MemoCardListEntranceState,
     isDeleting: Boolean,
@@ -275,6 +277,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
         onShowMenu = onShowMenu,
         onImageClick = stableImageClick,
         onTodoClick = stableTodoClick,
+        onTagClick = onTagClick,
         modifier = itemModifier,
         isExpanded = isExpanded,
         onExpandedChange = onExpandedChange,
@@ -410,16 +413,17 @@ private fun MemoCardDeleteAnimatedContainer(
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (String) -> Unit,
     onTodoClick: ((Int, Boolean) -> Unit)?,
+    onTagClick: (String) -> Unit,
     isExpanded: Boolean,
     modifier: Modifier = Modifier,
     onExpandedChange: (Boolean) -> Unit,
 ) {
-    var isCollapsing by remember { mutableStateOf(false) }
+    var isCollapsing by remember(uiModel.memo.id) { mutableStateOf(false) }
 
-    LaunchedEffect(isDeleting) {
+    LaunchedEffect(uiModel.memo.id, isDeleting) {
         if (isDeleting) {
             delay(MEMO_CARD_DELETE_FADE_DURATION_MILLIS.toLong())
             isCollapsing = true
@@ -435,7 +439,7 @@ private fun MemoCardDeleteAnimatedContainer(
                 durationMillis = MEMO_CARD_DELETE_FADE_DURATION_MILLIS,
                 easing = MotionTokens.EasingStandard,
             ),
-        label = "MemoCardDeleteAlpha",
+        label = "MemoCardDeleteAlpha-${uiModel.memo.id}",
     )
 
     val animatedBottomSpacing by androidx.compose.animation.core.animateDpAsState(
@@ -445,7 +449,7 @@ private fun MemoCardDeleteAnimatedContainer(
                 durationMillis = MEMO_CARD_DELETE_COLLAPSE_DURATION_MILLIS,
                 easing = MotionTokens.EasingStandard,
             ),
-        label = "MemoCardDeleteSpacing",
+        label = "MemoCardDeleteSpacing-${uiModel.memo.id}",
     )
 
     AnimatedVisibility(
@@ -479,6 +483,7 @@ private fun MemoCardDeleteAnimatedContainer(
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
                 onTodoClick = onTodoClick,
+                onTagClick = onTagClick,
                 isExpanded = isExpanded,
                 onExpandedChange = onExpandedChange,
             )

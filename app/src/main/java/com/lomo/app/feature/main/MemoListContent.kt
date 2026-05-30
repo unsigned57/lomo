@@ -39,7 +39,7 @@ import com.lomo.app.feature.image.enqueueImagePreloadRequests
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -183,17 +183,21 @@ internal fun MemoListItem(
     freeTextCopyEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit = {},
     isExpanded: Boolean? = null,
     onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
-    // Two-phase delete animation: fade (t=0–300ms) then collapse (t=300–600ms)
-    var isCollapsing by remember { mutableStateOf(false) }
+    // Two-phase delete animation: fade (t=0–300ms) then collapse (t=300–600ms).
+    // State is keyed on memo id so paging refresh / LazyColumn slot reuse cannot leak the
+    // previous row's collapse state onto a newly-bound row — the source of the reported
+    // "delete plays on the wrong row" + "siblings flicker after delete" bugs.
+    var isCollapsing by remember(uiModel.memo.id) { mutableStateOf(false) }
 
-    LaunchedEffect(isDeleting) {
+    LaunchedEffect(uiModel.memo.id, isDeleting) {
         if (isDeleting) {
             delay(MEMO_DELETE_FADE_DURATION_MILLIS.toLong())
             isCollapsing = true
@@ -210,7 +214,7 @@ internal fun MemoListItem(
                 durationMillis = MEMO_DELETE_FADE_DURATION_MILLIS,
                 easing = MotionTokens.EasingStandard,
             ),
-        label = "DeleteAlpha",
+        label = "DeleteAlpha-${uiModel.memo.id}",
     )
 
     // Phase 2: bottom spacing collapse (fixed spec — only target changes)
@@ -277,6 +281,7 @@ internal fun MemoListItem(
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onImageClick = stableImageClick,
                 onShowMenu = onShowMemoMenu,
+                onReminderClick = onReminderClick,
                 isExpanded = isExpanded,
                 onExpandedChange = onExpandedChange,
                 modifier =

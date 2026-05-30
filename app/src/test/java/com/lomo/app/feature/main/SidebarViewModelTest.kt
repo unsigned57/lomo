@@ -18,12 +18,12 @@ package com.lomo.app.feature.main
 
 
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -34,10 +34,10 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class SidebarViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val stateHolder = MainSidebarStateHolder()
-    private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
+    private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore())
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -76,7 +76,7 @@ class SidebarViewModelTest : AppFunSpec() {
                 memoRepository.setActiveMemos(memos)
 
                 val viewModel = SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    observeSidebarStatisticsUseCase = observeSidebarStatisticsUseCase(),
                     stateHolder = stateHolder,
                     appConfigCoordinator = appConfigCoordinator,
                 )
@@ -101,7 +101,7 @@ class SidebarViewModelTest : AppFunSpec() {
         test("onSearch delegates query update to state holder") {
             runTest {
                 val viewModel = SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    observeSidebarStatisticsUseCase = observeSidebarStatisticsUseCase(),
                     stateHolder = stateHolder,
                     appConfigCoordinator = appConfigCoordinator,
                 )
@@ -115,7 +115,7 @@ class SidebarViewModelTest : AppFunSpec() {
         test("clearFilters resets query") {
             runTest {
                 val viewModel = SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
+                    observeSidebarStatisticsUseCase = observeSidebarStatisticsUseCase(),
                     stateHolder = stateHolder,
                     appConfigCoordinator = appConfigCoordinator,
                 )
@@ -128,5 +128,9 @@ class SidebarViewModelTest : AppFunSpec() {
             }
         }
     }
-}
 
+    private fun observeSidebarStatisticsUseCase(): ObserveSidebarStatisticsUseCase =
+        ObserveSidebarStatisticsUseCase(
+            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+        )
+}

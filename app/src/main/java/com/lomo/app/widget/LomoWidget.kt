@@ -59,19 +59,20 @@ class LomoWidget : GlanceAppWidget() {
                 context.applicationContext,
                 WidgetEntryPoint::class.java,
             )
-        val memoRepository = entryPoint.memoRepository()
+        val memoListQueryRepository = entryPoint.memoListQueryRepository()
 
         // Fetch recent memos
         val recentMemos =
             withContext(Dispatchers.IO) {
                 runCatching {
-                    memoRepository.getRecentMemos(WIDGET_MEMO_LIMIT).toImmutableList()
+                    memoListQueryRepository.getRecentMemos(WIDGET_MEMO_LIMIT).toImmutableList()
                 }.getOrElse { persistentListOf() }
             }
 
+        val nowMillis = Instant.now().toEpochMilli()
         provideContent {
             GlanceTheme {
-                WidgetContent(context, recentMemos)
+                WidgetContent(context, recentMemos, nowMillis)
             }
         }
     }
@@ -81,6 +82,7 @@ class LomoWidget : GlanceAppWidget() {
 private fun WidgetContent(
     context: Context,
     memos: ImmutableList<Memo>,
+    nowMillis: Long,
 ) {
     Box(
         modifier =
@@ -96,7 +98,7 @@ private fun WidgetContent(
             if (memos.isEmpty()) {
                 WidgetEmptyState(context)
             } else {
-                WidgetMemoList(context, memos)
+                WidgetMemoList(context, memos, nowMillis)
             }
         }
     }
@@ -174,10 +176,11 @@ private fun WidgetEmptyState(context: Context) {
 private fun WidgetMemoList(
     context: Context,
     memos: ImmutableList<Memo>,
+    nowMillis: Long,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         memos.forEachIndexed { index, memo ->
-            MemoItem(context, memo, isLast = index == memos.size - 1)
+            MemoItem(context, memo, nowMillis, isLast = index == memos.size - 1)
         }
     }
 }
@@ -186,9 +189,10 @@ private fun WidgetMemoList(
 private fun MemoItem(
     context: Context,
     memo: Memo,
+    nowMillis: Long,
     isLast: Boolean = false,
 ) {
-    val processedContent = stripWidgetMarkdown(memo.content)
+    val presentation = resolveWidgetMemoItemPresentation(memo = memo, nowMillis = nowMillis)
 
     Column(
         modifier =
@@ -210,8 +214,8 @@ private fun MemoItem(
             text =
                 DateUtils
                     .getRelativeTimeSpanString(
-                        memo.timestamp,
-                        Instant.now().toEpochMilli(),
+                        presentation.timestampMillis,
+                        presentation.nowMillis,
                         DateUtils.MINUTE_IN_MILLIS,
                     ).toString(),
             style =
@@ -223,9 +227,7 @@ private fun MemoItem(
         Spacer(modifier = GlanceModifier.height(4.dp))
         Text(
             text =
-                processedContent.take(WIDGET_MEMO_PREVIEW_LENGTH).let {
-                    if (processedContent.length > WIDGET_MEMO_PREVIEW_LENGTH) "$it..." else it
-                },
+                presentation.previewText,
             style =
                 TextStyle(
                     color = GlanceTheme.colors.onSurface,
@@ -238,6 +240,30 @@ private fun MemoItem(
     if (!isLast) {
         Spacer(modifier = GlanceModifier.height(8.dp))
     }
+}
+
+internal data class WidgetMemoItemPresentation(
+    val id: String,
+    val timestampMillis: Long,
+    val nowMillis: Long,
+    val previewText: String,
+)
+
+internal fun resolveWidgetMemoItemPresentation(
+    memo: Memo,
+    nowMillis: Long,
+): WidgetMemoItemPresentation {
+    val processedContent = stripWidgetMarkdown(memo.content)
+    val previewText =
+        processedContent.take(WIDGET_MEMO_PREVIEW_LENGTH).let { preview ->
+            if (processedContent.length > WIDGET_MEMO_PREVIEW_LENGTH) "$preview..." else preview
+        }
+    return WidgetMemoItemPresentation(
+        id = memo.id,
+        timestampMillis = memo.timestamp,
+        nowMillis = nowMillis,
+        previewText = previewText,
+    )
 }
 
 private fun stripWidgetMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)

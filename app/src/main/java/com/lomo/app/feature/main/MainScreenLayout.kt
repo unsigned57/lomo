@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,11 +20,15 @@ import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -35,7 +40,7 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.app.feature.common.MemoListFilterController
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
-import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.component.navigation.SidebarDrawer
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -58,7 +63,8 @@ internal fun MainScreenNavigationRender(
     onDismissMemoFilterSheet: () -> Unit,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onScrollToTop: () -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onSidebarTagReorder: (List<String>) -> Unit,
 ) {
@@ -96,6 +102,7 @@ internal fun MainScreenNavigationRender(
         onHeatmapDateLongPress = onHeatmapDateLongPress,
         onScrollToTop = onScrollToTop,
         onSidebarTagReorder = onSidebarTagReorder,
+        onReminderClick = onReminderClick,
     )
 }
 
@@ -128,12 +135,13 @@ internal fun MainScreenRenderHost(
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     scrollbarEnabled: Boolean,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
     memoListFilterController: MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onScrollToTop: () -> Unit,
     onSidebarTagReorder: (List<String>) -> Unit,
+    onReminderClick: (String, String) -> Unit,
 ) {
     MainScreenDrawerLayout(
         isExpanded = isExpanded,
@@ -176,6 +184,7 @@ internal fun MainScreenRenderHost(
             isMemoFilterSheetVisible = isMemoFilterSheetVisible,
             memoListFilterController = memoListFilterController,
             onDismissMemoFilterSheet = onDismissMemoFilterSheet,
+            onReminderClick = onReminderClick,
         )
     }
 }
@@ -221,6 +230,7 @@ private fun MainScreenSidebarContent(
         username = "Lomo",
         stats = sidebarUiState.stats,
         memoCountByDate = sidebarUiState.memoCountByDate.toImmutableMap(),
+        today = LocalDate.now(),
         tags = sidebarUiState.tags.toImmutableList(),
         rootTagOrder = sidebarUiState.rootTagOrder.toImmutableList(),
         onTagClick = actions.onSidebarTagClick,
@@ -261,8 +271,10 @@ internal fun MainScreenAnimatedBody(
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    isFilterActive: Boolean,
 ) {
     AnimatedContent(
         targetState = uiState,
@@ -309,7 +321,9 @@ internal fun MainScreenAnimatedBody(
                     onTagClick = onTagClick,
                     onImageClick = onImageClick,
                     onShowMemoMenu = onShowMemoMenu,
+                    onReminderClick = onReminderClick,
                     onSettings = onSettings,
+                    isFilterActive = isFilterActive,
                 )
             }
         }
@@ -348,8 +362,10 @@ private fun MainReadyContent(
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onShowMemoMenu: (MemoMenuState) -> Unit,
+    onShowMemoMenu: (MemoMenuSelection) -> Unit,
+    onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    isFilterActive: Boolean,
 ) {
     val readyContentState =
         resolvePagedMainReadyContentState(
@@ -374,28 +390,41 @@ private fun MainReadyContent(
                         onSettings = onSettings,
                     )
                 MainReadyContentState.List ->
-                    MemoListContent(
-                        pagedMemos = pagedUiMemos,
-                        knownTotalItemCount = mainListTotalCount,
-                        deletingMemoIds = deletingMemoIds,
-                        onDeleteAnimationSettled = onPagedDeleteAnimationSettled,
-                        newMemoInsertAnimationState = newMemoInsertAnimationState,
-                        onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-                        onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-                        listState = listState,
-                        isRefreshing = isRefreshing,
-                        onRefresh = onRefresh,
-                        onTodoClick = onTodoClick,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
-                        onMemoDoubleClick = onMemoDoubleClick,
-                        doubleTapEditEnabled = doubleTapEditEnabled,
-                        freeTextCopyEnabled = freeTextCopyEnabled,
-                        scrollbarEnabled = scrollbarEnabled,
-                        onTagClick = onTagClick,
-                        onImageClick = onImageClick,
-                        onShowMemoMenu = onShowMemoMenu,
-                    )
+                    Crossfade(
+                        targetState = isFilterActive,
+                        animationSpec =
+                            tween(
+                                durationMillis = MotionTokens.DurationMedium2,
+                                easing = MotionTokens.EasingStandard,
+                            ),
+                        label = "FilterActiveCrossfade",
+                    ) { filterActive ->
+                        androidx.compose.runtime.key(filterActive) {
+                            MemoListContent(
+                                pagedMemos = pagedUiMemos,
+                                knownTotalItemCount = mainListTotalCount,
+                                deletingMemoIds = deletingMemoIds,
+                                onDeleteAnimationSettled = onPagedDeleteAnimationSettled,
+                                newMemoInsertAnimationState = newMemoInsertAnimationState,
+                                onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                                onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+                                listState = listState,
+                                isRefreshing = isRefreshing,
+                                onRefresh = onRefresh,
+                                onTodoClick = onTodoClick,
+                                dateFormat = dateFormat,
+                                timeFormat = timeFormat,
+                                onMemoDoubleClick = onMemoDoubleClick,
+                                doubleTapEditEnabled = doubleTapEditEnabled,
+                                freeTextCopyEnabled = freeTextCopyEnabled,
+                                scrollbarEnabled = scrollbarEnabled,
+                                onTagClick = onTagClick,
+                                onImageClick = onImageClick,
+                                onShowMemoMenu = onShowMemoMenu,
+                                onReminderClick = onReminderClick,
+                            )
+                        }
+                    }
             }
         }
     }

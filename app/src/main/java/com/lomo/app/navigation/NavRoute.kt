@@ -1,8 +1,7 @@
 package com.lomo.app.navigation
 
 import kotlinx.serialization.Serializable
-import com.lomo.ui.util.SynchronizedLruStore
-import java.util.UUID
+import java.io.File
 
 @Serializable
 sealed interface NavRoute {
@@ -56,46 +55,75 @@ sealed interface NavRoute {
 
 /**
  * Keeps share payload out of route args to avoid oversized/unsafe navigation params.
- * Entries are one-time consumable and pruned by age/size.
+ * Entries are one-time consumable per process and pruned by age/size.
  */
 object ShareRoutePayloadStore {
-    private data class Entry(
-        val content: String,
-        val createdAtMillis: Long,
-    )
-
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES)
+    private val registry =
+        NavigationPayloadRegistry<String>(
+            maxEntries = MAX_ENTRIES,
+            ttlMillis = ENTRY_TTL_MILLIS,
+        )
+    private val consumedKeys = mutableSetOf<String>()
+    @Volatile
+    private var persistentCache: ShareRoutePayloadPersistentCache? = null
 
     @Synchronized
     fun putMemoContent(content: String): String {
-        val now = System.currentTimeMillis()
-        pruneLocked(now)
-
-        val key = UUID.randomUUID().toString()
-        store.put(key, Entry(content = content, createdAtMillis = now))
+        val key = registry.put(content)
+        consumedKeys.remove(key)
+        persistentCache?.put(key = key, payload = content)
         return key
     }
 
     @Synchronized
     fun consumeMemoContent(key: String): String? {
-        val now = System.currentTimeMillis()
-        pruneLocked(now)
-        return store.remove(key)?.content
+        if (key in consumedKeys) {
+            return null
+        }
+        val memoryContent = registry.remove(key)
+        if (memoryContent != null) {
+            if (persistentCache?.discard(key) == false) {
+                return null
+            }
+            consumedKeys += key
+            return memoryContent
+        }
+        return persistentCache?.consume(key)?.also {
+            consumedKeys += key
+        }
+    }
+
+    @Synchronized
+    internal fun configurePersistentCache(cacheDir: File) {
+        persistentCache =
+            ShareRoutePayloadPersistentCache(
+                directory = cacheDir,
+                maxEntries = MAX_ENTRIES,
+                ttlMillis = ENTRY_TTL_MILLIS,
+            )
     }
 
     @Synchronized
     fun clearForTest() {
-        store.clear()
+        registry.clear()
+        consumedKeys.clear()
+        persistentCache?.clear()
+        persistentCache = null
     }
 
-    private fun pruneLocked(now: Long) {
-        store.snapshot().forEach { (key, entry) ->
-            if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS) {
-                store.remove(key)
-            }
-        }
+    @Synchronized
+    fun clearMemoryForTest() {
+        registry.clear()
+        consumedKeys.clear()
+    }
+
+    @Synchronized
+    fun configurePersistentCacheForTest(cacheDir: File) {
+        configurePersistentCache(cacheDir)
+        consumedKeys.clear()
+        persistentCache?.clear()
     }
 }
 
@@ -104,54 +132,30 @@ object ShareRoutePayloadStore {
  * Entries are cached and pruned by age/size so viewer state survives recomposition/config changes.
  */
 object ImageViewerRoutePayloadStore {
-    private data class Entry(
-        val imageUrls: List<String>,
-        val createdAtMillis: Long,
-    )
-
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES)
-
-    @Synchronized
-    fun putImageUrls(imageUrls: List<String>): String {
-        val now = System.currentTimeMillis()
-        pruneLocked(now)
-
-        val key = UUID.randomUUID().toString()
-        store.put(
-            key,
-            Entry(
-                imageUrls =
-                    imageUrls
-                        .asSequence()
-                        .map(String::trim)
-                        .filter(String::isNotEmpty)
-                        .toList(),
-                createdAtMillis = now,
-            ),
+    private val registry =
+        NavigationPayloadRegistry<List<String>>(
+            maxEntries = MAX_ENTRIES,
+            ttlMillis = ENTRY_TTL_MILLIS,
         )
-        return key
+
+    fun putImageUrls(imageUrls: List<String>): String {
+        return registry.put(
+            imageUrls
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .toList(),
+        )
     }
 
-    @Synchronized
     fun getImageUrls(key: String): List<String>? {
-        val now = System.currentTimeMillis()
-        pruneLocked(now)
-        return store.get(key)?.imageUrls
+        return registry.get(key)
     }
 
-    @Synchronized
     fun clearForTest() {
-        store.clear()
-    }
-
-    private fun pruneLocked(now: Long) {
-        store.snapshot().forEach { (key, entry) ->
-            if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS) {
-                store.remove(key)
-            }
-        }
+        registry.clear()
     }
 }
 
@@ -165,68 +169,42 @@ object GalleryReelPayloadStore {
         val aspectByMemoId: Map<String, Float>,
     )
 
-    private data class Entry(
-        val payload: Payload,
-        val createdAtMillis: Long,
-    )
-
     const val MAX_ENTRIES_FOR_TEST = 64
     const val ENTRY_TTL_MILLIS_FOR_TEST = 10 * 60 * 1000L
-    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES_FOR_TEST)
-    private var clock: () -> Long = System::currentTimeMillis
+    private val registry =
+        NavigationPayloadRegistry<Payload>(
+            maxEntries = MAX_ENTRIES_FOR_TEST,
+            ttlMillis = ENTRY_TTL_MILLIS_FOR_TEST,
+        )
 
-    @Synchronized
     fun put(payload: Payload): String {
-        val now = clock()
-        pruneLocked(now)
-
-        val key = UUID.randomUUID().toString()
-        store.put(
-            key,
-            Entry(
-                payload =
-                    Payload(
-                        memoIds =
-                            payload.memoIds
-                                .asSequence()
-                                .map(String::trim)
-                                .filter(String::isNotEmpty)
-                                .distinct()
-                                .toList(),
-                        aspectByMemoId =
-                            payload.aspectByMemoId
-                                .filterKeys { key -> key.isNotBlank() }
-                                .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
-                    ),
-                createdAtMillis = now,
+        return registry.put(
+            Payload(
+                memoIds =
+                    payload.memoIds
+                        .asSequence()
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                        .distinct()
+                        .toList(),
+                aspectByMemoId =
+                    payload.aspectByMemoId
+                        .filterKeys { key -> key.isNotBlank() }
+                        .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
             ),
         )
-        return key
     }
 
-    @Synchronized
     fun get(key: String): Payload? {
-        val now = clock()
-        pruneLocked(now)
-        return store.get(key)?.payload
+        return registry.get(key)
     }
 
-    @Synchronized
     fun clearForTest() {
-        store.clear()
-        clock = System::currentTimeMillis
+        registry.clear()
+        registry.setClockForTest(System::currentTimeMillis)
     }
 
-    @Synchronized
     fun setClockForTest(testClock: () -> Long) {
-        clock = testClock
-    }
-
-    private fun pruneLocked(now: Long) {
-        store.snapshot().forEach { (key, entry) ->
-            if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS_FOR_TEST) {
-                store.remove(key)
-            }
-        }
+        registry.setClockForTest(testClock)
     }
 }

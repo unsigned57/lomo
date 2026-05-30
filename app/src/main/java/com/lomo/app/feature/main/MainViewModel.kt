@@ -6,22 +6,27 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.MemoCollectionActionStateHolder
+import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.MemoCollectionUiState
 import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
-import com.lomo.ui.component.menu.MemoActionId
+import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.usecase.MainMemoListQueryUseCase
+import com.lomo.domain.usecase.MarkReminderDoneUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
+import com.lomo.domain.usecase.SetMemoPinnedUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,7 +61,9 @@ private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 class MainViewModel
     @Inject
     constructor(
-        private val memoUiCoordinator: MemoUiCoordinator,
+        private val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
+        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+        private val setMemoPinnedUseCase: SetMemoPinnedUseCase,
         private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val sidebarStateHolder: MainSidebarStateHolder,
@@ -66,9 +73,28 @@ class MainViewModel
         private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
         private val workspaceCoordinator: MainWorkspaceCoordinator,
         private val startupCoordinator: MainStartupCoordinator,
+        private val markReminderDoneUseCase: MarkReminderDoneUseCase,
+        private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
-        val errorMessage: StateFlow<String?> = _errorMessage
+        private val collectionActionStateHolder =
+            MemoCollectionActionStateHolder(
+                capabilities =
+                    MemoCollectionCapabilities.DeletableTodo(
+                        deleteMemo = mainMemoMutationCoordinator::deleteMemo,
+                        toggleTodo = { memo, lineIndex, checked ->
+                            mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
+                        },
+                    ),
+                scope = viewModelScope,
+            )
+
+        val collectionUiState: StateFlow<MemoCollectionUiState> = collectionActionStateHolder.uiState
+
+        val errorMessage: StateFlow<String?> =
+            combine(collectionActionStateHolder.errorMessage, _errorMessage) { collectionError, mainError ->
+                mainError ?: collectionError
+            }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
 
         private val _syncConflictEvent =
             kotlinx.coroutines.flow.MutableSharedFlow<com.lomo.domain.model.SyncConflictSet>(
@@ -78,7 +104,7 @@ class MainViewModel
             kotlinx.coroutines.flow.SharedFlow<com.lomo.domain.model.SyncConflictSet> = _syncConflictEvent
 
         val isSyncing: StateFlow<Boolean> =
-            memoUiCoordinator
+            mainMemoListQueryUseCase
                 .isSyncing()
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
@@ -128,8 +154,7 @@ class MainViewModel
         internal val pendingNewMemoCreationRequest: StateFlow<PendingNewMemoCreationRequest?> =
             _pendingNewMemoCreationRequest.asStateFlow()
 
-        private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
-        val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
+        val deletingMemoIds: StateFlow<Set<String>> = collectionActionStateHolder.deletingMemoIds
 
         private val _hasResolvedInitialRoot = MutableStateFlow(false)
         private val _isInitialDirectoryImporting = MutableStateFlow(false)
@@ -151,13 +176,14 @@ class MainViewModel
         private val memoListStateHolder =
             MainMemoListStateHolder(
                 scope = viewModelScope,
-                memoUiCoordinator = memoUiCoordinator,
+                mainMemoListQueryUseCase = mainMemoListQueryUseCase,
                 memoUiMapper = memoUiMapper,
                 searchQuery = searchQuery,
                 memoListFilter = memoListFilter,
                 rootDirectory = rootDirectory,
                 imageDirectory = imageDirectory,
                 imageMap = imageMap,
+                dispatcherProvider = dispatcherProvider,
             )
 
         val uiState: StateFlow<MainScreenState> =
@@ -213,8 +239,7 @@ class MainViewModel
         val appLockEnabled: StateFlow<Boolean?> = appConfigStateProvider.appLockEnabled
 
         val activeDayCount: StateFlow<Int> =
-            memoUiCoordinator
-                .activeDayCount()
+            observeActiveDayCountUseCase()
                 .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
         val gitSyncEnabled: StateFlow<Boolean> =
@@ -309,7 +334,7 @@ class MainViewModel
             manualRootRefreshPath.set(path)
             viewModelScope.launch {
                 try {
-                    withContext(Dispatchers.IO) {
+                    withContext(dispatcherProvider.io) {
                         runCatching {
                             workspaceCoordinator.switchRootAndRefresh(path)
                         }.onFailure { throwable ->
@@ -348,7 +373,7 @@ class MainViewModel
         }
 
         val refresh: suspend () -> Unit = {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 runCatching {
                     workspaceCoordinator.refreshMemos()
                 }.onFailure { throwable ->
@@ -358,40 +383,43 @@ class MainViewModel
         }
 
         val resolveMemoById: suspend (String) -> Memo? = { memoId ->
-            withContext(Dispatchers.IO) {
-                memoUiCoordinator.getMemoById(memoId)
+            withContext(dispatcherProvider.io) {
+                mainMemoListQueryUseCase.getMemoById(memoId)
             }
         }
 
         val resolveDefaultMainListIndex: suspend (String) -> Int? = { memoId ->
-            withContext(Dispatchers.IO) {
-                memoUiCoordinator.getDefaultMainListIndex(memoId)
+            withContext(dispatcherProvider.io) {
+                mainMemoListQueryUseCase.getDefaultMainListIndexInWindow(
+                    id = memoId,
+                    limit = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
+                )
             }
         }
 
         val deleteMemo: (Memo) -> Unit = { memo ->
-            viewModelScope.launch {
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemId = memo.id,
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        mainMemoMutationCoordinator.deleteMemo(memo)
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage()
+            collectionActionStateHolder.actions.delete(memo)
+        }
+
+        internal fun onPagedDeleteAnimationSettled(memoId: String) {
+            collectionActionStateHolder.actions.onDeleteAnimationSettled(memoId)
+        }
+
+        val markReminderDone: (String, String) -> Unit = { memoId, tokenRaw ->
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    markReminderDoneUseCase(memoId, tokenRaw)
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) throw throwable
+                    Timber.w(throwable, "Failed to mark reminder done: memoId=$memoId, token=$tokenRaw")
                 }
             }
         }
 
-        internal fun onPagedDeleteAnimationSettled(memoId: String) {
-            _deletingMemoIds.value = _deletingMemoIds.value - memoId
-        }
-
         val setMemoPinned: (Memo, Boolean) -> Unit = { memo, pinned ->
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(dispatcherProvider.io) {
                 runCatching {
-                    memoUiCoordinator.setMemoPinned(memo.id, pinned)
+                    setMemoPinnedUseCase(memo.id, pinned)
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -402,16 +430,7 @@ class MainViewModel
         }
 
         val updateMemo: (Memo, Int, Boolean) -> Unit = { memo, lineIndex, checked ->
-            viewModelScope.launch {
-                runCatching {
-                    mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to update todo")
-                }
-            }
+            collectionActionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
         }
 
         val syncImageCacheNow: () -> Unit = {
@@ -440,7 +459,7 @@ class MainViewModel
         }
 
         val loadVersionHistory: (Memo) -> Unit = { memo ->
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(dispatcherProvider.io) {
                 runCatching {
                     versionHistoryCoordinator.load(memo)
                 }.onFailure { throwable ->
@@ -455,7 +474,7 @@ class MainViewModel
         }
 
         val loadMoreVersionHistory: () -> Unit = {
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(dispatcherProvider.io) {
                 runCatching {
                     versionHistoryCoordinator.loadMore()
                 }.onFailure { throwable ->
@@ -468,7 +487,7 @@ class MainViewModel
         }
 
         val restoreVersion: (Memo, MemoRevision) -> Unit = { memo, version ->
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(dispatcherProvider.io) {
                 runCatching {
                     versionHistoryCoordinator.restore(memo, version)
                 }.onFailure { throwable ->
@@ -523,6 +542,7 @@ class MainViewModel
         }
 
         val clearError: () -> Unit = {
+            collectionActionStateHolder.errors.clear()
             _errorMessage.value = null
         }
 
@@ -583,6 +603,7 @@ class MainViewModel
                         if (shouldWaitForDeferredStartup) {
                             gateInitialConfiguredDirectorySync.set(false)
                             imageCacheSyncReady.filter { ready -> ready }.first()
+                            return@transformLatest
                         }
                         emit(directory)
                     }.debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
@@ -610,7 +631,7 @@ class MainViewModel
 
                 lastAutomaticRefreshMark = TimeSource.Monotonic.markNow()
                 automaticRefreshJob =
-                    viewModelScope.launch(Dispatchers.IO) {
+                    viewModelScope.launch(dispatcherProvider.io) {
                         try {
                             runCatching {
                                 workspaceCoordinator.refreshMemos()
@@ -633,7 +654,7 @@ class MainViewModel
         private suspend fun refreshForRootChange() {
             val shouldShowInitialImport = _isInitialDirectoryImporting.value
             try {
-                withContext(Dispatchers.IO) {
+                withContext(dispatcherProvider.io) {
                     runCatching {
                         workspaceCoordinator.rebuildCurrentWorkspace()
                     }.onFailure { throwable ->
@@ -690,4 +711,5 @@ data class MemoUiModel(
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val shouldShowExpand: Boolean = false,
     val collapsedSummary: String = "",
+    val reminders: ImmutableList<ReminderMarker> = persistentListOf(),
 )

@@ -321,7 +321,7 @@ private fun rememberAppLockUiState(
         unlockPromptInProgress,
     ) {
         if (
-            shouldAutoRequestUnlock(
+            shouldAutoRequestAppLockUnlock(
                 appLockEnabled = appLockEnabled,
                 hasUnlockedThisLaunch = hasUnlockedThisLaunch,
                 hasRequestedAutoUnlock = hasRequestedAutoUnlock,
@@ -334,7 +334,10 @@ private fun rememberAppLockUiState(
     }
 
     return AppLockUiState(
-        isGateVisible = appLockEnabled == true && !hasUnlockedThisLaunch,
+        isGateVisible = resolveAppLockGateVisible(
+            appLockEnabled = appLockEnabled,
+            hasUnlockedThisLaunch = hasUnlockedThisLaunch,
+        ),
         isUnlockInProgress = unlockPromptInProgress,
         errorMessage = unlockErrorMessage,
         requestUnlock = ::requestUnlock,
@@ -361,43 +364,36 @@ private fun MainActivityRoot(
         )
     LomoTheme(
         themeMode = appPreferences.themeMode.value,
+        colorSource = appPreferences.colorSource,
+        customFontPath = appPreferences.customFontPath,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
     ) {
         androidx.activity.compose.ReportDrawnWhen { !appLockUiState.isGateVisible }
         com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
-            if (!appLockUiState.isGateVisible && appLockEnabled == false) {
-                UnlockedAppRoot(
-                    pendingLaunchCommands = pendingLaunchCommands,
-                    onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
-                    audioPlayerController = audioPlayerController,
-                    shareServiceManager = shareServiceManager,
-                )
-            } else {
-                AnimatedContent(
-                    targetState = appLockUiState.isGateVisible,
-                    label = "AppLockGateTransition",
-                    transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
-                ) { isLockGateVisible ->
-                    if (isLockGateVisible) {
-                        AppLockGate(
-                            isConfigLoading = false,
-                            isUnlockInProgress = appLockUiState.isUnlockInProgress,
-                            errorMessage = appLockUiState.errorMessage,
-                            onRetry = {
-                                if (appLockEnabled == true && !appLockUiState.isUnlockInProgress) {
-                                    appLockUiState.requestUnlock()
-                                }
-                            },
-                        )
-                    } else {
-                        UnlockedAppRoot(
-                            pendingLaunchCommands = pendingLaunchCommands,
-                            onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
-                            audioPlayerController = audioPlayerController,
-                            shareServiceManager = shareServiceManager,
-                        )
-                    }
+            AnimatedContent(
+                targetState = appLockUiState.isGateVisible,
+                label = "AppLockGateTransition",
+                transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
+            ) { isLockGateVisible ->
+                if (isLockGateVisible) {
+                    AppLockGate(
+                        isConfigLoading = false,
+                        isUnlockInProgress = appLockUiState.isUnlockInProgress,
+                        errorMessage = appLockUiState.errorMessage,
+                        onRetry = {
+                            if (appLockEnabled == true && !appLockUiState.isUnlockInProgress) {
+                                appLockUiState.requestUnlock()
+                            }
+                        },
+                    )
+                } else {
+                    UnlockedAppRoot(
+                        pendingLaunchCommands = pendingLaunchCommands,
+                        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+                        audioPlayerController = audioPlayerController,
+                        shareServiceManager = shareServiceManager,
+                    )
                 }
             }
         }
@@ -555,16 +551,6 @@ private data class AppLockUiState(
     val errorMessage: String?,
     val requestUnlock: () -> Unit,
 )
-
-private fun shouldAutoRequestUnlock(
-    appLockEnabled: Boolean?,
-    hasUnlockedThisLaunch: Boolean,
-    hasRequestedAutoUnlock: Boolean,
-    unlockPromptInProgress: Boolean,
-): Boolean = appLockEnabled == true &&
-    !hasUnlockedThisLaunch &&
-    !hasRequestedAutoUnlock &&
-    !unlockPromptInProgress
 
 private val SUPPORTED_AUTHENTICATOR_OPTIONS =
     listOf(
