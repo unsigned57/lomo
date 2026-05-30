@@ -2,21 +2,35 @@ package com.lomo.data.repository
 
 /**
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Unit under test: MemoQueryRepositoryImpl
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: query memo lists and Daily Review candidates without materializing unbounded data.
+ *
+ * Scenarios:
+ * - Given invalid paging input, when a page is requested, then DAO reads are skipped.
+ * - Given pinned ids, when memo queries return rows, then domain memos carry pinned state.
+ * - Given a Daily Review session starts, when the boundary is captured, then only high-water,
+ *   count, and one bounded page query are used.
+ * - Given a Daily Review page cursor, when the next page is requested, then DAO paging receives
+ *   the stable boundary and cursor tuple instead of repository cache slicing.
+ * - Given rows are inserted after the captured high-water rowid, when candidates are paged, then
+ *   the page query remains bounded by the original max rowid.
+ * - Given direct focus asks for a default-list index, when the target is outside the configured
+ *   head window, then the repository returns null after one bounded head-id query.
+ *
+ * Observable outcomes:
+ * - Returned memo ids with isPinned flags, empty/non-empty page content, null vs domain memo,
+ *   passthrough sync state, Paging jump support, Daily Review page ids, cursor progress, and
+ *   recorded DAO query boundaries/head-id window limits.
+ *
+ * TDD proof:
+ * - Fails before the fix because boundary capture calls getDailyReviewCandidateSnapshot(maxRowId)
+ *   and getDailyReviewCandidatePage slices the cached list instead of calling a bounded DAO page.
+ *
+ * Excludes:
+ * - Room SQL execution plans, entity recovery internals, mutation workflow side effects, and UI.
  */
-
-
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.dao.DefaultMainListMemoRow
 import androidx.paging.PagingSource
@@ -24,7 +38,9 @@ import com.lomo.data.testing.fakes.FakeDefaultMainListDao
 import com.lomo.data.testing.fakes.FakeMemoBrowseDao
 import com.lomo.data.testing.fakes.FakeMemoDao
 import com.lomo.data.testing.fakes.FakeMemoPinDao
+import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,19 +49,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import java.time.LocalDate
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
-
-/*
- * Behavior Contract:
- * - Unit under test: MemoQueryRepositoryImpl
- * - Behavior focus: pinned-state merge, invalid-page guard branch, getMemoById null/non-null branching, syncing-state exposure, and Paging jump support passthrough.
- * - Observable outcomes: returned memo ids with isPinned flags, empty/non-empty page content, null vs domain memo, passthrough sync state, and exposed jumpingSupported flag.
- * - TDD proof: Fails before the fix because the repository mapping PagingSource drops the Room source's
- *   jumpingSupported flag, so placeholder-backed direct Jump requests cannot use Paging jump loading.
- * - Excludes: Room SQL behavior, entity recovery internals, and mutation workflow side effects.
- */
 class MemoQueryRepositoryImplTest : DataFunSpec() {
     init {
         test("getMemosPage returns empty list and skips dao for invalid limit or offset") { `getMemosPage returns empty list and skips dao for invalid limit or offset`() }
@@ -65,6 +72,16 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
         test("getMainListPagingSource keeps source refresh key for offset paging") { `getMainListPagingSource keeps source refresh key for offset paging`() }
 
         test("getMainListPagingSource preserves source jumping support for direct offscreen focus") { `getMainListPagingSource preserves source jumping support for direct offscreen focus`() }
+
+        test("getDefaultMainListIndexInWindow uses one bounded head-id query") {
+            `getDefaultMainListIndexInWindow uses one bounded head-id query`()
+        }
+
+        test("given daily review starts when boundary is captured then repository avoids unbounded candidate snapshot") { `given daily review starts when boundary is captured then repository avoids unbounded candidate snapshot`() }
+
+        test("given daily review cursor when next page is requested then repository delegates cursor tuple to dao") { `given daily review cursor when next page is requested then repository delegates cursor tuple to dao`() }
+
+        test("given new head rows after boundary when candidates are paged then original max rowid remains the query boundary") { `given new head rows after boundary when candidates are paged then original max rowid remains the query boundary`() }
     }
 
 
@@ -214,7 +231,7 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                 }
             defaultMainListDao.getPagingSourceResult = source
 
-            val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
+            val pagingSource = repository.getMainListPagingSource(spec = MemoQuerySpec.fromFilter(filter = MemoListFilter()))
             val refreshKey =
                 pagingSource.getRefreshKey(
                     androidx.paging.PagingState(
@@ -246,9 +263,148 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                 }
             defaultMainListDao.getPagingSourceResult = source
 
-            val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
+            val pagingSource = repository.getMainListPagingSource(spec = MemoQuerySpec.fromFilter(filter = MemoListFilter()))
 
             (pagingSource.jumpingSupported).shouldBeTrue()
+        }
+
+    private fun `getDefaultMainListIndexInWindow uses one bounded head-id query`() =
+        runTest {
+            defaultMainListDao.defaultMainListHeadIdsResult = listOf("memo-top", "memo-target", "memo-tail")
+
+            val targetIndex = repository.getDefaultMainListIndexInWindow(id = "memo-target", limit = 2)
+            val outsideWindow = repository.getDefaultMainListIndexInWindow(id = "memo-tail", limit = 2)
+            val invalidLimit = repository.getDefaultMainListIndexInWindow(id = "memo-target", limit = 0)
+
+            targetIndex shouldBe 1
+            outsideWindow.shouldBeNull()
+            invalidLimit.shouldBeNull()
+            defaultMainListDao.defaultMainListHeadIdCalls shouldBe listOf(2, 2)
+        }
+
+    private fun `given daily review starts when boundary is captured then repository avoids unbounded candidate snapshot`() =
+        runTest {
+            defaultMainListDao.dailyReviewCandidateMaxRowIdResult = DAILY_REVIEW_MAX_ROW_ID
+            defaultMainListDao.dailyReviewCandidateCountResult = 3
+            defaultMainListDao.dailyReviewCandidatePageResult =
+                listOf(defaultMainListRow(id = "memo-3", timestamp = 300L, isPinned = true))
+
+            val boundary = repository.getDailyReviewCandidateBoundary()
+
+            requireNotNull(boundary)
+            assertSoftly {
+                defaultMainListDao.dailyReviewCandidateMaxRowIdCallCount shouldBe 1
+                defaultMainListDao.dailyReviewCandidateCountCalls shouldBe listOf(DAILY_REVIEW_MAX_ROW_ID)
+                defaultMainListDao.dailyReviewCandidatePageCalls shouldBe
+                    listOf(
+                        FakeDefaultMainListDao.DailyReviewCandidatePageCall(
+                            maxRowId = DAILY_REVIEW_MAX_ROW_ID,
+                            cursorIsPinned = null,
+                            cursorTimestamp = null,
+                            cursorId = null,
+                            limit = 1,
+                        ),
+                    )
+                boundary.observedCount shouldBe 3
+                boundary.id shouldBe "memo-3"
+                boundary.token shouldBe "daily-review-boundary-$DAILY_REVIEW_MAX_ROW_ID"
+            }
+        }
+
+    private fun `given daily review cursor when next page is requested then repository delegates cursor tuple to dao`() =
+        runTest {
+            defaultMainListDao.dailyReviewCandidateMaxRowIdResult = DAILY_REVIEW_MAX_ROW_ID
+            defaultMainListDao.dailyReviewCandidateCountResult = 4
+            defaultMainListDao.dailyReviewCandidatePageHandler = { call ->
+                when (call.cursorId) {
+                    null ->
+                        listOf(
+                            defaultMainListRow(id = "pinned-1", timestamp = 400L, isPinned = true),
+                            defaultMainListRow(id = "memo-3", timestamp = 300L, isPinned = false),
+                        )
+                    "memo-3" ->
+                        listOf(
+                            defaultMainListRow(id = "memo-2", timestamp = 200L, isPinned = false),
+                            defaultMainListRow(id = "memo-1", timestamp = 100L, isPinned = false),
+                        )
+                    else -> emptyList()
+                }.take(call.limit)
+            }
+            val boundary = requireNotNull(repository.getDailyReviewCandidateBoundary())
+            defaultMainListDao.dailyReviewCandidatePageCalls.clear()
+
+            val firstPage = repository.getDailyReviewCandidatePage(boundary = boundary, cursor = null, limit = 2)
+            val secondPage =
+                repository.getDailyReviewCandidatePage(
+                    boundary = boundary,
+                    cursor = requireNotNull(firstPage.nextCursor),
+                    limit = 2,
+                )
+
+            assertSoftly {
+                firstPage.ids shouldBe listOf("pinned-1", "memo-3")
+                firstPage.nextCursor shouldBe
+                    DailyReviewCandidateCursor(
+                        isPinned = false,
+                        timestamp = 300L,
+                        id = "memo-3",
+                        token = boundary.token,
+                        position = 2,
+                    )
+                secondPage.ids shouldBe listOf("memo-2", "memo-1")
+                secondPage.nextCursor shouldBe
+                    DailyReviewCandidateCursor(
+                        isPinned = false,
+                        timestamp = 100L,
+                        id = "memo-1",
+                        token = boundary.token,
+                        position = 4,
+                    )
+                defaultMainListDao.dailyReviewCandidatePageCalls shouldBe
+                    listOf(
+                        FakeDefaultMainListDao.DailyReviewCandidatePageCall(
+                            maxRowId = DAILY_REVIEW_MAX_ROW_ID,
+                            cursorIsPinned = null,
+                            cursorTimestamp = null,
+                            cursorId = null,
+                            limit = 2,
+                        ),
+                        FakeDefaultMainListDao.DailyReviewCandidatePageCall(
+                            maxRowId = DAILY_REVIEW_MAX_ROW_ID,
+                            cursorIsPinned = false,
+                            cursorTimestamp = 300L,
+                            cursorId = "memo-3",
+                            limit = 2,
+                        ),
+                    )
+            }
+        }
+
+    private fun `given new head rows after boundary when candidates are paged then original max rowid remains the query boundary`() =
+        runTest {
+            defaultMainListDao.dailyReviewCandidateMaxRowIdResult = DAILY_REVIEW_MAX_ROW_ID
+            defaultMainListDao.dailyReviewCandidateCountResult = 2
+            defaultMainListDao.dailyReviewCandidatePageResult =
+                listOf(defaultMainListRow(id = "memo-before-boundary", timestamp = 200L, isPinned = false))
+            val boundary = requireNotNull(repository.getDailyReviewCandidateBoundary())
+            defaultMainListDao.dailyReviewCandidateMaxRowIdResult = DAILY_REVIEW_NEW_HEAD_ROW_ID
+            defaultMainListDao.dailyReviewCandidatePageCalls.clear()
+
+            val page = repository.getDailyReviewCandidatePage(boundary = boundary, cursor = null, limit = 10)
+
+            assertSoftly {
+                page.ids shouldBe listOf("memo-before-boundary")
+                defaultMainListDao.dailyReviewCandidatePageCalls shouldBe
+                    listOf(
+                        FakeDefaultMainListDao.DailyReviewCandidatePageCall(
+                            maxRowId = DAILY_REVIEW_MAX_ROW_ID,
+                            cursorIsPinned = null,
+                            cursorTimestamp = null,
+                            cursorId = null,
+                            limit = 10,
+                        ),
+                    )
+            }
         }
 
     private fun memoEntity(
@@ -260,6 +416,7 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
             timestamp = timestamp,
             updatedAt = timestamp,
             content = "content-$id",
+            searchContent = "content-$id",
             rawContent = "- 10:00 content-$id",
             date = "2026_03_27",
             tags = "work,project",
@@ -275,4 +432,9 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
             memo = memoEntity(id = id, timestamp = timestamp),
             isPinned = isPinned,
         )
+
+    companion object {
+        private const val DAILY_REVIEW_MAX_ROW_ID = 42L
+        private const val DAILY_REVIEW_NEW_HEAD_ROW_ID = 99L
+    }
 }
