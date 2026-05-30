@@ -43,11 +43,15 @@ internal fun ModernMarkdownRenderPlanContent(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     enableTextSelection: Boolean = false,
     textSelectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTextTapFeedback: (() -> Unit)? = null,
     onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+    onTextLongClick: (() -> Unit)? = null,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
     val tokenSpec = rememberModernMarkdownTokenSpec()
     val totalItems = plan.items.size
@@ -79,19 +83,27 @@ internal fun ModernMarkdownRenderPlanContent(
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                        mediaContent = mediaContent,
                         enableTextSelection = enableTextSelection,
                         textSelectionRegistrar = textSelectionRegistrar,
                         onTextTapFeedback = onTextTapFeedback,
                         onTextBodyClick = onTextBodyClick,
                         onTextDoubleClick = onTextDoubleClick,
+                        onTextLongClick = onTextLongClick,
+                        hideImages = hideImages,
                     )
                 }
 
                 is ModernMarkdownRenderItem.Gallery -> {
-                    MDImageGallery(
-                        images = item.images.toImmutableList(),
-                        onImageClick = onImageClick,
-                    )
+                    if (!hideImages) {
+                        ModernMarkdownGalleryItem(
+                            images = item.images.toImmutableList(),
+                            onImageClick = onImageClick,
+                            mediaPresentationResolver = mediaPresentationResolver,
+                            mediaContent = mediaContent,
+                        )
+                    }
                 }
             }
         }
@@ -110,12 +122,16 @@ internal fun ModernMarkdownBlock(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)? = null,
     baseParagraphStyle: TextStyle? = null,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     resolveModernMarkdownHeadingStyle(node = node, tokenSpec = tokenSpec)?.let { headingStyle ->
         ModernMarkdownHeading(
@@ -128,6 +144,7 @@ internal fun ModernMarkdownBlock(
             onTextTapFeedback = onTextTapFeedback,
             onTextBodyClick = onTextBodyClick,
             onTextDoubleClick = onTextDoubleClick,
+            onTextLongClick = onTextLongClick,
         )
         return
     }
@@ -139,12 +156,16 @@ internal fun ModernMarkdownBlock(
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
+        mediaPresentationResolver = mediaPresentationResolver,
+        mediaContent = mediaContent,
         enableTextSelection = enableTextSelection,
         textSelectionRegistrar = textSelectionRegistrar,
         onTextTapFeedback = onTextTapFeedback,
         onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
+        onTextLongClick = onTextLongClick,
         baseParagraphStyle = baseParagraphStyle,
+        hideImages = hideImages,
     )
 }
 
@@ -156,12 +177,16 @@ private fun RenderModernMarkdownStandardBlock(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
     baseParagraphStyle: TextStyle?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     when (node.type) {
         MarkdownElementTypes.PARAGRAPH ->
@@ -171,11 +196,15 @@ private fun RenderModernMarkdownStandardBlock(
                 tokenSpec = tokenSpec,
                 textStyle = baseParagraphStyle ?: tokenSpec.paragraphStyle,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
             )
 
         MarkdownElementTypes.CODE_FENCE ->
@@ -188,6 +217,7 @@ private fun RenderModernMarkdownStandardBlock(
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
             )
 
         MarkdownElementTypes.CODE_BLOCK ->
@@ -200,6 +230,7 @@ private fun RenderModernMarkdownStandardBlock(
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
             )
 
         MarkdownElementTypes.BLOCK_QUOTE,
@@ -213,11 +244,15 @@ private fun RenderModernMarkdownStandardBlock(
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
             )
 
         MarkdownTokenTypes.HORIZONTAL_RULE -> HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -232,6 +267,7 @@ private fun RenderModernMarkdownStandardBlock(
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
             )
     }
 }
@@ -244,11 +280,15 @@ private fun RenderModernMarkdownStructuredBlock(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     when (node.type) {
         MarkdownElementTypes.BLOCK_QUOTE ->
@@ -259,11 +299,15 @@ private fun RenderModernMarkdownStructuredBlock(
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
             )
 
         MarkdownElementTypes.UNORDERED_LIST ->
@@ -274,11 +318,15 @@ private fun RenderModernMarkdownStructuredBlock(
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
             )
 
         MarkdownElementTypes.ORDERED_LIST ->
@@ -289,11 +337,15 @@ private fun RenderModernMarkdownStructuredBlock(
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
             )
 
         else ->
@@ -306,6 +358,7 @@ private fun RenderModernMarkdownStructuredBlock(
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
             )
     }
 }
@@ -321,6 +374,7 @@ private fun ModernMarkdownHeading(
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
 ) {
     val annotatedText =
         remember(content, node, style, tokenSpec) {
@@ -346,13 +400,14 @@ private fun ModernMarkdownHeading(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp, bottom = 4.dp),
+                .padding(vertical = tokenSpec.blockSpacing / 2),
         selectable = enableTextSelection,
         blockKey = MarkdownBlockKey.heading(node.startOffset),
         selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTextTapFeedback,
         onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
+        onLongClick = onTextLongClick,
     )
 }
 
@@ -363,19 +418,25 @@ private fun ModernMarkdownParagraph(
     tokenSpec: ModernMarkdownTokenSpec,
     textStyle: TextStyle,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
+    val effectiveMediaPresentationResolver = mediaPresentationResolver.takeIf { mediaContent != null }
     val items =
-        remember(content, node, tokenSpec, textStyle) {
+        remember(content, node, tokenSpec, textStyle, effectiveMediaPresentationResolver) {
             buildModernParagraphItems(
                 content = content,
                 paragraphNode = node,
                 tokenSpec = tokenSpec,
                 textStyle = textStyle,
+                mediaPresentationResolver = effectiveMediaPresentationResolver,
             )
         }
     if (items.isEmpty()) return
@@ -393,25 +454,32 @@ private fun ModernMarkdownParagraph(
                         onTapFeedback = onTextTapFeedback,
                         onBodyClick = onTextBodyClick,
                         onDoubleClick = onTextDoubleClick,
+                        onLongClick = onTextLongClick,
                     )
                 }
 
                 is ModernParagraphItem.Image -> {
-                    MDImage(
-                        image = item.image,
-                        onImageClick = onImageClick,
-                    )
+                    if (!hideImages) {
+                        MDImage(
+                            image = item.image,
+                            onImageClick = onImageClick,
+                        )
+                    }
                 }
 
                 is ModernParagraphItem.Gallery -> {
-                    MDImageGallery(
-                        images = item.images.toImmutableList(),
-                        onImageClick = onImageClick,
-                    )
+                    if (!hideImages) {
+                        MDImageGallery(
+                            images = item.images.toImmutableList(),
+                            onImageClick = onImageClick,
+                        )
+                    }
                 }
 
-                is ModernParagraphItem.VoiceMemo -> {
-                    com.lomo.ui.component.media.AudioPlayerCard(relativeFilePath = item.url)
+                is ModernParagraphItem.Media -> {
+                    if (!hideImages) {
+                        mediaContent?.invoke(item.presentation)
+                    }
                 }
             }
         }
@@ -428,6 +496,7 @@ private fun ModernMarkdownCodeFence(
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
 ) {
     val code = remember(content, node) { node.extractCodeFenceContent(content) }
     Surface(
@@ -448,6 +517,7 @@ private fun ModernMarkdownCodeFence(
             onTapFeedback = onTextTapFeedback,
             onBodyClick = onTextBodyClick,
             onDoubleClick = onTextDoubleClick,
+            onLongClick = onTextLongClick,
         )
     }
 }
@@ -462,6 +532,7 @@ private fun ModernMarkdownIndentedCodeBlock(
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
 ) {
     val code = remember(content, node) { node.extractIndentedCodeContent(content) }
     MemoParagraphText(
@@ -477,6 +548,7 @@ private fun ModernMarkdownIndentedCodeBlock(
         onTapFeedback = onTextTapFeedback,
         onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
+        onLongClick = onTextLongClick,
     )
 }
 
@@ -490,6 +562,7 @@ private fun ModernMarkdownTable(
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
 ) {
     val rows = remember(content, node) { node.extractModernMarkdownTableRows(content) }
     if (rows.isEmpty()) return
@@ -547,6 +620,7 @@ private fun ModernMarkdownTable(
                             onTapFeedback = onTextTapFeedback,
                             onBodyClick = onTextBodyClick,
                             onDoubleClick = onTextDoubleClick,
+                            onLongClick = onTextLongClick,
                         )
                     }
                 }
@@ -566,11 +640,15 @@ private fun ModernMarkdownBlockQuote(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     val indicatorStyle = resolveModernMarkdownQuoteIndicatorStyle(MaterialTheme.colorScheme)
     Layout(
@@ -599,17 +677,21 @@ private fun ModernMarkdownBlockQuote(
                             onTodoClick = onTodoClick,
                             todoOverrides = todoOverrides,
                             onImageClick = onImageClick,
+                            mediaPresentationResolver = mediaPresentationResolver,
+                            mediaContent = mediaContent,
                             enableTextSelection = enableTextSelection,
-                        textSelectionRegistrar = textSelectionRegistrar,
-                        onTextTapFeedback = onTextTapFeedback,
-                        onTextBodyClick = onTextBodyClick,
-                        onTextDoubleClick = onTextDoubleClick,
-                        baseParagraphStyle =
-                            resolveModernMarkdownBlockTextStyle(
+                            textSelectionRegistrar = textSelectionRegistrar,
+                            onTextTapFeedback = onTextTapFeedback,
+                            onTextBodyClick = onTextBodyClick,
+                            onTextDoubleClick = onTextDoubleClick,
+                            onTextLongClick = onTextLongClick,
+                            baseParagraphStyle =
+                                resolveModernMarkdownBlockTextStyle(
                                     node = node,
                                     tokenSpec = tokenSpec,
                                     baseParagraphStyle = tokenSpec.paragraphStyle,
                                 ),
+                            hideImages = hideImages,
                         )
                     }
             }
@@ -661,6 +743,7 @@ private fun ModernMarkdownFallbackBlock(
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
 ) {
     val fragment = content.substring(node.startOffset, node.endOffset)
     if (fragment.isBlank()) return
@@ -682,6 +765,7 @@ private fun ModernMarkdownFallbackBlock(
         onTapFeedback = onTextTapFeedback,
         onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
+        onLongClick = onTextLongClick,
     )
 }
 

@@ -19,6 +19,7 @@ internal fun resolveModernMarkdownRenderState(
     content: String,
     maxVisibleBlocks: Int,
     knownTagsToStrip: ImmutableList<String>,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): ModernMarkdownRenderState =
     if (basePlan == null) {
         ModernMarkdownRenderState.Pending(
@@ -32,9 +33,16 @@ internal fun resolveModernMarkdownRenderState(
         ModernMarkdownRenderState.Ready(
             plan =
                 if (maxVisibleBlocks == Int.MAX_VALUE) {
-                    basePlan
+                    normalizeModernMarkdownRenderPlanForMediaResolver(
+                        plan = basePlan,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                    )
                 } else {
-                    limitModernMarkdownRenderPlan(basePlan, maxVisibleBlocks)
+                    limitModernMarkdownRenderPlan(
+                        plan = basePlan,
+                        maxVisibleBlocks = maxVisibleBlocks,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                    )
                 },
         )
     }
@@ -56,6 +64,7 @@ internal fun ModernMarkdownRenderer(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
@@ -64,13 +73,20 @@ internal fun ModernMarkdownRenderer(
     onTextTapFeedback: (() -> Unit)? = null,
     onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+    onTextLongClick: (() -> Unit)? = null,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
+    val effectiveMediaPresentationResolver = mediaPresentationResolver
+    val effectiveMediaContent = mediaContent
+    val effectivePlanningMediaResolver = effectiveMediaPresentationResolver.takeIf { effectiveMediaContent != null }
+
     val basePlan by
         produceState<ModernMarkdownRenderPlan?>(
             initialValue = precomputedRenderPlan,
             key1 = content,
             key2 = precomputedRenderPlan,
-            key3 = knownTagsToStrip,
+            key3 = knownTagsToStrip to effectivePlanningMediaResolver,
         ) {
             value =
                 precomputedRenderPlan
@@ -78,16 +94,18 @@ internal fun ModernMarkdownRenderer(
                         createModernMarkdownRenderPlan(
                             content = content,
                             knownTagsToStrip = knownTagsToStrip,
+                            mediaPresentationResolver = effectivePlanningMediaResolver,
                         )
                     }
         }
     val renderState =
-        remember(basePlan, content, maxVisibleBlocks, knownTagsToStrip) {
+        remember(basePlan, content, maxVisibleBlocks, knownTagsToStrip, effectivePlanningMediaResolver) {
             resolveModernMarkdownRenderState(
                 basePlan = basePlan,
                 content = content,
                 maxVisibleBlocks = maxVisibleBlocks,
                 knownTagsToStrip = knownTagsToStrip,
+                mediaPresentationResolver = effectivePlanningMediaResolver,
             )
         }
     val readyPlan = (renderState as? ModernMarkdownRenderState.Ready)?.plan
@@ -107,6 +125,7 @@ internal fun ModernMarkdownRenderer(
                     onTextTapFeedback = onTextTapFeedback,
                     onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
+                    onTextLongClick = onTextLongClick,
                 )
             }
 
@@ -117,11 +136,15 @@ internal fun ModernMarkdownRenderer(
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    mediaPresentationResolver = effectiveMediaPresentationResolver,
                     enableTextSelection = enableTextSelection,
                     textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
                     onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
+                    onTextLongClick = onTextLongClick,
+                    hideImages = hideImages,
+                    mediaContent = effectiveMediaContent,
                 )
             }
         }

@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
@@ -68,6 +69,7 @@ fun GalleryReelMemoOverlay(
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     modifier: Modifier = Modifier,
     showMemoDetails: Boolean = true,
     imageIndicator: GalleryReelImageIndicatorState? = null,
@@ -82,6 +84,7 @@ fun GalleryReelMemoOverlay(
             timeFormat = timeFormat,
             panelTransition = panelTransition,
             showMemoDetails = showMemoDetails,
+            onTodoClick = onTodoClick,
             modifier = Modifier.align(Alignment.BottomCenter),
             imageIndicator = imageIndicator,
         )
@@ -115,6 +118,7 @@ private fun GalleryReelPanelSurface(
     timeFormat: String,
     panelTransition: Transition<GalleryReelPanelMode>,
     showMemoDetails: Boolean,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     modifier: Modifier = Modifier,
     imageIndicator: GalleryReelImageIndicatorState? = null,
 ) {
@@ -204,6 +208,7 @@ private fun GalleryReelPanelSurface(
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         imageIndicator = imageIndicator,
+                        onTodoClick = onTodoClick,
                     )
                 GalleryReelPanelMode.Compact ->
                     GalleryReelCompactPillContent(
@@ -224,6 +229,7 @@ private fun GalleryReelTextPanelContent(
     dateFormat: String,
     timeFormat: String,
     imageIndicator: GalleryReelImageIndicatorState?,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -251,10 +257,19 @@ private fun GalleryReelTextPanelContent(
         }
         val content = rememberGalleryReelTextContent(memo)
         if (content.isNotBlank()) {
+            val stableTodoClick = remember(memo.memo, onTodoClick) {
+                { lineIndex: Int, checked: Boolean ->
+                    onTodoClick(memo.memo, lineIndex, checked)
+                }
+            }
             MarkdownRenderer(
                 content = content,
                 knownTagsToStrip = memo.tags,
+                onTodoClick = stableTodoClick,
                 modifier = Modifier.fillMaxWidth(),
+                mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
+                mediaContent = MemoMarkdownMediaAdapter.content,
+                hideImages = true,
             )
         }
         GalleryReelMemoMeta(
@@ -309,7 +324,7 @@ private fun GalleryReelCompactPillContent(
 private fun rememberGalleryReelTextContent(memo: MemoUiModel): String {
     val rawContent = memo.processedContent.ifBlank { memo.memo.content }
     return remember(rawContent) {
-        galleryReelTextContent(rawContent)
+        rawContent
     }
 }
 

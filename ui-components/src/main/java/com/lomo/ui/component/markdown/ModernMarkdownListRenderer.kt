@@ -45,11 +45,15 @@ internal fun ModernMarkdownUnorderedList(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     Column(
         modifier =
@@ -69,11 +73,15 @@ internal fun ModernMarkdownUnorderedList(
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    mediaPresentationResolver = mediaPresentationResolver,
+                    mediaContent = mediaContent,
                     enableTextSelection = enableTextSelection,
                     textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
                     onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
+                    onTextLongClick = onTextLongClick,
+                    hideImages = hideImages,
                 )
             }
     }
@@ -87,11 +95,15 @@ internal fun ModernMarkdownOrderedList(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     Column(
         modifier =
@@ -112,17 +124,19 @@ internal fun ModernMarkdownOrderedList(
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    mediaPresentationResolver = mediaPresentationResolver,
+                    mediaContent = mediaContent,
                     enableTextSelection = enableTextSelection,
                     textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
                     onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
+                    onTextLongClick = onTextLongClick,
+                    hideImages = hideImages,
                 )
             }
     }
-}
-
-@Composable
+}@Composable
 private fun ModernMarkdownListItem(
     content: String,
     listItemNode: ASTNode,
@@ -131,11 +145,15 @@ private fun ModernMarkdownListItem(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
+    onTextLongClick: (() -> Unit)?,
+    hideImages: Boolean = false,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     val presentation = remember(content, listItemNode, todoOverrides) {
         resolveModernTaskListPresentation(
@@ -150,7 +168,7 @@ private fun ModernMarkdownListItem(
             color = MaterialTheme.colorScheme.outline,
         )
     val itemStyle = if (presentation.effectiveChecked) checkedItemStyle else tokenSpec.listStyle
-
+ 
     Row(
         modifier =
             Modifier
@@ -177,12 +195,16 @@ private fun ModernMarkdownListItem(
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                        mediaContent = mediaContent,
                         enableTextSelection = enableTextSelection,
                         textSelectionRegistrar = textSelectionRegistrar,
                         onTextTapFeedback = onTextTapFeedback,
                         onTextBodyClick = onTextBodyClick,
                         onTextDoubleClick = onTextDoubleClick,
+                        onTextLongClick = onTextLongClick,
                         baseParagraphStyle = itemStyle,
+                        hideImages = hideImages,
                     )
                 }
         }
@@ -252,7 +274,8 @@ private fun ModernMarkdownBulletLeading(bullet: String) {
                     MaterialTheme.typography
                         .memoListTextStyle()
                         .copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.width(20.dp),
+                maxLines = 1,
+                softWrap = false,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
