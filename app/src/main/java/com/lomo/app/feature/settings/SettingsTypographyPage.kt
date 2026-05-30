@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,8 +27,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material.icons.outlined.TextFields
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.util.LocalAppHapticFeedback
 import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +67,9 @@ internal fun TypographySettingsPage(
     displayFeature: SettingsDisplayFeatureViewModel,
     onBack: () -> Unit,
 ) {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val haptic = LocalAppHapticFeedback.current
+
     val scales = TypographyScales(
         fontSizeScale = uiState.typographyFontSizeScale,
         lineHeightScale = uiState.typographyLineHeightScale,
@@ -72,35 +81,59 @@ internal fun TypographySettingsPage(
     val isChinese = LocalLocale.current.platformLocale.language == "zh"
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_typography)) },
+            LargeTopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.TextFields,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
+                        Text(stringResource(R.string.settings_typography))
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        haptic.medium()
+                        onBack()
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = null,
+                            contentDescription = stringResource(R.string.back),
                         )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
         Column(
             modifier =
                 Modifier
-                    .padding(padding)
                     .fillMaxSize()
+                    .padding(padding)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(
+                        horizontal = AppSpacing.ScreenHorizontalPadding,
+                        vertical = AppSpacing.MediumSmall,
+                    ),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             TypographyPreviewCard(
                 textStyle = textStyle,
                 paragraphSpacing = paragraphSpacing,
                 isChinese = isChinese,
             )
-            Spacer(modifier = Modifier.height(12.dp))
             TypographySliderItem(
                 label = stringResource(R.string.settings_typography_font_size),
                 value = uiState.typographyFontSizeScale,
@@ -121,7 +154,6 @@ internal fun TypographySettingsPage(
                 value = uiState.typographyParagraphSpacingScale,
                 onValueChange = displayFeature::updateTypographyParagraphSpacingScale,
             )
-            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
