@@ -142,7 +142,7 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
     }
 
     private fun `performSync overlaps independent uploads within one sync pass`() =
-        runBlocking {
+        runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             val client = ParallelUploadProbeClient()
             val metadataDao = RecordingMetadataDao()
             markdownStorageDataSource.listMetadataInResult = {
@@ -169,8 +169,8 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         }
 
     private fun `performSync overlaps local scan and remote listing during preparation`() =
-        runBlocking {
-            val probe = ConcurrentScanProbe()
+        runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            val probe = ConcurrentScanProbe(expected = 2)
             val client = ParallelListingProbeClient(probe)
             val metadataDao = RecordingMetadataDao()
             markdownStorageDataSource.listMetadataInResult = {
@@ -187,8 +187,8 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         }
 
     private fun `performSync overlaps metadata load with local and remote listing during preparation`() =
-        runBlocking {
-            val probe = ConcurrentScanProbe()
+        runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            val probe = ConcurrentScanProbe(expected = 3)
             val client = ParallelListingProbeClient(probe)
             val metadataDao = object : FakeS3SyncMetadataDao() {
                 override suspend fun getAll(): List<S3SyncMetadataEntity> {
@@ -210,8 +210,8 @@ class S3SyncExecutorScalabilityTest : DataFunSpec() {
         }
 
     private fun `performSync overlaps full remote shard listings during manifest-free snapshot build`() =
-        runBlocking {
-            val probe = ConcurrentScanProbe()
+        runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            val probe = ConcurrentScanProbe(expected = 2)
             val client = ParallelPagedListingProbeClient(probe)
             val metadataDao = RecordingMetadataDao()
             markdownStorageDataSource.listMetadataInResult = { emptyList() }
@@ -629,7 +629,7 @@ private class ParallelUploadProbeClient : LomoS3Client {
             release.complete(Unit)
         }
         try {
-            kotlinx.coroutines.withTimeoutOrNull(2_000) {
+            kotlinx.coroutines.withTimeoutOrNull(30_000) {
                 release.await()
             }
             kotlinx.coroutines.delay(50)
@@ -911,9 +911,10 @@ private class StaticListingClient(
     override fun close() = Unit
 }
 
-private class ConcurrentScanProbe {
+private class ConcurrentScanProbe(private val expected: Int = 1) {
     private val inFlight = AtomicInteger(0)
     private val maxConcurrentValue = AtomicInteger(0)
+    private val gate = CompletableDeferred<Unit>()
 
     var maxConcurrent: Int = 0
         private set
@@ -922,8 +923,13 @@ private class ConcurrentScanProbe {
         val concurrent = inFlight.incrementAndGet()
         maxConcurrentValue.updateAndGet { previous -> max(previous, concurrent) }
         maxConcurrent = maxConcurrentValue.get()
+        if (concurrent >= expected) {
+            gate.complete(Unit)
+        }
         try {
-            kotlinx.coroutines.delay(150)
+            kotlinx.coroutines.withTimeoutOrNull(30_000) {
+                gate.await()
+            }
         } finally {
             inFlight.decrementAndGet()
         }
