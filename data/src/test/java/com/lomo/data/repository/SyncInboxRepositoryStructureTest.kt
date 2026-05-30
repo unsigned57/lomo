@@ -24,12 +24,12 @@ import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictFileReviewState.BLOCKED
-import com.lomo.domain.model.SyncConflictFileReviewState.READY_TO_IMPORT
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictResolutionChoice.KEEP_REMOTE
-import com.lomo.domain.model.SyncConflictSessionKind
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState.BLOCKED
+import com.lomo.domain.model.SyncReviewItemState.READY_TO_IMPORT
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice.KEEP_INCOMING
+import com.lomo.domain.model.SyncReviewSessionKind
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.repository.PreferencesRepository
@@ -62,10 +62,11 @@ import kotlinx.coroutines.test.runTest
  * - Must-not-happen: resolving reviewed imports must preserve rewritten attachment references, stream attachment bytes, and reuse stable filenames for shared sources.
  *
  * Observable outcomes:
- * - created inbox directories, returned review conflicts, rewritten remote content, blocked review messages, streamed media bytes, saved memo content, and source cleanup.
+ * - created inbox directories, returned review items, rewritten incoming content, blocked review messages, streamed media bytes, saved memo content, and source cleanup.
  *
  * TDD proof:
- * - Fails before behavior changes or migration are applied.
+ * - RED: Sync inbox stream API test is weak before strengthening because byte-array and stream writes record identical outcomes.
+ * - Test-only strengthening: production already streams attachments; the fake now records method selection so a regression to byte-array writes fails.
  *
  * Excludes:
  * - SAF tree mechanics, UI rendering, and content-difference review behavior covered by SyncInboxRepositoryImplTest.
@@ -91,7 +92,7 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
 
     private val savedFiles = linkedMapOf<String, String>()
     private lateinit var workspaceMediaAccess: RecordingWorkspaceMediaAccess
-    private lateinit var pendingConflictStore: PendingSyncConflictStore
+    private lateinit var pendingReviewStore: PendingSyncReviewStore
     private lateinit var repository: SyncInboxRepositoryImpl
 
     init {
@@ -144,7 +145,7 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         MockKAnnotations.init(this)
         savedFiles.clear()
         workspaceMediaAccess = RecordingWorkspaceMediaAccess()
-        pendingConflictStore = InMemoryPendingSyncConflictStore()
+        pendingReviewStore = InMemoryPendingSyncReviewStore()
         every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
         coEvery { mutationHandler.nextMemoFileOutbox() } returns null
         coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
@@ -165,9 +166,10 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
                     MemoSynchronizer(
                         refreshEngine = refreshEngine,
                         mutationHandler = mutationHandler,
+                        outboxScope = immediateTestBackgroundScope(),
                         startOutboxCoordinator = false,
                     ),
-                pendingConflictStore = pendingConflictStore,
+                pendingReviewStore = pendingReviewStore,
             )
     }
 
@@ -189,21 +191,21 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_16.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
         result.message shouldBe "Sync inbox review required"
-        result.conflicts.sessionKind shouldBe SyncConflictSessionKind.SYNC_INBOX_REVIEW
-        result.conflicts.files shouldBe
+        result.review.kind shouldBe SyncReviewSessionKind.SYNC_INBOX_IMPORT_REVIEW
+        result.review.items shouldBe
             listOf(
-                SyncConflictFile(
+                SyncReviewItem(
                     relativePath = "inbox/memo/2026_04_16.md",
                     localContent = null,
-                    remoteContent = "memo from sync inbox",
+                    incomingContent = "memo from sync inbox",
                     isBinary = false,
-                    remoteLastModified = inboxFile.lastModified(),
-                    reviewState = READY_TO_IMPORT,
+                    incomingLastModified = inboxFile.lastModified(),
+                    state = READY_TO_IMPORT,
                 ),
             )
-        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        pendingReviewStore.storedReview(SyncBackendType.INBOX) shouldBe result.review
         savedFiles shouldBe emptyMap()
         workspaceMediaAccess.writes.size shouldBe 0
         inboxFile.exists().shouldBeTrue()
@@ -221,11 +223,11 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_18.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
-        val conflictFile = result.conflicts.files.single()
-        conflictFile.reviewState shouldBe READY_TO_IMPORT
-        conflictFile.remoteContent shouldMatch Regex("""memo with image !\[cover]\(cover_[0-9a-f]{10}\.png\)""")
-        conflictFile.reviewMessage.shouldBeNull()
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
+        val reviewItem = result.review.items.single()
+        reviewItem.state shouldBe READY_TO_IMPORT
+        reviewItem.incomingContent shouldMatch Regex("""memo with image !\[cover]\(cover_[0-9a-f]{10}\.png\)""")
+        reviewItem.message.shouldBeNull()
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
         inboxFile.exists().shouldBeTrue()
@@ -241,8 +243,8 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_22.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
-        result.conflicts.files.single().remoteContent shouldMatch
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
+        result.review.items.single().incomingContent shouldMatch
             Regex("""memo with image !\[poster]\(poster_[0-9a-f]{10}\.png\)""")
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
@@ -257,8 +259,8 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_19.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
-        result.conflicts.files.single().remoteContent shouldMatch
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
+        result.review.items.single().incomingContent shouldMatch
             Regex("""memo with voice !\[voice]\(voice_20260416_[0-9a-f]{10}\.m4a\)""")
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
@@ -273,8 +275,8 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_20.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
-        result.conflicts.files.single().remoteContent shouldMatch
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
+        result.review.items.single().incomingContent shouldMatch
             Regex("""memo with voice !\[voice]\(voice_20260420_[0-9a-f]{10}\.m4a\)""")
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
@@ -290,13 +292,13 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_21.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
-        val conflictFile = result.conflicts.files.single()
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
+        val reviewItem = result.review.items.single()
 
-        conflictFile.relativePath shouldBe "inbox/memo/2026_04_21.md"
-        conflictFile.reviewState shouldBe BLOCKED
-        conflictFile.reviewMessage shouldBe "Missing attachments: cover.png"
-        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        reviewItem.relativePath shouldBe "inbox/memo/2026_04_21.md"
+        reviewItem.state shouldBe BLOCKED
+        reviewItem.message shouldBe "Missing attachments: cover.png"
+        pendingReviewStore.storedReview(SyncBackendType.INBOX) shouldBe result.review
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
         inboxFile.exists().shouldBeTrue()
@@ -317,15 +319,15 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_23.md") } returns null
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_24.md") } returns null
 
-        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
 
-        result.conflicts.files.map { it.relativePath to it.reviewState } shouldBe
+        result.review.items.map { it.relativePath to it.state } shouldBe
             listOf(
                 "inbox/memo/2026_04_23.md" to BLOCKED,
                 "inbox/memo/2026_04_24.md" to READY_TO_IMPORT,
             )
-        result.conflicts.files.last().remoteContent shouldBe "valid memo after broken attachment"
-        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        result.review.items.last().incomingContent shouldBe "valid memo after broken attachment"
+        pendingReviewStore.storedReview(SyncBackendType.INBOX) shouldBe result.review
         workspaceMediaAccess.writes.size shouldBe 0
         savedFiles shouldBe emptyMap()
         brokenInboxFile.exists().shouldBeTrue()
@@ -343,17 +345,17 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
 
-        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
         val resolution =
-            SyncConflictResolution(
-                perFileChoices = review.conflicts.files.associate { it.relativePath to KEEP_REMOTE },
+            SyncReviewResolution(
+                perItemChoices = review.review.items.associate { it.relativePath to KEEP_INCOMING },
             )
 
-        val result = repository.resolveConflicts(resolution, review.conflicts)
+        val result = repository.resolveReview(resolution, review.review)
         val importedFilenames = workspaceMediaAccess.writes.map { it.filename }
         val importedFilename = importedFilenames.first()
 
-        result shouldBe UnifiedSyncResult.Success(SyncBackendType.INBOX, "Sync inbox conflicts resolved")
+        result shouldBe UnifiedSyncResult.Success(SyncBackendType.INBOX, "Sync inbox review resolved")
         importedFilenames.size shouldBe 2
         importedFilenames.toSet().size shouldBe 1
         savedFiles["2026_04_25.md"] shouldBe "first ![cover]($importedFilename)"
@@ -362,7 +364,7 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         sharedImage.exists() shouldBe false
         firstInboxFile.exists() shouldBe false
         secondInboxFile.exists() shouldBe false
-        pendingConflictStore.read(SyncBackendType.INBOX).shouldBeNull()
+        pendingReviewStore.storedReview(SyncBackendType.INBOX).shouldBeNull()
     }
 
     private suspend fun verifyAttachmentStreaming() {
@@ -375,16 +377,17 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         configureInboxRoot(inboxRoot)
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_05_01.md") } returns null
 
-        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Review
         val resolution =
-            SyncConflictResolution(
-                perFileChoices = review.conflicts.files.associate { it.relativePath to KEEP_REMOTE },
+            SyncReviewResolution(
+                perItemChoices = review.review.items.associate { it.relativePath to KEEP_INCOMING },
             )
 
-        repository.resolveConflicts(resolution, review.conflicts)
+        repository.resolveReview(resolution, review.review)
 
         val write = workspaceMediaAccess.writes.single()
         write.category shouldBe WorkspaceMediaCategory.IMAGE
+        write.method shouldBe RecordedMediaWriteMethod.STREAM
         write.bytes.contentEquals(imageBytes) shouldBe true
         savedFiles["2026_05_01.md"] shouldBe "memo ![cover](${write.filename})"
     }
@@ -397,22 +400,26 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         val category: WorkspaceMediaCategory,
         val filename: String,
         val bytes: ByteArray,
+        val method: RecordedMediaWriteMethod,
     )
+
+    private enum class RecordedMediaWriteMethod {
+        BYTE_ARRAY,
+        STREAM,
+    }
 
     private class RecordingWorkspaceMediaAccess : WorkspaceMediaAccess {
         val writes = mutableListOf<RecordedMediaWrite>()
 
-        override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile> = emptyList()
+        override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> = emptyList()
 
         override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> = emptyList()
 
-        override suspend fun writeFile(
+        override suspend fun readFileToStream(
             category: WorkspaceMediaCategory,
             filename: String,
-            bytes: ByteArray,
-        ) {
-            writes += RecordedMediaWrite(category = category, filename = filename, bytes = bytes)
-        }
+            destination: OutputStream,
+        ): Boolean = false
 
         override suspend fun writeFileFromStream(
             category: WorkspaceMediaCategory,
@@ -421,7 +428,13 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
         ) {
             val output = ByteArrayOutputStream()
             source(output)
-            writes += RecordedMediaWrite(category = category, filename = filename, bytes = output.toByteArray())
+            writes +=
+                RecordedMediaWrite(
+                    category = category,
+                    filename = filename,
+                    bytes = output.toByteArray(),
+                    method = RecordedMediaWriteMethod.STREAM,
+                )
         }
 
         override suspend fun deleteFile(

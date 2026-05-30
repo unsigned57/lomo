@@ -9,6 +9,9 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.toInitialImportReview
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncError
 import com.lomo.domain.model.UnifiedSyncResult
@@ -58,6 +61,15 @@ class GitUnifiedSyncProvider(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
     ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult =
+        UnifiedSyncResult.Error(
+            provider = backendType,
+            error = UnifiedSyncError(provider = backendType, message = "Git sync has no review session resolver"),
+        )
 }
 
 class WebDavUnifiedSyncProvider(
@@ -76,22 +88,22 @@ class WebDavUnifiedSyncProvider(
         when (operation) {
             UnifiedSyncOperation.MANUAL_SYNC,
             UnifiedSyncOperation.REFRESH_SYNC,
+            UnifiedSyncOperation.PROCESS_PENDING_CHANGES,
             ->
                 repository
                     .sync()
                     .toUnifiedResult(backendType)
-
-            UnifiedSyncOperation.PROCESS_PENDING_CHANGES ->
-                UnifiedSyncResult.Success(
-                    provider = backendType,
-                    message = "No pending WebDAV-only changes to process",
-                )
         }
 
     override suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
     ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult = repository.resolveReview(resolution, review).toUnifiedResult(backendType)
 }
 
 class S3UnifiedSyncProvider(
@@ -119,16 +131,20 @@ class S3UnifiedSyncProvider(
                     .toUnifiedResult(backendType)
 
             UnifiedSyncOperation.PROCESS_PENDING_CHANGES ->
-                UnifiedSyncResult.Success(
-                    provider = backendType,
-                    message = "No pending S3-only changes to process",
-                )
+                repository
+                    .sync()
+                    .toUnifiedResult(backendType)
         }
 
     override suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
     ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult = repository.resolveReview(resolution, review).toUnifiedResult(backendType)
 }
 
 class InboxUnifiedSyncProvider(
@@ -149,13 +165,23 @@ class InboxUnifiedSyncProvider(
     override suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult = syncInboxRepository.resolveConflicts(resolution, conflictSet)
+    ): UnifiedSyncResult =
+        UnifiedSyncResult.Error(
+            provider = backendType,
+            error = UnifiedSyncError(provider = backendType, message = "Sync inbox reviews must use review resolution"),
+        )
+
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult = syncInboxRepository.resolveReview(resolution, review)
 }
 
 internal fun UnifiedSyncResult.toSyncFailureOrNull(): Exception? =
     when (this) {
         is UnifiedSyncResult.Success -> null
         is UnifiedSyncResult.Conflict -> SyncConflictException(conflicts)
+        is UnifiedSyncResult.Review -> null
         is UnifiedSyncResult.NotConfigured,
         is UnifiedSyncResult.Error,
         -> {
@@ -209,6 +235,17 @@ internal fun UnifiedSyncResult.toResolutionResult(): SyncConflictResolutionResul
     when (this) {
         is UnifiedSyncResult.Success -> SyncConflictResolutionResult.Resolved
         is UnifiedSyncResult.Conflict -> SyncConflictResolutionResult.Pending(conflicts)
+        is UnifiedSyncResult.Review -> error("Review result cannot resolve a conflict session")
+        is UnifiedSyncResult.Error,
+        is UnifiedSyncResult.NotConfigured,
+        -> throw toSyncFailureOrNull() ?: IllegalStateException(provider.name)
+    }
+
+internal fun UnifiedSyncResult.toReviewResolutionResult(): SyncReviewResolutionResult =
+    when (this) {
+        is UnifiedSyncResult.Success -> SyncReviewResolutionResult.Resolved
+        is UnifiedSyncResult.Review -> SyncReviewResolutionResult.Pending(review)
+        is UnifiedSyncResult.Conflict -> error("Conflict result cannot resolve a review session")
         is UnifiedSyncResult.Error,
         is UnifiedSyncResult.NotConfigured,
         -> throw toSyncFailureOrNull() ?: IllegalStateException(provider.name)
@@ -288,6 +325,12 @@ private fun WebDavSyncResult.toUnifiedResult(
                 message = message,
                 conflicts = conflicts,
             )
+        is WebDavSyncResult.Review ->
+            UnifiedSyncResult.Review(
+                provider = provider,
+                message = message,
+                review = review,
+            )
     }
 
 private fun S3SyncResult.toUnifiedResult(
@@ -321,6 +364,12 @@ private fun S3SyncResult.toUnifiedResult(
                 message = message,
                 conflicts = conflicts,
             )
+        is S3SyncResult.Review ->
+            UnifiedSyncResult.Review(
+                provider = provider,
+                message = message,
+                review = review,
+            )
     }
 
 fun WebDavSyncState.toUnifiedState(provider: SyncBackendType): UnifiedSyncState =
@@ -344,6 +393,7 @@ fun WebDavSyncState.toUnifiedState(provider: SyncBackendType): UnifiedSyncState 
                 timestamp = timestamp,
             )
         WebDavSyncState.NotConfigured -> UnifiedSyncState.NotConfigured(provider)
+        is WebDavSyncState.ReviewingInitialSync -> UnifiedSyncState.ReviewRequired(provider, review)
         is WebDavSyncState.ConflictDetected -> UnifiedSyncState.ConflictDetected(provider, conflicts)
     }
 
@@ -369,7 +419,7 @@ fun S3SyncState.toUnifiedState(provider: SyncBackendType): UnifiedSyncState =
             )
         S3SyncState.NotConfigured -> UnifiedSyncState.NotConfigured(provider)
         is S3SyncState.PreviewingInitialSync ->
-            UnifiedSyncState.ConflictDetected(provider, conflicts, isPreview = true)
+            UnifiedSyncState.ReviewRequired(provider, review)
         is S3SyncState.ConflictDetected -> UnifiedSyncState.ConflictDetected(provider, conflicts)
     }
 

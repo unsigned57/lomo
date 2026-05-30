@@ -3,14 +3,14 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncOperation
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 class SyncAndRebuildUseCase
 (
-        private val memoRepository: MemoRepository,
+        private val memoRepository: MemoMutationRepository,
         private val syncProviderRegistry: SyncProviderRegistry,
         private val syncPolicyRepository: SyncPolicyRepository,
     ) {

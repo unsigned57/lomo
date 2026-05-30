@@ -6,13 +6,13 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictFileReviewState
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictResolutionChoice
-import com.lomo.domain.model.SyncConflictSessionKind
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
 import com.lomo.domain.model.UnifiedSyncError
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncPhase
@@ -28,7 +28,7 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val INBOX_PREFIX = "inbox/"
+internal const val INBOX_PREFIX = "inbox/"
 
 @Singleton
 class SyncInboxRepositoryImpl
@@ -40,9 +40,14 @@ class SyncInboxRepositoryImpl
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
         private val memoSynchronizer: MemoSynchronizer,
-        private val pendingConflictStore: PendingSyncConflictStore,
+        private val pendingReviewStore: PendingSyncReviewStore,
     ) : SyncInboxRepository {
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
+    private val pendingReviewRestorer =
+        SyncInboxPendingReviewRestorer(
+            context = context,
+            markdownStorageDataSource = markdownStorageDataSource,
+        )
 
     override fun syncState(): Flow<UnifiedSyncState> = state
 
@@ -62,9 +67,9 @@ class SyncInboxRepositoryImpl
             -> processPendingInbox()
         }
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
     ): UnifiedSyncResult {
         state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
         val inboxRoot =
@@ -73,33 +78,57 @@ class SyncInboxRepositoryImpl
                 .first()
                 ?: return notConfiguredResult()
 
-        val remaining = applyInboxConflictResolution(inboxRoot, conflictSet, resolution)
+        val validatedReview =
+            when (val restored = pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
+                pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)
+            }) {
+                null -> review
+                is PendingSyncRestoreResult.Restored -> restored.session
+                is PendingSyncRestoreResult.Invalidated -> {
+                    pendingReviewStore.clear(SyncBackendType.INBOX)
+                    val error =
+                        UnifiedSyncError(
+                            provider = SyncBackendType.INBOX,
+                            message = "Pending sync inbox review requires rebuild: ${restored.reason}",
+                        )
+                    state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+                    return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+                }
+                is PendingSyncRestoreResult.Failed -> {
+                    val error =
+                        UnifiedSyncError(
+                            provider = SyncBackendType.INBOX,
+                            message = "Pending sync inbox review restore failed: ${restored.error.category}",
+                            cause = restored.error.cause,
+                        )
+                    state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+                    return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+                }
+            }
+
+        val remaining = applyInboxReviewResolution(inboxRoot, validatedReview, resolution)
         return if (remaining.isEmpty()) {
-            pendingConflictStore.clear(SyncBackendType.INBOX)
+            pendingReviewStore.clear(SyncBackendType.INBOX)
             val success =
                 UnifiedSyncResult.Success(
                     provider = SyncBackendType.INBOX,
-                    message = "Sync inbox conflicts resolved",
+                    message = "Sync inbox review resolved",
                 )
             state.value =
                 UnifiedSyncState.Success(
                     provider = SyncBackendType.INBOX,
                     timestamp = System.currentTimeMillis(),
                     summary = success.message,
-                )
+            )
             success
         } else {
-            val pendingConflictSet =
-                conflictSet.copy(
-                    files = remaining,
-                    sessionKind = SyncConflictSessionKind.SYNC_INBOX_REVIEW,
-                )
-            pendingConflictStore.write(pendingConflictSet)
-            state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, pendingConflictSet)
-            UnifiedSyncResult.Conflict(
+            val pendingReview = validatedReview.copy(items = remaining)
+            pendingReviewStore.write(pendingReview)
+            state.value = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, pendingReview)
+            UnifiedSyncResult.Review(
                 provider = SyncBackendType.INBOX,
-                message = "Pending conflicts remain",
-                conflicts = pendingConflictSet,
+                message = "Pending sync inbox review",
+                review = pendingReview,
             )
         }
     }
@@ -119,15 +148,32 @@ class SyncInboxRepositoryImpl
         }
         ensureInboxDirectoryStructure(context = context, inboxRoot = inboxRoot)
 
-        pendingConflictStore.read(SyncBackendType.INBOX)?.let { pendingConflict ->
-            val reviewSet =
-                pendingConflict.copy(sessionKind = SyncConflictSessionKind.SYNC_INBOX_REVIEW)
-            state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, reviewSet)
-            return UnifiedSyncResult.Conflict(
-                provider = SyncBackendType.INBOX,
-                message = "Pending sync inbox review",
-                conflicts = reviewSet,
-            )
+        pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
+            when (val restored = pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)) {
+                is PendingSyncRestoreResult.Restored -> {
+                    val pendingReview = restored.session
+                    state.value = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, pendingReview)
+                    return UnifiedSyncResult.Review(
+                        provider = SyncBackendType.INBOX,
+                        message = "Pending sync inbox review",
+                        review = pendingReview,
+                    )
+                }
+                is PendingSyncRestoreResult.Invalidated -> {
+                    pendingReviewStore.clear(SyncBackendType.INBOX)
+                    Timber.i("Pending sync inbox review invalidated for rebuild: %s", restored.reason)
+                }
+                is PendingSyncRestoreResult.Failed -> {
+                    val error =
+                        UnifiedSyncError(
+                            provider = SyncBackendType.INBOX,
+                            message = "Pending sync inbox review restore failed: ${restored.error.category}",
+                            cause = restored.error.cause,
+                        )
+                    state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+                    return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+                }
+            }
         }
 
         state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.LISTING)
@@ -153,7 +199,7 @@ class SyncInboxRepositoryImpl
     }
 
     private suspend fun processInboxBatch(inboxRoot: String): ProcessInboxBatchResult {
-        val reviewFiles = mutableListOf<SyncConflictFile>()
+        val reviewFiles = mutableListOf<SyncReviewItem>()
         listInboxMarkdownFiles(context, inboxRoot).forEach { file ->
             val reviewFile =
                 runCatching {
@@ -173,7 +219,7 @@ class SyncInboxRepositoryImpl
         Timber.i(
             "SyncInbox reviewFiles=%d blocked=%d",
             reviewFiles.size,
-            reviewFiles.count { it.reviewState == SyncConflictFileReviewState.BLOCKED },
+            reviewFiles.count { it.state == SyncReviewItemState.BLOCKED },
         )
         return ProcessInboxBatchResult(
             reviewFiles = reviewFiles,
@@ -195,19 +241,19 @@ class SyncInboxRepositoryImpl
 
     private suspend fun resolveBatchResult(batchResult: ProcessInboxBatchResult): UnifiedSyncResult {
         if (batchResult.reviewFiles.isNotEmpty()) {
-            val conflictSet =
-                SyncConflictSet(
+            val review =
+                SyncReviewSession(
                     source = SyncBackendType.INBOX,
-                    files = batchResult.reviewFiles,
+                    items = batchResult.reviewFiles,
                     timestamp = System.currentTimeMillis(),
-                    sessionKind = SyncConflictSessionKind.SYNC_INBOX_REVIEW,
+                    kind = SyncReviewSessionKind.SYNC_INBOX_IMPORT_REVIEW,
                 )
-            pendingConflictStore.write(conflictSet)
-            state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, conflictSet)
-            return UnifiedSyncResult.Conflict(
+            pendingReviewStore.write(review)
+            state.value = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, review)
+            return UnifiedSyncResult.Review(
                 provider = SyncBackendType.INBOX,
                 message = "Sync inbox review required",
-                conflicts = conflictSet,
+                review = review,
             )
         }
         val result =
@@ -240,7 +286,7 @@ class SyncInboxRepositoryImpl
     private suspend fun buildInboxReviewFile(
         inboxRoot: String,
         inboxFile: InboxMarkdownFileMetadata,
-    ): SyncConflictFile {
+    ): SyncReviewItem {
         val relativePath = inboxFile.relativePath
         val markdown =
             readInboxTextFile(
@@ -270,20 +316,20 @@ class SyncInboxRepositoryImpl
                 ?.lastModified
         val reviewState =
             when {
-                missingAttachments.isNotEmpty() -> SyncConflictFileReviewState.BLOCKED
-                localContent == null -> SyncConflictFileReviewState.READY_TO_IMPORT
-                localContent == imported.rewrittenMarkdown -> SyncConflictFileReviewState.READY_TO_IMPORT
-                else -> SyncConflictFileReviewState.CONTENT_DIFFERENCE
+                missingAttachments.isNotEmpty() -> SyncReviewItemState.BLOCKED
+                localContent == null -> SyncReviewItemState.READY_TO_IMPORT
+                localContent == imported.rewrittenMarkdown -> SyncReviewItemState.READY_TO_IMPORT
+                else -> SyncReviewItemState.CONTENT_DIFFERENCE
             }
-        return SyncConflictFile(
+        return SyncReviewItem(
             relativePath = INBOX_PREFIX + relativePath,
             localContent = localContent,
-            remoteContent = imported.rewrittenMarkdown,
+            incomingContent = imported.rewrittenMarkdown,
             isBinary = false,
             localLastModified = localLastModified,
-            remoteLastModified = inboxFile.lastModified,
-            reviewState = reviewState,
-            reviewMessage = missingAttachments.reviewMessageOrNull(),
+            incomingLastModified = inboxFile.lastModified,
+            state = reviewState,
+            message = missingAttachments.reviewMessageOrNull(),
         )
     }
 
@@ -291,73 +337,74 @@ class SyncInboxRepositoryImpl
         relativePath: String,
         lastModified: Long,
         message: String,
-    ): SyncConflictFile =
-        SyncConflictFile(
+    ): SyncReviewItem =
+        SyncReviewItem(
             relativePath = INBOX_PREFIX + relativePath,
             localContent = null,
-            remoteContent = null,
+            incomingContent = null,
             isBinary = false,
-            remoteLastModified = lastModified,
-            reviewState = SyncConflictFileReviewState.BLOCKED,
-            reviewMessage = message,
+            incomingLastModified = lastModified,
+            state = SyncReviewItemState.BLOCKED,
+            message = message,
         )
 
     private fun List<String>.reviewMessageOrNull(): String? =
         takeIf { it.isNotEmpty() }
             ?.joinToString(prefix = "Missing attachments: ")
 
-    private suspend fun applyInboxConflictResolution(
+    private suspend fun applyInboxReviewResolution(
         inboxRoot: String,
-        conflictSet: SyncConflictSet,
-        resolution: SyncConflictResolution,
-    ): List<SyncConflictFile> {
+        review: SyncReviewSession,
+        resolution: SyncReviewResolution,
+    ): List<SyncReviewItem> {
         val committedFiles = mutableListOf<CommittedInboxFile>()
-        val unresolvedFiles =
-            applyFileConflictChoices(
-                conflictSet = conflictSet,
-                resolution = resolution,
-                defaultChoice = SyncConflictResolutionChoice.SKIP_FOR_NOW,
-            ) { conflictFile, choice ->
-                val relativePath = conflictFile.relativePath.removePrefix(INBOX_PREFIX)
-                if (choice == SyncConflictResolutionChoice.KEEP_LOCAL) {
-                    deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
-                    return@applyFileConflictChoices FileConflictApplication.Applied(Unit)
+        val unresolvedItems = mutableListOf<SyncReviewItem>()
+        review.items.forEach { item ->
+            val choice = resolution.perItemChoices[item.relativePath] ?: SyncReviewResolutionChoice.SKIP_FOR_NOW
+            if (item.state == SyncReviewItemState.BLOCKED || choice == SyncReviewResolutionChoice.SKIP_FOR_NOW) {
+                unresolvedItems += item
+                return@forEach
+            }
+            val relativePath = item.relativePath.removePrefix(INBOX_PREFIX)
+            if (choice == SyncReviewResolutionChoice.KEEP_LOCAL) {
+                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
+                return@forEach
+            }
+            val inboxContent =
+                readInboxTextFile(context, inboxRoot, relativePath)
+                    ?: run {
+                        unresolvedItems += item
+                        return@forEach
+                    }
+            val targetContent =
+                when (choice) {
+                    SyncReviewResolutionChoice.KEEP_LOCAL -> null
+                    SyncReviewResolutionChoice.KEEP_INCOMING -> item.incomingContent
+                    SyncReviewResolutionChoice.MERGE_TEXT ->
+                        SyncConflictTextMerge.merge(
+                            localText = item.localContent,
+                            remoteText = item.incomingContent,
+                            localLastModified = item.localLastModified,
+                            remoteLastModified = item.incomingLastModified,
+                        )
+                    SyncReviewResolutionChoice.SKIP_FOR_NOW -> null
                 }
-                val inboxContent =
-                    readInboxTextFile(context, inboxRoot, relativePath)
-                        ?: return@applyFileConflictChoices FileConflictApplication.Unresolved
-                val targetContent =
-                    when (choice) {
-                        SyncConflictResolutionChoice.KEEP_LOCAL -> null
-                        SyncConflictResolutionChoice.KEEP_REMOTE -> conflictFile.remoteContent
-                        SyncConflictResolutionChoice.MERGE_TEXT ->
-                            SyncConflictTextMerge.merge(
-                                localText = conflictFile.localContent,
-                                remoteText = conflictFile.remoteContent,
-                                localLastModified = conflictFile.localLastModified,
-                                remoteLastModified = conflictFile.remoteLastModified,
-                            )
-                        SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
-                    } ?: return@applyFileConflictChoices FileConflictApplication.Unresolved
-                val committedFile = commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
-                if (committedFile != null) {
-                    committedFiles += committedFile
-                    FileConflictApplication.Applied(Unit)
-                } else {
-                    FileConflictApplication.Unresolved
-                }
-            }.unresolvedFiles
+            if (targetContent == null) {
+                unresolvedItems += item
+                return@forEach
+            }
+            val committedFile = commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
+            if (committedFile != null) {
+                committedFiles += committedFile
+            } else {
+                unresolvedItems += item
+            }
+        }
         if (committedFiles.isNotEmpty()) {
             memoSynchronizer.refreshImportedSync()
         }
-        committedFiles
-            .asSequence()
-            .flatMap { committed -> committed.importedAttachmentsToDelete.asSequence() }
-            .distinct()
-            .forEach { attachment ->
-                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
-            }
-        return unresolvedFiles
+        cleanupImportedAttachments(inboxRoot, committedFiles)
+        return unresolvedItems
     }
 
     private suspend fun commitImportedFile(
@@ -397,5 +444,5 @@ private data class CommittedInboxFile(
 )
 
 private data class ProcessInboxBatchResult(
-    val reviewFiles: List<SyncConflictFile>,
+    val reviewFiles: List<SyncReviewItem>,
 )

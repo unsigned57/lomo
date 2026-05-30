@@ -23,7 +23,6 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncResult
-import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
@@ -32,7 +31,7 @@ import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeGitSyncRepository
@@ -69,7 +68,7 @@ import kotlinx.coroutines.test.runTest
  * - Excludes: repository transport internals, remote network request details, and UI rendering.
  */
 class SyncAndRebuildUseCaseTest : DomainFunSpec() {
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val gitSyncRepository = FakeGitSyncRepository()
     private val webDavSyncRepository = FakeWebDavSyncRepository()
     private val s3SyncRepository = FakeS3SyncRepository()
@@ -93,7 +92,7 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
 
     private val useCase =
         SyncAndRebuildUseCase(
-            memoRepository = memoRepository,
+            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
             syncProviderRegistry = syncProviderRegistry,
             syncPolicyRepository = syncPolicyRepository,
         )
@@ -299,7 +298,8 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
 
                 useCase(forceSync = false)
 
-                s3SyncRepository.syncPolicies.size shouldBe 0
+                s3SyncRepository.syncCallCount shouldBe 0
+                s3SyncRepository.syncForRefreshCallCount shouldBe 0
                 memoRepository.refreshMemosCallCount shouldBe 1
             }
         }
@@ -313,7 +313,7 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
 
                 useCase(forceSync = false)
 
-                s3SyncRepository.syncPolicies shouldBe listOf(S3SyncScanPolicy.FAST_ONLY)
+                s3SyncRepository.syncForRefreshCallCount shouldBe 1
                 memoRepository.refreshMemosCallCount shouldBe 1
             }
         }
