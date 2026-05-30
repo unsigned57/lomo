@@ -4,6 +4,10 @@
     <string name="app_update_http_failed">更新下载失败：HTTP %1$d</string>
     <string name="app_update_empty_file">下载到的 APK 文件为空。</string>
     <string name="app_update_no_installer">当前设备没有可用的安装程序。</string>
+    <string name="app_update_invalid_apk">下载的文件不是有效的 APK。</string>
+    <string name="app_update_missing_apk_metadata">无法验证下载的 APK。</string>
+    <string name="app_update_apk_metadata_mismatch">下载的 APK 与此更新不匹配。</string>
+    <string name="app_update_install_not_completed">应用更新安装未完成。</string>
     <string name="reminder_channel_name">提醒</string>
     <string name="reminder_channel_description">备忘提醒通知</string>
     <string name="reminder_notification_title">备忘提醒</string>
