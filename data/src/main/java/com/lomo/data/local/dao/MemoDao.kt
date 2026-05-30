@@ -6,17 +6,9 @@ import com.lomo.data.local.entity.MemoEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface MemoDao {
+interface MemoDao : MemoRandomDao {
     @Query("SELECT * FROM Lomo ORDER BY timestamp DESC, id DESC")
     fun getAllMemosFlow(): Flow<List<MemoEntity>>
-
-    @Query("SELECT * FROM Lomo ORDER BY RANDOM() LIMIT :limit")
-    suspend fun getRandomMemosDirect(limit: Int): List<MemoEntity>
-
-    suspend fun getRandomMemos(limit: Int): List<MemoEntity> {
-        if (limit <= 0) return emptyList()
-        return getRandomMemosDirect(limit)
-    }
 
     @Query("SELECT * FROM Lomo ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentMemos(limit: Int): List<MemoEntity>

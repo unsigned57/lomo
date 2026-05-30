@@ -34,6 +34,7 @@ import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
@@ -50,6 +51,7 @@ internal interface TestMemoDaoSuite :
     MemoTrashDao,
     MemoOutboxDao,
     MemoSearchDao,
+    MemoStatisticsDao,
     MemoPinDao
 
 internal fun testMemoMutationDaoBundle(

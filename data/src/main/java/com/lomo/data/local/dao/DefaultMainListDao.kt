@@ -84,33 +84,56 @@ interface DefaultMainListDao {
         offset: Int,
     ): List<DefaultMainListMemoRow>
 
+    @Query("SELECT MAX(rowid) FROM Lomo")
+    suspend fun getDailyReviewCandidateMaxRowId(): Long?
+
+    @Query("SELECT COUNT(*) FROM Lomo WHERE rowid <= :maxRowId")
+    suspend fun getDailyReviewCandidateCount(maxRowId: Long): Int
+
     @Query(
         """
-        SELECT (
-            SELECT COUNT(*)
-            FROM Lomo AS candidate
-            LEFT JOIN MemoPin AS candidatePin ON candidate.id = candidatePin.memoId
-            WHERE
-                (CASE WHEN candidatePin.memoId IS NULL THEN 0 ELSE 1 END) >
-                    (CASE WHEN targetPin.memoId IS NULL THEN 0 ELSE 1 END)
+        SELECT Lomo.*, CASE WHEN MemoPin.memoId IS NULL THEN 0 ELSE 1 END AS isPinned
+        FROM Lomo
+        LEFT JOIN MemoPin ON Lomo.id = MemoPin.memoId
+        WHERE Lomo.rowid <= :maxRowId
+            AND (
+                :cursorId IS NULL
+                OR (CASE WHEN MemoPin.memoId IS NULL THEN 0 ELSE 1 END) <
+                    CASE WHEN :cursorIsPinned THEN 1 ELSE 0 END
                 OR (
-                    (CASE WHEN candidatePin.memoId IS NULL THEN 0 ELSE 1 END) =
-                        (CASE WHEN targetPin.memoId IS NULL THEN 0 ELSE 1 END)
+                    (CASE WHEN MemoPin.memoId IS NULL THEN 0 ELSE 1 END) =
+                        CASE WHEN :cursorIsPinned THEN 1 ELSE 0 END
                     AND (
-                        candidate.timestamp > target.timestamp
+                        Lomo.timestamp < :cursorTimestamp
                         OR (
-                            candidate.timestamp = target.timestamp
-                            AND candidate.id > target.id
+                            Lomo.timestamp = :cursorTimestamp
+                            AND Lomo.id < :cursorId
                         )
                     )
                 )
-        )
-        FROM Lomo AS target
-        LEFT JOIN MemoPin AS targetPin ON target.id = targetPin.memoId
-        WHERE target.id = :id
+            )
+        ORDER BY isPinned DESC, Lomo.timestamp DESC, Lomo.id DESC
+        LIMIT :limit
         """,
     )
-    suspend fun getIndex(id: String): Int?
+    suspend fun getDailyReviewCandidatePage(
+        maxRowId: Long,
+        cursorIsPinned: Boolean?,
+        cursorTimestamp: Long?,
+        cursorId: String?,
+        limit: Int,
+    ): List<DefaultMainListMemoRow>
+
+    @Query(
+        """
+        SELECT Lomo.id
+        FROM Lomo
+        LEFT JOIN MemoPin ON Lomo.id = MemoPin.memoId
+        ORDER BY CASE WHEN MemoPin.memoId IS NULL THEN 0 ELSE 1 END DESC, Lomo.timestamp DESC, Lomo.id DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getDefaultMainListHeadIds(limit: Int): List<String>
 }
 
 data class DefaultMainListMemoRow(
@@ -247,30 +270,20 @@ private fun buildMainListQueryFilter(
                 add("Lomo.date <= ?")
                 args += endDate
             }
-            addContentFlagClause(hasTodo, TODO_PRESENCE_CLAUSE)
-            addContentFlagClause(hasAttachment, ATTACHMENT_PRESENCE_CLAUSE)
-            addContentFlagClause(hasUrl, URL_PRESENCE_CLAUSE)
+            addContentFlagClause(hasTodo, "Lomo.hasTodo")
+            addContentFlagClause(hasAttachment, "Lomo.hasAttachment")
+            addContentFlagClause(hasUrl, "Lomo.hasUrl")
         }
     return MainListQueryFilter(whereClauses = whereClauses, args = args)
 }
 
 private fun MutableList<String>.addContentFlagClause(
     value: Boolean?,
-    presenceClause: String,
+    columnName: String,
 ) {
     when (value) {
-        true -> add(presenceClause)
-        false -> add("NOT ($presenceClause)")
+        true -> add("$columnName = 1")
+        false -> add("$columnName = 0")
         null -> Unit
     }
 }
-
-private const val TODO_PRESENCE_CLAUSE =
-    "(Lomo.content LIKE '%- [ ]%' OR Lomo.content LIKE '%- [x]%' OR Lomo.content LIKE '%- [X]%' " +
-        "OR Lomo.content LIKE '%* [ ]%' OR Lomo.content LIKE '%* [x]%' OR Lomo.content LIKE '%* [X]%')"
-
-private const val ATTACHMENT_PRESENCE_CLAUSE =
-    "Lomo.content LIKE '%![%'"
-
-private const val URL_PRESENCE_CLAUSE =
-    "(Lomo.content LIKE '%http://%' OR Lomo.content LIKE '%https://%')"
