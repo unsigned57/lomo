@@ -5,24 +5,26 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.mapToUiModels
+import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.DailyReviewCollectionSource
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,13 +42,14 @@ import javax.inject.Inject
 class DailyReviewViewModel
     @Inject
     constructor(
-        private val memoUiCoordinator: MemoUiCoordinator,
+        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
         private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
         private val saveImageUseCase: SaveImageUseCase,
         private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
         private val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
@@ -63,12 +66,12 @@ class DailyReviewViewModel
         private var loadJob: Job? = null
         private var canLoadMore = true
         private var currentSession: DailyReviewSession? = null
+        private var currentCollectionSource: DailyReviewCollectionSource? = null
 
         val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
         val activeDayCount: StateFlow<Int> =
-            memoUiCoordinator
-                .activeDayCount()
+            observeActiveDayCountUseCase()
                 .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
         val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
@@ -105,15 +108,20 @@ class DailyReviewViewModel
                     canLoadMore = true
                     runCatching {
                         val session = dailyReviewSessionUseCase.prepareSession()
-                        val memos = dailyReviewQueryUseCase(session.seed)
-                        session to memos
+                        val page =
+                            dailyReviewQueryUseCase.loadPage(
+                                DailyReviewCollectionSource.fromSession(session),
+                            )
+                        session to page
                     }.onFailure { throwable ->
                         if (throwable is kotlinx.coroutines.CancellationException) {
                             throw throwable
                         }
                         _uiState.value = UiState.Error("Failed to load daily review", throwable)
-                    }.onSuccess { (session, memos) ->
+                    }.onSuccess { (session, page) ->
+                        val memos = page.memos
                         currentSession = session
+                        currentCollectionSource = page.nextSource
                         rawMemos.value = memos
                         canLoadMore = memos.isNotEmpty()
                         val clampedPageIndex = session.pageIndex.coerceIn(0, memos.lastIndex.coerceAtLeast(0))
@@ -132,6 +140,7 @@ class DailyReviewViewModel
         fun loadMore() {
             val currentMemos = rawMemos.value ?: return
             val session = currentSession ?: return
+            val source = currentCollectionSource ?: DailyReviewCollectionSource.fromSession(session)
             if (!canLoadMore || loadJob?.isActive == true || _isLoadingMore.value) {
                 return
             }
@@ -140,25 +149,48 @@ class DailyReviewViewModel
                 viewModelScope.launch {
                     _isLoadingMore.value = true
                     runCatching {
-                        dailyReviewQueryUseCase.loadMore(
-                            excludeIds = currentMemos.mapTo(linkedSetOf()) { it.id },
-                            batchSize = DailyReviewQueryUseCase.DEFAULT_DAILY_REVIEW_LIMIT,
-                            seed = session.seed,
-                        )
+                        dailyReviewQueryUseCase.loadPage(source)
                     }.onFailure { throwable ->
                         if (throwable is kotlinx.coroutines.CancellationException) {
                             throw throwable
                         }
                         _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
-                    }.onSuccess { newMemos ->
+                    }.onSuccess { page ->
+                        val newMemos = page.memos
+                        currentCollectionSource = page.nextSource
                         if (newMemos.isEmpty()) {
                             canLoadMore = false
                         } else {
-                            rawMemos.value = currentMemos + newMemos
+                            val latestMemos = rawMemos.value.orEmpty()
+                            rawMemos.value =
+                                mergeLoadedMemos(
+                                    visibleAtRequestStart = currentMemos,
+                                    latestVisibleMemos = latestMemos,
+                                    loadedMemos = newMemos,
+                                )
                         }
                     }
                     _isLoadingMore.value = false
                 }
+        }
+
+        private fun mergeLoadedMemos(
+            visibleAtRequestStart: List<Memo>,
+            latestVisibleMemos: List<Memo>,
+            loadedMemos: List<Memo>,
+        ): List<Memo> {
+            val latestIds = latestVisibleMemos.mapTo(linkedSetOf()) { memo -> memo.id }
+            val removedDuringRequestIds =
+                visibleAtRequestStart
+                    .asSequence()
+                    .map { memo -> memo.id }
+                    .filterNot { id -> id in latestIds }
+                    .toSet()
+            val appendableMemos =
+                loadedMemos.filterNot { memo ->
+                    memo.id in latestIds || memo.id in removedDuringRequestIds
+                }
+            return latestVisibleMemos + appendableMemos
         }
 
         fun onPageChanged(pageIndex: Int) {
@@ -198,6 +230,39 @@ class DailyReviewViewModel
                         throw throwable
                     }
                     _errorMessage.value = throwable.toUserMessage("Failed to update memo")
+                }
+            }
+        }
+
+        fun toggleTodo(
+            memo: Memo,
+            lineIndex: Int,
+            checked: Boolean,
+        ) {
+            viewModelScope.launch {
+                runCatching {
+                    toggleMemoCheckboxUseCase(memo, lineIndex, checked)
+                }.onSuccess { newContent ->
+                    // The review list is a frozen random-walk snapshot, so mirror the persisted
+                    // toggle into rawMemos optimistically (same pattern as updateMemo/deleteMemo).
+                    if (newContent != null) {
+                        rawMemos.value =
+                            rawMemos.value?.map { current ->
+                                if (current.id == memo.id) {
+                                    current.copy(
+                                        content = newContent,
+                                        rawContent = newContent,
+                                    )
+                                } else {
+                                    current
+                                }
+                            }
+                    }
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update todo")
                 }
             }
         }

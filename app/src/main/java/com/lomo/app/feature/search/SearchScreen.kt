@@ -1,31 +1,20 @@
 package com.lomo.app.feature.search
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,13 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -64,48 +51,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.main.MainMemoFilterSheet
-import com.lomo.app.feature.memo.MemoCardList
-import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
-import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.component.common.EmptyState
-import com.lomo.ui.component.common.ExpressiveLoadingIndicator
-import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.ImmutableSet
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlin.math.roundToInt
-
-private data class SearchScreenUiSnapshot(
-    val query: String,
-    val showLoading: Boolean,
-    val searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
-    val searchFilter: MemoListFilter,
-    val dateFormat: String,
-    val timeFormat: String,
-    val shareCardShowTime: Boolean,
-    val shareCardShowSignature: Boolean,
-    val shareCardSignatureText: String,
-    val doubleTapEditEnabled: Boolean,
-    val freeTextCopyEnabled: Boolean,
-    val memoActionAutoReorderEnabled: Boolean,
-    val memoActionOrderForSearch: ImmutableList<String>,
-    val inputToolbarToolOrder: ImmutableList<String>,
-    val rootDirectory: String?,
-    val imageDirectory: String?,
-    val imageMap: ImmutableMap<String, android.net.Uri>,
-    val deletingMemoIds: ImmutableSet<String>,
-    val errorMessage: String?,
-)
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -124,6 +81,7 @@ fun SearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
     val searchResultListState = rememberLazyListState()
+    val editorController = rememberMemoEditorController()
     val resultListActive =
         uiState.query.isNotEmpty() &&
             !uiState.showLoading &&
@@ -135,34 +93,23 @@ fun SearchScreen(
         snackbarHostState = snackbarHostState,
         onClearError = viewModel::clearError,
     )
+    val memoMenuCommandHandler =
+        rememberSearchMemoMenuCommandHandler(
+            uiState = uiState,
+            editorController = editorController,
+            viewModel = viewModel,
+            lanShareEnabled = lanShareEnabled,
+            onNavigateToShare = onNavigateToShare,
+            onRequestFocusMemo = onRequestFocusMemo,
+            onNavigateToMain = onNavigateToMain,
+        )
+
+    val editorSurface = searchMemoEditorSurface(uiState = uiState, viewModel = viewModel)
 
     MemoInteractionHost(
-        shareCardShowTime = uiState.shareCardShowTime,
-        shareCardShowSignature = uiState.shareCardShowSignature,
-        shareCardSignatureText = uiState.shareCardSignatureText,
-        dateFormat = uiState.dateFormat,
-        timeFormat = uiState.timeFormat,
-        onDeleteMemo = viewModel::deleteMemo,
-        onUpdateMemo = viewModel::updateMemo,
-        onSaveImage = viewModel::saveImage,
-        rootPath = uiState.rootDirectory,
-        imageDirectory = uiState.imageDirectory,
-        imageMap = uiState.imageMap,
-        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
-        memoActionAutoReorderEnabled = uiState.memoActionAutoReorderEnabled,
-        memoActionOrder = uiState.memoActionOrderForSearch,
-        onMemoActionInvoked = viewModel::recordMemoActionUsage,
-        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
-        inputToolbarToolOrder = uiState.inputToolbarToolOrder,
-        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
-        onJump = { state ->
-            handleMemoJumpToMain(
-                state = state,
-                requestFocusMemo = onRequestFocusMemo,
-                navigateToMain = onNavigateToMain,
-            )
-        },
-        showJump = true,
+        menuCommandHandler = memoMenuCommandHandler,
+        controller = editorController,
+        editorSurface = editorSurface,
     ) { showMenu, openEditor ->
         val onShowSearchMenu =
             rememberSearchMenuHandler(
@@ -197,11 +144,14 @@ fun SearchScreen(
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
                 deletingMemoIds = uiState.deletingMemoIds,
+                canLoadMore = uiState.canLoadMore,
                 listState = searchResultListState,
                 padding = padding,
                 onOpenEditor = openEditor,
                 onShowMenu = onShowSearchMenu,
                 onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
+                onTodoClick = viewModel::toggleTodo,
+                onLoadMore = viewModel::loadMore,
             )
         }
         if (isFilterSheetVisible) {
@@ -219,6 +169,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val showLoading by viewModel.showLoading.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
+    val canLoadMore by viewModel.canLoadMore.collectAsStateWithLifecycle()
     val searchFilter by viewModel.searchFilter.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
@@ -231,12 +182,14 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         query = query,
         showLoading = showLoading,
         searchResults = searchResults.toImmutableList(),
+        canLoadMore = canLoadMore,
         searchFilter = searchFilter,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
+        customFontPath = appPreferences.customFontPath,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
@@ -435,108 +388,7 @@ private fun floatingSearchContentPadding(scaffoldPadding: PaddingValues): Paddin
     )
 }
 
-@Composable
-private fun searchResultListContentPadding(screenPadding: PaddingValues): PaddingValues {
-    val layoutDirection = LocalLayoutDirection.current
-    return PaddingValues(
-        start = screenPadding.calculateStartPadding(layoutDirection) + AppSpacing.Medium,
-        top = screenPadding.calculateTopPadding() + AppSpacing.Medium,
-        end = screenPadding.calculateEndPadding(layoutDirection) + AppSpacing.Medium,
-        bottom = screenPadding.calculateBottomPadding() + AppSpacing.Medium,
-    )
-}
-
 private val SEARCH_FLOATING_CONTENT_TOP_PADDING = 80.dp
-private const val SEARCH_INPUT_FOCUSED_CORNER_DP = 20
-private const val SEARCH_INPUT_RESTING_CORNER_DP = 32
-
-internal data class SearchInputMorphTargets(
-    val containerColor: Color,
-    val leadingIconTint: Color,
-    val cornerRadius: Dp,
-    val tonalElevation: Dp,
-) {
-    companion object {
-        fun fromFocus(
-            isFocused: Boolean,
-            colorScheme: ColorScheme,
-        ): SearchInputMorphTargets =
-            if (isFocused) {
-                SearchInputMorphTargets(
-                    containerColor = colorScheme.surfaceContainerHighest,
-                    leadingIconTint = colorScheme.primary,
-                    cornerRadius = SEARCH_INPUT_FOCUSED_CORNER_DP.dp,
-                    tonalElevation = 6.dp,
-                )
-            } else {
-                SearchInputMorphTargets(
-                    containerColor = colorScheme.surfaceContainerHigh,
-                    leadingIconTint = colorScheme.onSurfaceVariant,
-                    cornerRadius = SEARCH_INPUT_RESTING_CORNER_DP.dp,
-                    tonalElevation = 3.dp,
-                )
-            }
-    }
-}
-
-internal data class SearchInputMorph(
-    val containerColor: Color,
-    val leadingIconTint: Color,
-    val shape: Shape,
-    val tonalElevation: Dp,
-)
-
-@Composable
-internal fun rememberSearchInputMorph(isFocused: Boolean): SearchInputMorph {
-    val colorScheme = MaterialTheme.colorScheme
-    val targets =
-        remember(isFocused, colorScheme) {
-            SearchInputMorphTargets.fromFocus(isFocused = isFocused, colorScheme = colorScheme)
-        }
-    val containerColor by animateColorAsState(
-        targetValue = targets.containerColor,
-        animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        label = "SearchInputContainerColor",
-    )
-    val leadingIconTint by animateColorAsState(
-        targetValue = targets.leadingIconTint,
-        animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        label = "SearchInputLeadingIconTint",
-    )
-    val cornerRadius by animateDpAsState(
-        targetValue = targets.cornerRadius,
-        animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        label = "SearchInputCornerRadius",
-    )
-    val tonalElevation by animateDpAsState(
-        targetValue = targets.tonalElevation,
-        animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        label = "SearchInputTonalElevation",
-    )
-    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-    return SearchInputMorph(
-        containerColor = containerColor,
-        leadingIconTint = leadingIconTint,
-        shape = shape,
-        tonalElevation = tonalElevation,
-    )
-}
 
 @Composable
 private fun SearchScreenEffects(
@@ -560,8 +412,8 @@ private fun SearchScreenEffects(
 private fun rememberSearchMenuHandler(
     focusManager: androidx.compose.ui.focus.FocusManager,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-    showMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
-): (com.lomo.ui.component.menu.MemoMenuState) -> Unit =
+    showMenu: (MemoMenuSelection) -> Unit,
+): (MemoMenuSelection) -> Unit =
     remember(focusManager, keyboardController, showMenu) {
         { menuState ->
             focusManager.clearFocus(force = true)
@@ -569,80 +421,3 @@ private fun rememberSearchMenuHandler(
             showMenu(menuState)
         }
     }
-
-@Composable
-private fun SearchScreenContent(
-    query: String,
-    showLoading: Boolean,
-    searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
-    dateFormat: String,
-    timeFormat: String,
-    doubleTapEditEnabled: Boolean,
-    freeTextCopyEnabled: Boolean,
-    deletingMemoIds: ImmutableSet<String>,
-    listState: LazyListState,
-    padding: PaddingValues,
-    onOpenEditor: (com.lomo.domain.model.Memo) -> Unit,
-    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
-    onDeleteAnimationSettled: (String) -> Unit,
-) {
-    val resultListContentPadding = searchResultListContentPadding(padding)
-    Box(
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        when {
-            query.isEmpty() -> {
-                EmptyState(
-                    icon = Icons.Default.Search,
-                    title = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_title),
-                    description = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_desc),
-                    modifier = Modifier.padding(padding),
-                )
-            }
-
-            showLoading -> {
-                SearchLoadingState(modifier = Modifier.padding(padding))
-            }
-
-            searchResults.isEmpty() -> {
-                EmptyState(
-                    icon = Icons.Default.Search,
-                    title = androidx.compose.ui.res.stringResource(R.string.search_no_results_title),
-                    description = androidx.compose.ui.res.stringResource(R.string.search_no_results_desc),
-                    modifier = Modifier.padding(padding),
-                )
-            }
-
-            else -> {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    LocalSearchHighlightQuery provides query,
-                ) {
-                    MemoCardList(
-                        memos = searchResults,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
-                        doubleTapEditEnabled = doubleTapEditEnabled,
-                        freeTextCopyEnabled = freeTextCopyEnabled,
-                        onMemoEdit = onOpenEditor,
-                        onShowMenu = onShowMenu,
-                        animation = MemoCardListAnimation.None,
-                        deletingMemoIds = deletingMemoIds,
-                        onDeleteAnimationSettled = onDeleteAnimationSettled,
-                        listState = listState,
-                        contentPadding = resultListContentPadding,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SearchLoadingState(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        ExpressiveLoadingIndicator(modifier = Modifier.size(56.dp))
-    }
-}

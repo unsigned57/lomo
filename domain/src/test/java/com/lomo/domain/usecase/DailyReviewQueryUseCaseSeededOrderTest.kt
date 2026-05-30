@@ -19,7 +19,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
@@ -32,8 +32,8 @@ import kotlinx.coroutines.test.runTest
  * - Excludes: session date rollover, UI pager restoration, and repository paging correctness already covered elsewhere.
  */
 class DailyReviewQueryUseCaseSeededOrderTest : DomainFunSpec() {
-    private val repository = FakeMemoRepository()
-    private val useCase = DailyReviewQueryUseCase(repository)
+    private val repository = FakeMemoStore()
+    private val useCase = DailyReviewQueryUseCase(com.lomo.domain.testing.fakes.FakeMemoQueryRepository(repository))
     init {
         test("invoke returns the same memo order when called with the same seed") {
             runTest {

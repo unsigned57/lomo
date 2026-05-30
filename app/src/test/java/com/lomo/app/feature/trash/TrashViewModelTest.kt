@@ -1,33 +1,16 @@
 package com.lomo.app.feature.trash
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.MemoTrashUseCase
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.ZoneId
@@ -47,8 +30,9 @@ import kotlinx.coroutines.test.runTest
  * - Scenarios:
  *   - Given clearTrash call, transition all memos into the deleting state and trigger repository clear operation.
  *   - Given deletePermanently or restoreMemo triggers, retain row deletion indicators until item animations settle.
+ *   - Given more trash memos than the initial window, grow the bounded page window on loadMore.
  * - Observable outcomes:
- *   - deletingMemoIds StateFlow values, trashUiMemos StateFlow lists, and repository call checks.
+ *   - deletingMemoIds StateFlow values, trashUiMemos StateFlow lists, recorded page calls, and repository call checks.
  * - TDD proof: Asserts timing alignment, collapse marker settlement, and single-batch repo actions.
  * - Excludes: Compose UI trash layouts and pixel details.
  */
@@ -57,7 +41,7 @@ class TrashViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
     private val createdViewModels = mutableListOf<TrashViewModel>()
-    private val repository = FakeMemoRepository()
+    private val repository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
     private val memoUiMapper: MemoUiMapper = MemoUiMapper()
@@ -98,6 +82,31 @@ class TrashViewModelTest : AppFunSpec() {
                 viewModel.onDeleteAnimationSettled(firstMemo.id)
                 viewModel.onDeleteAnimationSettled(secondMemo.id)
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
+            }
+        }
+
+        test("loadMore appends the next trash page") {
+            runTest {
+                val deletedMemos =
+                    (1..60).map { index ->
+                        memo("trash-$index", LocalDate.of(2026, 3, 8), 9)
+                    }
+                repository.setDeletedMemos(deletedMemos)
+
+                val viewModel = createViewModel()
+
+                viewModel.trashMemos.first { memos -> memos.size == 50 }
+                viewModel.canLoadMore.first { canLoadMore -> canLoadMore }
+
+                viewModel.loadMore()
+                advanceUntilIdle()
+
+                viewModel.trashMemos.first { memos -> memos.size == 60 }
+                repository.trashPageCalls shouldBe
+                    listOf(
+                        FakeMemoStore.TrashPageCall(limit = 50, offset = 0),
+                        FakeMemoStore.TrashPageCall(limit = 50, offset = 50),
+                    )
             }
         }
 
@@ -160,13 +169,15 @@ class TrashViewModelTest : AppFunSpec() {
 
     private fun createViewModel(): TrashViewModel =
         TrashViewModel(
-            memoUiCoordinator = MemoUiCoordinator(repository),
+            memoTrashUseCase =
+                MemoTrashUseCase(
+                    com.lomo.app.testing.fakes.FakeMemoTrashRepository(repository),
+                ),
             appConfigStateProvider =
                 com.lomo.app.feature.common.AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository),
+                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
                     CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
             memoUiMapper = memoUiMapper,
         ).also(createdViewModels::add)

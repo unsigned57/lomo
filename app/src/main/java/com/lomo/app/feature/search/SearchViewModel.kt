@@ -5,41 +5,37 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.MemoCollectionProjectionMapper
+import com.lomo.app.feature.common.MemoCollectionStateHolder
+import com.lomo.app.feature.common.MemoCollectionUiState
+import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
 import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.runDeleteAnimationWithRollback
-import com.lomo.app.feature.common.toUserMessage
-import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.mapToUiModelState
+import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
-import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
-import com.lomo.domain.usecase.SaveImageResult
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.SearchMemosPageUseCase
+import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
@@ -52,76 +48,86 @@ private const val SEARCH_LOADING_MIN_VISIBLE_MILLIS = 280L
 class SearchViewModel
     @Inject
     constructor(
-        private val memoUiCoordinator: MemoUiCoordinator,
+        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
         private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
-        private val memoUiMapper: MemoUiMapper,
+        private val projectionMapper: MemoCollectionProjectionMapper,
+        private val searchMemosPageUseCase: SearchMemosPageUseCase,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
+        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
     ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
         val searchFilterController = com.lomo.app.feature.common.MemoListFilterController()
         val searchFilter: StateFlow<MemoListFilter> = searchFilterController.filter
-        private val applyMemoFilter = ApplyMainMemoFilterUseCase()
-        private val _errorMessage = MutableStateFlow<String?>(null)
-        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-        private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
-        val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
-
-        val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
-
-        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
-
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
-
-        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
+        private var reportSearchLoadError: (Throwable) -> Unit = {}
 
         val activeDayCount: StateFlow<Int> =
-            memoUiCoordinator
-                .activeDayCount()
+            observeActiveDayCountUseCase()
                 .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
-        @OptIn(ExperimentalCoroutinesApi::class)
-        private val searchExecutionState: StateFlow<SearchExecutionState> =
-            combine(_searchQuery, searchFilterController.filter) { rawQuery, filter -> rawQuery to filter }
-                .transformLatest { (rawQuery, filter) ->
-                    val query = rawQuery.trim()
-                    if (query.isBlank()) {
-                        emit(SearchExecutionState())
-                        return@transformLatest
-                    }
+        @OptIn(FlowPreview::class)
+        private val searchQueryInput =
+            combine(_searchQuery, searchFilterController.filter) { rawQuery, filter ->
+                SearchQueryInput(query = rawQuery.trim(), filter = filter)
+            }.debounce(SEARCH_QUERY_DEBOUNCE_MILLIS)
 
-                    delay(SEARCH_QUERY_DEBOUNCE_MILLIS)
-                    emitAll(searchExecutionFlow(query, filter))
-                }.stateIn(viewModelScope, appWhileSubscribed(), SearchExecutionState())
+        private val collectionWindowStateHolder =
+            MemoCollectionWindowStateHolder(
+                sourceInput = searchQueryInput,
+                source = { input ->
+                    searchMemosPageUseCase.getPagingSource(
+                        query = input.query,
+                        filter = input.filter,
+                    )
+                },
+                scope = viewModelScope,
+                onLoadError = { throwable ->
+                    reportSearchLoadError(throwable)
+                },
+            )
 
         val isSearching: StateFlow<Boolean> =
-            searchExecutionState
-                .map { it.isSearching }
-                .stateIn(viewModelScope, appWhileSubscribed(), false)
-
-        val searchResults: StateFlow<List<Memo>> =
-            searchExecutionState
-                .map { it.results }
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+            collectionWindowStateHolder.isLoading
 
         val showLoading: StateFlow<Boolean> =
-            searchExecutionState
-                .map { it.showLoading }
+            collectionWindowStateHolder.isLoading
+                .toDelayedSearchLoading()
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
-        @OptIn(ExperimentalCoroutinesApi::class)
-        val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            searchResults.mapToUiModelState(
-                rootDirectory = rootDirectory,
-                imageDirectory = imageDirectory,
-                imageMap = imageMap,
-                memoUiMapper = memoUiMapper,
+        private val collectionStateHolder =
+            MemoCollectionStateHolder(
+                source = collectionWindowStateHolder.memos,
+                configStateProvider = appConfigStateProvider,
+                imageMapProvider = imageMapProvider,
+                memoUiMapper = projectionMapper.memoUiMapper,
+                capabilities =
+                    MemoCollectionCapabilities.Editable(
+                        deleteMemo = deleteMemoUseCase::invoke,
+                        updateMemo = updateMemoContentUseCase::invoke,
+                        toggleTodo = { memo, lineIndex, checked ->
+                            toggleMemoCheckboxUseCase(memo = memo, lineIndex = lineIndex, checked = checked)
+                        },
+                        saveImage = saveImageUseCase::saveWithCacheSyncStatus,
+                    ),
                 scope = viewModelScope,
             )
+
+        val collectionUiState: StateFlow<MemoCollectionUiState> = collectionStateHolder.uiState
+
+        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
+        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
+        val rootDirectory: StateFlow<String?> = collectionStateHolder.rootDirectory
+        val imageDirectory: StateFlow<String?> = collectionStateHolder.imageDirectory
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
+        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
+        val searchResults: StateFlow<List<Memo>> = collectionStateHolder.memos
+        val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            collectionStateHolder.uiMemos
+        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
 
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
@@ -136,38 +142,26 @@ class SearchViewModel
         val clearSearchFilter: () -> Unit = searchFilterController.clear
 
         fun deleteMemo(memo: Memo) {
-            viewModelScope.launch {
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemId = memo.id,
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        deleteMemoUseCase(memo)
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
-                }
-            }
+            collectionStateHolder.actions.delete(memo)
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            _deletingMemoIds.value = _deletingMemoIds.value - memoId
+            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
         }
 
         fun updateMemo(
             memo: Memo,
             newContent: String,
         ) {
-            viewModelScope.launch {
-                runCatching {
-                    updateMemoContentUseCase(memo, newContent)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
-                }
-            }
+            collectionStateHolder.actions.updateMemo(memo, newContent)
+        }
+
+        fun toggleTodo(
+            memo: Memo,
+            lineIndex: Int,
+            checked: Boolean,
+        ) {
+            collectionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
         }
 
         fun saveImage(
@@ -175,31 +169,15 @@ class SearchViewModel
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            viewModelScope.launch {
-                runCatching {
-                    val path =
-                        when (
-                            val result =
-                                saveImageUseCase.saveWithCacheSyncStatus(
-                                    StorageLocation(uri.toString()),
-                                )
-                        ) {
-                            is SaveImageResult.SavedAndCacheSynced -> result.location.raw
-                            is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
-                        }
-                    onResult(path)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
-                    onError?.invoke()
-                }
-            }
+            collectionStateHolder.actions.saveImage(uri, onResult, onError)
         }
 
         fun clearError() {
-            _errorMessage.value = null
+            collectionStateHolder.errors.clear()
+        }
+
+        fun loadMore() {
+            collectionWindowStateHolder.loadNextPage()
         }
 
         fun recordMemoActionUsage(actionId: MemoActionId) {
@@ -226,57 +204,40 @@ class SearchViewModel
             }
         }
 
-        @OptIn(ExperimentalCoroutinesApi::class)
-        private fun searchExecutionFlow(
-            query: String,
-            filter: MemoListFilter,
-        ) = channelFlow searchExecution@{
-                send(SearchExecutionState(isSearching = true))
-                var loadingVisible = false
-                var loadingMinVisibleJob: Job? = null
-                val loadingJob =
-                    launch {
-                        delay(SEARCH_LOADING_SHOW_DELAY_MILLIS)
-                        loadingVisible = true
-                        loadingMinVisibleJob =
-                            this@searchExecution.launch {
-                                delay(SEARCH_LOADING_MIN_VISIBLE_MILLIS)
-                            }
-                        send(
-                            SearchExecutionState(
-                                isSearching = true,
-                                showLoading = true,
-                            ),
-                        )
-                    }
-
-                memoUiCoordinator
-                    .searchMemos(query)
-                    .map { results -> applyMemoFilter(results, filter) }
-                    .catch {
-                        loadingJob.cancel()
-                        if (loadingVisible) {
-                            loadingMinVisibleJob?.join()
-                        }
-                        send(SearchExecutionState())
-                    }.collectLatest { results ->
-                        loadingJob.cancel()
-                        if (loadingVisible) {
-                            send(
-                                SearchExecutionState(
-                                    showLoading = true,
-                                    results = results,
-                                ),
-                            )
-                            loadingMinVisibleJob?.join()
-                        }
-                        send(SearchExecutionState(results = results))
-                    }
-            }
-
-        private data class SearchExecutionState(
-            val isSearching: Boolean = false,
-            val showLoading: Boolean = false,
-            val results: List<Memo> = emptyList(),
+        private data class SearchQueryInput(
+            val query: String,
+            val filter: MemoListFilter,
         )
+
+        init {
+            reportSearchLoadError = { throwable ->
+                collectionStateHolder.errors.report(throwable, "Failed to search memos")
+            }
+        }
+    }
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private fun Flow<Boolean>.toDelayedSearchLoading() =
+    channelFlow {
+        var loadingVisible = false
+        var loadingMinimumVisibleJob: Job? = null
+
+        collectLatest { loading ->
+            if (loading) {
+                delay(SEARCH_LOADING_SHOW_DELAY_MILLIS)
+                loadingVisible = true
+                loadingMinimumVisibleJob =
+                    this@channelFlow.launch {
+                        delay(SEARCH_LOADING_MIN_VISIBLE_MILLIS)
+                    }
+                send(true)
+                awaitCancellation()
+            } else {
+                if (loadingVisible) {
+                    loadingMinimumVisibleJob?.join()
+                }
+                loadingVisible = false
+                send(false)
+            }
+        }
     }

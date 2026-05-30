@@ -7,15 +7,27 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SearchInputMorphTargets.fromFocus(isFocused, colorScheme)
- * - Behavior focus: pure M3E target mapping for the dedicated search page's floating capsule
- *   search input. Focused and resting states must produce different shape, surface tone,
- *   elevation, and leading-icon emphasis.
+ * - Owning layer: app Search UI presentation state
+ * - Priority tier: P1
+ * - Capability: keep the dedicated search page's floating capsule input morph as a local,
+ *   unit-testable visual target policy.
+ *
+ * Scenarios:
+ * - Given the input is focused, when morph targets resolve, then high-emphasis surface, primary
+ *   leading icon tint, tighter corner radius, and higher tonal elevation are selected.
+ * - Given the input is resting, when morph targets resolve, then resting surface, variant icon
+ *   tint, wider corner radius, and lower tonal elevation are selected.
+ * - Given focused and resting targets are compared, when all fields are inspected, then every
+ *   morph field differs.
+ *
  * - Observable outcomes: returned SearchInputMorphTargets values for focused/resting states.
- * - Red phase: Fails before the production change because SearchInputMorphTargets does not exist
- *   in the single-page search implementation, so the floating capsule has no unit-testable
- *   focus morph contract.
+ *
+ * TDD proof:
+ * - Not applicable - style-only stabilization of an existing direct Search UI test for the
+ *   preexisting morph extraction.
+ *
  * - Excludes: Compose runtime focus dispatch, animation frame timing, pixel rendering, keyboard
  *   behavior, and search result rendering.
  */
@@ -31,9 +43,7 @@ class SearchInputMorphTargetsTest : AppFunSpec() {
             (targets.cornerRadius) shouldBe (20.dp)
             (targets.tonalElevation) shouldBe (6.dp)
         }
-    }
 
-    init {
         test("resting targets use floating capsule tone variant icon and extra large increased corner") {
             val targets = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
 
@@ -42,9 +52,7 @@ class SearchInputMorphTargetsTest : AppFunSpec() {
             (targets.cornerRadius) shouldBe (32.dp)
             (targets.tonalElevation) shouldBe (3.dp)
         }
-    }
 
-    init {
         test("focused and resting targets differ across every morph field") {
             val focused = SearchInputMorphTargets.fromFocus(isFocused = true, colorScheme = scheme)
             val resting = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
@@ -55,5 +63,4 @@ class SearchInputMorphTargetsTest : AppFunSpec() {
             (focused.tonalElevation) shouldNotBe (resting.tonalElevation)
         }
     }
-
 }
