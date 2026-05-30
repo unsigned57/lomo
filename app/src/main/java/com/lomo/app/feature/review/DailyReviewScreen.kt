@@ -44,8 +44,14 @@ import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
+import com.lomo.app.feature.memo.MemoEditorSessionState
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoMenuPresentationState
+import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.app.feature.memo.existingMemoEditorSurface
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.app.feature.memo.rememberMemoEditorController
+import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.EmptyState
@@ -68,7 +74,6 @@ fun DailyReviewScreen(
     viewModel: DailyReviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
@@ -86,6 +91,7 @@ fun DailyReviewScreen(
     val haptic = LocalAppHapticFeedback.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
+    val editorController = rememberMemoEditorController()
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let { message ->
@@ -93,34 +99,52 @@ fun DailyReviewScreen(
             viewModel.clearError()
         }
     }
+    val memoMenuCommandHandler =
+        rememberMemoMenuCommandHandler(
+            presentationState =
+                MemoMenuPresentationState(
+                    shareCardShowTime = shareCardShowTime,
+                    shareCardShowSignature = shareCardShowSignature,
+                    shareCardSignatureText = shareCardSignatureText,
+                    customFontPath = appPreferences.customFontPath,
+                    showJump = true,
+                    memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+                    memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.REVIEW),
+                ),
+            onEditMemo = editorController::openForEdit,
+            onDeleteMemo = viewModel::deleteMemo,
+            onLanShare =
+                if (lanShareEnabled) {
+                    { request -> onNavigateToShare(request.content, request.timestamp) }
+                } else {
+                    null
+                },
+            onJump = { state ->
+                handleMemoJumpToMain(
+                    selection = state,
+                    requestFocusMemo = onRequestFocusMemo,
+                    navigateToMain = onNavigateToMain,
+                )
+            },
+            onMemoActionInvoked = viewModel::recordMemoActionUsage,
+            onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        )
+
+    val editorSurface =
+        dailyReviewMemoEditorSurface(
+            imageDirectory = imageDirectory,
+            rootDirectory = rootDirectory,
+            imageMap = stableImageMap,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            toolbarToolOrder = appPreferences.inputToolbarToolOrder,
+            viewModel = viewModel,
+        )
 
     MemoInteractionHost(
-        shareCardShowTime = shareCardShowTime,
-        shareCardShowSignature = shareCardShowSignature,
-        shareCardSignatureText = shareCardSignatureText,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        rootPath = rootDirectory,
-        imageMap = stableImageMap,
-        onDeleteMemo = viewModel::deleteMemo,
-        onUpdateMemo = viewModel::updateMemo,
-        onSaveImage = viewModel::saveImage,
-        imageDirectory = imageDirectory,
-        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
-        onJump = { state ->
-            handleMemoJumpToMain(
-                state = state,
-                requestFocusMemo = onRequestFocusMemo,
-                navigateToMain = onNavigateToMain,
-            )
-        },
-        showJump = true,
-        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.REVIEW),
-        onMemoActionInvoked = viewModel::recordMemoActionUsage,
-        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
-        inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
-        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
+        menuCommandHandler = memoMenuCommandHandler,
+        controller = editorController,
+        editorSurface = editorSurface,
     ) { showMenu, openEditor ->
         DailyReviewScreenScaffold(
             onBackClick = onBackClick,
@@ -131,7 +155,6 @@ fun DailyReviewScreen(
             DailyReviewScreenContent(
                 uiState = uiState,
                 restoredPageIndex = restoredPageIndex,
-                isLoadingMore = isLoadingMore,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
@@ -139,6 +162,7 @@ fun DailyReviewScreen(
                 padding = scaffoldPadding,
                 onShowMenu = showMenu,
                 onOpenEditor = openEditor,
+                onTodoClick = viewModel::toggleTodo,
                 onNavigateToImage = onNavigateToImage,
                 onLoadMore = viewModel::loadMore,
                 onPageChanged = viewModel::onPageChanged,
@@ -147,6 +171,30 @@ fun DailyReviewScreen(
         }
     }
 }
+
+private fun dailyReviewMemoEditorSurface(
+    imageDirectory: String?,
+    rootDirectory: String?,
+    imageMap: kotlinx.collections.immutable.ImmutableMap<String, android.net.Uri>,
+    dateFormat: String,
+    timeFormat: String,
+    toolbarToolOrder: ImmutableList<String>,
+    viewModel: DailyReviewViewModel,
+) =
+    existingMemoEditorSurface(
+        session =
+            MemoEditorSessionState(
+                imageDirectory = imageDirectory,
+                rootPath = rootDirectory,
+                imageMap = imageMap,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+            ),
+        toolbarToolOrder = toolbarToolOrder,
+        onUpdateMemo = viewModel::updateMemo,
+        onSaveImage = viewModel::saveImage,
+        onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
+    )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,14 +240,14 @@ private fun DailyReviewScreenScaffold(
 private fun DailyReviewScreenContent(
     uiState: UiState<List<com.lomo.app.feature.main.MemoUiModel>>,
     restoredPageIndex: Int,
-    isLoadingMore: Boolean,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     padding: PaddingValues,
-    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onLoadMore: () -> Unit,
     onPageChanged: (Int) -> Unit,
@@ -235,13 +283,13 @@ private fun DailyReviewScreenContent(
                     DailyReviewPager(
                         memos = remember(memos) { memos.toImmutableList() },
                         restoredPageIndex = restoredPageIndex,
-                        isLoadingMore = isLoadingMore,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
                         onShowMenu = onShowMenu,
                         onOpenEditor = onOpenEditor,
+                        onTodoClick = onTodoClick,
                         onNavigateToImage = onNavigateToImage,
                         onRequestMore = onLoadMore,
                         onPageChanged = onPageChanged,
@@ -259,13 +307,13 @@ private fun DailyReviewScreenContent(
 private fun DailyReviewPager(
     memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     restoredPageIndex: Int,
-    isLoadingMore: Boolean,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onRequestMore: () -> Unit,
     onPageChanged: (Int) -> Unit,
@@ -315,12 +363,8 @@ private fun DailyReviewPager(
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onShowMenu = onShowMenu,
                 onOpenEditor = onOpenEditor,
+                onTodoClick = onTodoClick,
                 onNavigateToImage = onNavigateToImage,
-            )
-        }
-        if (isLoadingMore) {
-            ExpressiveContainedLoadingIndicator(
-                modifier = Modifier.padding(top = AppSpacing.Small),
             )
         }
     }
@@ -335,8 +379,9 @@ private fun DailyReviewPagerPage(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -380,6 +425,9 @@ private fun DailyReviewPagerPage(
                         onMemoEdit = onOpenEditor,
                         onShowMenu = onShowMenu,
                         onImageClick = onMemoImageClick,
+                        onTodoClick = { lineIndex, checked ->
+                            onTodoClick(memo.memo, lineIndex, checked)
+                        },
                     )
 
                     Text(

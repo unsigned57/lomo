@@ -18,7 +18,6 @@ package com.lomo.app.feature.review
 
 
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
@@ -27,12 +26,13 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
-import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
@@ -52,20 +52,24 @@ import kotlinx.coroutines.test.runTest
 class DailyReviewViewModelSessionTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
     
-    private val deleteMemoUseCase = DeleteMemoUseCase(memoRepository)
+    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
     private val updateMemoContentUseCase = UpdateMemoContentUseCase(
-        repository = memoRepository,
+        repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
         validator = ValidateMemoContentUseCase(),
         resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
         deleteMemoUseCase = deleteMemoUseCase,
     )
     private val dailyReviewSessionRepository = FakeDailyReviewSessionRepository()
     private val dailyReviewSessionUseCase = DailyReviewSessionUseCase(dailyReviewSessionRepository)
-    private val dailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
+    private val dailyReviewQueryUseCase = DailyReviewQueryUseCase(com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository))
+    private val toggleMemoCheckboxUseCase = com.lomo.domain.usecase.ToggleMemoCheckboxUseCase(
+        repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+        validator = ValidateMemoContentUseCase(),
+    )
     private val saveImageUseCase: SaveImageUseCase = mockk()
 
     init {
@@ -141,20 +145,26 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
 
     private fun createViewModel(): DailyReviewViewModel =
         DailyReviewViewModel(
-            memoUiCoordinator = MemoUiCoordinator(memoRepository),
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
                 com.lomo.app.feature.common.AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository),
+                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
                     CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
             imageMapProvider = imageMapProvider,
             memoUiMapper = MemoUiMapper(testDispatcher),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
+            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
             saveImageUseCase = saveImageUseCase,
             dailyReviewQueryUseCase = dailyReviewQueryUseCase,
             dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+        )
+
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
+        ObserveActiveDayCountUseCase(
+            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
         )
 
     private fun sampleMemo(id: String): Memo =

@@ -3,116 +3,86 @@ package com.lomo.app.feature.trash
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigStateProvider
-import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
-import com.lomo.app.feature.common.appWhileSubscribed
-import com.lomo.app.feature.common.runDeleteAnimationWithRollback
-import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.MemoCollectionStateHolder
+import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
 import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.main.mapToUiModelState
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.MemoTrashUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class TrashViewModel
     @Inject
     constructor(
-        private val memoUiCoordinator: MemoUiCoordinator,
-        private val appConfigStateProvider: AppConfigStateProvider,
-        private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        private val imageMapProvider: ImageMapProvider,
-        private val memoUiMapper: MemoUiMapper,
+        memoTrashUseCase: MemoTrashUseCase,
+        appConfigStateProvider: AppConfigStateProvider,
+        imageMapProvider: ImageMapProvider,
+        memoUiMapper: MemoUiMapper,
     ) : ViewModel() {
-        private val _errorMessage = MutableStateFlow<String?>(null)
-        val errorMessage: StateFlow<String?> = _errorMessage
-
-        private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
-        val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
-
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
-        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
-
-        val trashMemos: StateFlow<List<Memo>> =
-            memoUiCoordinator
-                .deletedMemos()
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
-
-        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
-
-        val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
-
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            trashMemos.mapToUiModelState(
-                rootDirectory = rootDirectory,
-                imageDirectory = imageDirectory,
-                imageMap = imageMap,
+        private val collectionWindowStateHolder =
+            MemoCollectionWindowStateHolder(
+                source = memoTrashUseCase::getDeletedMemosPagingSource,
+                scope = viewModelScope,
+            )
+        private val collectionStateHolder =
+            MemoCollectionStateHolder(
+                source = collectionWindowStateHolder.memos,
+                configStateProvider = appConfigStateProvider,
+                imageMapProvider = imageMapProvider,
                 memoUiMapper = memoUiMapper,
+                capabilities =
+                    MemoCollectionCapabilities.Trash(
+                        restoreMemo = memoTrashUseCase::restoreMemo,
+                        deletePermanently = memoTrashUseCase::deletePermanently,
+                        clearTrash = memoTrashUseCase::clearTrash,
+                    ),
                 scope = viewModelScope,
             )
 
+        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
+
+        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
+
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
+        val imageDirectory: StateFlow<String?> = collectionStateHolder.imageDirectory
+
+        val trashMemos: StateFlow<List<Memo>> = collectionStateHolder.memos
+        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
+
+        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
+
+        val rootDirectory: StateFlow<String?> = collectionStateHolder.rootDirectory
+
+        val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            collectionStateHolder.uiMemos
+
+        fun loadMore() {
+            collectionWindowStateHolder.loadNextPage()
+        }
+
         fun restoreMemo(memo: Memo) {
-            viewModelScope.launch {
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemId = memo.id,
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        memoUiCoordinator.restoreMemo(memo)
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to restore memo")
-                }
-            }
+            collectionStateHolder.actions.restore(memo)
         }
 
         fun deletePermanently(memo: Memo) {
-            viewModelScope.launch {
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemId = memo.id,
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        memoUiCoordinator.deletePermanently(memo)
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
-                }
-            }
+            collectionStateHolder.actions.deletePermanently(memo)
         }
 
         fun clearTrash() {
-            viewModelScope.launch {
-                val trashSnapshot = trashMemos.value
-                if (trashSnapshot.isEmpty()) return@launch
-
-                val result =
-                    runDeleteAnimationWithRollback(
-                        itemIds = trashSnapshot.asSequence().map { it.id }.toSet(),
-                        deletingIds = _deletingMemoIds,
-                    ) {
-                        memoUiCoordinator.clearTrash()
-                    }
-                result.exceptionOrNull()?.let { throwable ->
-                    _errorMessage.value = throwable.toUserMessage("Failed to clear trash")
-                }
-            }
+            collectionStateHolder.actions.clearTrash()
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            _deletingMemoIds.value = _deletingMemoIds.value - memoId
+            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
         }
 
         fun clearError() {
-            _errorMessage.value = null
+            collectionStateHolder.errors.clear()
         }
 
     }

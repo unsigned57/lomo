@@ -1,45 +1,45 @@
 /*
- * Test Contract:
- * - Unit under test: SearchViewModel filter wiring (orthogonal to debounce/loading behavior covered in SearchViewModelTest).
- * - Behavior focus: applying MemoListFilter content flags to FTS results; mutators update filter state; result stream re-emits on filter change.
- * - Observable outcomes: searchResults StateFlow values, searchFilter StateFlow values.
- * - Red phase: Fails before SearchViewModel exposes searchFilter / content flag mutators or pipes results through ApplyMainMemoFilterUseCase.
- * - Excludes: SearchScreen UI rendering, MemoUiMapper internals.
+ * Behavior Contract:
+ * - Unit under test: SearchViewModel filter wiring.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: re-run bounded page-backed search when filter controls change.
+ *
+ * Scenarios:
+ * - Given a search result set and hasTodo=true, when the filter changes, then results exclude memos without todos.
+ * - Given a search result set and hasAttachment=false, when the filter changes,
+ *   then results exclude memos with attachments.
+ * - Given active filter flags, when clearSearchFilter is invoked, then the filter becomes inactive.
+ *
+ * Observable outcomes:
+ * - searchResults and searchFilter StateFlow values.
+ *
+ * TDD proof:
+ * - RED before the paging fix because app search delegated to a full-list search flow and applied
+ *   filters outside the main-list query port.
+ *
+ * Excludes:
+ * - SearchScreen rendering, MemoUiMapper internals, repository SQL, and debounce/loading timing.
  */
 package com.lomo.app.feature.search
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
-import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.MemoCollectionProjectionMapper
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.app.testing.fakes.FakeMemoRepository
+import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.SearchMemosPageUseCase
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
-import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
@@ -55,12 +55,12 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelFilterTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
 
-    private val deleteMemoUseCase = DeleteMemoUseCase(memoRepository)
+    private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
     private val updateMemoContentUseCase = UpdateMemoContentUseCase(
-        repository = memoRepository,
+        repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
         validator = ValidateMemoContentUseCase(),
         resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
         deleteMemoUseCase = deleteMemoUseCase
@@ -147,18 +147,25 @@ class SearchViewModelFilterTest : AppFunSpec() {
 
     private fun createViewModel(): SearchViewModel =
         SearchViewModel(
-            memoUiCoordinator = MemoUiCoordinator(memoRepository),
+            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
                 AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository),
+                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
                     CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
             imageMapProvider = emptyImageMapProvider(),
-            memoUiMapper = MemoUiMapper(),
+            projectionMapper = MemoCollectionProjectionMapper(MemoUiMapper()),
+            searchMemosPageUseCase = SearchMemosPageUseCase(com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository)),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
+            toggleMemoCheckboxUseCase = mockk(),
+        )
+
+    private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =
+        ObserveActiveDayCountUseCase(
+            com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
         )
 
     private fun memo(

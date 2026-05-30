@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -62,6 +63,7 @@ import com.lomo.app.feature.common.rememberRetainedVisibleItems
 import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.domain.model.Memo
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
@@ -69,9 +71,9 @@ import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.LazyListMotionState
 import com.lomo.ui.component.common.lazyListMotionItem
 import com.lomo.ui.component.common.rememberLazyListMotionState
-import com.lomo.ui.component.menu.MemoActionHaptic
+import com.lomo.ui.component.menu.ActionItemHaptic
+import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoActionSheet
-import com.lomo.ui.component.menu.MemoActionSheetAction
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
@@ -81,18 +83,20 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val TRASH_LIST_CONTENT_PADDING = 16.dp
 private val TRASH_LIST_ITEM_SPACING = 12.dp
 private const val TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS = 300
 private const val TRASH_DELETE_FADE_DURATION_MILLIS = 300
-private const val TRASH_ITEM_ALPHA_THRESHOLD = 0.999f
 private val TRASH_ACTION_HANDLE_PADDING = 22.dp
 private val TRASH_ACTION_HANDLE_WIDTH = 32.dp
 private val TRASH_ACTION_HANDLE_SIZE = 32.dp
 private val TRASH_ACTION_HANDLE_HEIGHT = 4.dp
 private val TRASH_ACTION_HANDLE_CORNER = 999.dp
 private const val TRASH_ACTION_HANDLE_ALPHA = 0.4f
+private const val TRASH_LOAD_MORE_LOOKAHEAD_ITEMS = 6
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -105,6 +109,7 @@ fun TrashScreen(
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
+    val canLoadMore by viewModel.canLoadMore.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val listState =
@@ -146,6 +151,8 @@ fun TrashScreen(
             timeFormat = appPreferences.timeFormat,
             freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
             listState = listState,
+            canLoadMore = canLoadMore,
+            onLoadMore = viewModel::loadMore,
             onMemoMenuClick = { memo ->
                 haptic.medium()
                 selectedMemo = memo
@@ -244,6 +251,8 @@ private fun TrashScreenContent(
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
     listState: LazyListState,
+    canLoadMore: Boolean,
+    onLoadMore: () -> Unit,
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -258,6 +267,8 @@ private fun TrashScreenContent(
                 timeFormat = timeFormat,
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 listState = listState,
+                canLoadMore = canLoadMore,
+                onLoadMore = onLoadMore,
                 onMemoMenuClick = onMemoMenuClick,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -284,9 +295,17 @@ private fun TrashMemoList(
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
     listState: LazyListState,
+    canLoadMore: Boolean,
+    onLoadMore: () -> Unit,
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    TrashLoadMoreEffect(
+        itemCount = trashMemos.size,
+        canLoadMore = canLoadMore,
+        listState = listState,
+        onLoadMore = onLoadMore,
+    )
     val motionItemKeys =
         remember(trashMemos) {
             trashMemos.map { uiModel -> uiModel.memo.id }.toPersistentList()
@@ -328,6 +347,29 @@ private fun TrashMemoList(
                         .fillMaxWidth(),
             )
         }
+    }
+}
+
+@Composable
+private fun TrashLoadMoreEffect(
+    itemCount: Int,
+    canLoadMore: Boolean,
+    listState: LazyListState,
+    onLoadMore: () -> Unit,
+) {
+    LaunchedEffect(listState, itemCount, canLoadMore) {
+        if (!canLoadMore || itemCount == 0) {
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisibleIndex >= itemCount - TRASH_LOAD_MORE_LOOKAHEAD_ITEMS
+        }.distinctUntilChanged()
+            .collect { shouldLoad ->
+                if (shouldLoad) {
+                    onLoadMore()
+                }
+            }
     }
 }
 
@@ -426,36 +468,23 @@ private fun TrashMemoCardItem(
                     },
         ) {
             MemoCard(
-            content = uiModel.memo.content,
-            processedContent = uiModel.processedContent,
-            precomputedRenderPlan = uiModel.precomputedRenderPlan,
-            timestamp = uiModel.memo.timestamp,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
-            isPinned = uiModel.memo.isPinned,
-            tags = uiModel.tags,
-            allowFreeTextCopy = freeTextCopyEnabled,
-            menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
-            onMenuClick = { onMemoMenuClick(uiModel.memo) },
-        )
+                content = uiModel.memo.content,
+                processedContent = uiModel.processedContent,
+                precomputedRenderPlan = uiModel.precomputedRenderPlan,
+                timestamp = uiModel.memo.timestamp,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                isPinned = uiModel.memo.isPinned,
+                tags = uiModel.tags,
+                allowFreeTextCopy = freeTextCopyEnabled,
+                menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
+                onMenuClick = { onMemoMenuClick(uiModel.memo) },
+                mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
+                mediaContent = MemoMarkdownMediaAdapter.content,
+            )
         }
     }
 }
-
-private fun Modifier.trashItemDeleteModifier(
-    deleteAlpha: Float,
-    keepStableAlphaLayer: Boolean,
-): Modifier =
-    if (keepStableAlphaLayer || deleteAlpha < TRASH_ITEM_ALPHA_THRESHOLD) {
-        then(
-            Modifier.graphicsLayer {
-                alpha = deleteAlpha
-                compositingStrategy = CompositingStrategy.ModulateAlpha
-            },
-        )
-    } else {
-        this
-    }
 
 @Composable
 private fun TrashScreenDialogs(
@@ -538,12 +567,6 @@ private fun TrashActionSheet(
     ) {
         MemoActionSheet(
             state = state,
-            onCopy = {},
-            onShareImage = {},
-            onShareText = {},
-            onLanShare = {},
-            onEdit = {},
-            onDelete = onDeletePermanently,
             onDismiss = onDismiss,
             useHorizontalScroll = false,
             showSwipeAffordance = false,
@@ -551,22 +574,22 @@ private fun TrashActionSheet(
             benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
             actions =
                 persistentListOf(
-                    MemoActionSheetAction(
+                    ActionItemUi(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         label = stringResource(R.string.action_restore),
                         benchmarkTag = BenchmarkAnchorContract.TRASH_ACTION_RESTORE,
                         onClick = onRestore,
                         dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
+                        haptic = ActionItemHaptic.MEDIUM,
                     ),
-                    MemoActionSheetAction(
+                    ActionItemUi(
                         icon = Icons.Default.DeleteForever,
                         label = stringResource(R.string.action_delete_permanently),
                         benchmarkTag = BenchmarkAnchorContract.TRASH_ACTION_DELETE_PERMANENTLY,
                         onClick = onDeletePermanently,
                         isDestructive = true,
                         dismissAfterClick = true,
-                        haptic = MemoActionHaptic.HEAVY,
+                        haptic = ActionItemHaptic.HEAVY,
                     ),
                 ),
         )
