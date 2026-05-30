@@ -19,6 +19,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncConflictResolution
@@ -69,9 +70,9 @@ class SettingsAppConfigCoordinatorSyncInboxStructureTest : AppFunSpec() {
             TODO("Not needed for coordinator test")
         }
 
-        override suspend fun resolveConflicts(
-            resolution: SyncConflictResolution,
-            conflictSet: SyncConflictSet,
+        override suspend fun resolveReview(
+            resolution: com.lomo.domain.model.SyncReviewResolution,
+            review: com.lomo.domain.model.SyncReviewSession,
         ): UnifiedSyncResult {
             TODO("Not needed for coordinator test")
         }
@@ -84,6 +85,7 @@ class SettingsAppConfigCoordinatorSyncInboxStructureTest : AppFunSpec() {
                     appConfigRepository = appConfigRepository,
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     scope = backgroundScope,
+                    customFontStore = FakeCustomFontStore(),
                     syncInboxRepository = syncInboxRepository,
                 )
 

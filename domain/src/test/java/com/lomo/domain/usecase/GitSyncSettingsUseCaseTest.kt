@@ -23,7 +23,7 @@ import com.lomo.domain.model.UnifiedSyncPhase
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeGitSyncRepository
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.assertions.fail
 import io.kotest.matchers.shouldBe
@@ -44,7 +44,7 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var gitSyncRepository: FakeGitSyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoRepository
+    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: GitSyncSettingsUseCase
 
     init {
@@ -52,14 +52,14 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             gitSyncRepository = FakeGitSyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoRepository()
+            memoRepository = FakeMemoStore()
             useCase =
                 GitSyncSettingsUseCase(
                     gitSyncRepository = gitSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
-                            memoRepository = memoRepository,
+                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                             syncProviderRegistry = SyncProviderRegistry(emptyList()),
                             syncPolicyRepository = syncPolicyRepository,
                         ),

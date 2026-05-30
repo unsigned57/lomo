@@ -21,6 +21,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeLanShareService
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
@@ -29,14 +30,23 @@ import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import com.lomo.domain.repository.MigrationArchiveRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
+import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
+import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
+import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
+import com.lomo.domain.usecase.MigrationArchiveSummary
+import com.lomo.domain.usecase.MigrationSettingsSummary
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
@@ -48,6 +58,8 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.CancellationException
+import java.io.InputStream
+import java.io.OutputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +82,8 @@ class SettingsViewModelTest : AppFunSpec() {
     private val switchRootStorageUseCase: SwitchRootStorageUseCase = mockk()
     private val memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository()
     private val memoVersionRepository = FakeMemoVersionRepository()
+    private val migrationRepository = NoOpMigrationArchiveRepository()
+    private val migrationWorkspaceStateResolver = NoOpWorkspaceStateResolver()
 
     private class FakeMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository {
         val snapshotsEnabled = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
@@ -100,10 +114,6 @@ class SettingsViewModelTest : AppFunSpec() {
             cursor: com.lomo.domain.model.MemoRevisionCursor?,
             limit: Int,
         ): com.lomo.domain.model.MemoRevisionPage {
-            TODO()
-        }
-
-        override suspend fun restoreMemoRevision(currentMemo: com.lomo.domain.model.Memo, revisionId: String) {
             TODO()
         }
 
@@ -172,6 +182,11 @@ class SettingsViewModelTest : AppFunSpec() {
             mockEvery { s3SyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
             mockEvery { s3SyncSettingsUseCase.observeLastSyncTimeMillis() } returns flowOf(null)
             mockEvery { s3SyncSettingsUseCase.observeSyncState() } returns flowOf(S3SyncState.Idle)
+            mockCoEvery { s3SyncSettingsUseCase.getAccessKeyStatus() } returns StoredCredentialStatus.Missing
+            mockCoEvery { s3SyncSettingsUseCase.getSecretAccessKeyStatus() } returns StoredCredentialStatus.Missing
+            mockCoEvery { s3SyncSettingsUseCase.getSessionTokenStatus() } returns StoredCredentialStatus.Missing
+            mockCoEvery { s3SyncSettingsUseCase.getEncryptionPasswordStatus() } returns StoredCredentialStatus.Missing
+            mockCoEvery { s3SyncSettingsUseCase.getEncryptionPassword2Status() } returns StoredCredentialStatus.Missing
             mockCoEvery { s3SyncSettingsUseCase.isAccessKeyConfigured() } returns false
             mockCoEvery { s3SyncSettingsUseCase.isSecretAccessKeyConfigured() } returns false
             mockCoEvery { s3SyncSettingsUseCase.isSessionTokenConfigured() } returns false
@@ -179,9 +194,11 @@ class SettingsViewModelTest : AppFunSpec() {
             mockCoEvery { s3SyncSettingsUseCase.isEncryptionPassword2Configured() } returns false
 
             mockCoEvery { webDavSyncSettingsUseCase.isPasswordConfigured() } returns false
+            mockCoEvery { webDavSyncSettingsUseCase.getPasswordStatus() } returns StoredCredentialStatus.Missing
             mockCoEvery { webDavSyncSettingsUseCase.testConnection() } returns WebDavSyncResult.Success("ok")
 
             mockCoEvery { gitSyncSettingsUseCase.isTokenConfigured() } returns false
+            mockCoEvery { gitSyncSettingsUseCase.getTokenStatus() } returns StoredCredentialStatus.Missing
             mockCoEvery { gitSyncSettingsUseCase.testConnection() } returns GitSyncResult.Success("ok")
             mockCoEvery { gitSyncSettingsUseCase.resetRepository() } returns GitSyncResult.Success("ok")
             mockCoEvery { gitSyncSettingsUseCase.triggerSyncNow() } returns Unit
@@ -302,6 +319,7 @@ class SettingsViewModelTest : AppFunSpec() {
                 mockEvery { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(false)
                 mockEvery { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(false)
                 mockEvery { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf("none")
+                mockCoEvery { s3SyncSettingsUseCase.getEncryptionPassword2Status() } returns StoredCredentialStatus.Present
                 mockCoEvery { s3SyncSettingsUseCase.isEncryptionPassword2Configured() } returns true
 
                 val viewModel = createViewModel()
@@ -334,6 +352,35 @@ class SettingsViewModelTest : AppFunSpec() {
                 switchRootStorageUseCase = switchRootStorageUseCase,
                 memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                 memoVersionRepository = memoVersionRepository,
+                customFontStore = FakeCustomFontStore(),
             ),
+            exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
+            importAllNotesArchiveUseCase =
+                ImportAllNotesArchiveUseCase(
+                    repository = migrationRepository,
+                    workspaceStateResolver = migrationWorkspaceStateResolver,
+                ),
+            exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(migrationRepository),
+            importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(migrationRepository),
         )
+}
+
+private class NoOpMigrationArchiveRepository : MigrationArchiveRepository {
+    override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary = MigrationArchiveSummary()
+
+    override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary = MigrationArchiveSummary()
+
+    override suspend fun exportEncryptedSettings(
+        output: OutputStream,
+        password: String,
+    ): MigrationSettingsSummary = MigrationSettingsSummary()
+
+    override suspend fun importEncryptedSettings(
+        input: InputStream,
+        password: String,
+    ): MigrationSettingsSummary = MigrationSettingsSummary()
+}
+
+private class NoOpWorkspaceStateResolver : WorkspaceStateResolver {
+    override suspend fun rebuildFromCurrentWorkspace() = Unit
 }

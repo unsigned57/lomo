@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.CustomFontStore
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
@@ -23,6 +24,7 @@ class SettingsCoordinatorFactory
         private val switchRootStorageUseCase: SwitchRootStorageUseCase,
         private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
         private val memoVersionRepository: MemoVersionRepository,
+        private val customFontStore: CustomFontStore,
         private val syncInboxRepository: SyncInboxRepository? = null,
     ) {
         fun createAppConfigCoordinator(scope: CoroutineScope): SettingsAppConfigCoordinator =
@@ -30,6 +32,7 @@ class SettingsCoordinatorFactory
                 appConfigRepository = appConfigRepository,
                 switchRootStorageUseCase = switchRootStorageUseCase,
                 scope = scope,
+                customFontStore = customFontStore,
                 memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                 memoVersionRepository = memoVersionRepository,
                 syncInboxRepository = syncInboxRepository,
@@ -60,4 +63,6 @@ class SettingsCoordinatorFactory
             )
 
         fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper()
+
+        fun customFontStore(): CustomFontStore = customFontStore
     }

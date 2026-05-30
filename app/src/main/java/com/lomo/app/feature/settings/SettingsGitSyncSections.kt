@@ -2,7 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Link
@@ -126,14 +126,12 @@ private fun GitSyncConnectionPreferences(
     PreferenceItem(
         title = stringResource(R.string.settings_git_pat),
         subtitle =
-            stringResource(
-                if (state.patConfigured) {
-                    R.string.settings_git_pat_configured
-                } else {
-                    R.string.settings_git_pat_not_set
-                },
+            credentialStatusSubtitle(
+                status = state.patStatus,
+                configuredResId = R.string.settings_git_pat_configured,
+                missingResId = R.string.settings_git_pat_not_set,
             ),
-        icon = Icons.Default.Lock,
+        icon = Icons.Outlined.Lock,
         onClick = onOpenPatDialog,
     )
 }

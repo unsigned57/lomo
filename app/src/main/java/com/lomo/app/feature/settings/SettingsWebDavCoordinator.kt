@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
@@ -9,6 +10,7 @@ import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import com.lomo.domain.usecase.toUnifiedState
 import kotlinx.coroutines.CancellationException
@@ -37,7 +39,7 @@ class SettingsWebDavCoordinator(
     private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
     scope: CoroutineScope,
 ) : SettingsWebDavFeatureSupport {
-    val webDavSyncEnabled: StateFlow<Boolean> =
+    private val sharedEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeWebDavSyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.WEBDAV_SYNC_ENABLED)
@@ -65,35 +67,32 @@ class SettingsWebDavCoordinator(
             .map { it ?: "" }
             .settingsStateIn(scope, "")
 
+    private val _passwordStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val passwordStatus: StateFlow<StoredCredentialStatus> = _passwordStatus.asStateFlow()
+
     private val _passwordConfigured = MutableStateFlow(false)
     val passwordConfigured: StateFlow<Boolean> = _passwordConfigured.asStateFlow()
 
-    val webDavAutoSyncEnabled: StateFlow<Boolean> =
+    private val sharedAutoSyncEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeAutoSyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.WEBDAV_AUTO_SYNC_ENABLED)
 
-    val webDavAutoSyncInterval: StateFlow<String> =
+    private val sharedAutoSyncInterval: StateFlow<String> =
         webDavSyncSettingsUseCase
             .observeAutoSyncInterval()
             .settingsStateIn(scope, PreferenceDefaults.WEBDAV_AUTO_SYNC_INTERVAL)
 
-    val webDavSyncOnRefreshEnabled: StateFlow<Boolean> =
+    private val sharedSyncOnRefreshEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
             .settingsStateIn(scope, PreferenceDefaults.WEBDAV_SYNC_ON_REFRESH)
 
-    val webDavLastSyncTime: StateFlow<Long> =
+    private val sharedLastSyncTime: StateFlow<Long> =
         webDavSyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { it ?: 0L }
             .settingsStateIn(scope, 0L)
-
-    val webDavSyncState: StateFlow<UnifiedSyncState> =
-        webDavSyncSettingsUseCase
-            .observeSyncState()
-            .map { state -> state.toUnifiedState(SyncBackendType.WEBDAV) }
-            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsWebDavConnectionTestState>(SettingsWebDavConnectionTestState.Idle)
@@ -102,11 +101,11 @@ class SettingsWebDavCoordinator(
     val refreshPasswordConfigured: suspend () -> SettingsOperationError? =
         {
             runWithError("Failed to read WebDAV password state") {
-                _passwordConfigured.value = webDavSyncSettingsUseCase.isPasswordConfigured()
+                setPasswordStatus(webDavSyncSettingsUseCase.getPasswordStatus())
             }
         }
 
-    val updateWebDavSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateWebDavSyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update WebDAV sync setting") {
                 webDavSyncSettingsUseCase.updateWebDavSyncEnabled(enabled)
@@ -145,37 +144,33 @@ class SettingsWebDavCoordinator(
         { password ->
             runWithError("Failed to update WebDAV password") {
                 webDavSyncSettingsUseCase.updatePassword(password)
-                _passwordConfigured.value = password.isNotBlank()
+                setPasswordStatus(password.toCredentialStatus())
             }
         }
 
-    val updateWebDavAutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateWebDavAutoSyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update WebDAV auto-sync setting") {
                 webDavSyncSettingsUseCase.updateAutoSyncEnabled(enabled)
             }
         }
 
-    val updateWebDavAutoSyncInterval: suspend (String) -> SettingsOperationError? =
+    private val updateWebDavAutoSyncIntervalInternal: suspend (String) -> SettingsOperationError? =
         { interval ->
             runWithError("Failed to update WebDAV auto-sync interval") {
                 webDavSyncSettingsUseCase.updateAutoSyncInterval(interval)
             }
         }
 
-    val updateWebDavSyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+    private val updateWebDavSyncOnRefreshInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update WebDAV sync-on-refresh setting") {
                 webDavSyncSettingsUseCase.updateSyncOnRefreshEnabled(enabled)
             }
         }
 
-    val triggerWebDavSyncNow: suspend () -> SettingsOperationError? =
-        {
-            runWithError("Failed to run WebDAV sync") {
-                webDavSyncSettingsUseCase.triggerSyncNow()
-            }
-        }
+    private val triggerWebDavSyncNowInternal: suspend () -> SettingsOperationError? =
+        { runWithError("Failed to run WebDAV sync") { webDavSyncSettingsUseCase.triggerSyncNow() } }
 
     val testWebDavConnection: suspend () -> SettingsOperationError? =
         {
@@ -192,6 +187,11 @@ class SettingsWebDavCoordinator(
                             SettingsWebDavConnectionTestState.Error(
                                 code = WebDavSyncErrorCode.UNKNOWN,
                                 detail = "WebDAV sync conflict detected",
+                            )
+                        is WebDavSyncResult.Review ->
+                            SettingsWebDavConnectionTestState.Error(
+                                code = WebDavSyncErrorCode.UNKNOWN,
+                                detail = result.message.ifBlank { "WebDAV sync review required" },
                             )
                         WebDavSyncResult.NotConfigured ->
                             SettingsWebDavConnectionTestState.Error(
@@ -222,6 +222,40 @@ class SettingsWebDavCoordinator(
         _connectionTestState.value = SettingsWebDavConnectionTestState.Idle
     }
 
+    private val remoteSyncSettingsCoordinator =
+        RemoteSyncSettingsCoordinator(
+            enabled = sharedEnabled,
+            autoSyncEnabled = sharedAutoSyncEnabled,
+            autoSyncInterval = sharedAutoSyncInterval,
+            syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
+            lastSyncTime = sharedLastSyncTime,
+            rawSyncState = webDavSyncSettingsUseCase.observeSyncState(),
+            mapToUnifiedSyncState = { state -> state.toUnifiedState(SyncBackendType.WEBDAV) },
+            updateEnabledAction = updateWebDavSyncEnabledInternal,
+            updateAutoSyncEnabledAction = updateWebDavAutoSyncEnabledInternal,
+            updateAutoSyncIntervalAction = updateWebDavAutoSyncIntervalInternal,
+            updateSyncOnRefreshEnabledAction = updateWebDavSyncOnRefreshInternal,
+            triggerSyncNowAction = triggerWebDavSyncNowInternal,
+            testConnectionAction = testWebDavConnection,
+        )
+
+    val webDavSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.enabled
+    val webDavAutoSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.autoSyncEnabled
+    val webDavAutoSyncInterval: StateFlow<String> = remoteSyncSettingsCoordinator.autoSyncInterval
+    val webDavSyncOnRefreshEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.syncOnRefreshEnabled
+    val webDavLastSyncTime: StateFlow<Long> = remoteSyncSettingsCoordinator.lastSyncTime
+    val webDavSyncState: StateFlow<UnifiedSyncState> =
+        remoteSyncSettingsCoordinator.syncState.settingsStateIn(scope, UnifiedSyncState.Idle)
+    val updateWebDavSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateEnabled
+    val updateWebDavAutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncEnabled
+    val updateWebDavAutoSyncInterval: suspend (String) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncInterval
+    val updateWebDavSyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateSyncOnRefreshEnabled
+    val triggerWebDavSyncNow: suspend () -> SettingsOperationError? = remoteSyncSettingsCoordinator::triggerSyncNow
+
     override fun isValidWebDavUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return false
@@ -237,6 +271,18 @@ class SettingsWebDavCoordinator(
             specificError = { throwable -> throwable.toWebDavOperationErrorOrNull() },
             action = action,
         )
+
+    private fun setPasswordStatus(status: StoredCredentialStatus) {
+        _passwordStatus.value = status
+        _passwordConfigured.value = status.isConfigured
+    }
+
+    private fun String.toCredentialStatus(): StoredCredentialStatus =
+        if (isBlank()) {
+            StoredCredentialStatus.Missing
+        } else {
+            StoredCredentialStatus.Present
+        }
 }
 
 private fun Throwable.toWebDavOperationErrorOrNull(): SettingsOperationError.WebDavSync? =
@@ -256,6 +302,8 @@ private fun WebDavSyncResult.toOperationErrorOrNull(): SettingsOperationError.We
                 detail = "WebDAV sync is not configured",
             )
         is WebDavSyncResult.Conflict ->
+            SettingsOperationError.WebDavSync(code = WebDavSyncErrorCode.UNKNOWN, detail = message)
+        is WebDavSyncResult.Review ->
             SettingsOperationError.WebDavSync(code = WebDavSyncErrorCode.UNKNOWN, detail = message)
         is WebDavSyncResult.Success -> null
     }

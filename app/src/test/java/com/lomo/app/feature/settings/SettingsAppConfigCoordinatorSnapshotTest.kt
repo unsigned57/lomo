@@ -19,6 +19,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionPage
@@ -89,10 +90,6 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
             TODO("Not needed for coordinator test")
         }
 
-        override suspend fun restoreMemoRevision(currentMemo: Memo, revisionId: String) {
-            TODO("Not needed for coordinator test")
-        }
-
         override suspend fun clearAllMemoSnapshots() {
             clearAllSnapshotsCallCount++
         }
@@ -109,6 +106,7 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
                     appConfigRepository = appConfigRepository,
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     scope = backgroundScope,
+                    customFontStore = FakeCustomFontStore(),
                     memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                     memoVersionRepository = memoVersionRepository,
                 )
@@ -126,6 +124,7 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
                     appConfigRepository = appConfigRepository,
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     scope = backgroundScope,
+                    customFontStore = FakeCustomFontStore(),
                     memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                     memoVersionRepository = memoVersionRepository,
                 )

@@ -20,7 +20,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeS3SyncRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import io.kotest.matchers.shouldBe
@@ -48,7 +48,7 @@ class S3SyncSettingsUseCaseStrongCompatTest : DomainFunSpec() {
                     syncPolicyRepository = FakeSyncPolicyRepository(),
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
-                            memoRepository = FakeMemoRepository(),
+                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(FakeMemoStore()),
                             syncProviderRegistry = SyncProviderRegistry(emptyList()),
                             syncPolicyRepository = FakeSyncPolicyRepository(),
                         ),

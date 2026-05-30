@@ -1,13 +1,20 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.model.isConfigured
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 sealed interface DirectoryDisplayState {
     data object Loading : DirectoryDisplayState
@@ -37,6 +44,10 @@ data class DisplaySectionState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val colorSource: ColorSource,
+    val fontPreference: FontPreference,
+    val availableCustomFonts: ImmutableList<CustomFontInfo> = persistentListOf(),
+    val colorHistory: ImmutableList<Int> = persistentListOf(),
     val typographyFontSizeScale: Float,
     val typographyLineHeightScale: Float,
     val typographyLetterSpacingScale: Float,
@@ -66,7 +77,7 @@ data class SnapshotSectionState(
 data class GitSectionState(
     val enabled: Boolean,
     val remoteUrl: String,
-    val patConfigured: Boolean,
+    val patStatus: StoredCredentialStatus,
     val authorName: String,
     val authorEmail: String,
     val autoSyncEnabled: Boolean,
@@ -76,7 +87,10 @@ data class GitSectionState(
     val syncState: UnifiedSyncState,
     val connectionTestState: SettingsGitConnectionTestState,
     val resetInProgress: Boolean,
-)
+) {
+    val patConfigured: Boolean
+        get() = patStatus.isConfigured
+}
 
 data class WebDavSectionState(
     val enabled: Boolean,
@@ -84,14 +98,17 @@ data class WebDavSectionState(
     val baseUrl: String,
     val endpointUrl: String,
     val username: String,
-    val passwordConfigured: Boolean,
+    val passwordStatus: StoredCredentialStatus,
     val autoSyncEnabled: Boolean,
     val autoSyncInterval: String,
     val syncOnRefreshEnabled: Boolean,
     val lastSyncTime: Long,
     val syncState: UnifiedSyncState,
     val connectionTestState: SettingsWebDavConnectionTestState,
-)
+) {
+    val passwordConfigured: Boolean
+        get() = passwordStatus.isConfigured
+}
 
 data class S3SectionState(
     val enabled: Boolean,
@@ -100,13 +117,13 @@ data class S3SectionState(
     val bucket: String,
     val prefix: String,
     val localSyncDirectory: String,
-    val accessKeyConfigured: Boolean,
-    val secretAccessKeyConfigured: Boolean,
-    val sessionTokenConfigured: Boolean,
+    val accessKeyStatus: StoredCredentialStatus,
+    val secretAccessKeyStatus: StoredCredentialStatus,
+    val sessionTokenStatus: StoredCredentialStatus,
     val pathStyle: S3PathStyle,
     val encryptionMode: S3EncryptionMode,
-    val encryptionPasswordConfigured: Boolean,
-    val encryptionPassword2Configured: Boolean,
+    val encryptionPasswordStatus: StoredCredentialStatus,
+    val encryptionPassword2Status: StoredCredentialStatus,
     val rcloneFilenameEncryption: S3RcloneFilenameEncryption,
     val rcloneFilenameEncoding: S3RcloneFilenameEncoding,
     val rcloneDirectoryNameEncryption: Boolean,
@@ -118,7 +135,22 @@ data class S3SectionState(
     val lastSyncTime: Long,
     val syncState: UnifiedSyncState,
     val connectionTestState: SettingsS3ConnectionTestState,
-)
+) {
+    val accessKeyConfigured: Boolean
+        get() = accessKeyStatus.isConfigured
+
+    val secretAccessKeyConfigured: Boolean
+        get() = secretAccessKeyStatus.isConfigured
+
+    val sessionTokenConfigured: Boolean
+        get() = sessionTokenStatus.isConfigured
+
+    val encryptionPasswordConfigured: Boolean
+        get() = encryptionPasswordStatus.isConfigured
+
+    val encryptionPassword2Configured: Boolean
+        get() = encryptionPassword2Status.isConfigured
+}
 
 data class InteractionSectionState(
     val hapticEnabled: Boolean,

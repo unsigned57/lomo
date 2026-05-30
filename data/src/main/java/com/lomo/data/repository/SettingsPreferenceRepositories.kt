@@ -1,11 +1,15 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.repository.ColorSchemePreferencesRepository
 import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
+import com.lomo.domain.repository.FontPreferencesRepository
 import com.lomo.domain.repository.InteractionBehaviorPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
 import com.lomo.domain.repository.InputToolbarPreferencesRepository
@@ -65,6 +69,7 @@ private fun decodeMemoActionOrdersByScope(serialized: String): Map<String, List<
     if (serialized.isBlank()) {
         emptyMap()
     } else {
+        // behavior-contract: silent-result-ok: corrupt JSON → empty map; next save overwrites
         runCatching {
             memoActionOrderScopeJson
                 .decodeFromString<MemoActionOrdersByScopePayload>(serialized)
@@ -139,6 +144,8 @@ class PreferencesRepositoryImpl
         syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
         draftPreferencesRepository: DraftPreferencesRepositoryImpl,
         typographyPreferencesRepository: TypographyPreferencesRepositoryImpl,
+        colorSchemePreferencesRepository: ColorSchemePreferencesRepositoryImpl,
+        fontPreferencesRepository: FontPreferencesRepositoryImpl,
     ) : PreferencesRepository,
         DateTimePreferencesRepository by dateTimePreferencesRepository,
         StoragePreferencesRepository by storagePreferencesRepository,
@@ -151,7 +158,9 @@ class PreferencesRepositoryImpl
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
         SyncInboxPreferencesRepository by syncInboxPreferencesRepository,
         DraftPreferencesRepository by draftPreferencesRepository,
-        TypographyPreferencesRepository by typographyPreferencesRepository
+        TypographyPreferencesRepository by typographyPreferencesRepository,
+        ColorSchemePreferencesRepository by colorSchemePreferencesRepository,
+        FontPreferencesRepository by fontPreferencesRepository
 
 @Singleton
 class DateTimePreferencesRepositoryImpl
@@ -463,5 +472,45 @@ class TypographyPreferencesRepositoryImpl
 
         override suspend fun setParagraphSpacingScale(scale: Float) {
             dataStore.updateParagraphSpacingScale(scale)
+        }
+    }
+
+@Singleton
+class ColorSchemePreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : ColorSchemePreferencesRepository {
+        override fun getColorSource(): Flow<ColorSource> =
+            dataStore.colorSource.map(ColorSource::fromStorageValue)
+
+        override suspend fun setColorSource(source: ColorSource) {
+            dataStore.updateColorSource(source.storageValue)
+            if (source is ColorSource.CustomSeed) {
+                dataStore.addColorToHistory(source.argb)
+            }
+        }
+
+        override fun getColorHistory(): Flow<List<Int>> =
+            dataStore.colorHistory.map { str ->
+                str.split(",").filter { it.isNotBlank() }.mapNotNull { it.toIntOrNull() }
+            }
+
+        override suspend fun addColorToHistory(argb: Int) {
+            dataStore.addColorToHistory(argb)
+        }
+    }
+
+@Singleton
+class FontPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : FontPreferencesRepository {
+        override fun getFontPreference(): Flow<FontPreference> =
+            dataStore.fontPreference.map(FontPreference::fromStorageValue)
+
+        override suspend fun setFontPreference(preference: FontPreference) {
+            dataStore.updateFontPreference(preference.storageValue)
         }
     }

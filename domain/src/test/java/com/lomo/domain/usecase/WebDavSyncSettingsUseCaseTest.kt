@@ -22,7 +22,7 @@ import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeWebDavSyncRepository
 import io.kotest.matchers.shouldBe
@@ -41,7 +41,7 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private lateinit var webDavSyncRepository: FakeWebDavSyncRepository
     private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
-    private lateinit var memoRepository: FakeMemoRepository
+    private lateinit var memoRepository: FakeMemoStore
     private lateinit var useCase: WebDavSyncSettingsUseCase
 
     init {
@@ -49,14 +49,14 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             webDavSyncRepository = FakeWebDavSyncRepository()
             syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
-            memoRepository = FakeMemoRepository()
+            memoRepository = FakeMemoStore()
             useCase =
                 WebDavSyncSettingsUseCase(
                     webDavSyncRepository = webDavSyncRepository,
                     syncPolicyRepository = syncPolicyRepository,
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
-                            memoRepository = memoRepository,
+                            memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                             syncProviderRegistry = SyncProviderRegistry(emptyList()),
                             syncPolicyRepository = syncPolicyRepository,
                         ),

@@ -1,11 +1,15 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.CustomFontStore
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.SyncInboxRepository
@@ -21,6 +25,7 @@ class SettingsAppConfigCoordinator(
     private val appConfigRepository: AppConfigRepository,
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
     scope: CoroutineScope,
+    private val customFontStore: CustomFontStore,
     private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
         NoOpMemoSnapshotPreferencesRepository,
     private val memoVersionRepository: MemoVersionRepository? = null,
@@ -60,6 +65,26 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .getThemeMode()
             .stateIn(scope, settingsWhileSubscribed(), ThemeMode.SYSTEM)
+
+    val colorSource: StateFlow<ColorSource> =
+        appConfigRepository
+            .getColorSource()
+            .stateIn(scope, settingsWhileSubscribed(), ColorSource.default())
+
+    val colorHistory: StateFlow<List<Int>> =
+        appConfigRepository
+            .getColorHistory()
+            .stateIn(scope, settingsWhileSubscribed(), emptyList())
+
+    val fontPreference: StateFlow<FontPreference> =
+        appConfigRepository
+            .getFontPreference()
+            .stateIn(scope, settingsWhileSubscribed(), FontPreference.default())
+
+    val availableCustomFonts: StateFlow<List<CustomFontInfo>> =
+        customFontStore
+            .observeFonts()
+            .stateIn(scope, settingsWhileSubscribed(), emptyList())
 
     val typographyFontSizeScale: StateFlow<Float> =
         appConfigRepository
@@ -255,6 +280,18 @@ class SettingsAppConfigCoordinator(
 
     val updateThemeMode: suspend (ThemeMode) -> Unit =
         { mode -> appConfigRepository.setThemeMode(mode) }
+
+    val updateColorSource: suspend (ColorSource) -> Unit =
+        { source -> appConfigRepository.setColorSource(source) }
+
+    val updateFontPreference: suspend (FontPreference) -> Unit =
+        { preference -> appConfigRepository.setFontPreference(preference) }
+
+    val importCustomFont: suspend (contents: ByteArray, originalFileName: String) -> CustomFontInfo? =
+        { contents, originalFileName -> customFontStore.importFont(contents, originalFileName) }
+
+    val deleteCustomFont: suspend (id: String) -> Unit =
+        { id -> customFontStore.deleteFont(id) }
 
     val updateTypographyFontSizeScale: suspend (Float) -> Unit =
         { scale -> appConfigRepository.setFontSizeScale(scale) }

@@ -3,6 +3,8 @@ package com.lomo.app.feature.settings
 import androidx.activity.compose.BackHandler
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -70,6 +72,7 @@ data class SettingsFeatures(
     val snapshot: SettingsSnapshotFeatureViewModel,
     val interaction: SettingsInteractionFeatureViewModel,
     val system: SettingsSystemFeatureViewModel,
+    val migration: SettingsMigrationFeatureViewModel,
     val lanShare: SettingsLanShareFeatureViewModel,
     val git: SettingsGitFeatureViewModel,
     val webDav: SettingsWebDavFeatureViewModel,
@@ -84,6 +87,13 @@ data class StoragePickerActions(
     val openS3LocalSyncDirectory: () -> Unit,
 )
 
+data class MigrationPickerActions(
+    val exportNotesArchive: () -> Unit,
+    val importNotesArchive: () -> Unit,
+    val exportEncryptedSettings: (String) -> Unit,
+    val importEncryptedSettings: (String) -> Unit,
+)
+
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
@@ -96,25 +106,27 @@ fun SettingsScreen(
     var activeUpdateDialogState by remember { mutableStateOf<AppUpdateDialogState?>(null) }
     var lastShownUpdateDialogKey by remember { mutableStateOf<String?>(null) }
     val resources = settingsResources()
-    val features = settingsFeatures(viewModel)
+    val features = remember(viewModel) {
+        SettingsFeatures(
+            storage = viewModel.storageFeature,
+            display = viewModel.displayFeature,
+            shareCard = viewModel.shareCardFeature,
+            snapshot = viewModel.snapshotFeature,
+            interaction = viewModel.interactionFeature,
+            system = viewModel.systemFeature,
+            migration = viewModel.migrationFeature,
+            lanShare = viewModel.lanShareFeature,
+            git = viewModel.gitFeature,
+            webDav = viewModel.webDavFeature,
+            s3 = viewModel.s3Feature,
+        )
+    }
     val currentVersion by features.system.currentVersion.collectAsStateWithLifecycle()
     val manualUpdateState by features.system.manualUpdateState.collectAsStateWithLifecycle()
     val debugPreviewDialogState by features.system.debugPreviewDialogState.collectAsStateWithLifecycle()
+    val migrationOperationState by features.migration.operationState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
-    val conflictController =
-        remember(conflictViewModel) {
-            SyncConflictDialogController(
-                state = conflictViewModel.state,
-                onFileChoiceChanged = conflictViewModel::setFileChoice,
-                onAllChoicesChanged = conflictViewModel::setAllChoices,
-                onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
-                onAutoResolveSafeConflicts = conflictViewModel::autoResolveSafeConflicts,
-                onToggleExpanded = conflictViewModel::toggleExpandedFile,
-                onApply = conflictViewModel::applyResolution,
-                onDismiss = conflictViewModel::dismiss,
-                onShowConflictDialog = conflictViewModel::showConflictDialog,
-            )
-        }
+    val conflictController = rememberConflictController(conflictViewModel)
     val storagePickers =
         rememberStoragePickerActions(
             storageFeature = features.storage,
@@ -122,10 +134,14 @@ fun SettingsScreen(
             snackbarHostState = snackbarHostState,
             unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
+    val migrationPickers =
+        rememberMigrationPickerActions(
+            migrationFeature = features.migration,
+            snackbarHostState = snackbarHostState,
+            unknownErrorMessage = resources.messages.unknownErrorMessage,
+        )
 
-    if (dialogState.showTypographyPage) {
-        BackHandler { dialogState.showTypographyPage = false }
-    }
+    SettingsBackHandler(dialogState)
 
     SettingsConflictHandlers(
         uiState = uiState,
@@ -144,13 +160,19 @@ fun SettingsScreen(
         onActiveUpdateDialogStateChange = { activeUpdateDialogState = it },
         onConsumeDebugPreviewDialog = features.system::consumeDebugPreviewDialog,
     )
+    HandleMigrationOperationState(
+        operationState = migrationOperationState,
+        snackbarHostState = snackbarHostState,
+        onClearOperationState = features.migration::clearOperationState,
+    )
 
-    SettingsTypographyAnimatedContent(
+    SettingsSubPagesAnimatedContent(
         uiState = uiState,
         dialogState = dialogState,
         features = features,
         resources = resources,
         storagePickers = storagePickers,
+        migrationPickers = migrationPickers,
         snackbarHostState = snackbarHostState,
         currentVersion = currentVersion,
         manualUpdateState = manualUpdateState,
@@ -173,17 +195,50 @@ fun SettingsScreen(
         features = features,
         dialogState = dialogState,
         options = resources.dialogOptions,
+        migrationPickers = migrationPickers,
         onApplyLanguageTag = ::applyLanguageTag,
     )
 }
 
 @Composable
-private fun SettingsTypographyAnimatedContent(
+private fun rememberConflictController(
+    conflictViewModel: SyncConflictViewModel,
+): SyncConflictDialogController {
+    return remember(conflictViewModel) {
+        SyncConflictDialogController(
+            state = conflictViewModel.state,
+            onFileChoiceChanged = conflictViewModel::setFileChoice,
+            onAllChoicesChanged = conflictViewModel::setAllChoices,
+            onReviewItemChoiceChanged = conflictViewModel::setReviewItemChoice,
+            onAllReviewItemChoicesChanged = conflictViewModel::setAllReviewItemChoices,
+            onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
+            onAutoResolveSafeConflicts = conflictViewModel::autoResolveSafeConflicts,
+            onToggleExpanded = conflictViewModel::toggleExpandedFile,
+            onApply = conflictViewModel::applyResolution,
+            onDismiss = conflictViewModel::dismiss,
+            onShowConflictDialog = conflictViewModel::showConflictDialog,
+            onShowReviewDialog = conflictViewModel::showReviewDialog,
+        )
+    }
+}
+
+@Composable
+private fun SettingsBackHandler(dialogState: SettingsDialogState) {
+    if (dialogState.activeSubPage != SettingsSubPage.NONE) {
+        BackHandler {
+            dialogState.activeSubPage = SettingsSubPage.NONE
+        }
+    }
+}
+
+@Composable
+private fun SettingsSubPagesAnimatedContent(
     uiState: SettingsScreenUiState,
     dialogState: SettingsDialogState,
     features: SettingsFeatures,
     resources: SettingsResources,
     storagePickers: StoragePickerActions,
+    migrationPickers: MigrationPickerActions,
     snackbarHostState: SnackbarHostState,
     currentVersion: String,
     manualUpdateState: SettingsManualUpdateState,
@@ -191,97 +246,154 @@ private fun SettingsTypographyAnimatedContent(
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
 ) {
     AnimatedContent(
-        targetState = dialogState.showTypographyPage,
-        transitionSpec = {
-            if (targetState) {
-                (slideInHorizontally(
-                    initialOffsetX = { (it * 0.15f).toInt() },
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-                ) + fadeIn(
-                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-                ) + scaleIn(
-                    initialScale = 0.95f,
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-                )) togetherWith (slideOutHorizontally(
-                    targetOffsetX = { -(it * 0.15f).toInt() },
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-                ) + fadeOut(
-                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-                ) + scaleOut(
-                    targetScale = 1.05f,
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-                ))
-            } else {
-                (slideInHorizontally(
-                    initialOffsetX = { -(it * 0.15f).toInt() },
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-                ) + fadeIn(
-                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-                ) + scaleIn(
-                    initialScale = 1.05f,
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-                )) togetherWith (slideOutHorizontally(
-                    targetOffsetX = { (it * 0.15f).toInt() },
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-                ) + fadeOut(
-                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-                ) + scaleOut(
-                    targetScale = 0.95f,
-                    animationSpec = tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-                ))
+        targetState = dialogState.activeSubPage,
+        transitionSpec = settingsSubPagesTransitionSpec(),
+        label = "SettingsSubPagesTransition",
+    ) { activePage ->
+        when (activePage) {
+            SettingsSubPage.NONE -> {
+                SettingsScreenScaffold(
+                    onBackClick = onBackClick,
+                    snackbarHostState = snackbarHostState,
+                    uiState = uiState,
+                    dialogState = dialogState,
+                    features = features,
+                    resources = resources,
+                    storagePickers = storagePickers,
+                    currentVersion = currentVersion,
+                    manualUpdateState = manualUpdateState,
+                    onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                )
             }
-        },
-        label = "SettingsTypographyTransition",
-    ) { showTypography ->
-        if (showTypography) {
-            TypographySettingsPage(
-                uiState = uiState.display,
-                displayFeature = features.display,
-                onBack = { dialogState.showTypographyPage = false },
-            )
-        } else {
-            SettingsScreenScaffold(
-                uiState = uiState,
-                aboutState =
-                    AboutSectionState(
-                        currentVersion = currentVersion,
-                        manualUpdateState = manualUpdateState,
-                        showDebugUpdateTools = BuildConfig.DEBUG,
-                    ),
-                onBackClick = onBackClick,
-                snackbarHostState = snackbarHostState,
-                dialogState = dialogState,
-                features = features,
-                resources = resources,
-                storagePickers = storagePickers,
-                onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
-                onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
-            )
+            SettingsSubPage.SYNC_BACKUP -> {
+                SyncBackupSettingsPage(
+                    uiState = uiState,
+                    dialogState = dialogState,
+                    features = features,
+                    dialogOptions = resources.dialogOptions,
+                    storagePickers = storagePickers,
+                    migrationPickers = migrationPickers,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.STORAGE_FORMATS -> {
+                StorageFormatsSettingsPage(
+                    uiState = uiState,
+                    dialogState = dialogState,
+                    features = features,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.INTERACTION_SECURITY -> {
+                InteractionSecuritySettingsPage(
+                    uiState = uiState,
+                    features = features,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.TYPOGRAPHY -> {
+                TypographySettingsPage(
+                    uiState = uiState.display,
+                    displayFeature = features.display,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.COLOR_PALETTE -> {
+                ColorPaletteSettingsPage(
+                    uiState = uiState.display,
+                    displayFeature = features.display,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.FONT -> {
+                FontSettingsPage(
+                    uiState = uiState.display,
+                    displayFeature = features.display,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
+            SettingsSubPage.ABOUT -> {
+                AboutSettingsPage(
+                    uiState = uiState,
+                    aboutState =
+                        AboutSectionState(
+                            currentVersion = currentVersion,
+                            manualUpdateState = manualUpdateState,
+                            showDebugUpdateTools = BuildConfig.DEBUG,
+                        ),
+                    features = features,
+                    onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                    onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
+                    onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                )
+            }
         }
+    }
+}
+
+private fun settingsSubPagesTransitionSpec():
+    AnimatedContentTransitionScope<SettingsSubPage>.() -> ContentTransform = {
+    val isForward = initialState == SettingsSubPage.NONE && targetState != SettingsSubPage.NONE
+    if (isForward) {
+        (slideInHorizontally(
+            initialOffsetX = { (it * 0.15f).toInt() },
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+        ) + scaleIn(
+            initialScale = 0.95f,
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        )) togetherWith (slideOutHorizontally(
+            targetOffsetX = { -(it * 0.15f).toInt() },
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedAccelerate,
+            ),
+        ) + fadeOut(
+            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+        ) + scaleOut(
+            targetScale = 1.05f,
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedAccelerate,
+            ),
+        ))
+    } else {
+        (slideInHorizontally(
+            initialOffsetX = { -(it * 0.15f).toInt() },
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+        ) + scaleIn(
+            initialScale = 1.05f,
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        )) togetherWith (slideOutHorizontally(
+            targetOffsetX = { (it * 0.15f).toInt() },
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedAccelerate,
+            ),
+        ) + fadeOut(
+            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+        ) + scaleOut(
+            targetScale = 0.95f,
+            animationSpec = tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingEmphasizedAccelerate,
+            ),
+        ))
     }
 }
 
@@ -312,10 +424,12 @@ private fun SettingsConflictHandlers(
     HandleWebDavConflictState(
         syncState = uiState.webDav.syncState,
         onShowConflictDialog = conflictController.onShowConflictDialog,
+        onShowReviewDialog = conflictController.onShowReviewDialog,
     )
     HandleS3ConflictState(
         syncState = uiState.s3.syncState,
         onShowConflictDialog = conflictController.onShowConflictDialog,
+        onShowReviewDialog = conflictController.onShowReviewDialog,
     )
 }
 
@@ -345,42 +459,21 @@ private fun HandleSettingsUpdateDialogs(
 
 @Composable
 private fun settingsResources(): SettingsResources {
-    val currentLanguageTag = currentLanguageTag()
+    val locales = AppCompatDelegate.getApplicationLocales()
+    val currentLanguageTag = if (!locales.isEmpty) {
+        locales[0]?.toLanguageTag() ?: SYSTEM_LANGUAGE_TAG
+    } else {
+        SYSTEM_LANGUAGE_TAG
+    }
     return SettingsResources(
         currentLanguageTag = currentLanguageTag,
         dialogOptions = settingsDialogOptions(currentLanguageTag),
-        messages = settingsMessages(),
+        messages = SettingsMessages(
+            unknownErrorMessage = stringResource(R.string.error_unknown),
+            gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary),
+            gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required),
+        ),
     )
-}
-
-@Composable
-private fun settingsMessages(): SettingsMessages =
-    SettingsMessages(
-        unknownErrorMessage = stringResource(R.string.error_unknown),
-        gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary),
-        gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required),
-    )
-
-private fun settingsFeatures(viewModel: SettingsViewModel): SettingsFeatures =
-    SettingsFeatures(
-        storage = viewModel.storageFeature,
-        display = viewModel.displayFeature,
-        shareCard = viewModel.shareCardFeature,
-        snapshot = viewModel.snapshotFeature,
-        interaction = viewModel.interactionFeature,
-        system = viewModel.systemFeature,
-        lanShare = viewModel.lanShareFeature,
-        git = viewModel.gitFeature,
-        webDav = viewModel.webDavFeature,
-        s3 = viewModel.s3Feature,
-    )
-
-private fun currentLanguageTag(): String {
-    val locales = AppCompatDelegate.getApplicationLocales()
-    if (!locales.isEmpty) {
-        return locales[0]?.toLanguageTag() ?: SYSTEM_LANGUAGE_TAG
-    }
-    return SYSTEM_LANGUAGE_TAG
 }
 
 @Composable

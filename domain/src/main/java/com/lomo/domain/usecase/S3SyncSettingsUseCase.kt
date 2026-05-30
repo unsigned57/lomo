@@ -1,11 +1,13 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -52,6 +54,18 @@ interface S3SyncBehaviorObservation {
 }
 
 interface S3SyncCredentialObservation {
+    suspend fun getAccessKeyStatus(): StoredCredentialStatus
+
+    suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus
+
+    suspend fun getSessionTokenStatus(): StoredCredentialStatus
+
+    suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus
+
+    suspend fun getEncryptionPassword2Status(): StoredCredentialStatus
+
+    suspend fun getCredentialState(): CredentialState
+
     suspend fun isAccessKeyConfigured(): Boolean
 
     suspend fun isSecretAccessKeyConfigured(): Boolean
@@ -219,6 +233,21 @@ private class S3SyncBehaviorObservationImpl(
 private class S3SyncCredentialObservationImpl(
     private val s3SyncRepository: S3SyncRepository,
 ) : S3SyncCredentialObservation {
+    override suspend fun getAccessKeyStatus(): StoredCredentialStatus = s3SyncRepository.getAccessKeyStatus()
+
+    override suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
+        s3SyncRepository.getSecretAccessKeyStatus()
+
+    override suspend fun getSessionTokenStatus(): StoredCredentialStatus = s3SyncRepository.getSessionTokenStatus()
+
+    override suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
+        s3SyncRepository.getEncryptionPasswordStatus()
+
+    override suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
+        s3SyncRepository.getEncryptionPassword2Status()
+
+    override suspend fun getCredentialState(): CredentialState = s3SyncRepository.getCredentialState()
+
     override suspend fun isAccessKeyConfigured(): Boolean = s3SyncRepository.isAccessKeyConfigured()
 
     override suspend fun isSecretAccessKeyConfigured(): Boolean = s3SyncRepository.isSecretAccessKeyConfigured()

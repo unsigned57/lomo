@@ -8,15 +8,24 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,34 +38,37 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.settings.PreferenceItem
+import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
-import kotlinx.collections.immutable.toImmutableMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreenScaffold(
-    uiState: SettingsScreenUiState,
-    aboutState: AboutSectionState,
     onBackClick: () -> Unit,
     snackbarHostState: SnackbarHostState,
+    uiState: SettingsScreenUiState,
     dialogState: SettingsDialogState,
     features: SettingsFeatures,
     resources: SettingsResources,
     storagePickers: StoragePickerActions,
+    currentVersion: String,
+    manualUpdateState: SettingsManualUpdateState,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
-    onPreviewDebugUpdate: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     AnimatedContent(
@@ -64,31 +76,32 @@ internal fun SettingsScreenScaffold(
         transitionSpec = settingsLanguageTransitionSpec(),
         label = "SettingsLanguageTransition",
     ) { languageTag ->
-        Scaffold(
-            modifier =
-                Modifier
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .benchmarkAnchorRoot(BenchmarkAnchorContract.SETTINGS_ROOT),
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                SettingsTopBar(
-                    onBackClick = onBackClick,
-                    scrollBehavior = scrollBehavior,
+        key(languageTag) {
+            Scaffold(
+                modifier =
+                    Modifier
+                        .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .benchmarkAnchorRoot(BenchmarkAnchorContract.SETTINGS_ROOT),
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                topBar = {
+                    SettingsTopBar(
+                        onBackClick = onBackClick,
+                        scrollBehavior = scrollBehavior,
+                    )
+                },
+            ) { padding ->
+                SettingsBody(
+                    padding = padding,
+                    uiState = uiState,
+                    dialogState = dialogState,
+                    features = features,
+                    resources = resources,
+                    storagePickers = storagePickers,
+                    currentVersion = currentVersion,
+                    manualUpdateState = manualUpdateState,
+                    onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
                 )
-            },
-        ) { padding ->
-            SettingsBody(
-                padding = padding,
-                uiState = uiState,
-                aboutState = aboutState,
-                languageTag = languageTag,
-                dialogState = dialogState,
-                features = features,
-                dialogOptions = resources.dialogOptions,
-                storagePickers = storagePickers,
-                onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
-                onPreviewDebugUpdate = onPreviewDebugUpdate,
-            )
+            }
         }
     }
 }
@@ -158,34 +171,38 @@ private fun SettingsTopBar(
 private fun SettingsBody(
     padding: PaddingValues,
     uiState: SettingsScreenUiState,
-    aboutState: AboutSectionState,
-    languageTag: String,
     dialogState: SettingsDialogState,
     features: SettingsFeatures,
-    dialogOptions: SettingsDialogOptions,
+    resources: SettingsResources,
     storagePickers: StoragePickerActions,
+    currentVersion: String,
+    manualUpdateState: SettingsManualUpdateState,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
-    onPreviewDebugUpdate: () -> Unit,
 ) {
-    val gitSyncIntervalLabels = remember(dialogOptions.gitSyncIntervalLabels) {
-        dialogOptions.gitSyncIntervalLabels.toImmutableMap()
-    }
-    val webDavProviderLabels = remember(dialogOptions.webDavProviderLabels) {
-        dialogOptions.webDavProviderLabels.toImmutableMap()
-    }
-    val s3PathStyleLabels = remember(dialogOptions.s3PathStyleLabels) {
-        dialogOptions.s3PathStyleLabels.toImmutableMap()
-    }
-    val s3EncryptionModeLabels =
-        remember(dialogOptions.s3EncryptionModeLabels) { dialogOptions.s3EncryptionModeLabels.toImmutableMap() }
-    val s3RcloneFilenameEncryptionLabels =
-        remember(dialogOptions.s3RcloneFilenameEncryptionLabels) {
-            dialogOptions.s3RcloneFilenameEncryptionLabels.toImmutableMap()
+    val heroState =
+        remember(uiState.git, uiState.webDav, uiState.s3) {
+            computeSettingsHomeHeroState(
+                gitEnabled = uiState.git.enabled,
+                gitLastSync = uiState.git.lastSyncTime,
+                gitSyncState = uiState.git.syncState,
+                webDavEnabled = uiState.webDav.enabled,
+                webDavLastSync = uiState.webDav.lastSyncTime,
+                webDavSyncState = uiState.webDav.syncState,
+                s3Enabled = uiState.s3.enabled,
+                s3LastSync = uiState.s3.lastSyncTime,
+                s3SyncState = uiState.s3.syncState,
+            )
         }
-    val s3RcloneFilenameEncodingLabels =
-        remember(dialogOptions.s3RcloneFilenameEncodingLabels) {
-            dialogOptions.s3RcloneFilenameEncodingLabels.toImmutableMap()
-        }
+    val notSetLabel = stringResource(R.string.settings_not_set)
+    val languageLabel =
+        resources.dialogOptions.languageLabels[resources.currentLanguageTag]
+            ?: resources.currentLanguageTag
+    val themeLabel =
+        resources.dialogOptions.themeModeLabels[uiState.display.themeMode]
+            ?: uiState.display.themeMode.value
+    val colorPaletteLabel = colorSourceSummaryLabel(uiState.display.colorSource)
+    val fontLabel = fontPreferenceSummaryLabel(uiState.display)
+
     Column(
         modifier =
             Modifier
@@ -198,152 +215,142 @@ private fun SettingsBody(
                 ),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
-        PrimarySettingsSections(
-            uiState = uiState,
-            languageTag = languageTag,
-            dialogState = dialogState,
-            storagePickers = storagePickers,
-            features = features,
-            dialogOptions = dialogOptions,
+        SettingsHomeHero(
+            heroState = heroState,
+            onSyncNow = { triggerEnabledProviderSyncs(features, uiState) },
         )
-        SyncSettingsSection(
-            storageState = uiState.storage,
-            onToggleSyncInbox = features.storage::updateSyncInboxEnabled,
-            onSelectSyncInbox = storagePickers.openSyncInbox,
-            gitContent = {
-                GitSyncSettingsSectionContainer(
-                    state = uiState.git,
-                    dialogState = dialogState,
-                    gitFeature = features.git,
-                    gitSyncIntervalLabels = gitSyncIntervalLabels,
-                )
-            },
-            webDavContent = {
-                WebDavSyncSettingsSectionContainer(
-                    state = uiState.webDav,
-                    dialogState = dialogState,
-                    webDavFeature = features.webDav,
-                    gitSyncIntervalLabels = gitSyncIntervalLabels,
-                    webDavProviderLabels = webDavProviderLabels,
-                )
-            },
-            s3Content = {
-                S3SyncSettingsSectionContainer(
-                    state = uiState.s3,
-                    dialogState = dialogState,
-                    s3Feature = features.s3,
-                    onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
-                    syncIntervalLabels = gitSyncIntervalLabels,
-                    pathStyleLabels = s3PathStyleLabels,
-                    encryptionModeLabels = s3EncryptionModeLabels,
-                    rcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
-                    rcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
-                )
-            },
+
+        SettingsStorageQuickGroup(
+            memoDirectoryLabel = uiState.storage.rootDirectory.subtitle(notSetLabel),
+            imageDirectoryLabel = uiState.storage.imageDirectory.subtitle(notSetLabel),
+            voiceDirectoryLabel = uiState.storage.voiceDirectory.subtitle(notSetLabel),
+            onMemoDirectoryClick = storagePickers.openRoot,
+            onImageDirectoryClick = storagePickers.openImage,
+            onVoiceDirectoryClick = storagePickers.openVoice,
         )
-        FooterSettingsSections(
-            uiState = uiState,
-            aboutState = aboutState,
-            dialogState = dialogState,
-            interactionFeature = features.interaction,
-            systemFeature = features.system,
-            onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
-            onPreviewDebugUpdate = onPreviewDebugUpdate,
+
+        SettingsPreferencesQuickGroup(
+            themeLabel = themeLabel,
+            languageLabel = languageLabel,
+            colorPaletteLabel = colorPaletteLabel,
+            fontLabel = fontLabel,
+            appLockChecked = uiState.interaction.appLockEnabled,
+            hapticChecked = uiState.interaction.hapticEnabled,
+            onThemeClick = { dialogState.showThemeDialog = true },
+            onLanguageClick = { dialogState.showLanguageDialog = true },
+            onTypographyClick = { dialogState.activeSubPage = SettingsSubPage.TYPOGRAPHY },
+            onColorPaletteClick = { dialogState.activeSubPage = SettingsSubPage.COLOR_PALETTE },
+            onFontClick = { dialogState.activeSubPage = SettingsSubPage.FONT },
+            onAppLockChange = features.interaction::updateAppLockEnabled,
+            onHapticChange = features.interaction::updateHapticFeedback,
+        )
+
+        SettingsCategoryEntriesGroup(dialogState = dialogState)
+
+        SettingsHomeFooter(
+            currentVersion = currentVersion,
+            manualUpdateState = manualUpdateState,
+            onCheckUpdates = {
+                val update = manualUpdateState
+                if (update is SettingsManualUpdateState.UpdateAvailable) {
+                    onOpenAvailableUpdateDialog(update.dialogState)
+                } else {
+                    features.system.checkForUpdatesManually()
+                }
+            },
         )
     }
 }
 
 @Composable
-private fun PrimarySettingsSections(
-    uiState: SettingsScreenUiState,
-    languageTag: String,
-    dialogState: SettingsDialogState,
-    storagePickers: StoragePickerActions,
-    features: SettingsFeatures,
-    dialogOptions: SettingsDialogOptions,
-) {
-    StorageSettingsSection(
-        state = uiState.storage,
-        onSelectRoot = storagePickers.openRoot,
-        onSelectImageRoot = storagePickers.openImage,
-        onSelectVoiceRoot = storagePickers.openVoice,
-        onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
-        onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
-    )
-    DisplaySettingsSection(
-        state = uiState.display,
-        languageLabel = dialogOptions.languageLabels[languageTag] ?: languageTag,
-        themeLabel =
-            dialogOptions.themeModeLabels[uiState.display.themeMode] ?: uiState.display.themeMode.value,
-        onOpenLanguageDialog = { dialogState.showLanguageDialog = true },
-        onOpenThemeDialog = { dialogState.showThemeDialog = true },
-        onOpenTypographyDialog = { dialogState.showTypographyPage = true },
-        onOpenDateFormatDialog = { dialogState.showDateDialog = true },
-        onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
-    )
-    LanShareSettingsSectionContainer(
-        state = uiState.lanShare,
-        dialogState = dialogState,
-        lanShareFeature = features.lanShare,
-    )
-    ShareCardSettingsSection(
-        state = uiState.shareCard,
-        onToggleShowTime = features.shareCard::updateShareCardShowTime,
-        onToggleShowBrand = features.shareCard::updateShareCardShowBrand,
-        onOpenSignatureDialog = {
-            dialogState.shareCardSignatureInput = uiState.shareCard.signatureText
-            dialogState.showShareCardSignatureDialog = true
-        },
-    )
-    SnapshotSettingsSection(
-        state = uiState.snapshot,
-        onToggleMemoSnapshots = { enabled ->
-            if (enabled) {
-                features.snapshot.updateMemoSnapshotsEnabled(true)
-            } else {
-                dialogState.pendingSnapshotDisableTarget = SettingsSnapshotDisableTarget.MEMO
-            }
-        },
-        onOpenMemoCountDialog = { dialogState.showMemoSnapshotCountDialog = true },
-        onOpenMemoAgeDialog = { dialogState.showMemoSnapshotAgeDialog = true },
-    )
+private fun SettingsCategoryEntriesGroup(dialogState: SettingsDialogState) {
+    SettingsGroup(title = stringResource(R.string.settings_home_more_section_title)) {
+        PreferenceItem(
+            title = stringResource(R.string.settings_category_sync_backup),
+            subtitle = stringResource(R.string.settings_category_sync_backup_subtitle),
+            icon = Icons.Outlined.Sync,
+            onClick = { dialogState.activeSubPage = SettingsSubPage.SYNC_BACKUP },
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_category_storage_formats),
+            subtitle = stringResource(R.string.settings_category_storage_formats_subtitle),
+            icon = Icons.Outlined.FolderOpen,
+            onClick = { dialogState.activeSubPage = SettingsSubPage.STORAGE_FORMATS },
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_category_interaction_security),
+            subtitle = stringResource(R.string.settings_category_interaction_security_subtitle),
+            icon = Icons.Outlined.Vibration,
+            onClick = { dialogState.activeSubPage = SettingsSubPage.INTERACTION_SECURITY },
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_category_about),
+            subtitle = stringResource(R.string.settings_category_about_subtitle),
+            icon = Icons.Outlined.Info,
+            onClick = { dialogState.activeSubPage = SettingsSubPage.ABOUT },
+        )
+    }
 }
 
 @Composable
-private fun FooterSettingsSections(
-    uiState: SettingsScreenUiState,
-    aboutState: AboutSectionState,
-    dialogState: SettingsDialogState,
-    interactionFeature: SettingsInteractionFeatureViewModel,
-    systemFeature: SettingsSystemFeatureViewModel,
-    onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
-    onPreviewDebugUpdate: () -> Unit,
+private fun SettingsHomeFooter(
+    currentVersion: String,
+    manualUpdateState: SettingsManualUpdateState,
+    onCheckUpdates: () -> Unit,
 ) {
-    val uriHandler = LocalUriHandler.current
-    InteractionSettingsSection(
-        state = uiState.interaction,
-        onToggleHaptic = interactionFeature::updateHapticFeedback,
-        onToggleInputHints = interactionFeature::updateShowInputHints,
-        onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
-        onToggleFreeTextCopy = interactionFeature::updateFreeTextCopyEnabled,
-        onToggleMemoActionAutoReorder = interactionFeature::updateMemoActionAutoReorderEnabled,
-        onToggleAppLock = interactionFeature::updateAppLockEnabled,
-        onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
-        onToggleScrollbar = interactionFeature::updateScrollbarEnabled,
-    )
-    AboutSettingsSection(
-        state = aboutState,
-        systemState = uiState.system,
-        onCheckUpdates = {
-            val updateState = aboutState.manualUpdateState
-            if (updateState is SettingsManualUpdateState.UpdateAvailable) {
-                onOpenAvailableUpdateDialog(updateState.dialogState)
-            } else {
-                systemFeature.checkForUpdatesManually()
-            }
-        },
-        onToggleCheckUpdatesOnStartup = systemFeature::updateCheckUpdatesOnStartup,
-        onPreviewDebugUpdate = onPreviewDebugUpdate,
-        onOpenGithub = { uriHandler.openUri(GITHUB_URL) },
-    )
+    val haptic = LocalAppHapticFeedback.current
+    val versionLabel =
+        if (currentVersion.isNotBlank()) {
+            stringResource(R.string.settings_home_footer_version_label, currentVersion)
+        } else {
+            stringResource(R.string.settings_current_version_unknown)
+        }
+    val checking = manualUpdateState is SettingsManualUpdateState.Checking
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !checking) {
+                    haptic.medium()
+                    onCheckUpdates()
+                }
+                .padding(
+                    horizontal = AppSpacing.ScreenHorizontalPadding,
+                    vertical = AppSpacing.Medium,
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = versionLabel,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(modifier = Modifier.width(AppSpacing.Small))
+        Text(
+            text = "·",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        )
+        Spacer(modifier = Modifier.width(AppSpacing.Small))
+        Text(
+            text = stringResource(R.string.settings_home_footer_check_updates),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+private fun triggerEnabledProviderSyncs(
+    features: SettingsFeatures,
+    uiState: SettingsScreenUiState,
+) {
+    if (uiState.git.enabled) features.git.triggerGitSyncNow()
+    if (uiState.webDav.enabled) features.webDav.triggerSyncNow()
+    if (uiState.s3.enabled) features.s3.triggerSyncNow()
 }

@@ -1,7 +1,7 @@
 package com.lomo.app.feature.settings
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -60,7 +60,7 @@ private fun SyncInboxSettingsSection(
         PreferenceItem(
             title = stringResource(R.string.settings_sync_inbox_directory),
             subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
-            icon = Icons.Default.Folder,
+            icon = Icons.Outlined.FolderOpen,
             enabled = policy.headerInteractive,
             onClick = onSelectDirectory,
         )

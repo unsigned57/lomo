@@ -1,26 +1,12 @@
 package com.lomo.app.feature.settings
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.domain.model.AppUpdateAssetCandidate
+import com.lomo.domain.model.AppUpdateAssetVerification
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
@@ -42,18 +28,36 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Capability: Settings system feature ViewModel, showing version name and manual updates.
- * - Scenarios:
- *   - Given a specific current version name, initialization exposes it in StateFlow.
- *   - Given an available update and check triggers, manual update state transitions correctly and suppresses duplicate requests.
- *   - Given no update available, manual update check transitions to UpToDate.
- *   - Given checker failure, manual update check transitions to Error state with message.
- *   - Given debug release preview trigger, opens preview dialog even if filter would hide it.
- * - Observable outcomes:
- *   - ViewModel StateFlow values (currentVersion, manualUpdateState, debugPreviewDialogState).
- *   - Number of repository manual update check invocations.
- * - TDD proof: Confirms version name resolution, checked/available update state machines, and concurrency gating.
- * - Excludes: Compose UI rendering, snackbar displaying.
+ * - Unit under test: SettingsSystemFeatureViewModel
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: Settings system update controls expose only verified installable updates while preserving version and debug preview state.
+ *
+ * Scenarios:
+ * - Given a specific current version name, initialization exposes it in StateFlow.
+ * - Given a verified newer APK candidate and check triggers, manual update state transitions correctly and suppresses duplicate requests.
+ * - Given no update available, manual update check transitions to UpToDate.
+ * - Given checker failure, manual update check transitions to Error state with message.
+ * - Given debug release preview trigger, opens preview dialog even if normal version filtering would hide it.
+ *
+ * Observable outcomes:
+ * - ViewModel StateFlow values for currentVersion, manualUpdateState, and debugPreviewDialogState.
+ * - Number of repository manual update check invocations.
+ * - Dialog metadata including release URL, version, release notes, APK download URL, file name, and size.
+ *
+ * TDD proof:
+ * - RED observed with `./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest --tests 'com.lomo.app.feature.settings.SettingsSystemFeatureViewModelTest'`.
+ * - The old fixtures failed at SettingsSystemFeatureViewModelTest.kt:128 and :213 because releases without verified asset candidates now resolve to UpToDate or a non-downloadable preview.
+ *
+ * Excludes:
+ * - Compose UI rendering, snackbar displaying, GitHub HTTP transport, APK bytes, and PackageInstaller behavior.
+ *
+ * Test Change Justification:
+ * Reason category: Contract hardening for update safety.
+ * Old behavior/assertion being replaced: Release fixtures used legacy apkDownloadUrl fields without typed asset verification.
+ * Why old assertion is no longer correct: app update dialogs must be driven by domain-vetted installable candidates, not by unverified release-level APK fields.
+ * Coverage preserved by: manual update state, duplicate suppression, debug preview, release notes, and APK metadata assertions.
+ * Why this is not fitting the test to the implementation: the fixtures now encode the product contract that in-app installation requires a verified candidate.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsSystemFeatureViewModelTest : AppFunSpec() {
@@ -95,6 +99,15 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                             tagName = "v1.0.0",
                             htmlUrl = "https://example.com/releases/1.0.0",
                             body = "notes",
+                            assetCandidates =
+                                listOf(
+                                    verifiedCandidate(
+                                        fileName = "lomo-v1.0.0.apk",
+                                        downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                                        sizeBytes = 4_096L,
+                                        versionName = "1.0.0",
+                                    ),
+                                ),
                         )
                     }
                 }
@@ -130,6 +143,11 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                         url = "https://example.com/releases/1.0.0",
                         version = "1.0.0",
                         releaseNotes = "notes",
+                        apkDownloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                        apkFileName = "lomo-v1.0.0.apk",
+                        apkSizeBytes = 4_096L,
+                        expectedPackageName = "com.lomo.app",
+                        expectedVersionName = "1.0.0",
                     ),
                 )
             }
@@ -190,9 +208,15 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     tagName = "v1.0.0",
                     htmlUrl = "https://example.com/releases/1.0.0",
                     body = "[FORCE_UPDATE]\npreview notes",
-                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
-                    apkFileName = "lomo-1.0.0.apk",
-                    apkSizeBytes = 8_192L,
+                    assetCandidates =
+                        listOf(
+                            verifiedCandidate(
+                                fileName = "lomo-v1.0.0.apk",
+                                downloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                                sizeBytes = 8_192L,
+                                versionName = "1.0.0",
+                            ),
+                        ),
                 )
                 val fixture = systemFeatureFixture(
                     currentVersion = "1.0.0-DEBUG",
@@ -214,9 +238,11 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     url = "https://example.com/releases/1.0.0",
                     version = "1.0.0",
                     releaseNotes = "preview notes",
-                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
-                    apkFileName = "lomo-1.0.0.apk",
+                    apkDownloadUrl = "https://example.com/assets/lomo-v1.0.0.apk",
+                    apkFileName = "lomo-v1.0.0.apk",
                     apkSizeBytes = 8_192L,
+                    expectedPackageName = "com.lomo.app",
+                    expectedVersionName = "1.0.0",
                 )
             }
         }
@@ -232,8 +258,13 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         override suspend fun fetchLatestRelease(): LatestAppRelease? = latestRelease
     }
 
-    private class FakeAppRuntimeInfoRepository(val currentVersion: String) : AppRuntimeInfoRepository {
+    private class FakeAppRuntimeInfoRepository(
+        val currentVersion: String,
+        val currentVersionCode: Long? = null,
+    ) : AppRuntimeInfoRepository {
         override suspend fun getCurrentVersionName(): String = currentVersion
+
+        override suspend fun getCurrentVersionCode(): Long? = currentVersionCode
     }
 
     private fun TestScope.systemFeatureFixture(
@@ -253,6 +284,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 appConfigRepository = appConfigRepository,
                 switchRootStorageUseCase = switchRootStorageUseCase,
                 scope = backgroundScope,
+                customFontStore = FakeCustomFontStore(),
             ),
             appUpdateChecker = AppUpdateChecker(
                 checkAppUpdateUseCase = CheckAppUpdateUseCase(
@@ -273,4 +305,21 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
             ),
         )
     }
+
+    private fun verifiedCandidate(
+        fileName: String,
+        downloadUrl: String,
+        sizeBytes: Long,
+        versionName: String,
+    ): AppUpdateAssetCandidate =
+        AppUpdateAssetCandidate(
+            fileName = fileName,
+            downloadUrl = downloadUrl,
+            sizeBytes = sizeBytes,
+            verification =
+                AppUpdateAssetVerification.Verified(
+                    packageName = "com.lomo.app",
+                    versionName = versionName,
+                ),
+        )
 }

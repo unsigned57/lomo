@@ -8,8 +8,10 @@ import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.model.isConfigured
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.toUnifiedState
 import kotlinx.coroutines.CancellationException
@@ -37,7 +39,7 @@ class SettingsS3Coordinator(
     private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
     scope: CoroutineScope,
 ) : SettingsS3FeatureSupport {
-    val s3SyncEnabled: StateFlow<Boolean> =
+    private val sharedEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeS3SyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.S3_SYNC_ENABLED)
@@ -107,47 +109,56 @@ class SettingsS3Coordinator(
             .observeRcloneEncryptedSuffix()
             .settingsStateIn(scope, PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
 
+    private val _accessKeyStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val accessKeyStatus: StateFlow<StoredCredentialStatus> = _accessKeyStatus.asStateFlow()
+
     private val _accessKeyConfigured = MutableStateFlow(false)
     val accessKeyConfigured: StateFlow<Boolean> = _accessKeyConfigured.asStateFlow()
+
+    private val _secretAccessKeyStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val secretAccessKeyStatus: StateFlow<StoredCredentialStatus> = _secretAccessKeyStatus.asStateFlow()
 
     private val _secretAccessKeyConfigured = MutableStateFlow(false)
     val secretAccessKeyConfigured: StateFlow<Boolean> = _secretAccessKeyConfigured.asStateFlow()
 
+    private val _sessionTokenStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val sessionTokenStatus: StateFlow<StoredCredentialStatus> = _sessionTokenStatus.asStateFlow()
+
     private val _sessionTokenConfigured = MutableStateFlow(false)
     val sessionTokenConfigured: StateFlow<Boolean> = _sessionTokenConfigured.asStateFlow()
+
+    private val _encryptionPasswordStatus = MutableStateFlow(StoredCredentialStatus.Missing)
+    val encryptionPasswordStatus: StateFlow<StoredCredentialStatus> = _encryptionPasswordStatus.asStateFlow()
 
     private val _encryptionPasswordConfigured = MutableStateFlow(false)
     val encryptionPasswordConfigured: StateFlow<Boolean> = _encryptionPasswordConfigured.asStateFlow()
 
+    private val _encryptionPassword2Status = MutableStateFlow(StoredCredentialStatus.Missing)
+    val encryptionPassword2Status: StateFlow<StoredCredentialStatus> = _encryptionPassword2Status.asStateFlow()
+
     private val _encryptionPassword2Configured = MutableStateFlow(false)
     val encryptionPassword2Configured: StateFlow<Boolean> = _encryptionPassword2Configured.asStateFlow()
 
-    val s3AutoSyncEnabled: StateFlow<Boolean> =
+    private val sharedAutoSyncEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeAutoSyncEnabled()
             .settingsStateIn(scope, PreferenceDefaults.S3_AUTO_SYNC_ENABLED)
 
-    val s3AutoSyncInterval: StateFlow<String> =
+    private val sharedAutoSyncInterval: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeAutoSyncInterval()
             .settingsStateIn(scope, PreferenceDefaults.S3_AUTO_SYNC_INTERVAL)
 
-    val s3SyncOnRefreshEnabled: StateFlow<Boolean> =
+    private val sharedSyncOnRefreshEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
             .settingsStateIn(scope, PreferenceDefaults.S3_SYNC_ON_REFRESH)
 
-    val s3LastSyncTime: StateFlow<Long> =
+    private val sharedLastSyncTime: StateFlow<Long> =
         s3SyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { it ?: 0L }
             .settingsStateIn(scope, 0L)
-
-    val s3SyncState: StateFlow<UnifiedSyncState> =
-        s3SyncSettingsUseCase
-            .observeSyncState()
-            .map { state -> state.toUnifiedState(SyncBackendType.S3) }
-            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsS3ConnectionTestState>(SettingsS3ConnectionTestState.Idle)
@@ -156,15 +167,35 @@ class SettingsS3Coordinator(
     val refreshCredentialConfigured: suspend () -> SettingsOperationError? =
         {
             runWithError("Failed to read S3 credential state") {
-                _accessKeyConfigured.value = s3SyncSettingsUseCase.isAccessKeyConfigured()
-                _secretAccessKeyConfigured.value = s3SyncSettingsUseCase.isSecretAccessKeyConfigured()
-                _sessionTokenConfigured.value = s3SyncSettingsUseCase.isSessionTokenConfigured()
-                _encryptionPasswordConfigured.value = s3SyncSettingsUseCase.isEncryptionPasswordConfigured()
-                _encryptionPassword2Configured.value = s3SyncSettingsUseCase.isEncryptionPassword2Configured()
+                setCredentialStatus(
+                    targetStatus = _accessKeyStatus,
+                    targetConfigured = _accessKeyConfigured,
+                    status = s3SyncSettingsUseCase.getAccessKeyStatus(),
+                )
+                setCredentialStatus(
+                    targetStatus = _secretAccessKeyStatus,
+                    targetConfigured = _secretAccessKeyConfigured,
+                    status = s3SyncSettingsUseCase.getSecretAccessKeyStatus(),
+                )
+                setCredentialStatus(
+                    targetStatus = _sessionTokenStatus,
+                    targetConfigured = _sessionTokenConfigured,
+                    status = s3SyncSettingsUseCase.getSessionTokenStatus(),
+                )
+                setCredentialStatus(
+                    targetStatus = _encryptionPasswordStatus,
+                    targetConfigured = _encryptionPasswordConfigured,
+                    status = s3SyncSettingsUseCase.getEncryptionPasswordStatus(),
+                )
+                setCredentialStatus(
+                    targetStatus = _encryptionPassword2Status,
+                    targetConfigured = _encryptionPassword2Configured,
+                    status = s3SyncSettingsUseCase.getEncryptionPassword2Status(),
+                )
             }
         }
 
-    val updateS3SyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateS3SyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update S3 sync setting") {
                 s3SyncSettingsUseCase.updateS3SyncEnabled(enabled)
@@ -217,7 +248,11 @@ class SettingsS3Coordinator(
         { accessKeyId ->
             runWithError("Failed to update S3 access key") {
                 s3SyncSettingsUseCase.updateAccessKeyId(accessKeyId)
-                _accessKeyConfigured.value = accessKeyId.isNotBlank()
+                setCredentialStatus(
+                    targetStatus = _accessKeyStatus,
+                    targetConfigured = _accessKeyConfigured,
+                    status = accessKeyId.toCredentialStatus(),
+                )
             }
         }
 
@@ -225,7 +260,11 @@ class SettingsS3Coordinator(
         { secret ->
             runWithError("Failed to update S3 secret access key") {
                 s3SyncSettingsUseCase.updateSecretAccessKey(secret)
-                _secretAccessKeyConfigured.value = secret.isNotBlank()
+                setCredentialStatus(
+                    targetStatus = _secretAccessKeyStatus,
+                    targetConfigured = _secretAccessKeyConfigured,
+                    status = secret.toCredentialStatus(),
+                )
             }
         }
 
@@ -233,7 +272,11 @@ class SettingsS3Coordinator(
         { token ->
             runWithError("Failed to update S3 session token") {
                 s3SyncSettingsUseCase.updateSessionToken(token)
-                _sessionTokenConfigured.value = token.isNotBlank()
+                setCredentialStatus(
+                    targetStatus = _sessionTokenStatus,
+                    targetConfigured = _sessionTokenConfigured,
+                    status = token.toCredentialStatus(),
+                )
             }
         }
 
@@ -255,7 +298,11 @@ class SettingsS3Coordinator(
         { password ->
             runWithError("Failed to update S3 encryption password") {
                 s3SyncSettingsUseCase.updateEncryptionPassword(password)
-                _encryptionPasswordConfigured.value = password.isNotBlank()
+                setCredentialStatus(
+                    targetStatus = _encryptionPasswordStatus,
+                    targetConfigured = _encryptionPasswordConfigured,
+                    status = password.toCredentialStatus(),
+                )
             }
         }
 
@@ -263,7 +310,11 @@ class SettingsS3Coordinator(
         { password ->
             runWithError("Failed to update S3 secondary encryption password") {
                 s3SyncSettingsUseCase.updateEncryptionPassword2(password)
-                _encryptionPassword2Configured.value = password.isNotBlank()
+                setCredentialStatus(
+                    targetStatus = _encryptionPassword2Status,
+                    targetConfigured = _encryptionPassword2Configured,
+                    status = password.toCredentialStatus(),
+                )
             }
         }
 
@@ -302,33 +353,29 @@ class SettingsS3Coordinator(
             }
         }
 
-    val updateS3AutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+    private val updateS3AutoSyncEnabledInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update S3 auto-sync setting") {
                 s3SyncSettingsUseCase.updateAutoSyncEnabled(enabled)
             }
         }
 
-    val updateS3AutoSyncInterval: suspend (String) -> SettingsOperationError? =
+    private val updateS3AutoSyncIntervalInternal: suspend (String) -> SettingsOperationError? =
         { interval ->
             runWithError("Failed to update S3 auto-sync interval") {
                 s3SyncSettingsUseCase.updateAutoSyncInterval(interval)
             }
         }
 
-    val updateS3SyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+    private val updateS3SyncOnRefreshInternal: suspend (Boolean) -> SettingsOperationError? =
         { enabled ->
             runWithError("Failed to update S3 sync-on-refresh setting") {
                 s3SyncSettingsUseCase.updateSyncOnRefreshEnabled(enabled)
             }
         }
 
-    val triggerS3SyncNow: suspend () -> SettingsOperationError? =
-        {
-            runWithError("Failed to run S3 sync") {
-                s3SyncSettingsUseCase.triggerSyncNow()
-            }
-        }
+    private val triggerS3SyncNowInternal: suspend () -> SettingsOperationError? =
+        { runWithError("Failed to run S3 sync") { s3SyncSettingsUseCase.triggerSyncNow() } }
 
     val testS3Connection: suspend () -> SettingsOperationError? =
         {
@@ -347,6 +394,10 @@ class SettingsS3Coordinator(
                             SettingsS3ConnectionTestState.Error(
                                 result.message.ifBlank { "S3 sync conflict detected" },
                             )
+                        is S3SyncResult.Review ->
+                            SettingsS3ConnectionTestState.Error(
+                                result.message.ifBlank { "S3 sync review required" },
+                            )
                     }
                 },
                 mapFailure = { throwable ->
@@ -361,6 +412,39 @@ class SettingsS3Coordinator(
         _connectionTestState.value = SettingsS3ConnectionTestState.Idle
     }
 
+    private val remoteSyncSettingsCoordinator =
+        RemoteSyncSettingsCoordinator(
+            enabled = sharedEnabled,
+            autoSyncEnabled = sharedAutoSyncEnabled,
+            autoSyncInterval = sharedAutoSyncInterval,
+            syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
+            lastSyncTime = sharedLastSyncTime,
+            rawSyncState = s3SyncSettingsUseCase.observeSyncState(),
+            mapToUnifiedSyncState = { state -> state.toUnifiedState(SyncBackendType.S3) },
+            updateEnabledAction = updateS3SyncEnabledInternal,
+            updateAutoSyncEnabledAction = updateS3AutoSyncEnabledInternal,
+            updateAutoSyncIntervalAction = updateS3AutoSyncIntervalInternal,
+            updateSyncOnRefreshEnabledAction = updateS3SyncOnRefreshInternal,
+            triggerSyncNowAction = triggerS3SyncNowInternal,
+            testConnectionAction = testS3Connection,
+        )
+
+    val s3SyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.enabled
+    val s3AutoSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.autoSyncEnabled
+    val s3AutoSyncInterval: StateFlow<String> = remoteSyncSettingsCoordinator.autoSyncInterval
+    val s3SyncOnRefreshEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.syncOnRefreshEnabled
+    val s3LastSyncTime: StateFlow<Long> = remoteSyncSettingsCoordinator.lastSyncTime
+    val s3SyncState: StateFlow<UnifiedSyncState> =
+        remoteSyncSettingsCoordinator.syncState.settingsStateIn(scope, UnifiedSyncState.Idle)
+    val updateS3SyncEnabled: suspend (Boolean) -> SettingsOperationError? = remoteSyncSettingsCoordinator::updateEnabled
+    val updateS3AutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncEnabled
+    val updateS3AutoSyncInterval: suspend (String) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateAutoSyncInterval
+    val updateS3SyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
+        remoteSyncSettingsCoordinator::updateSyncOnRefreshEnabled
+    val triggerS3SyncNow: suspend () -> SettingsOperationError? = remoteSyncSettingsCoordinator::triggerSyncNow
+
     override fun isValidEndpointUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return false
@@ -371,4 +455,20 @@ class SettingsS3Coordinator(
         fallbackMessage: String,
         action: suspend () -> Unit,
     ): SettingsOperationError? = runSettingsOperation(fallbackMessage, { null }, action)
+
+    private fun setCredentialStatus(
+        targetStatus: MutableStateFlow<StoredCredentialStatus>,
+        targetConfigured: MutableStateFlow<Boolean>,
+        status: StoredCredentialStatus,
+    ) {
+        targetStatus.value = status
+        targetConfigured.value = status.isConfigured
+    }
+
+    private fun String.toCredentialStatus(): StoredCredentialStatus =
+        if (isBlank()) {
+            StoredCredentialStatus.Missing
+        } else {
+            StoredCredentialStatus.Present
+        }
 }

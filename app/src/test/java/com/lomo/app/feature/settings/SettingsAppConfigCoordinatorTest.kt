@@ -19,6 +19,9 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -66,6 +69,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.rootDirectory.value shouldBe DirectoryDisplayState.Loading
@@ -84,6 +88,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
                 backgroundScope.launch { coordinator.rootDirectory.collect {} }
                 backgroundScope.launch { coordinator.imageDirectory.collect {} }
@@ -112,6 +117,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateRootDirectory("/root/path")
@@ -130,6 +136,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateImageDirectory("/images")
@@ -152,6 +159,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateSyncInboxDirectory("/sync-inbox")
@@ -168,6 +176,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateDoubleTapEditEnabled(true)
@@ -186,6 +195,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateFreeTextCopyEnabled(true)
@@ -204,6 +214,7 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
                     appConfigRepository,
                     switchRootStorageUseCase,
                     backgroundScope,
+                    FakeCustomFontStore(),
                 )
 
                 coordinator.updateDateFormat("MM/dd/yyyy")
@@ -244,6 +255,69 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
 
                 coordinator.updateSyncInboxEnabled(true)
                 appConfigRepository.isSyncInboxEnabled().first() shouldBe true
+            }
+        }
+
+        test("given custom seed color when updateColorSource is called then color is recorded in history") {
+            runTest {
+                val coordinator = SettingsAppConfigCoordinator(
+                    appConfigRepository = appConfigRepository,
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    scope = backgroundScope,
+                    customFontStore = FakeCustomFontStore(),
+                )
+
+                coordinator.updateColorSource(ColorSource.CustomSeed(0xFF112233.toInt()))
+                appConfigRepository.getColorHistory().first() shouldBe listOf(0xFF112233.toInt())
+            }
+        }
+
+        test("given font file contents when import runs then import font is triggered on font store") {
+            runTest {
+                val fontStore = object : FakeCustomFontStore() {
+                    var importCalled = false
+                    override suspend fun importFont(contents: ByteArray, originalFileName: String): CustomFontInfo? {
+                        importCalled = true
+                        return CustomFontInfo(id = "test.ttf", displayName = "Test", sizeBytes = contents.size.toLong())
+                    }
+                }
+                val coordinator = SettingsAppConfigCoordinator(
+                    appConfigRepository = appConfigRepository,
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    scope = backgroundScope,
+                    customFontStore = fontStore,
+                )
+
+                val result = coordinator.importCustomFont("font-bytes".toByteArray(), "test.ttf")
+                result?.displayName shouldBe "Test"
+                fontStore.importCalled shouldBe true
+            }
+        }
+
+        test("given percent-encoded font name when import runs then original name is URL-decoded") {
+            runTest {
+                val fontStore = object : FakeCustomFontStore() {
+                    var lastImportedName = ""
+                    override suspend fun importFont(contents: ByteArray, originalFileName: String): CustomFontInfo? {
+                        val decodedName = runCatching { java.net.URLDecoder.decode(originalFileName, "UTF-8") }.getOrDefault(originalFileName)
+                        lastImportedName = decodedName
+                        return CustomFontInfo(
+                            id = "test.ttf",
+                            displayName = decodedName.substringBeforeLast('.'),
+                            sizeBytes = contents.size.toLong()
+                        )
+                    }
+                }
+                val coordinator = SettingsAppConfigCoordinator(
+                    appConfigRepository = appConfigRepository,
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    scope = backgroundScope,
+                    customFontStore = fontStore,
+                )
+
+                val result = coordinator.importCustomFont("font-bytes".toByteArray(), "%E7%B2%A4%E6%B5%B7%E7%A7%8B%E8%90%8C%E8%90%8C%E4%BD%93.ttf")
+                result?.displayName shouldBe "粤海秋萌萌体"
+                fontStore.lastImportedName shouldBe "粤海秋萌萌体.ttf"
             }
         }
     }

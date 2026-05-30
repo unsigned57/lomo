@@ -128,6 +128,8 @@ class SettingsRepositoryImplTest : DataFunSpec() {
                         draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),
                         typographyPreferencesRepository = TypographyPreferencesRepositoryImpl(dataStore),
                         sidebarTagOrderPreferencesRepository = SidebarTagOrderPreferencesRepositoryImpl(dataStore),
+                        colorSchemePreferencesRepository = ColorSchemePreferencesRepositoryImpl(dataStore),
+                        fontPreferencesRepository = FontPreferencesRepositoryImpl(dataStore),
                     ),
             )
         return Triple(dataSource, dataStore, repository)
@@ -166,4 +168,3 @@ private class SettingsFakeWorkspaceConfigSource : WorkspaceConfigSource {
 
     override suspend fun createDirectory(name: String): String = name
 }
-
