@@ -1,9 +1,9 @@
 /*
  * Behavior Contract:
  * - Unit under test: ReminderMarker + ParseRemindersUseCase
- * - Behavior focus: parse the `@YYYY-MM-DD-HH:MM[xN][.done|.k]` token from memo content into structured ReminderMarker values.
- * - Observable outcomes: list of markers with dueAt, repeatCount, firedCount, done, tokenRange, raw text.
- * - TDD proof: fails because ReminderMarker / ParseRemindersUseCase do not yet exist.
+ * - Behavior focus: parse the `@YYYY-MM-DD-HH:MM[xN][iM][rR][.done|.k]` token from memo content into structured ReminderMarker values.
+ * - Observable outcomes: list of markers with dueAt, repeatCount, firedCount, intervalMinutes, recurrence, done, tokenRange, raw text.
+ * - TDD proof: fails because parser does not extract recurrence and intervalMinutes.
  * - Excludes: scheduling, notifications.
  */
 package com.lomo.domain.usecase
@@ -116,6 +116,50 @@ class ParseRemindersUseCaseTest : FunSpec({
     test("isExhausted false when fired below repeat") {
         val marker = parse("@2026-05-20-09:00x3.1").single()
         marker.isExhausted shouldBe false
+    }
+
+    test("parses interval from iN suffix") {
+        val marker = parse("@2026-05-20-09:00x3i5").single()
+        marker.repeatCount shouldBe 3
+        marker.intervalMinutes shouldBe 5
+        marker.recurrence shouldBe com.lomo.domain.model.Recurrence.NONE
+    }
+
+    test("parses recurrence from rd or rw suffix") {
+        val daily = parse("@2026-05-20-09:00rd").single()
+        daily.recurrence shouldBe com.lomo.domain.model.Recurrence.DAILY
+
+        val weekly = parse("@2026-05-20-09:00rw").single()
+        weekly.recurrence shouldBe com.lomo.domain.model.Recurrence.WEEKLY
+    }
+
+    test("parses complex token with interval, recurrence and progress state") {
+        val marker = parse("@2026-05-20-09:00x3i15rd.2").single()
+        marker.repeatCount shouldBe 3
+        marker.intervalMinutes shouldBe 15
+        marker.recurrence shouldBe com.lomo.domain.model.Recurrence.DAILY
+        marker.firedCount shouldBe 2
+        marker.done shouldBe false
+    }
+
+    test("ReminderMarker serializes back to canonical token with recurrence and interval") {
+        ReminderMarker.canonicalToken(
+            dueAt = LocalDateTime.of(2026, 5, 20, 9, 0),
+            repeatCount = 3,
+            firedCount = 0,
+            done = false,
+            intervalMinutes = 15,
+            recurrence = com.lomo.domain.model.Recurrence.DAILY
+        ) shouldBe "@2026-05-20-09:00x3i15rd"
+
+        ReminderMarker.canonicalToken(
+            dueAt = LocalDateTime.of(2026, 5, 20, 9, 0),
+            repeatCount = 1,
+            firedCount = 0,
+            done = false,
+            intervalMinutes = 10,
+            recurrence = com.lomo.domain.model.Recurrence.WEEKLY
+        ) shouldBe "@2026-05-20-09:00rw"
     }
 
     test("ReminderMarker serializes back to canonical token") {

@@ -5,13 +5,12 @@ import android.content.Context
 import android.content.Intent
 import com.lomo.domain.repository.ReminderCoordinator
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class ReminderBootReceiver : BroadcastReceiver() {
+    @Inject lateinit var asyncRunner: ReminderAsyncRunner
+
     @Inject lateinit var reminderCoordinator: ReminderCoordinator
 
     override fun onReceive(
@@ -22,12 +21,8 @@ class ReminderBootReceiver : BroadcastReceiver() {
         if (action !in BOOT_ACTIONS) return
         val pendingResult = goAsync()
 
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                reminderCoordinator.rebuildAll()
-            } finally {
-                pendingResult.finish()
-            }
+        asyncRunner.launch(pendingResult) {
+            reminderCoordinator.rebuildAll()
         }
     }
 

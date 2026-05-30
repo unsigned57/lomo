@@ -2,7 +2,8 @@ package com.lomo.data.di
 
 import android.content.Context
 import com.lomo.data.reminder.AlarmManagerReminderCoordinator
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
+import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.repository.ReminderCoordinator
 import dagger.Module
 import dagger.Provides
@@ -18,24 +19,12 @@ object ReminderModule {
     @Singleton
     fun provideReminderCoordinator(
         @ApplicationContext context: Context,
-        memoRepository: MemoRepository,
+        memoQueryRepository: MemoQueryRepository,
+        memoMutationRepository: MemoMutationRepository,
     ): ReminderCoordinator =
         AlarmManagerReminderCoordinator(
             context = context,
-            memoQueryRepository = memoRepository,
-            memoMutationRepository = memoRepository,
+            memoQueryRepository = memoQueryRepository,
+            memoMutationRepository = memoMutationRepository,
         )
-
-    @Provides
-    @Singleton
-    fun provideMemoQueryRepository(
-        memoRepository: MemoRepository,
-    ): com.lomo.domain.repository.MemoQueryRepository = memoRepository
-
-    @Provides
-    @Singleton
-    fun provideMemoMutationRepository(
-        memoRepository: MemoRepository,
-    ): com.lomo.domain.repository.MemoMutationRepository = memoRepository
 }
-
