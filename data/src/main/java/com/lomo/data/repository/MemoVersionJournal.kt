@@ -2,14 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransaction
-import com.lomo.data.local.dao.MemoImageDao
-import com.lomo.data.local.dao.MemoTagDao
-import com.lomo.data.local.dao.MemoTrashDao
-import com.lomo.data.local.dao.MemoWriteDao
-import com.lomo.data.local.entity.MemoEntity
-import com.lomo.data.local.entity.TrashMemoEntity
-import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionCursor
@@ -18,11 +10,10 @@ import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.model.MediaFileExtensions
-import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
-import com.lomo.domain.repository.MemoVersionRepository
 import kotlinx.coroutines.flow.first
 import java.io.File
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import javax.inject.Inject
@@ -172,14 +163,11 @@ annotation class MemoVersionBlobRoot
 
 @Singleton
 class MemoVersionJournal
-    internal constructor(
-        private val store: MemoVersionStore,
-        @MemoVersionBlobRoot private val blobRoot: File,
-        private val markdownStorageDataSource: MarkdownStorageDataSource,
+    constructor(
+        internal val store: MemoVersionStore,
+        @MemoVersionBlobRoot internal val blobRoot: File,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
-        private val memoTextProcessor: MemoTextProcessor,
-        private val restorePersistence: MemoVersionRestorePersistence = MissingMemoVersionRestorePersistence,
-        private val mediaRepository: MediaRepository? = null,
+        internal val memoTextProcessor: MemoTextProcessor,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
         private val now: () -> Long = { System.currentTimeMillis() },
         private val nextCommitId: () -> String = { UUID.randomUUID().toString() },
@@ -193,40 +181,20 @@ class MemoVersionJournal
                 maxAgeDays = Int.MAX_VALUE,
             )
         },
-    ) : MemoVersionRepository {
+    ) {
         @Inject
         constructor(
             store: MemoVersionStore,
             @MemoVersionBlobRoot blobRoot: File,
-            markdownStorageDataSource: MarkdownStorageDataSource,
             workspaceMediaAccess: WorkspaceMediaAccess,
             memoTextProcessor: MemoTextProcessor,
-            memoWriteDao: MemoWriteDao,
-            memoTagDao: MemoTagDao,
-            memoImageDao: MemoImageDao,
-            memoTrashDao: MemoTrashDao,
-            mediaRepository: MediaRepository,
             database: MemoDatabase,
             memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
         ) : this(
             store = store,
             blobRoot = blobRoot,
-            markdownStorageDataSource = markdownStorageDataSource,
             workspaceMediaAccess = workspaceMediaAccess,
             memoTextProcessor = memoTextProcessor,
-            restorePersistence =
-                DaoBackedMemoVersionRestorePersistence(
-                    memoWriteDao = memoWriteDao,
-                    memoTagDao = memoTagDao,
-                    memoImageDao = memoImageDao,
-                    memoTrashDao = memoTrashDao,
-                    runInTransaction = { block ->
-                        database.withDriverTransaction {
-                            block()
-                        }
-                    },
-                ),
-            mediaRepository = mediaRepository,
             runInTransaction = { block ->
                 database.withDriverTransaction {
                     block()
@@ -303,7 +271,7 @@ class MemoVersionJournal
             }
         }
 
-        override suspend fun listMemoRevisions(
+        suspend fun listMemoRevisions(
             memo: Memo,
             cursor: MemoRevisionCursor?,
             limit: Int,
@@ -354,88 +322,33 @@ class MemoVersionJournal
             )
         }
 
-        override suspend fun restoreMemoRevision(
-            currentMemo: Memo,
-            revisionId: String,
-        ) {
-            val revision = requireNotNull(store.getRevision(revisionId)) { "Revision not found: $revisionId" }
-            val restorePersistence = requireRestorePersistence(revision.lifecycleState, restorePersistence)
-            val filename = "${revision.dateKey}.md"
-            val rawContent =
-                readMemoVersionBlobContent(
-                    store = store,
-                    blobRoot = blobRoot,
-                    blobHash = revision.rawMarkdownBlobHash,
-                )
-            val snapshot =
-                captureRestoreSnapshot(
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                    store = store,
-                    revisionId = revisionId,
-                    filename = filename,
-                )
-            val restoreFailure =
-                runCatching {
-                    restoreRevisionAssets(
-                        revisionId = revisionId,
-                        store = store,
-                        blobRoot = blobRoot,
-                        workspaceMediaAccess = workspaceMediaAccess,
-                    )
-                    when (revision.lifecycleState) {
-                        MemoRevisionLifecycleState.ACTIVE ->
-                            restoreActiveRevision(
-                                currentMemo = currentMemo,
-                                revision = revision,
-                                rawContent = rawContent,
-                                restorePersistence = restorePersistence,
-                            )
-                        MemoRevisionLifecycleState.TRASHED ->
-                            restoreTrashedRevision(
-                                currentMemo = currentMemo,
-                                revision = revision,
-                                rawContent = rawContent,
-                                restorePersistence = restorePersistence,
-                            )
-                        MemoRevisionLifecycleState.DELETED ->
-                            restoreDeletedRevision(
-                                currentMemo = currentMemo,
-                                revision = revision,
-                                restorePersistence = restorePersistence,
-                            )
-                    }
-                    mediaRepository?.refreshImageLocations()
-                    appendRestoredRevision(
-                        restoredRevision = revision,
-                        rawContent = rawContent,
-                        store = store,
-                        memoTextProcessor = memoTextProcessor,
-                        runInTransaction = runInTransaction,
-                        loadSnapshotSettings = loadSnapshotSettings,
-                        now = now,
-                        nextCommitId = nextCommitId,
-                        nextRevisionId = nextRevisionId,
-                        pruneRevisionsForMemo = ::pruneRevisionsForMemo,
-                    )
-                }.exceptionOrNull()
-            if (restoreFailure != null) {
-                rollbackRestoreSnapshot(
-                    snapshot = snapshot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                )
-                rollbackCurrentMemoState(
-                    currentMemo = currentMemo,
-                    persistActiveMemo = restorePersistence::persistActiveMemo,
-                    persistTrashedMemo = restorePersistence::persistTrashedMemo,
-                )
-                mediaRepository?.refreshImageLocations()
-                throw restoreFailure
+        internal suspend fun recordRevisionRestoreHandoff(command: MemoLifecycleCommand) {
+            require(command.operation == MemoLifecycleOperation.VERSION_RESTORE) {
+                "Revision restore history handoff requires version-restore command: " +
+                    command.metadata.operationId.value
             }
+            val target = requireNotNull(command.revisionRestoreTarget) {
+                "Revision restore history handoff requires target revision: ${command.metadata.operationId.value}"
+            }
+            val restoredRevision =
+                requireNotNull(store.getRevision(target.revisionId)) {
+                    "Revision not found for restore history handoff: ${target.revisionId}"
+                }
+            appendRestoredRevision(
+                restoredRevision = restoredRevision,
+                rawContent = target.rawContent,
+                store = store,
+                memoTextProcessor = memoTextProcessor,
+                runInTransaction = runInTransaction,
+                loadSnapshotSettings = loadSnapshotSettings,
+                now = now,
+                nextCommitId = nextCommitId,
+                nextRevisionId = nextRevisionId,
+                pruneRevisionsForMemo = ::pruneRevisionsForMemo,
+            )
         }
 
-        override suspend fun clearAllMemoSnapshots() {
+        suspend fun clearAllMemoSnapshots() {
             runInTransaction {
                 store.clearAll()
             }
@@ -555,81 +468,6 @@ class MemoVersionJournal
             )
         }
 
-        private suspend fun restoreActiveRevision(
-            currentMemo: Memo,
-            revision: MemoVersionRevisionRecord,
-            rawContent: String,
-            restorePersistence: MemoVersionRestorePersistence,
-        ) {
-            val restoredMemo = revision.toMemo(rawContent, memoTextProcessor).copy(isDeleted = false)
-            val filename = "${revision.dateKey}.md"
-            rewriteMemoIntoDirectory(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.MAIN,
-                filename = filename,
-                currentMemo = currentMemo.copy(isDeleted = false),
-                replacementRawContent = rawContent,
-                memoTextProcessor = memoTextProcessor,
-            )
-            removeMemoFromDirectoryIfPresent(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.TRASH,
-                filename = filename,
-                memo = currentMemo.copy(isDeleted = true),
-                memoTextProcessor = memoTextProcessor,
-            )
-            restorePersistence.persistActiveMemo(restoredMemo)
-        }
-
-        private suspend fun restoreTrashedRevision(
-            currentMemo: Memo,
-            revision: MemoVersionRevisionRecord,
-            rawContent: String,
-            restorePersistence: MemoVersionRestorePersistence,
-        ) {
-            val trashedMemo = revision.toMemo(rawContent, memoTextProcessor).copy(isDeleted = true)
-            val filename = "${revision.dateKey}.md"
-            rewriteMemoIntoDirectory(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.TRASH,
-                filename = filename,
-                currentMemo = currentMemo.copy(isDeleted = true),
-                replacementRawContent = rawContent,
-                memoTextProcessor = memoTextProcessor,
-            )
-            removeMemoFromDirectoryIfPresent(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.MAIN,
-                filename = filename,
-                memo = currentMemo.copy(isDeleted = false),
-                memoTextProcessor = memoTextProcessor,
-            )
-            restorePersistence.persistTrashedMemo(trashedMemo)
-        }
-
-        private suspend fun restoreDeletedRevision(
-            currentMemo: Memo,
-            revision: MemoVersionRevisionRecord,
-            restorePersistence: MemoVersionRestorePersistence,
-        ) {
-            val filename = "${revision.dateKey}.md"
-            removeMemoFromDirectoryIfPresent(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.MAIN,
-                filename = filename,
-                memo = currentMemo.copy(isDeleted = false),
-                memoTextProcessor = memoTextProcessor,
-            )
-            removeMemoFromDirectoryIfPresent(
-                markdownStorageDataSource = markdownStorageDataSource,
-                directory = MemoDirectoryType.TRASH,
-                filename = filename,
-                memo = currentMemo.copy(isDeleted = true),
-                memoTextProcessor = memoTextProcessor,
-            )
-            restorePersistence.deleteMemo(revision.memoId)
-        }
-
         private suspend fun pruneRevisionsForMemo(
             memoId: String,
             snapshotSettings: MemoSnapshotRetentionSettings,
@@ -715,80 +553,11 @@ internal data class MemoVersionAppendPayload(
     val assetFingerprint: String,
 )
 
-internal interface MemoVersionRestorePersistence {
-    suspend fun persistActiveMemo(memo: Memo)
-
-    suspend fun persistTrashedMemo(memo: Memo)
-
-    suspend fun deleteMemo(memoId: String)
-}
-
-private object MissingMemoVersionRestorePersistence : MemoVersionRestorePersistence {
-    override suspend fun persistActiveMemo(memo: Memo) {
-        throw IllegalStateException(MISSING_MEMO_RESTORE_PERSISTENCE_MESSAGE)
-    }
-
-    override suspend fun persistTrashedMemo(memo: Memo) {
-        throw IllegalStateException(MISSING_MEMO_RESTORE_PERSISTENCE_MESSAGE)
-    }
-
-    override suspend fun deleteMemo(memoId: String) {
-        throw IllegalStateException(MISSING_MEMO_RESTORE_PERSISTENCE_MESSAGE)
-    }
-}
-
-private class DaoBackedMemoVersionRestorePersistence(
-    private val memoWriteDao: MemoWriteDao,
-    private val memoTagDao: MemoTagDao,
-    private val memoImageDao: MemoImageDao,
-    private val memoTrashDao: MemoTrashDao,
-    private val runInTransaction: suspend (suspend () -> Unit) -> Unit,
-) : MemoVersionRestorePersistence {
-    override suspend fun persistActiveMemo(memo: Memo) {
-        runInTransaction {
-            val entity = MemoEntity.fromDomain(memo.copy(isDeleted = false))
-            memoWriteDao.insertMemo(entity)
-            memoTagDao.replaceTagRefsForMemo(entity)
-            memoImageDao.replaceImageRefsForMemo(entity)
-            memoTrashDao.deleteTrashMemoById(entity.id)
-        }
-    }
-
-    override suspend fun persistTrashedMemo(memo: Memo) {
-        runInTransaction {
-            memoWriteDao.deleteMemoById(memo.id)
-            memoTagDao.deleteTagRefsByMemoId(memo.id)
-            val trashEntity = TrashMemoEntity.fromDomain(memo.copy(isDeleted = true))
-            memoTrashDao.insertTrashMemo(trashEntity)
-            memoImageDao.replaceImageRefsForTrashMemo(trashEntity)
-        }
-    }
-
-    override suspend fun deleteMemo(memoId: String) {
-        runInTransaction {
-            memoWriteDao.deleteMemoById(memoId)
-            memoTagDao.deleteTagRefsByMemoId(memoId)
-            memoImageDao.deleteImageRefsByMemoId(memoId)
-            memoTrashDao.deleteTrashMemoById(memoId)
-        }
-    }
-}
-
-private fun requireRestorePersistence(
-    lifecycleState: MemoRevisionLifecycleState,
-    restorePersistence: MemoVersionRestorePersistence,
-): MemoVersionRestorePersistence {
-    if (restorePersistence !== MissingMemoVersionRestorePersistence) {
-        return restorePersistence
-    }
-    val message =
-        if (lifecycleState == MemoRevisionLifecycleState.DELETED) {
-            "Memo restore requires memo persistence stores for deleted revisions."
-        } else {
-            MISSING_MEMO_RESTORE_PERSISTENCE_MESSAGE
-        }
-    throw IllegalStateException(message)
-}
+internal data class MemoRevisionRestoreAsset(
+    val category: WorkspaceMediaCategory,
+    val filename: String,
+    val writeTo: suspend (OutputStream) -> Unit,
+)
 
 internal suspend fun loadLatestAssetPairsIfNeeded(
     store: MemoVersionStore,
@@ -814,6 +583,5 @@ internal const val UNASSIGNED_REVISION_ID = "__pending__"
 internal const val VERSION_MARKDOWN_CONTENT_ENCODING = "text/markdown;charset=utf-8"
 internal const val DEFAULT_MAX_REVISIONS_PER_MEMO = 100
 internal const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
-internal const val MISSING_MEMO_RESTORE_PERSISTENCE_MESSAGE = "Memo restore requires memo persistence stores."
 internal val AUDIO_EXTENSIONS = MediaFileExtensions.AUDIO
 internal val IMAGE_EXTENSIONS = MediaFileExtensions.IMAGE

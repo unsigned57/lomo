@@ -1,6 +1,10 @@
 package com.lomo.data.source
 
 import android.net.Uri
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,10 +20,25 @@ class FileMarkdownStorageDataSourceDelegate
         override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
             backendResolver.markdownBackend()?.listMetadataWithIdsIn(directory) ?: emptyList()
 
+        override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
+            flow {
+                emitAll(backendResolver.markdownBackend()?.streamMetadataWithIdsIn(directory) ?: emptyFlow())
+            }
+
         override suspend fun readFileByDocumentIdIn(
             directory: MemoDirectoryType,
             documentId: String,
         ): String? = backendResolver.markdownBackend()?.readFileByDocumentIdIn(directory, documentId)
+
+        override fun streamFileByDocumentIdIn(
+            directory: MemoDirectoryType,
+            documentId: String,
+        ): Flow<String> =
+            flow {
+                emitAll(
+                    backendResolver.markdownBackend()?.streamFileByDocumentIdIn(directory, documentId) ?: emptyFlow(),
+                )
+            }
 
         override suspend fun readFileIn(
             directory: MemoDirectoryType,

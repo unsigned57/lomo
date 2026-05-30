@@ -146,6 +146,13 @@ sealed interface MarkdownSemanticInline {
     data class HtmlInline(
         override val plainText: String,
     ) : MarkdownSemanticInline
+
+    data class Highlight(
+        val inlines: List<MarkdownSemanticInline>,
+    ) : MarkdownSemanticInline {
+        override val plainText: String
+            get() = inlines.plainText()
+    }
 }
 
 internal data class MarkdownLinkReference(
@@ -156,10 +163,93 @@ internal data class MarkdownLinkReference(
 fun parseMarkdownSemanticDocument(content: String): MarkdownSemanticDocument {
     val root = parseModernMarkdownDocument(content)
     val references = parseMarkdownLinkReferences(root, content)
+    val parsedBlocks = parseMarkdownSemanticBlocks(root.children, content, references)
     return MarkdownSemanticDocument(
-        blocks = parseMarkdownSemanticBlocks(root.children, content, references),
+        blocks = parsedBlocks.map { it.parseHighlights() },
     )
 }
+
+internal fun List<MarkdownSemanticInline>.parseHighlights(): List<MarkdownSemanticInline> {
+    val splitInlines = flatMap { inline ->
+        when (inline) {
+            is MarkdownSemanticInline.Text -> {
+                val text = inline.plainText
+                if (text.contains("==")) {
+                    val parts = mutableListOf<MarkdownSemanticInline>()
+                    var start = 0
+                    var idx = text.indexOf("==")
+                    while (idx != -1) {
+                        if (idx > start) {
+                            parts.add(MarkdownSemanticInline.Text(text.substring(start, idx)))
+                        }
+                        parts.add(MarkdownSemanticInline.Text("=="))
+                        start = idx + 2
+                        idx = text.indexOf("==", start)
+                    }
+                    if (start < text.length) {
+                        parts.add(MarkdownSemanticInline.Text(text.substring(start)))
+                    }
+                    parts
+                } else {
+                    listOf(inline)
+                }
+            }
+            is MarkdownSemanticInline.Strong -> listOf(inline.copy(inlines = inline.inlines.parseHighlights()))
+            is MarkdownSemanticInline.Emphasis -> listOf(inline.copy(inlines = inline.inlines.parseHighlights()))
+            is MarkdownSemanticInline.Strikethrough -> listOf(inline.copy(inlines = inline.inlines.parseHighlights()))
+            is MarkdownSemanticInline.Link -> listOf(inline.copy(inlines = inline.inlines.parseHighlights()))
+            is MarkdownSemanticInline.Highlight -> listOf(inline.copy(inlines = inline.inlines.parseHighlights()))
+            else -> listOf(inline)
+        }
+    }
+
+    val result = mutableListOf<MarkdownSemanticInline>()
+    var i = 0
+    while (i < splitInlines.size) {
+        val current = splitInlines[i]
+        if (current is MarkdownSemanticInline.Text && current.plainText == "==") {
+            var j = i + 1
+            var matchIdx = -1
+            while (j < splitInlines.size) {
+                val candidate = splitInlines[j]
+                if (candidate is MarkdownSemanticInline.Text && candidate.plainText == "==") {
+                    matchIdx = j
+                    break
+                }
+                j++
+            }
+            if (matchIdx != -1) {
+                val subList = splitInlines.subList(i + 1, matchIdx)
+                result.add(MarkdownSemanticInline.Highlight(subList.parseHighlights()))
+                i = matchIdx + 1
+            } else {
+                result.add(MarkdownSemanticInline.Text("=="))
+                i++
+            }
+        } else {
+            result.add(current)
+            i++
+        }
+    }
+    return result
+}
+
+internal fun MarkdownSemanticBlock.parseHighlights(): MarkdownSemanticBlock =
+    when (this) {
+        is MarkdownSemanticBlock.Paragraph -> copy(inlines = inlines.parseHighlights())
+        is MarkdownSemanticBlock.Heading -> copy(inlines = inlines.parseHighlights())
+        is MarkdownSemanticBlock.BlockQuote -> copy(blocks = blocks.map { it.parseHighlights() })
+        is MarkdownSemanticBlock.ListBlock -> copy(items = items.map { item ->
+            item.copy(blocks = item.blocks.map { it.parseHighlights() })
+        })
+        is MarkdownSemanticBlock.Table -> copy(
+            header = header.map { cell -> cell.copy(inlines = cell.inlines.parseHighlights()) },
+            rows = rows.map { row ->
+                row.map { cell -> cell.copy(inlines = cell.inlines.parseHighlights()) }
+            }
+        )
+        else -> this
+    }
 
 internal fun List<MarkdownSemanticInline>.plainText(): String =
     joinToString(separator = "") { inline -> inline.plainText }

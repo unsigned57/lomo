@@ -13,16 +13,16 @@ internal class TrashMemoMutationDelegate(
     override suspend fun deleteMemoInDb(memo: Memo): Long? =
         runtime.mutationGate.withLock {
             val sourceMemo = runtime.daoBundle.memoDao.getMemo(memo.id)?.toDomain() ?: return@withLock null
+            val command = MemoLifecycleCommand.deleteToTrash(sourceMemo)
             val outboxId =
                 moveMemoToTrashWithOutbox(
                     daoBundle = runtime.daoBundle,
-                    sourceMemo = sourceMemo,
-                    outbox = buildDeleteOutbox(sourceMemo),
+                    command = command,
                 )
             runtime.memoVersionRecorder.enqueueLocalRevision(
-                memo = sourceMemo.copy(isDeleted = true),
-                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.TRASHED,
-                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
+                memo = command.versionMemo,
+                lifecycleState = command.operation.versionLifecycleState,
+                origin = command.operation.versionOrigin,
             )
             outboxId
         }
@@ -45,16 +45,16 @@ internal class TrashMemoMutationDelegate(
         runtime.mutationGate.withLock {
             val sourceMemo =
                 runtime.daoBundle.memoTrashDao.getTrashMemo(memo.id)?.toDomain() ?: return@withLock null
+            val command = MemoLifecycleCommand.restoreFromTrash(sourceMemo)
             val outboxId =
                 restoreMemoFromTrashWithOutbox(
                     daoBundle = runtime.daoBundle,
-                    sourceMemo = sourceMemo,
-                    outbox = buildRestoreOutbox(sourceMemo),
+                    command = command,
                 )
             runtime.memoVersionRecorder.enqueueLocalRevision(
-                memo = sourceMemo.copy(isDeleted = false),
-                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
-                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
+                memo = command.versionMemo,
+                lifecycleState = command.operation.versionLifecycleState,
+                origin = command.operation.versionOrigin,
             )
             outboxId
         }
@@ -69,18 +69,23 @@ internal class TrashMemoMutationDelegate(
             }
         }
 
-    override suspend fun deletePermanently(memo: Memo) =
+    override suspend fun deletePermanentlyInDb(memo: Memo): Long? =
         runtime.mutationGate.withLock {
-            runtime.trashMutationHandler.deleteFromTrashPermanently(memo)
+            val sourceMemo =
+                runtime.daoBundle.memoTrashDao.getTrashMemo(memo.id)?.toDomain() ?: return@withLock null
+            enqueuePermanentDeleteWithOutbox(
+                daoBundle = runtime.daoBundle,
+                command = MemoLifecycleCommand.permanentDelete(sourceMemo),
+            )
         }
 
-    override suspend fun clearTrash() =
+    override suspend fun clearTrash(): Int =
         runtime.mutationGate.withLock {
-            clearTrashPermanently(runtime.trashMutationHandler, runtime.daoBundle.memoTrashDao)
+            enqueueClearTrashWithOutbox(runtime.daoBundle)
         }
 }
 
-private suspend fun recordMainMemoStateAfterTrashMove(
+internal suspend fun recordMainMemoStateAfterTrashMove(
     runtime: MemoMutationRuntime,
     memo: Memo,
 ) {
@@ -93,15 +98,4 @@ private suspend fun recordMainMemoStateAfterTrashMove(
         runtime.s3LocalChangeRecorder.recordMemoDelete(filename)
         runtime.webDavLocalChangeRecorder.recordMemoDelete(filename)
     }
-}
-
-private suspend fun clearTrashPermanently(
-    trashMutationHandler: MemoTrashMutationHandler,
-    memoTrashDao: com.lomo.data.local.dao.MemoTrashDao,
-) {
-    val trashMemos = memoTrashDao.getDeletedMemos()
-    if (trashMemos.isEmpty()) {
-        return
-    }
-    trashMutationHandler.clearAllTrashPermanently(trashMemos)
 }

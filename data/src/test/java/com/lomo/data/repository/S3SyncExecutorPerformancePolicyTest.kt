@@ -134,7 +134,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
         coEvery { client.getObjectToFile(any(), any()) } coAnswers {
             val key = args[0] as String
             val destination = args[1] as java.io.File
-            val payload = client.getObject(key)
+            val payload = client.getSmallObject(key)
             destination.parentFile?.mkdirs()
             destination.writeBytes(payload.bytes)
             com.lomo.data.s3.S3RemoteObject(
@@ -177,11 +177,13 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
                 encodingSupport = encodingSupport,
                 fileBridge = fileBridge,
                 actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+                lifecycleRunner = testRemoteSyncLifecycleRunner(),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                 remoteIndexStore = DisabledS3RemoteIndexStore,
                 remoteShardStateStore = DisabledS3RemoteShardStateStore,
-                pendingConflictStore = DisabledPendingSyncConflictStore,
+                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                pendingReviewStore = InMemoryPendingSyncReviewStore(),
             )
     }
 
@@ -242,7 +244,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
             stubSinglePageRemoteScan(
                 remoteObject(imagePath, eTag = "etag-image", lastModified = 20L),
             )
-            coEvery { client.getObject(imagePath) } returns
+            coEvery { client.getSmallObject(imagePath) } returns
                 remotePayload(
                     key = imagePath,
                     eTag = "etag-image",
@@ -270,7 +272,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
             stubSinglePageRemoteScan(
                 remoteObject(memoRemotePath, eTag = "etag-note", lastModified = 30L),
             )
-            coEvery { client.getObject(memoRemotePath) } returns
+            coEvery { client.getSmallObject(memoRemotePath) } returns
                 remotePayload(
                     key = memoRemotePath,
                     eTag = "etag-note",
@@ -311,7 +313,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
             stubSinglePageRemoteScan(
                 remoteObject(boardRemotePath, eTag = "etag-board", lastModified = 40L),
             )
-            coEvery { client.getObject(boardRemotePath) } returns
+            coEvery { client.getSmallObject(boardRemotePath) } returns
                 remotePayload(
                     key = boardRemotePath,
                     eTag = "etag-board",
@@ -359,7 +361,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
         eTag: String,
         lastModified: Long,
         bytes: ByteArray,
-    ) = com.lomo.data.s3.S3RemoteObjectPayload(
+    ) = com.lomo.data.s3.S3SmallObjectPayload(
         key = key,
         eTag = eTag,
         lastModified = lastModified,

@@ -18,11 +18,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontSynthesis
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 
 
@@ -41,10 +45,12 @@ internal fun MemoComposeParagraphText(
     onTapFeedback: (() -> Unit)? = null,
     onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
     val scope = selectionRegistrar
     val resolvedBlockKey = remember(blockKey) { blockKey ?: Any() }
+    val customTypeface = rememberResolvedPlatformTypeface(style)
     // Read scope.selection here (inside the composable) so the snapshot system propagates
     // changes to this paragraph block even when its own `rangeForBlock` would return null
     // (e.g. an out-of-selection paragraph whose only signal is the scope-level boolean).
@@ -65,6 +71,7 @@ internal fun MemoComposeParagraphText(
                 overflow = overflow,
                 widthPx = constraints.maxWidth.toFloat(),
                 maxHeightPx = constraints.maxHeight,
+                customTypeface = customTypeface,
             )
         val heightDp =
             with(LocalDensity.current) {
@@ -101,6 +108,7 @@ internal fun MemoComposeParagraphText(
                                 doubleClick()
                             }
                         },
+                        onLongClick = onLongClick,
                     ),
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -113,6 +121,7 @@ internal fun MemoComposeParagraphText(
                     selectionState = bindings.selectionState,
                     selectionHighlightColor = selectionHighlightColor,
                     defaultLinkColor = defaultLinkColor,
+                    customTypeface = customTypeface,
                 )
             }
         }
@@ -198,9 +207,10 @@ private fun rememberMemoComposeParagraphLayout(
     overflow: TextOverflow,
     widthPx: Float,
     maxHeightPx: Int,
+    customTypeface: android.graphics.Typeface?,
 ): MemoComposeParagraphLayout {
     val density = LocalDensity.current
-    val textPaint = remember(style, density) { style.toBaseTextPaint(density) }
+    val textPaint = remember(style, density, customTypeface) { style.toBaseTextPaint(density, customTypeface) }
     val measurer = remember(textPaint) { AndroidMemoTextMeasurer(textPaint) }
     val engine = remember(measurer) { MemoTextLayoutEngine(measurer) }
     val lineMetrics = remember(style, density, textPaint) { style.resolveLineMetrics(density, textPaint) }
@@ -214,22 +224,23 @@ private fun rememberMemoComposeParagraphLayout(
                 lineHeightPx = lineMetrics.lineHeightPx,
             )
         }
+    val layoutInput =
+        MemoTextLayoutInput(
+            text = text.text,
+            maxWidthPx = widthPx,
+            baseLetterSpacingPx = baseLetterSpacingPx,
+            maxLines = effectiveMaxLines,
+            lineHeightPx = lineMetrics.lineHeightPx,
+            baselinePx = lineMetrics.baselinePx,
+            protectedRanges = linkRanges.map { MemoTextProtectedRange(it.start, it.end) },
+            ellipsizeLastVisibleLine =
+                overflow == TextOverflow.Ellipsis ||
+                    effectiveMaxLines < maxLines,
+        )
+    val layoutCacheKey = layoutInput.toMemoTextLayoutCacheKey()
     val layout =
-        remember(text, widthPx, effectiveMaxLines, overflow, lineMetrics, baseLetterSpacingPx, linkRanges, engine) {
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = text.text,
-                    maxWidthPx = widthPx,
-                    baseLetterSpacingPx = baseLetterSpacingPx,
-                    maxLines = effectiveMaxLines,
-                    lineHeightPx = lineMetrics.lineHeightPx,
-                    baselinePx = lineMetrics.baselinePx,
-                    protectedRanges = linkRanges.map { MemoTextProtectedRange(it.start, it.end) },
-                    ellipsizeLastVisibleLine =
-                        overflow == TextOverflow.Ellipsis ||
-                            effectiveMaxLines < maxLines,
-                ),
-            )
+        remember(layoutCacheKey, engine) {
+            engine.layout(layoutInput)
         }
     return MemoComposeParagraphLayout(
         layout = layout,
@@ -238,6 +249,19 @@ private fun rememberMemoComposeParagraphLayout(
         baseLetterSpacingPx = baseLetterSpacingPx,
         linkRanges = linkRanges,
     )
+}
+
+@Composable
+private fun rememberResolvedPlatformTypeface(style: TextStyle): android.graphics.Typeface? {
+    val resolver = LocalFontFamilyResolver.current
+    val resolvedTypeface =
+        resolver.resolve(
+            fontFamily = style.fontFamily,
+            fontWeight = style.fontWeight ?: FontWeight.Normal,
+            fontStyle = style.fontStyle ?: FontStyle.Normal,
+            fontSynthesis = style.fontSynthesis ?: FontSynthesis.All,
+        )
+    return resolvedTypeface.value as? android.graphics.Typeface
 }
 
 private fun Modifier.memoParagraphPointerInput(
@@ -251,6 +275,7 @@ private fun Modifier.memoParagraphPointerInput(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: ((Offset) -> Unit)?,
+    onLongClick: (() -> Unit)?,
 ): Modifier =
     pointerInput(
         paragraphLayout,
@@ -260,6 +285,7 @@ private fun Modifier.memoParagraphPointerInput(
         onTapFeedback,
         onBodyClick,
         onDoubleClick,
+        onLongClick,
     ) {
         detectTapGestures(
             onPress = {
@@ -319,15 +345,18 @@ private fun Modifier.memoParagraphPointerInput(
                 }
             },
             onLongPress = { position ->
-                if (!selectable) return@detectTapGestures
-                val offset = paragraphLayout.offsetForPosition(position)
-                val range = paragraphLayout.layout.selectionRangeAtOffset(offset)
-                onSelectionChange(
-                    MemoTextSelectionState(
-                        anchorOffset = range.first,
-                        focusOffset = range.last + 1,
-                    ),
-                )
+                if (selectable) {
+                    val offset = paragraphLayout.offsetForPosition(position)
+                    val range = paragraphLayout.layout.selectionRangeAtOffset(offset)
+                    onSelectionChange(
+                        MemoTextSelectionState(
+                            anchorOffset = range.first,
+                            focusOffset = range.last + 1,
+                        ),
+                    )
+                } else {
+                    onLongClick?.invoke()
+                }
             },
         )
     }

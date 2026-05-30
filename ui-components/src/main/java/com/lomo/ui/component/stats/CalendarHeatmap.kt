@@ -26,8 +26,6 @@ import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
-import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
@@ -45,8 +43,6 @@ internal val HEATMAP_POPUP_MARGIN = 4.dp
 internal val HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING = 12.dp
 internal val HEATMAP_POPUP_CONTENT_VERTICAL_PADDING = 8.dp
 internal val HEATMAP_POPUP_TEXT_SPACING = 2.dp
-private const val HEATMAP_MONTH_LABEL_TRAILING_WEEKS = 2
-private const val HEATMAP_MIN_LABEL_WEEKS = 3
 internal const val HEATMAP_LEVEL_ONE_MAX = 1
 internal const val HEATMAP_LEVEL_TWO_MAX = 3
 internal const val HEATMAP_LEVEL_THREE_MAX = 6
@@ -59,18 +55,25 @@ private const val PREVIEW_LEVEL_FOUR_COUNT = 8
 private const val PREVIEW_LEVEL_THREE_COUNT = 5
 private const val PREVIEW_LEVEL_TWO_COUNT = 2
 private const val PREVIEW_LEVEL_ONE_COUNT = 1
+private val PREVIEW_TODAY: LocalDate = LocalDate.of(2026, 5, 22)
 
 @Composable
 fun CalendarHeatmap(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
+    today: LocalDate,
     modifier: Modifier = Modifier,
     onDateLongPress: (LocalDate) -> Unit = {},
 ) {
-    val today = LocalDate.now()
     val datePattern = stringResource(R.string.calendar_heatmap_date_format)
     val dateFormatter = remember(datePattern) { DateTimeFormatter.ofPattern(datePattern, Locale.getDefault()) }
     val density = LocalDensity.current
-    val layout = rememberHeatmapLayout(density, today, memoCountByDate)
+    val window = remember(today, memoCountByDate) {
+        resolveCalendarHeatmapWindow(
+            today = today,
+            memoCountByDate = memoCountByDate,
+        )
+    }
+    val layout = rememberHeatmapLayout(density, window)
     val colors = rememberHeatmapColors()
     val textPaint =
         rememberHeatmapTextPaint(
@@ -151,32 +154,66 @@ internal data class HeatmapPopupData(
     val offset: Offset,
 )
 
-@Composable
-private fun rememberHeatmapLayout(
-    density: androidx.compose.ui.unit.Density,
+internal data class CalendarHeatmapWindow(
+    val today: LocalDate,
+    val startDay: LocalDate,
+    val totalWeeks: Int,
+    val monthLabels: List<MonthLabel>,
+    val heatmapCells: List<HeatmapCell>,
+)
+
+internal enum class HeatmapIntensity {
+    Empty,
+    Level1,
+    Level2,
+    Level3,
+    Level4,
+}
+
+internal fun resolveCalendarHeatmapWindow(
     today: LocalDate,
-    memoCountByDate: ImmutableMap<LocalDate, Int>,
-): HeatmapLayout {
-    val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
-    val spacingPx = with(density) { HEATMAP_CELL_SPACING.toPx() }
-    val monthLabelHeightPx = with(density) { HEATMAP_MONTH_LABEL_HEIGHT.toPx() }
-    val cornerRadiusPx = with(density) { HEATMAP_CELL_CORNER_RADIUS.toPx() }
-    val earliestMemoDate = memoCountByDate.keys.minOrNull() ?: today
+    memoCountByDate: Map<LocalDate, Int>,
+): CalendarHeatmapWindow {
+    val memoCountUntilToday = memoCountByDate.filterKeys { !it.isAfter(today) }
+    val earliestMemoDate = memoCountUntilToday.keys.minOrNull() ?: today
     val totalWeeks =
         calculateWeeksToCoverEarliestDate(
             today = today,
             earliestDate = earliestMemoDate,
         ).coerceAtLeast(MIN_WEEKS)
-    val weekWidth = cellSizePx + spacingPx
-    val totalWidth = totalWeeks * weekWidth
-    val totalHeight = monthLabelHeightPx + DAYS_PER_WEEK * weekWidth
     val daysToSubtract = (totalWeeks - 1) * DAYS_PER_WEEK + today.dayOfWeek.value % DAYS_PER_WEEK
     val startDay = today.minusDays(daysToSubtract.toLong())
-    val monthLabels = remember(startDay, totalWeeks) { buildMonthLabels(startDay, totalWeeks) }
-    val heatmapCells =
-        remember(startDay, today, totalWeeks, memoCountByDate) {
-            buildHeatmapCells(startDay, today, totalWeeks, memoCountByDate)
-        }
+
+    return CalendarHeatmapWindow(
+        today = today,
+        startDay = startDay,
+        totalWeeks = totalWeeks,
+        monthLabels = buildMonthLabels(startDay, totalWeeks),
+        heatmapCells = buildHeatmapCells(startDay, today, totalWeeks, memoCountUntilToday),
+    )
+}
+
+internal fun resolveHeatmapIntensity(count: Int): HeatmapIntensity =
+    when {
+        count <= 0 -> HeatmapIntensity.Empty
+        count <= HEATMAP_LEVEL_ONE_MAX -> HeatmapIntensity.Level1
+        count <= HEATMAP_LEVEL_TWO_MAX -> HeatmapIntensity.Level2
+        count <= HEATMAP_LEVEL_THREE_MAX -> HeatmapIntensity.Level3
+        else -> HeatmapIntensity.Level4
+    }
+
+@Composable
+private fun rememberHeatmapLayout(
+    density: androidx.compose.ui.unit.Density,
+    window: CalendarHeatmapWindow,
+): HeatmapLayout {
+    val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
+    val spacingPx = with(density) { HEATMAP_CELL_SPACING.toPx() }
+    val monthLabelHeightPx = with(density) { HEATMAP_MONTH_LABEL_HEIGHT.toPx() }
+    val cornerRadiusPx = with(density) { HEATMAP_CELL_CORNER_RADIUS.toPx() }
+    val weekWidth = cellSizePx + spacingPx
+    val totalWidth = window.totalWeeks * weekWidth
+    val totalHeight = monthLabelHeightPx + DAYS_PER_WEEK * weekWidth
 
     return remember(
         cellSizePx,
@@ -184,13 +221,10 @@ private fun rememberHeatmapLayout(
         monthLabelHeightPx,
         cornerRadiusPx,
         weekWidth,
-        totalWeeks,
+        window.totalWeeks,
         totalWidth,
         totalHeight,
-        startDay,
-        today,
-        monthLabels,
-        heatmapCells,
+        window,
     ) {
         HeatmapLayout(
             cellSizePx = cellSizePx,
@@ -198,13 +232,13 @@ private fun rememberHeatmapLayout(
             monthLabelHeightPx = monthLabelHeightPx,
             cornerRadiusPx = cornerRadiusPx,
             weekWidth = weekWidth,
-            totalWeeks = totalWeeks,
+            totalWeeks = window.totalWeeks,
             totalWidth = totalWidth,
             totalHeight = totalHeight,
-            startDay = startDay,
-            today = today,
-            monthLabels = monthLabels,
-            heatmapCells = heatmapCells,
+            startDay = window.startDay,
+            today = window.today,
+            monthLabels = window.monthLabels,
+            heatmapCells = window.heatmapCells,
         )
     }
 }
@@ -264,21 +298,6 @@ internal fun resolveTappedCell(
     return if (date.isAfter(layout.today)) null else HeatmapCellHit(col = col, row = row, date = date)
 }
 
-private fun calculateWeeksToCoverEarliestDate(
-    today: LocalDate,
-    earliestDate: LocalDate,
-): Int {
-    val normalizedEarliestDate = earliestDate.coerceAtMost(today)
-    val todayOffsetInWeek = today.dayOfWeek.value % DAYS_PER_WEEK
-    val daysBetween =
-        ChronoUnit.DAYS
-            .between(normalizedEarliestDate, today)
-            .toInt()
-            .coerceAtLeast(0)
-    val daysOutsideCurrentWeek = (daysBetween - todayOffsetInWeek).coerceAtLeast(0)
-    return (daysOutsideCurrentWeek + DAYS_PER_WEEK - 1) / DAYS_PER_WEEK + 1
-}
-
 internal data class HeatmapCellHit(
     val col: Int,
     val row: Int,
@@ -297,68 +316,6 @@ internal data class HeatmapCell(
     val date: LocalDate,
     val count: Int,
 )
-
-internal fun buildMonthLabels(
-    startDay: LocalDate,
-    totalWeeks: Int,
-): List<MonthLabel> {
-    var currentMonth = -1
-    val labels = mutableListOf<MonthLabel>()
-    for (week in 0 until totalWeeks) {
-        val dateOfWeekStart = startDay.plusWeeks(week.toLong())
-        val month = dateOfWeekStart.monthValue
-        if (month != currentMonth) {
-            if (
-                week < totalWeeks - HEATMAP_MONTH_LABEL_TRAILING_WEEKS ||
-                totalWeeks < HEATMAP_MIN_LABEL_WEEKS
-            ) {
-                labels += MonthLabel(
-                    week = week,
-                    text = formatHeatmapMonthLabel(dateOfWeekStart, isFirstVisibleLabel = labels.isEmpty()),
-                    year = dateOfWeekStart.year,
-                )
-            }
-            currentMonth = month
-        }
-    }
-    return labels
-}
-
-private fun buildHeatmapCells(
-    startDay: LocalDate,
-    today: LocalDate,
-    totalWeeks: Int,
-    memoCountByDate: Map<LocalDate, Int>,
-): List<HeatmapCell> {
-    val cells = ArrayList<HeatmapCell>(totalWeeks * DAYS_PER_WEEK)
-    for (week in 0 until totalWeeks) {
-        for (day in 0 until DAYS_PER_WEEK) {
-            val date = startDay.plusWeeks(week.toLong()).plusDays(day.toLong())
-            if (date.isAfter(today)) {
-                continue
-            }
-            cells += HeatmapCell(
-                week = week,
-                day = day,
-                date = date,
-                count = memoCountByDate[date] ?: 0,
-            )
-        }
-    }
-    return cells
-}
-
-private fun formatHeatmapMonthLabel(
-    date: LocalDate,
-    isFirstVisibleLabel: Boolean,
-): String {
-    val monthText = date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    return if (isFirstVisibleLabel || date.monthValue == 1) {
-        "${date.year} $monthText"
-    } else {
-        monthText
-    }
-}
 
 internal class HeatmapPopupPositionProvider(
     private val contentOffset: Offset,
@@ -388,14 +345,14 @@ internal class HeatmapPopupPositionProvider(
     }
 }
 
-private const val MIN_WEEKS = 52
-private const val DAYS_PER_WEEK = 7
-private const val LAST_WEEKDAY_INDEX = DAYS_PER_WEEK - 1
+internal const val MIN_WEEKS = 52
+internal const val DAYS_PER_WEEK = 7
+internal const val LAST_WEEKDAY_INDEX = DAYS_PER_WEEK - 1
 
 @Preview(showBackground = true, widthDp = 360)
 @Composable
 private fun CalendarHeatmapPreview() {
-    val today = LocalDate.now()
+    val today = PREVIEW_TODAY
     val sampleMemoCountByDate =
         remember(today) {
             buildMap {
@@ -418,6 +375,7 @@ private fun CalendarHeatmapPreview() {
         Surface(modifier = Modifier.padding(16.dp)) {
             CalendarHeatmap(
                 memoCountByDate = sampleMemoCountByDate.toImmutableMap(),
+                today = today,
                 modifier = Modifier.width(320.dp),
             )
         }

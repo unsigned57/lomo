@@ -18,8 +18,6 @@ package com.lomo.data.repository
 
 
 
-import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevision
@@ -27,10 +25,14 @@ import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import kotlinx.coroutines.test.runTest
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.file.Files
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -39,19 +41,16 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 /*
  * Behavior Contract:
  * - Unit under test: MemoVersionJournal
- * - Behavior focus: append-only memo revision history, duplicate-state suppression across restores and edits,
+ * - Behavior focus: append-only memo revision history, duplicate-state suppression across restore handoffs and edits,
  *   cursor pagination, settings-driven retention pruning and disable behavior, orphan-blob cleanup, imported
  *   refresh tracking, lightweight preview-only Room storage for revision listings, destructive snapshot clearing,
- *   and scoped memo restore with referenced local attachments.
+ *   and restore-command handoff metadata for the lifecycle outbox pipeline.
  * - Observable outcomes: page ordering and cursors, current-version markers, skipped duplicate revisions,
  *   imported deletion records, pruned history tails, cleaned blob files, preview-truncated history rows with full
- *   restore fidelity, restored markdown content, rollback of partially applied restore side effects, and restore
- *   failure preventing a synthetic restore revision.
- * - TDD proof: Fails before the fix because restoring or editing back to an older memo state records duplicate
- *   revisions for content and attachments that already exist in history, revision rows still persist full memo
- *   bodies instead of compact previews, and restore paths without memo persistence stores can succeed after
- *   mutating files instead of failing fast.
- * - Excludes: Room SQL mechanics, Compose/UI rendering, and Git history integration.
+ *   restore-command fidelity, asset bytes read from version blobs, and a single explicit restore-history handoff.
+ * - TDD proof: Fails before the P1-4 lifecycle repair because revision restore is executed directly by
+ *   MemoVersionJournal instead of being built as a VERSION_RESTORE lifecycle command and completed by outbox.
+ * - Excludes: Room SQL mechanics, Compose/UI rendering, Git history integration, and workspace/DB restore execution.
  */
 class MemoVersionJournalTest : DataFunSpec() {
     init {
@@ -61,19 +60,19 @@ class MemoVersionJournalTest : DataFunSpec() {
 
         test("appendLocalRevision deduplicates identical content and lists newest-first current-aware history") { `appendLocalRevision deduplicates identical content and lists newest-first current-aware history`() }
 
-        test("appendLocalRevision stores long history rows as previews while restore still uses full markdown") { `appendLocalRevision stores long history rows as previews while restore still uses full markdown`() }
+        test("appendLocalRevision stores long history rows as previews while restore command uses full markdown") { `appendLocalRevision stores long history rows as previews while restore command uses full markdown`() }
 
-        test("restoreRevision rewrites only target memo and restores missing local attachments") { `restoreRevision rewrites only target memo and restores missing local attachments`() }
+        test("buildRevisionRestoreCommand carries target memo and stored local attachment assets") { `buildRevisionRestoreCommand carries target memo and stored local attachment assets`() }
 
-        test("restoreRevision reuses existing memo states instead of recording duplicate history entries") { `restoreRevision reuses existing memo states instead of recording duplicate history entries`() }
+        test("recordRevisionRestoreHandoff reuses existing memo states instead of recording duplicate history entries") { `recordRevisionRestoreHandoff reuses existing memo states instead of recording duplicate history entries`() }
 
-        test("restoreDeletedRevision throws when persistence dependencies are unavailable") { `restoreDeletedRevision throws when persistence dependencies are unavailable`() }
+        test("buildRevisionRestoreCommand carries deleted target lifecycle state") { `buildRevisionRestoreCommand carries deleted target lifecycle state`() }
 
-        test("restoreActiveRevision fails fast when persistence dependencies are unavailable") { `restoreActiveRevision fails fast when persistence dependencies are unavailable`() }
+        test("buildRevisionRestoreCommand carries active target lifecycle state") { `buildRevisionRestoreCommand carries active target lifecycle state`() }
 
-        test("restoreTrashedRevision fails fast when persistence dependencies are unavailable") { `restoreTrashedRevision fails fast when persistence dependencies are unavailable`() }
+        test("buildRevisionRestoreCommand carries trashed target lifecycle state") { `buildRevisionRestoreCommand carries trashed target lifecycle state`() }
 
-        test("restoreRevision followed by imported refresh keeps edited history and marks only one current revision") { `restoreRevision followed by imported refresh keeps edited history and marks only one current revision`() }
+        test("restore handoff followed by imported refresh keeps edited history and marks only one current revision") { `restore handoff followed by imported refresh keeps edited history and marks only one current revision`() }
 
         test("appendImportedRefreshRevisions records changed and deleted memos but skips unchanged states") { `appendImportedRefreshRevisions records changed and deleted memos but skips unchanged states`() }
 
@@ -95,15 +94,14 @@ class MemoVersionJournalTest : DataFunSpec() {
 
         test("appendLocalRevision rolls back partial version rows and blobs when revision asset write fails") { `appendLocalRevision rolls back partial version rows and blobs when revision asset write fails`() }
 
-        test("restoreMemoRevision aborts without recording restore revision when attachment restore fails") { `restoreMemoRevision aborts without recording restore revision when attachment restore fails`() }
+        test("readRevisionRestoreAssets reads stored revision blobs without workspace access") { `readRevisionRestoreAssets reads stored revision blobs without workspace access`() }
 
-        test("restoreMemoRevision rolls back attachments and markdown when markdown write fails after attachment restore") { `restoreMemoRevision rolls back attachments and markdown when markdown write fails after attachment restore`() }
+        test("recordRevisionRestoreHandoff preserves history when command target assets cannot be read from workspace") { `recordRevisionRestoreHandoff preserves history when command target assets cannot be read from workspace`() }
 
-        test("restoreMemoRevision reuses stored revision assets for restore history append when workspace reads are unavailable") { `restoreMemoRevision reuses stored revision assets for restore history append when workspace reads are unavailable`() }
+        test("recordRevisionRestoreHandoff records restored deletion through history without workspace mutation") { `recordRevisionRestoreHandoff records restored deletion through history without workspace mutation`() }
     }
 
 
-    private lateinit var markdownStorageDataSource: JournalMarkdownStorageDataSource
     private lateinit var workspaceMediaAccess: JournalWorkspaceMediaAccess
     private lateinit var store: InMemoryMemoVersionStore
     private lateinit var blobRoot: File
@@ -111,7 +109,6 @@ class MemoVersionJournalTest : DataFunSpec() {
     private lateinit var textProcessor: MemoTextProcessor
 
     private fun setUp() {
-        markdownStorageDataSource = JournalMarkdownStorageDataSource()
         workspaceMediaAccess = JournalWorkspaceMediaAccess()
         store = InMemoryMemoVersionStore()
         textProcessor = MemoTextProcessor()
@@ -120,10 +117,8 @@ class MemoVersionJournalTest : DataFunSpec() {
             MemoVersionJournal(
                 store = store,
                 blobRoot = blobRoot,
-                markdownStorageDataSource = markdownStorageDataSource,
                 workspaceMediaAccess = workspaceMediaAccess,
                 memoTextProcessor = textProcessor,
-                restorePersistence = NoOpMemoVersionRestorePersistence,
                 now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
                 nextCommitId = store::nextCommitId,
                 nextRevisionId = store::nextRevisionId,
@@ -170,7 +165,7 @@ class MemoVersionJournalTest : DataFunSpec() {
             revisions.map(MemoRevision::origin) shouldBe listOf(MemoRevisionOrigin.LOCAL_EDIT, MemoRevisionOrigin.LOCAL_CREATE)
         }
 
-    private fun `appendLocalRevision stores long history rows as previews while restore still uses full markdown`() =
+    private fun `appendLocalRevision stores long history rows as previews while restore command uses full markdown`() =
         runTest {
             val longLine = "before " + "x".repeat(HISTORY_PREVIEW_LIMIT + 64)
             val original =
@@ -186,14 +181,12 @@ class MemoVersionJournalTest : DataFunSpec() {
                     updatedAt = original.updatedAt + 1,
                     imageUrls = emptyList(),
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = original.rawContent
 
             journal.appendLocalRevision(
                 memo = original,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
             journal.appendLocalRevision(
                 memo = updated,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
@@ -208,15 +201,19 @@ class MemoVersionJournalTest : DataFunSpec() {
             requireNotNull(store.getRevision(originalRevision.revisionId)).memoContent shouldBe expectedPreview
             (expectedPreview.length < original.content.length).shouldBeTrue()
 
-            journal.restoreMemoRevision(
+            val command = journal.buildRevisionRestoreCommand(
                 currentMemo = updated,
                 revisionId = originalRevision.revisionId,
             )
+            val target = command.revisionRestoreTarget.shouldNotBeNull()
 
-            markdownStorageDataSource.mainFiles.getValue("2026_03_27.md") shouldBe original.rawContent
+            command.operation shouldBe MemoLifecycleOperation.VERSION_RESTORE
+            target.memo.content shouldBe original.content
+            target.memo.rawContent shouldBe original.rawContent
+            target.rawContent shouldBe original.rawContent
         }
 
-    private fun `restoreRevision rewrites only target memo and restores missing local attachments`() =
+    private fun `buildRevisionRestoreCommand carries target memo and stored local attachment assets`() =
         runTest {
             val targetBefore =
                 memo(
@@ -231,8 +228,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                     rawContent = "- 10:00 keep sibling",
                     timestamp = targetBefore.timestamp + 60_000L,
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] =
-                listOf(targetBefore.rawContent, sibling.rawContent).joinToString("\n")
             workspaceMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
 
             journal.appendLocalRevision(
@@ -248,8 +243,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                     updatedAt = targetBefore.updatedAt + 1,
                     imageUrls = emptyList(),
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] =
-                listOf(targetAfter.rawContent, sibling.rawContent).joinToString("\n")
             workspaceMediaAccess.imageFiles.clear()
             journal.appendLocalRevision(
                 memo = targetAfter,
@@ -264,17 +257,38 @@ class MemoVersionJournalTest : DataFunSpec() {
                     .last()
                     .revisionId
 
-            journal.restoreMemoRevision(
+            val command = journal.buildRevisionRestoreCommand(
                 currentMemo = targetAfter,
                 revisionId = originalRevisionId,
             )
+            val target = command.revisionRestoreTarget.shouldNotBeNull()
+            val rebuilt = command.toOutboxEntity().toLifecycleCommand()
+            val assets = journal.readRevisionRestoreAssets(originalRevisionId)
 
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] shouldBe listOf(targetBefore.rawContent, sibling.rawContent).joinToString("\n")
-            (workspaceMediaAccess.imageFiles.containsKey("img_before.png")).shouldBeTrue()
-            workspaceMediaAccess.imageFiles.getValue("img_before.png").decodeToString() shouldBe "before-image"
+            command.sourceMemo shouldBe targetAfter
+            target.memo.id shouldBe targetBefore.id
+            target.memo.content shouldBe targetBefore.content
+            target.memo.rawContent shouldBe targetBefore.rawContent
+            target.memo.dateKey shouldBe targetBefore.dateKey
+            target.memo.updatedAt shouldBe targetBefore.updatedAt
+            target.memo.imageUrls shouldBe targetBefore.imageUrls
+            target.memo.isDeleted shouldBe false
+            target.memo.timestamp shouldBe
+                LocalDateTime
+                    .of(2026, 3, 27, 9, 0)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli()
+            target.lifecycleState shouldBe MemoRevisionLifecycleState.ACTIVE
+            rebuilt.metadata shouldBe command.metadata
+            rebuilt.revisionRestoreTarget.shouldNotBeNull().rawContent shouldBe targetBefore.rawContent
+            assets.size shouldBe 1
+            assets.single().category shouldBe WorkspaceMediaCategory.IMAGE
+            assets.single().filename shouldBe "img_before.png"
+            readRestoreAssetBytes(assets.single()).decodeToString() shouldBe "before-image"
         }
 
-    private fun `restoreRevision reuses existing memo states instead of recording duplicate history entries`() =
+    private fun `recordRevisionRestoreHandoff reuses existing memo states instead of recording duplicate history entries`() =
         runTest {
             val versionA =
                 memo(
@@ -288,14 +302,12 @@ class MemoVersionJournalTest : DataFunSpec() {
                     rawContent = "- 09:00 beta",
                     updatedAt = versionA.updatedAt + 1,
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = versionA.rawContent
 
             journal.appendLocalRevision(
                 memo = versionA,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = versionB.rawContent
             journal.appendLocalRevision(
                 memo = versionB,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
@@ -306,32 +318,23 @@ class MemoVersionJournalTest : DataFunSpec() {
             val revisionA = initialHistory.last()
             val revisionB = initialHistory.first()
 
-            journal.restoreMemoRevision(currentMemo = versionB, revisionId = revisionA.revisionId)
+            journal.recordRevisionRestoreHandoff(
+                journal.buildRevisionRestoreCommand(currentMemo = versionB, revisionId = revisionA.revisionId),
+            )
             val currentAfterRestoreA = versionA.copy(updatedAt = versionB.updatedAt)
-            journal.restoreMemoRevision(currentMemo = currentAfterRestoreA, revisionId = revisionB.revisionId)
+            journal.recordRevisionRestoreHandoff(
+                journal.buildRevisionRestoreCommand(currentMemo = currentAfterRestoreA, revisionId = revisionB.revisionId),
+            )
 
             val finalHistory = journal.listMemoRevisions(memo = versionB, cursor = null, limit = 10).items
 
             finalHistory.map(MemoRevision::memoContent) shouldBe listOf("beta", "alpha")
             finalHistory.size shouldBe 2
             store.revisionCountForMemo(versionA.id) shouldBe 2
-            markdownStorageDataSource.mainFiles.getValue("2026_03_27.md") shouldBe versionB.rawContent
         }
 
-    private fun `restoreDeletedRevision throws when persistence dependencies are unavailable`() =
+    private fun `buildRevisionRestoreCommand carries deleted target lifecycle state`() =
         runTest {
-            val restoreDisabledJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
             val deleted =
                 memo(
                     id = "memo-deleted-restore",
@@ -339,12 +342,12 @@ class MemoVersionJournalTest : DataFunSpec() {
                     rawContent = "- 09:00 deleted",
                 )
 
-            restoreDisabledJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = deleted,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            restoreDisabledJournal.appendImportedRefreshRevisions(
+            journal.appendImportedRefreshRevisions(
                 changes =
                     listOf(
                         ImportedMemoRevisionChange.Delete(
@@ -360,37 +363,25 @@ class MemoVersionJournalTest : DataFunSpec() {
             )
 
             val deletedRevision =
-                restoreDisabledJournal
+                journal
                     .listMemoRevisions(memo = deleted, cursor = null, limit = 10)
                     .items
                     .first()
 
-            val failure =
-                runCatching {
-                    restoreDisabledJournal.restoreMemoRevision(
-                        currentMemo = deleted.copy(isDeleted = true),
-                        revisionId = deletedRevision.revisionId,
-                    )
-                }.exceptionOrNull()
+            val command =
+                journal.buildRevisionRestoreCommand(
+                    currentMemo = deleted,
+                    revisionId = deletedRevision.revisionId,
+                )
+            val target = command.revisionRestoreTarget.shouldNotBeNull()
 
-            (failure is IllegalStateException).shouldBeTrue()
-            failure?.message shouldBe "Memo restore requires memo persistence stores for deleted revisions."
+            target.lifecycleState shouldBe MemoRevisionLifecycleState.DELETED
+            target.memo.isDeleted shouldBe true
+            command.versionLifecycleState shouldBe MemoRevisionLifecycleState.DELETED
         }
 
-    private fun `restoreActiveRevision fails fast when persistence dependencies are unavailable`() =
+    private fun `buildRevisionRestoreCommand carries active target lifecycle state`() =
         runTest {
-            val restoreDisabledJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
             val original =
                 memo(
                     id = "memo-active-restore-missing-stores",
@@ -403,56 +394,35 @@ class MemoVersionJournalTest : DataFunSpec() {
                     rawContent = "- 09:00 after",
                     updatedAt = original.updatedAt + 1,
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = original.rawContent
 
-            restoreDisabledJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = original,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
-            restoreDisabledJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = updated,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_EDIT,
             )
 
             val originalRevisionId =
-                restoreDisabledJournal
+                journal
                     .listMemoRevisions(memo = updated, cursor = null, limit = 10)
                     .items
                     .last()
                     .revisionId
 
-            val failure =
-                runCatching {
-                    restoreDisabledJournal.restoreMemoRevision(currentMemo = updated, revisionId = originalRevisionId)
-                }.exceptionOrNull()
+            val command = journal.buildRevisionRestoreCommand(currentMemo = updated, revisionId = originalRevisionId)
+            val target = command.revisionRestoreTarget.shouldNotBeNull()
 
-            (failure is IllegalStateException).shouldBeTrue()
-            failure?.message shouldBe "Memo restore requires memo persistence stores."
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] shouldBe updated.rawContent
-            restoreDisabledJournal.listMemoRevisions(
-                    memo = updated,
-                    cursor = null,
-                    limit = 10,
-                ).items.map(MemoRevision::memoContent) shouldBe listOf("after", "before")
+            target.lifecycleState shouldBe MemoRevisionLifecycleState.ACTIVE
+            target.memo.isDeleted shouldBe false
+            target.rawContent shouldBe original.rawContent
         }
 
-    private fun `restoreTrashedRevision fails fast when persistence dependencies are unavailable`() =
+    private fun `buildRevisionRestoreCommand carries trashed target lifecycle state`() =
         runTest {
-            val restoreDisabledJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
             val active =
                 memo(
                     id = "memo-trashed-restore-missing-stores",
@@ -464,14 +434,13 @@ class MemoVersionJournalTest : DataFunSpec() {
                     isDeleted = true,
                     updatedAt = active.updatedAt + 1,
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = active.rawContent
 
-            restoreDisabledJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = active,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            restoreDisabledJournal.appendImportedRefreshRevisions(
+            journal.appendImportedRefreshRevisions(
                 changes =
                     listOf(
                         ImportedMemoRevisionChange.Upsert(
@@ -483,25 +452,21 @@ class MemoVersionJournalTest : DataFunSpec() {
             )
 
             val trashedRevisionId =
-                restoreDisabledJournal
+                journal
                     .listMemoRevisions(memo = active, cursor = null, limit = 10)
                     .items
                     .first { revision -> revision.lifecycleState == MemoRevisionLifecycleState.TRASHED }
                     .revisionId
 
-            val failure =
-                runCatching {
-                    restoreDisabledJournal.restoreMemoRevision(currentMemo = active, revisionId = trashedRevisionId)
-                }.exceptionOrNull()
+            val command = journal.buildRevisionRestoreCommand(currentMemo = active, revisionId = trashedRevisionId)
+            val target = command.revisionRestoreTarget.shouldNotBeNull()
 
-            (failure is IllegalStateException).shouldBeTrue()
-            failure?.message shouldBe "Memo restore requires memo persistence stores."
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] shouldBe active.rawContent
-            (markdownStorageDataSource.trashFiles.isEmpty()).shouldBeTrue()
-            restoreDisabledJournal.listMemoRevisions(memo = active, cursor = null, limit = 10).items.size shouldBe 2
+            target.lifecycleState shouldBe MemoRevisionLifecycleState.TRASHED
+            target.memo.isDeleted shouldBe true
+            target.rawContent shouldBe trashed.rawContent
         }
 
-    private fun `restoreRevision followed by imported refresh keeps edited history and marks only one current revision`() =
+    private fun `restore handoff followed by imported refresh keeps edited history and marks only one current revision`() =
         runTest {
             val versionA =
                 memo(
@@ -515,14 +480,12 @@ class MemoVersionJournalTest : DataFunSpec() {
                     rawContent = "- 09:00 beta",
                     updatedAt = versionA.updatedAt + 1,
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = versionA.rawContent
 
             journal.appendLocalRevision(
                 memo = versionA,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = versionB.rawContent
             journal.appendLocalRevision(
                 memo = versionB,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
@@ -535,7 +498,9 @@ class MemoVersionJournalTest : DataFunSpec() {
                     .items
                     .last()
 
-            journal.restoreMemoRevision(currentMemo = versionB, revisionId = revisionA.revisionId)
+            journal.recordRevisionRestoreHandoff(
+                journal.buildRevisionRestoreCommand(currentMemo = versionB, revisionId = revisionA.revisionId),
+            )
             journal.appendImportedRefreshRevisions(
                 changes =
                     listOf(
@@ -689,7 +654,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = store,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
@@ -739,7 +703,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = fingerprintStore,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
@@ -801,7 +764,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = store,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
@@ -847,7 +809,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = store,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     now = { createdAts.removeFirst() },
@@ -895,7 +856,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = pruningStore,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
@@ -955,7 +915,6 @@ class MemoVersionJournalTest : DataFunSpec() {
                 MemoVersionJournal(
                     store = failingStore,
                     blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = workspaceMediaAccess,
                     memoTextProcessor = textProcessor,
                     runInTransaction = failingStore::runRollbackableTransaction,
@@ -988,153 +947,40 @@ class MemoVersionJournalTest : DataFunSpec() {
             (blobFilesUnder(blobRoot).isEmpty()).shouldBeTrue()
         }
 
-    private fun `restoreMemoRevision aborts without recording restore revision when attachment restore fails`() =
+    private fun `readRevisionRestoreAssets reads stored revision blobs without workspace access`() =
         runTest {
-            val failingMediaAccess = FailingJournalWorkspaceMediaAccess()
-            val failingJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = failingMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    restorePersistence = NoOpMemoVersionRestorePersistence,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
             val original =
                 memo(
-                    id = "memo-restore-fail",
+                    id = "memo-restore-assets",
                     content = "before ![image](img_before.png)",
                     rawContent = "- 09:00 before ![image](img_before.png)",
                 )
-            val updated =
-                original.copy(
-                    content = "after",
-                    rawContent = "- 09:00 after",
-                    updatedAt = original.updatedAt + 1,
-                    imageUrls = emptyList(),
-                )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
-            failingMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
+            workspaceMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
 
-            failingJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = original,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            failingMediaAccess.imageFiles.clear()
-            failingJournal.appendLocalRevision(
-                memo = updated,
-                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
-                origin = MemoRevisionOrigin.LOCAL_EDIT,
-            )
             val originalRevisionId =
-                failingJournal
-                    .listMemoRevisions(memo = updated, cursor = null, limit = 10)
+                journal
+                    .listMemoRevisions(memo = original, cursor = null, limit = 10)
                     .items
-                    .last()
+                    .single()
                     .revisionId
+            workspaceMediaAccess.imageFiles.clear()
 
-            val failure =
-                runCatching {
-                    failingJournal.restoreMemoRevision(
-                        currentMemo = updated,
-                        revisionId = originalRevisionId,
-                    )
-                }.exceptionOrNull()
+            val assets = journal.readRevisionRestoreAssets(originalRevisionId)
 
-            (failure is IOException).shouldBeTrue()
-            val revisions = failingJournal.listMemoRevisions(memo = updated, cursor = null, limit = 10).items
-            revisions.map(MemoRevision::memoContent) shouldBe listOf("after", original.content)
+            assets.size shouldBe 1
+            assets.single().category shouldBe WorkspaceMediaCategory.IMAGE
+            assets.single().filename shouldBe "img_before.png"
+            readRestoreAssetBytes(assets.single()).decodeToString() shouldBe "before-image"
+            workspaceMediaAccess.imageFiles shouldBe emptyMap()
         }
 
-    private fun `restoreMemoRevision rolls back attachments and markdown when markdown write fails after attachment restore`() =
+    private fun `recordRevisionRestoreHandoff preserves history when command target assets cannot be read from workspace`() =
         runTest {
-            val failingStorage = FailingJournalMarkdownStorageDataSource()
-            val rollbackMediaAccess = JournalWorkspaceMediaAccess()
-            val rollbackJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = failingStorage,
-                    workspaceMediaAccess = rollbackMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    restorePersistence = NoOpMemoVersionRestorePersistence,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
-            val original =
-                memo(
-                    id = "memo-rollback-fail",
-                    content = "before ![image](img_before.png)",
-                    rawContent = "- 09:00 before ![image](img_before.png)",
-                )
-            val updated =
-                original.copy(
-                    content = "after",
-                    rawContent = "- 09:00 after",
-                    updatedAt = original.updatedAt + 1,
-                    imageUrls = emptyList(),
-                )
-            failingStorage.mainFiles["2026_03_27.md"] = updated.rawContent
-            rollbackMediaAccess.imageFiles["img_before.png"] = "stale-image".toByteArray()
-
-            rollbackMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
-            rollbackJournal.appendLocalRevision(
-                memo = original,
-                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
-                origin = MemoRevisionOrigin.LOCAL_CREATE,
-            )
-            rollbackMediaAccess.imageFiles["img_before.png"] = "stale-image".toByteArray()
-            rollbackJournal.appendLocalRevision(
-                memo = updated,
-                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
-                origin = MemoRevisionOrigin.LOCAL_EDIT,
-            )
-            val originalRevisionId =
-                rollbackJournal
-                    .listMemoRevisions(memo = updated, cursor = null, limit = 10)
-                    .items
-                    .last()
-                    .revisionId
-
-            failingStorage.failOnSave = true
-            val failure =
-                runCatching {
-                    rollbackJournal.restoreMemoRevision(
-                        currentMemo = updated,
-                        revisionId = originalRevisionId,
-                    )
-                }.exceptionOrNull()
-
-            (failure is IOException).shouldBeTrue()
-            failingStorage.mainFiles.getValue("2026_03_27.md") shouldBe updated.rawContent
-            rollbackMediaAccess.imageFiles.getValue("img_before.png").decodeToString() shouldBe "stale-image"
-            val revisions = rollbackJournal.listMemoRevisions(memo = updated, cursor = null, limit = 10).items
-            revisions.map(MemoRevision::memoContent) shouldBe listOf("after", original.content)
-        }
-
-    private fun `restoreMemoRevision reuses stored revision assets for restore history append when workspace reads are unavailable`() =
-        runTest {
-            val unreadableAfterRestoreMediaAccess = UnreadableAfterRestoreWorkspaceMediaAccess()
-            val restoreReuseJournal =
-                MemoVersionJournal(
-                    store = store,
-                    blobRoot = blobRoot,
-                    markdownStorageDataSource = markdownStorageDataSource,
-                    workspaceMediaAccess = unreadableAfterRestoreMediaAccess,
-                    memoTextProcessor = textProcessor,
-                    restorePersistence = NoOpMemoVersionRestorePersistence,
-                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
-                    nextCommitId = store::nextCommitId,
-                    nextRevisionId = store::nextRevisionId,
-                    nextBatchId = store::nextBatchId,
-                )
             val original =
                 memo(
                     id = "memo-restore-reuse",
@@ -1148,38 +994,104 @@ class MemoVersionJournalTest : DataFunSpec() {
                     updatedAt = original.updatedAt + 1,
                     imageUrls = emptyList(),
                 )
-            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
-            unreadableAfterRestoreMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
+            workspaceMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
 
-            restoreReuseJournal.appendLocalRevision(
+            journal.appendLocalRevision(
                 memo = original,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            unreadableAfterRestoreMediaAccess.imageFiles.clear()
-            restoreReuseJournal.appendLocalRevision(
+            workspaceMediaAccess.imageFiles.clear()
+            journal.appendLocalRevision(
                 memo = updated,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_EDIT,
             )
-            unreadableAfterRestoreMediaAccess.hideReads = true
             val originalRevisionId =
-                restoreReuseJournal
+                journal
                     .listMemoRevisions(memo = updated, cursor = null, limit = 10)
                     .items
                     .last()
                     .revisionId
+            val handoffOnlyJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    workspaceMediaAccess = ThrowingWorkspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                )
 
-            restoreReuseJournal.restoreMemoRevision(
-                currentMemo = updated,
-                revisionId = originalRevisionId,
+            handoffOnlyJournal.recordRevisionRestoreHandoff(
+                handoffOnlyJournal.buildRevisionRestoreCommand(
+                    currentMemo = updated,
+                    revisionId = originalRevisionId,
+                ),
             )
 
-            val revisions = restoreReuseJournal.listMemoRevisions(memo = original, cursor = null, limit = 10).items
+            val revisions = handoffOnlyJournal.listMemoRevisions(memo = original, cursor = null, limit = 10).items
             revisions.map(MemoRevision::memoContent) shouldBe listOf("after", original.content)
             store.revisionCountForMemo(original.id) shouldBe 2
-            (unreadableAfterRestoreMediaAccess.imageFiles.containsKey("img_before.png")).shouldBeTrue()
         }
+
+    private fun `recordRevisionRestoreHandoff records restored deletion through history without workspace mutation`() =
+        runTest {
+            val active =
+                memo(
+                    id = "memo-restore-delete",
+                    content = "remove me",
+                    rawContent = "- 09:00 remove me",
+                )
+            journal.appendLocalRevision(
+                memo = active,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            journal.appendImportedRefreshRevisions(
+                changes =
+                    listOf(
+                        ImportedMemoRevisionChange.Delete(
+                            memoId = active.id,
+                            dateKey = active.dateKey,
+                            rawContent = active.rawContent,
+                            content = active.content,
+                            timestamp = active.timestamp,
+                            updatedAt = active.updatedAt + 1,
+                        ),
+                    ),
+                origin = MemoRevisionOrigin.IMPORT_REFRESH,
+            )
+            val deletedRevisionId =
+                journal
+                    .listMemoRevisions(memo = active, cursor = null, limit = 10)
+                    .items
+                    .first { revision -> revision.lifecycleState == MemoRevisionLifecycleState.DELETED }
+                    .revisionId
+
+            journal.recordRevisionRestoreHandoff(
+                journal.buildRevisionRestoreCommand(
+                    currentMemo = active,
+                    revisionId = deletedRevisionId,
+                ),
+            )
+
+            val revisions = journal.listMemoRevisions(memo = active.copy(isDeleted = true), cursor = null, limit = 10).items
+            revisions.map(MemoRevision::lifecycleState) shouldBe
+                listOf(MemoRevisionLifecycleState.DELETED, MemoRevisionLifecycleState.ACTIVE)
+            workspaceMediaAccess.imageFiles shouldBe emptyMap()
+            workspaceMediaAccess.voiceFiles shouldBe emptyMap()
+        }
+}
+
+private suspend fun readRestoreAssetBytes(
+    asset: MemoRevisionRestoreAsset,
+): ByteArray {
+    val output = ByteArrayOutputStream()
+    asset.writeTo(output)
+    return output.toByteArray()
 }
 
 private fun memo(
@@ -1198,114 +1110,17 @@ private fun memo(
         imageUrls = MemoTextProcessor().extractImages(content),
     )
 
-private object NoOpMemoVersionRestorePersistence : MemoVersionRestorePersistence {
-    override suspend fun persistActiveMemo(memo: Memo) = Unit
-
-    override suspend fun persistTrashedMemo(memo: Memo) = Unit
-
-    override suspend fun deleteMemo(memoId: String) = Unit
-}
-
-private open class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
-    val mainFiles = linkedMapOf<String, String>()
-    val trashFiles = linkedMapOf<String, String>()
-
-    override suspend fun listMetadataIn(directory: MemoDirectoryType) = emptyList<com.lomo.data.source.FileMetadata>()
-
-    override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType) =
-        emptyList<com.lomo.data.source.FileMetadataWithId>()
-
-    override suspend fun readFileByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-    ): String? = null
-
-    override suspend fun readFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> mainFiles[filename]
-            MemoDirectoryType.TRASH -> trashFiles[filename]
-        }
-
-    override suspend fun readFile(uri: android.net.Uri): String? = null
-
-    open override suspend fun saveFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        content: String,
-        append: Boolean,
-        uri: android.net.Uri?,
-    ): String? {
-        val target =
-            when (directory) {
-                MemoDirectoryType.MAIN -> mainFiles
-                MemoDirectoryType.TRASH -> trashFiles
-            }
-        val existing = target[filename]
-        target[filename] =
-            if (append && !existing.isNullOrEmpty()) {
-                existing + "\n" + content
-            } else {
-                content
-            }
-        return null
-    }
-
-    override suspend fun deleteFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        uri: android.net.Uri?,
-    ) {
-        when (directory) {
-            MemoDirectoryType.MAIN -> mainFiles.remove(filename)
-            MemoDirectoryType.TRASH -> trashFiles.remove(filename)
-        }
-    }
-
-    override suspend fun getFileMetadataIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): com.lomo.data.source.FileMetadata? = null
-}
-
-private class FailingJournalMarkdownStorageDataSource : JournalMarkdownStorageDataSource() {
-    var failOnSave: Boolean = false
-
-    override suspend fun saveFileIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        content: String,
-        append: Boolean,
-        uri: android.net.Uri?,
-    ): String? {
-        if (failOnSave) {
-            throw IOException("boom-save: $directory/$filename")
-        }
-        return super.saveFileIn(directory, filename, content, append, uri)
-    }
-}
-
 private open class JournalWorkspaceMediaAccess : WorkspaceMediaAccess {
     val imageFiles = linkedMapOf<String, ByteArray>()
     val voiceFiles = linkedMapOf<String, ByteArray>()
 
-    override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile> =
+    override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
         currentMap(category).map { (filename, bytes) ->
-            WorkspaceMediaFile(filename = filename, bytes = bytes)
+            WorkspaceMediaDescriptor(filename = filename, sizeBytes = bytes.size.toLong())
         }
 
     override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> =
         currentMap(category).keys.sorted()
-
-    override suspend fun writeFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        bytes: ByteArray,
-    ) {
-        currentMap(category)[filename] = bytes
-    }
 
     override suspend fun deleteFile(
         category: WorkspaceMediaCategory,
@@ -1314,39 +1129,30 @@ private open class JournalWorkspaceMediaAccess : WorkspaceMediaAccess {
         currentMap(category).remove(filename)
     }
 
-    override suspend fun readFileBytes(
+    override suspend fun readFileToStream(
         category: WorkspaceMediaCategory,
         filename: String,
-    ): ByteArray? = currentMap(category)[filename]
+        destination: OutputStream,
+    ): Boolean {
+        val bytes = currentMap(category)[filename] ?: return false
+        destination.write(bytes)
+        return true
+    }
+
+    override suspend fun writeFileFromStream(
+        category: WorkspaceMediaCategory,
+        filename: String,
+        source: suspend (OutputStream) -> Unit,
+    ) {
+        val output = java.io.ByteArrayOutputStream()
+        source(output)
+        currentMap(category)[filename] = output.toByteArray()
+    }
 
     private fun currentMap(category: WorkspaceMediaCategory): LinkedHashMap<String, ByteArray> =
         when (category) {
             WorkspaceMediaCategory.IMAGE -> imageFiles
             WorkspaceMediaCategory.VOICE -> voiceFiles
-        }
-}
-
-private class FailingJournalWorkspaceMediaAccess : JournalWorkspaceMediaAccess() {
-    override suspend fun writeFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        bytes: ByteArray,
-    ) {
-        throw IOException("boom: $filename")
-    }
-}
-
-private class UnreadableAfterRestoreWorkspaceMediaAccess : JournalWorkspaceMediaAccess() {
-    var hideReads: Boolean = false
-
-    override suspend fun readFileBytes(
-        category: WorkspaceMediaCategory,
-        filename: String,
-    ): ByteArray? =
-        if (hideReads) {
-            null
-        } else {
-            super.readFileBytes(category, filename)
         }
 }
 

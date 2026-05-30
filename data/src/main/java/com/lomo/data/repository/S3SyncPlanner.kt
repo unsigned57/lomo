@@ -1,221 +1,127 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.entity.S3SyncMetadataEntity
-import com.lomo.domain.model.S3RemoteVerificationLevel
-import com.lomo.domain.model.S3SyncDirection
-import com.lomo.domain.model.S3SyncOutcome
-import com.lomo.domain.model.S3SyncReason
-import kotlin.math.abs
-
-data class LocalS3File(
-    val path: String,
-    val lastModified: Long,
-    val size: Long? = null,
-)
-
-data class RemoteS3File(
-    val path: String,
-    val etag: String?,
-    val lastModified: Long?,
-    val size: Long? = null,
-    val contentMd5: String? = null,
-    val remotePath: String = path,
-    val verificationLevel: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
-)
-
-val RemoteS3File.verified: Boolean
-    get() = verificationLevel == S3RemoteVerificationLevel.VERIFIED_REMOTE
-
-val RemoteS3File.cached: Boolean
-    get() = verificationLevel == S3RemoteVerificationLevel.INDEX_CACHED_REMOTE
-
-data class S3SyncAction(
-    val path: String,
-    val direction: S3SyncDirection,
-    val reason: S3SyncReason,
-)
-
-data class S3SyncPlan(
-    val actions: List<S3SyncAction>,
-    val pendingChanges: Int,
-)
-
 class S3SyncPlanner(
     internal val timestampToleranceMs: Long = 1000L,
 ) {
     fun plan(
-        localFiles: Map<String, LocalS3File>,
-        remoteFiles: Map<String, RemoteS3File>,
-        metadata: Map<String, S3SyncMetadataEntity>,
-        preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
+        localFiles: Map<String, RemoteSyncLocalSnapshot>,
+        remoteFiles: Map<String, RemoteSyncRemoteSnapshot>,
+        metadata: Map<String, RemoteSyncMetadataSnapshot>,
+        preResolvedActionsByPath: Map<String, RemoteSyncAction> = emptyMap(),
         suppressedPaths: Set<String> = emptySet(),
-        missingRemoteVerificationByPath: Map<String, S3RemoteVerificationLevel> = emptyMap(),
-        defaultMissingRemoteVerification: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
-    ): S3SyncPlan {
-        val actions =
-            buildList {
-                (localFiles.keys + remoteFiles.keys + metadata.keys)
-                    .sorted()
-                    .forEach { path ->
-                        if (path in suppressedPaths) {
-                            return@forEach
-                        }
-                        preResolvedActionsByPath[path]?.let {
-                            add(it)
-                            return@forEach
-                        }
-                        createAction(
-                            path = path,
-                            local = localFiles[path],
-                            remote = remoteFiles[path],
-                            metadata = metadata[path],
-                            missingRemoteVerification =
-                                missingRemoteVerificationByPath[path] ?: defaultMissingRemoteVerification,
-                        )?.let(::add)
-                    }
-            }
-
-        return S3SyncPlan(
-            actions = actions,
-            pendingChanges = actions.count { it.direction != S3SyncDirection.NONE },
+        missingRemoteVerificationByPath: Map<String, RemoteSyncRemoteAbsenceVerification> = emptyMap(),
+        defaultMissingRemoteVerification: RemoteSyncRemoteAbsenceVerification =
+            RemoteSyncRemoteAbsenceVerification.VERIFIED_ABSENT,
+    ): RemoteSyncPlan =
+        planPaths(
+            paths = localFiles.keys + remoteFiles.keys + metadata.keys,
+            localFiles = localFiles,
+            remoteFiles = remoteFiles,
+            metadata = metadata,
+            preResolvedActionsByPath = preResolvedActionsByPath,
+            suppressedPaths = suppressedPaths,
+            missingRemoteVerificationByPath = missingRemoteVerificationByPath,
+            defaultMissingRemoteVerification = defaultMissingRemoteVerification,
         )
-    }
 
     fun planPaths(
         paths: Collection<String>,
-        localFiles: Map<String, LocalS3File>,
-        remoteFiles: Map<String, RemoteS3File>,
-        metadata: Map<String, S3SyncMetadataEntity>,
-        preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
+        localFiles: Map<String, RemoteSyncLocalSnapshot>,
+        remoteFiles: Map<String, RemoteSyncRemoteSnapshot>,
+        metadata: Map<String, RemoteSyncMetadataSnapshot>,
+        preResolvedActionsByPath: Map<String, RemoteSyncAction> = emptyMap(),
         suppressedPaths: Set<String> = emptySet(),
-        missingRemoteVerificationByPath: Map<String, S3RemoteVerificationLevel> = emptyMap(),
-        defaultMissingRemoteVerification: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
-    ): S3SyncPlan {
-        val actions =
-            paths
-                .asSequence()
-                .distinct()
-                .sorted()
-                .mapNotNull { path ->
-                    if (path in suppressedPaths) {
-                        return@mapNotNull null
-                    }
-                    preResolvedActionsByPath[path]?.let { return@mapNotNull it }
-                    createAction(
-                        path = path,
-                        local = localFiles[path],
-                        remote = remoteFiles[path],
-                        metadata = metadata[path],
-                        missingRemoteVerification =
-                            missingRemoteVerificationByPath[path] ?: defaultMissingRemoteVerification,
-                    )
-                }.toList()
-        return S3SyncPlan(
-            actions = actions,
-            pendingChanges = actions.count { it.direction != S3SyncDirection.NONE },
+        missingRemoteVerificationByPath: Map<String, RemoteSyncRemoteAbsenceVerification> = emptyMap(),
+        defaultMissingRemoteVerification: RemoteSyncRemoteAbsenceVerification =
+            RemoteSyncRemoteAbsenceVerification.VERIFIED_ABSENT,
+    ): RemoteSyncPlan {
+        val policy =
+            S3RemoteSyncPlannerPolicy(
+                missingRemoteVerificationByPath = missingRemoteVerificationByPath,
+                defaultMissingRemoteVerification = defaultMissingRemoteVerification,
+            )
+        return RemoteSyncPlannerCore(
+            timestampToleranceMs = timestampToleranceMs,
+            policy = policy,
+        ).planPaths(
+            paths = paths,
+            localFiles = localFiles,
+            remoteFiles = remoteFiles,
+            metadata = metadata,
+            preResolvedActionsByPath = preResolvedActionsByPath,
+            suppressedPaths = suppressedPaths,
         )
     }
+}
 
-    private fun createAction(
+private class S3RemoteSyncPlannerPolicy(
+    private val missingRemoteVerificationByPath: Map<String, RemoteSyncRemoteAbsenceVerification>,
+    private val defaultMissingRemoteVerification: RemoteSyncRemoteAbsenceVerification,
+) : RemoteSyncPlannerPolicy {
+    override fun localChanged(
+        local: RemoteSyncLocalSnapshot,
+        metadata: RemoteSyncMetadataSnapshot,
+        comparator: RemoteSyncChangeComparator,
+    ): Boolean = comparator.changed(local.lastModified, metadata.localLastModified)
+
+    override fun remoteChanged(
+        remote: RemoteSyncRemoteSnapshot,
+        metadata: RemoteSyncMetadataSnapshot,
+        comparator: RemoteSyncChangeComparator,
+    ): Boolean = comparator.changed(remote.lastModified, metadata.remoteLastModified) || remote.etag != metadata.etag
+
+    override fun actionForLocalOnly(
         path: String,
-        local: LocalS3File?,
-        remote: RemoteS3File?,
-        metadata: S3SyncMetadataEntity?,
-        missingRemoteVerification: S3RemoteVerificationLevel,
-    ): S3SyncAction? =
+        local: RemoteSyncLocalSnapshot,
+        metadata: RemoteSyncMetadataSnapshot?,
+        comparator: RemoteSyncChangeComparator,
+    ): RemoteSyncAction? =
         when {
-            local != null && remote != null -> handleBothPresent(path, local, remote, metadata)
-            local != null -> handleLocalOnly(path, local, metadata, missingRemoteVerification)
-            remote != null -> handleRemoteOnly(path, remote, metadata)
-            else -> null
+            metadata == null -> RemoteSyncAction(path, RemoteSyncDirection.UPLOAD, RemoteSyncReason.LOCAL_ONLY)
+            !localChanged(local, metadata, comparator) -> verifiedRemoteDeleteAction(path)
+            else -> localOnlyChangedAction(path, local, metadata)
         }
 
-    private fun handleBothPresent(
+    override fun actionForRemoteOnly(
         path: String,
-        local: LocalS3File,
-        remote: RemoteS3File,
-        metadata: S3SyncMetadataEntity?,
-    ): S3SyncAction? {
-        if (metadata == null) {
-            return S3SyncAction(path, S3SyncDirection.CONFLICT, S3SyncReason.CONFLICT)
-        }
-
-        val localChanged = changed(local.lastModified, metadata.localLastModified)
-        val remoteChanged = changed(remote.lastModified, metadata.remoteLastModified) || remote.etag != metadata.etag
-
-        return when {
-            !localChanged && !remoteChanged -> null
-            localChanged && !remoteChanged ->
-                S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_ONLY)
-
-            !localChanged && remoteChanged ->
-                S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_ONLY)
-
-            else -> S3SyncAction(path, S3SyncDirection.CONFLICT, S3SyncReason.CONFLICT)
-        }
-    }
-
-    private fun handleLocalOnly(
-        path: String,
-        local: LocalS3File,
-        metadata: S3SyncMetadataEntity?,
-        missingRemoteVerification: S3RemoteVerificationLevel,
-    ): S3SyncAction? =
+        remote: RemoteSyncRemoteSnapshot,
+        metadata: RemoteSyncMetadataSnapshot?,
+        comparator: RemoteSyncChangeComparator,
+    ): RemoteSyncAction? =
         when {
-            metadata == null -> S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_ONLY)
-            !changed(local.lastModified, metadata.localLastModified) ->
-                if (missingRemoteVerification == S3RemoteVerificationLevel.VERIFIED_REMOTE) {
-                    S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)
-                } else {
-                    null
-                }
-
-            else -> {
-                val remoteReference = metadata.remoteLastModified ?: metadata.lastSyncedAt
-                if (local.lastModified >= remoteReference) {
-                    S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)
-                } else if (missingRemoteVerification == S3RemoteVerificationLevel.VERIFIED_REMOTE) {
-                    S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)
-                } else {
-                    null
-                }
-            }
-        }
-
-    private fun handleRemoteOnly(
-        path: String,
-        remote: RemoteS3File,
-        metadata: S3SyncMetadataEntity?,
-    ): S3SyncAction =
-        when {
-            metadata == null -> S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_ONLY)
-            !changed(remote.lastModified, metadata.remoteLastModified) && remote.etag == metadata.etag ->
-                S3SyncAction(path, S3SyncDirection.DELETE_REMOTE, S3SyncReason.LOCAL_DELETED)
+            metadata == null -> RemoteSyncAction(path, RemoteSyncDirection.DOWNLOAD, RemoteSyncReason.REMOTE_ONLY)
+            !remoteChanged(remote, metadata, comparator) ->
+                RemoteSyncAction(path, RemoteSyncDirection.DELETE_REMOTE, RemoteSyncReason.LOCAL_DELETED)
 
             else -> {
                 val localReference = metadata.localLastModified ?: metadata.lastSyncedAt
                 if ((remote.lastModified ?: 0L) >= localReference) {
-                    S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_NEWER)
+                    RemoteSyncAction(path, RemoteSyncDirection.DOWNLOAD, RemoteSyncReason.REMOTE_NEWER)
                 } else {
-                    S3SyncAction(path, S3SyncDirection.DELETE_REMOTE, S3SyncReason.LOCAL_DELETED)
+                    RemoteSyncAction(path, RemoteSyncDirection.DELETE_REMOTE, RemoteSyncReason.LOCAL_DELETED)
                 }
             }
         }
 
-    private fun changed(
-        current: Long?,
-        previous: Long?,
-    ): Boolean =
-        when {
-            current == null && previous == null -> false
-            current == null || previous == null -> true
-            else -> abs(current - previous) > timestampToleranceMs
+    private fun localOnlyChangedAction(
+        path: String,
+        local: RemoteSyncLocalSnapshot,
+        metadata: RemoteSyncMetadataSnapshot,
+    ): RemoteSyncAction? {
+        val remoteReference = metadata.remoteLastModified ?: metadata.lastSyncedAt
+        return if (local.lastModified >= remoteReference) {
+            RemoteSyncAction(path, RemoteSyncDirection.UPLOAD, RemoteSyncReason.LOCAL_NEWER)
+        } else {
+            verifiedRemoteDeleteAction(path)
+        }
+    }
+
+    private fun verifiedRemoteDeleteAction(path: String): RemoteSyncAction? =
+        if ((missingRemoteVerificationByPath[path] ?: defaultMissingRemoteVerification) ==
+            RemoteSyncRemoteAbsenceVerification.VERIFIED_ABSENT
+        ) {
+            RemoteSyncAction(path, RemoteSyncDirection.DELETE_LOCAL, RemoteSyncReason.REMOTE_DELETED)
+        } else {
+            null
         }
 }
-
-internal fun S3SyncAction.toOutcome(): S3SyncOutcome =
-    S3SyncOutcome(
-        path = path,
-        direction = direction,
-        reason = reason,
-    )

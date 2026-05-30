@@ -1,62 +1,62 @@
 package com.lomo.data.share
 
-/**
+/*
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
+ * - Unit under test: com.lomo.data.share.ShareServiceLifecycleController active LAN discovery orchestration.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: keep LAN fallback discovery responsive without fixed one-second infinite subnet scans.
+ *
+ * Scenarios:
+ * - Given discovery starts with an eligible LAN snapshot, when the active scanner is scheduled, then the first scan runs immediately.
+ * - Given an active scan finds no peers, when time advances by the legacy one-second interval,
+ *   then no retry runs until the empty-scan backoff elapses.
+ * - Given an active scan finds a peer, when discovery remains active, then the next scan is slowed to the discovered-peer cadence.
+ * - Given discovery is already active and backing off, when startDiscovery is called again, then the current cadence is preserved.
+ * - Given discovery is stopped and started again, when a previous session was backing off, then the new session starts with a prompt scan.
+ * - Given NSD registration or discovery is unavailable, when active probing finds peers,
+ *   then those peers are merged without requiring live NSD packets.
+ * - Given LAN sharing is disabled or no snapshot exists, when services/discovery are requested, then no phantom devices are emitted.
+ *
+ * Observable outcomes:
+ * - server start parameters, NSD registration/discovery requests, active scan timing/order,
+ *   merged devices, cancellation, and startup failure events.
+ *
+ * TDD proof:
+ * - RED observed with `./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.share.ShareServiceLifecycleControllerActiveDiscoveryTest' --tests 'com.lomo.data.share.LanShareActiveDiscoveryPolicyTest'`.
+ * - The redundant-start scenario failed before the follow-up fix because calling startDiscovery while active restarted the loop, reset the schedule policy to 0 ms, and ran a second prompt scan.
+ * - Earlier scheduling scenarios failed before Batch 2A because active discovery retried on a fixed 1,000 ms loop instead of applying empty backoff, discovered-peer cadence, and session reset policy.
+ *
+ * Excludes:
+ * - live sockets, real NSD packets, Android runtime permission UI, transfer payload encoding, and /24 target construction.
+ *
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: active discovery scheduling contract change from the sharing/media audit.
+ * - Old behavior/assertion being replaced: retries were expected exactly one second after an empty active scan.
+ * - Why old assertion is no longer correct: fixed one-second /24 scans violate the power/network budget requirement.
+ * - Coverage preserved by: retry-after-backoff assertions still prove late hotspot peers become observable.
+ * - Why this is not fitting the test to the implementation: the assertions encode the power/network budget and idempotent lifecycle contract, not private loop structure.
  */
-
-
 
 import android.content.Context
 import android.net.Network
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.LanShareStartupFailure
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
+import kotlinx.coroutines.test.runTest
 
-/*
- * Behavior Contract:
- * - Unit under test: ShareServiceLifecycleController active LAN discovery orchestration.
- *
- * Scenarios:
- * - Happy: standard happy path for ShareServiceLifecycleControllerActiveDiscoveryTest.
- * - Boundary: boundary and edge cases for ShareServiceLifecycleControllerActiveDiscoveryTest.
- * - Failure: failure and error scenarios for ShareServiceLifecycleControllerActiveDiscoveryTest.
- * - Must-not-happen: invariants are never violated for ShareServiceLifecycleControllerActiveDiscoveryTest.
- * - Behavior focus: starting a LAN share session must bind the server on the selected LAN host,
- *   advertise the stable discovery port, start NSD discovery, and still merge active-scan devices
- *   when NSD itself has not produced peers. Startup failures and disabled LAN share must not emit
- *   phantom devices.
- * - Observable outcomes: server start parameters, NSD registration/discovery requests, active scan
- *   bind hosts, merged devices, and startup failure events.
- * - TDD proof: Fails before the fix because ShareServiceLifecycleController hard-codes NSD,
- *   active-scan, and server collaborators, so the active fallback behavior cannot be proven as an
- *   observable orchestration contract.
- * - Excludes: live sockets, real NSD packets, Android runtime permission UI, and transfer payloads.
- */
 /*
  * Test Change Justification:
  * - Reason category: hotspot discovery regression contract correction.
@@ -89,8 +89,9 @@ import io.kotest.matchers.booleans.shouldBeTrue
  *   discovery still advertises and scans the selected LAN snapshot.
  * - Coverage preserved by: assertions still lock the selected snapshot used for active scanning
  *   and the stable port/device name used for discovery.
- * - Why this is not fitting the test to the implementation: current production code still binds to
- *   the selected LAN address, so this assertion is expected to fail before the fix.
+ * - Why this is not fitting the test to the implementation: the historical RED symptom was the
+ *   server binding to the selected LAN address instead of the wildcard host, which made fallback
+ *   peers unreachable on some hotspot/local-network routes.
  */
 /*
  * Test Change Justification:
@@ -109,25 +110,44 @@ import io.kotest.matchers.booleans.shouldBeTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
     init {
-        test("start services binds wildcard server and discovery scans selected lan snapshot") { `start services binds wildcard server and discovery scans selected lan snapshot`() }
+        test("start services binds wildcard server and discovery scans selected lan snapshot") {
+            `start services binds wildcard server and discovery scans selected lan snapshot`()
+        }
 
-        test("service registration failure keeps stable server running for active hotspot discovery") { `service registration failure keeps stable server running for active hotspot discovery`() }
+        test("service registration failure keeps stable server running for active hotspot discovery") {
+            `service registration failure keeps stable server running for active hotspot discovery`()
+        }
 
-        test("discovery start failure still runs active hotspot scan and reports startup failure") { `discovery start failure still runs active hotspot scan and reports startup failure`() }
+        test("discovery start failure still runs active hotspot scan and reports startup failure") {
+            `discovery start failure still runs active hotspot scan and reports startup failure`()
+        }
 
-        test("active discovery retries until hotspot peer becomes reachable") { `active discovery retries until hotspot peer becomes reachable`() }
+        test("active discovery runs first scan immediately") { `active discovery runs first scan immediately`() }
+
+        test("active discovery retries until hotspot peer becomes reachable") {
+            `active discovery retries until hotspot peer becomes reachable`()
+        }
+
+        test("active discovery slows next scan after peer is discovered") { `active discovery slows next scan after peer is discovered`() }
+
+        test("redundant start discovery preserves active scan backoff policy") {
+            `redundant start discovery preserves active scan backoff policy`()
+        }
+
+        test("restart discovery resets active scan backoff policy") { `restart discovery resets active scan backoff policy`() }
 
         test("stop services cancels in flight active discovery scan") { `stop services cancels in flight active discovery scan`() }
 
         test("disabled lan share skips service startup and discovery") { `disabled lan share skips service startup and discovery`() }
 
-        test("eligible snapshots include both wifi and hotspot when host shares both subnets") { `eligible snapshots include both wifi and hotspot when host shares both subnets`() }
+        test("eligible snapshots include both wifi and hotspot when host shares both subnets") {
+            `eligible snapshots include both wifi and hotspot when host shares both subnets`()
+        }
 
-        test("nsd registration falls back when only some snapshots accept the listener") { `nsd registration falls back when only some snapshots accept the listener`() }
+        test("nsd registration falls back when only some snapshots accept the listener") {
+            `nsd registration falls back when only some snapshots accept the listener`()
+        }
     }
-
-
-
 
     private fun `start services binds wildcard server and discovery scans selected lan snapshot`() =
         runTest {
@@ -220,6 +240,27 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             collectJob.cancel()
         }
 
+    private fun `active discovery runs first scan immediately`() =
+        runTest {
+            val discovery = RecordingLanShareDiscoveryCoordinator()
+            val scanner = RecordingLanShareActiveDiscoveryScanner(scanResults = listOf(emptyList()))
+            val controller =
+                createController(
+                    scope = this,
+                    discovery = discovery,
+                    scanner = scanner,
+                    snapshot = LanShareActiveNetworkSnapshot(networkKey = "hotspot-local", bindHost = "192.168.43.1"),
+                )
+
+            controller.startDiscovery()
+            runCurrent()
+
+            testScheduler.currentTime shouldBe 0L
+            scanner.scanSnapshots shouldBe listOf(LanShareActiveNetworkSnapshot(networkKey = "hotspot-local", bindHost = "192.168.43.1"))
+            discovery.mergedDevices shouldBe emptyList<DiscoveredDevice>()
+            controller.stopDiscovery()
+        }
+
     private fun `active discovery retries until hotspot peer becomes reachable`() =
         runTest {
             val device = DiscoveredDevice(name = "Late peer", host = "192.168.43.9", port = LAN_SHARE_DISCOVERY_PORT)
@@ -243,11 +284,124 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             runCurrent()
             discovery.mergedDevices shouldBe emptyList<DiscoveredDevice>()
 
-            testScheduler.advanceTimeBy(ACTIVE_DISCOVERY_TEST_RETRY_DELAY_MS)
+            testScheduler.advanceTimeBy(LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+
+            scanner.scanSnapshots.size shouldBe 1
+            discovery.mergedDevices shouldBe emptyList<DiscoveredDevice>()
+
+            testScheduler.advanceTimeBy(EMPTY_SCAN_BACKOFF_DELAY_MS - LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
             runCurrent()
 
             discovery.mergedDevices shouldBe listOf(device)
             scanner.scanSnapshots.size shouldBe 2
+            controller.stopDiscovery()
+        }
+
+    private fun `active discovery slows next scan after peer is discovered`() =
+        runTest {
+            val device = DiscoveredDevice(name = "Found peer", host = "192.168.43.10", port = LAN_SHARE_DISCOVERY_PORT)
+            val discovery = RecordingLanShareDiscoveryCoordinator()
+            val scanner =
+                RecordingLanShareActiveDiscoveryScanner(
+                    scanResults =
+                        listOf(
+                            listOf(device),
+                            emptyList(),
+                        ),
+                )
+            val controller =
+                createController(
+                    scope = this,
+                    discovery = discovery,
+                    scanner = scanner,
+                    snapshot = LanShareActiveNetworkSnapshot(networkKey = "hotspot-local", bindHost = "192.168.43.1"),
+                )
+
+            controller.startDiscovery()
+            runCurrent()
+
+            discovery.mergedDevices shouldBe listOf(device)
+            scanner.scanSnapshots.size shouldBe 1
+
+            testScheduler.advanceTimeBy(LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+
+            scanner.scanSnapshots.size shouldBe 1
+
+            testScheduler.advanceTimeBy(DISCOVERED_DEVICE_SCAN_DELAY_MS - LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+
+            scanner.scanSnapshots.size shouldBe 2
+            controller.stopDiscovery()
+        }
+
+    private fun `redundant start discovery preserves active scan backoff policy`() =
+        runTest {
+            val discovery = RecordingLanShareDiscoveryCoordinator()
+            val scanner = RecordingLanShareActiveDiscoveryScanner(scanResults = listOf(emptyList()))
+            val controller =
+                createController(
+                    scope = this,
+                    discovery = discovery,
+                    scanner = scanner,
+                    snapshot = LanShareActiveNetworkSnapshot(networkKey = "hotspot-local", bindHost = "192.168.43.1"),
+                )
+
+            controller.startDiscovery()
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 1
+
+            controller.startDiscovery()
+            runCurrent()
+
+            scanner.scanSnapshots.size shouldBe 1
+            discovery.startDiscoveryCount shouldBe 1
+
+            testScheduler.advanceTimeBy(LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 1
+
+            testScheduler.advanceTimeBy(EMPTY_SCAN_BACKOFF_DELAY_MS - LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 2
+            controller.stopDiscovery()
+        }
+
+    private fun `restart discovery resets active scan backoff policy`() =
+        runTest {
+            val discovery = RecordingLanShareDiscoveryCoordinator()
+            val scanner = RecordingLanShareActiveDiscoveryScanner(scanResults = listOf(emptyList()))
+            val controller =
+                createController(
+                    scope = this,
+                    discovery = discovery,
+                    scanner = scanner,
+                    snapshot = LanShareActiveNetworkSnapshot(networkKey = "hotspot-local", bindHost = "192.168.43.1"),
+                )
+
+            controller.startDiscovery()
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 1
+
+            testScheduler.advanceTimeBy(EMPTY_SCAN_BACKOFF_DELAY_MS)
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 2
+
+            controller.stopDiscovery()
+            runCurrent()
+
+            controller.startDiscovery()
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 3
+
+            testScheduler.advanceTimeBy(LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 3
+
+            testScheduler.advanceTimeBy(EMPTY_SCAN_BACKOFF_DELAY_MS - LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS)
+            runCurrent()
+            scanner.scanSnapshots.size shouldBe 4
             controller.stopDiscovery()
         }
 
@@ -512,6 +666,8 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
     }
 
     private companion object {
-        private const val ACTIVE_DISCOVERY_TEST_RETRY_DELAY_MS = 1_000L
+        private const val LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS = 1_000L
+        private const val EMPTY_SCAN_BACKOFF_DELAY_MS = 4_000L
+        private const val DISCOVERED_DEVICE_SCAN_DELAY_MS = 30_000L
     }
 }

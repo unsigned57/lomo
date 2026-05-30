@@ -1,0 +1,894 @@
+ M .gitignore
+ M AGENTS.md
+ M ARCHITECTURE.md
+ M app/build.gradle.kts
+ M app/detekt-baseline.xml
+ M app/src/androidTest/java/com/lomo/app/feature/main/MainScreenListRegressionTest.kt
+ M app/src/androidTest/java/com/lomo/app/feature/main/MainScreenNewMemoAnimationDeviceTest.kt
+ M app/src/androidTest/java/com/lomo/app/feature/memo/MemoEditorImeRequestTest.kt
+ M app/src/main/AndroidManifest.xml
+ M app/src/main/baselineProfiles/generated.txt
+ M app/src/main/java/com/lomo/app/LomoApplication.kt
+ M app/src/main/java/com/lomo/app/MainActivity.kt
+ M app/src/main/java/com/lomo/app/MainActivityLaunchRouting.kt
+ M app/src/main/java/com/lomo/app/di/AppModule.kt
+ M app/src/main/java/com/lomo/app/di/DomainBindingsModule.kt
+ M app/src/main/java/com/lomo/app/feature/common/AppConfigUiCoordinator.kt
+ D app/src/main/java/com/lomo/app/feature/common/MemoUiCoordinator.kt
+ M app/src/main/java/com/lomo/app/feature/conflict/SyncConflictDialogController.kt
+ M app/src/main/java/com/lomo/app/feature/conflict/SyncConflictDialogHost.kt
+ M app/src/main/java/com/lomo/app/feature/conflict/SyncConflictDialogState.kt
+ M app/src/main/java/com/lomo/app/feature/conflict/SyncConflictViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/gallery/GalleryGridContent.kt
+M  app/src/main/java/com/lomo/app/feature/gallery/GalleryReelMemoOverlay.kt
+ M app/src/main/java/com/lomo/app/feature/gallery/GalleryReelScreen.kt
+ M app/src/main/java/com/lomo/app/feature/gallery/GalleryScreen.kt
+ M app/src/main/java/com/lomo/app/feature/gallery/GalleryScreenDisplayState.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainMemoFilterPanel.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainMemoFilterPanelSections.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainMemoListStateHolder.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainMemoMutationCoordinator.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreen.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreenLayout.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreenNewMemoInsertAnimationPolicy.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreenScaffold.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreenStateHosts.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainScreenTopBar.kt
+ M app/src/main/java/com/lomo/app/feature/main/MainViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/main/MemoListContent.kt
+ M app/src/main/java/com/lomo/app/feature/main/MemoListItemRevealAlpha.kt
+ M app/src/main/java/com/lomo/app/feature/main/MemoUiImageContentResolver.kt
+ M app/src/main/java/com/lomo/app/feature/main/MemoUiMapper.kt
+ M app/src/main/java/com/lomo/app/feature/main/NewMemoInsertAnimationSession.kt
+ M app/src/main/java/com/lomo/app/feature/main/PagedMemoListContent.kt
+ M app/src/main/java/com/lomo/app/feature/main/SidebarViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoBackfillDateTime.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoCardEntry.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoCardListAnimation.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoEditorController.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoInteractionHost.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoJumpNavigation.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoMenuBinder.kt
+ D app/src/main/java/com/lomo/app/feature/memo/MemoMenuStateFactory.kt
+ M app/src/main/java/com/lomo/app/feature/memo/MemoVersionHistorySheet.kt
+ M app/src/main/java/com/lomo/app/feature/memo/ReminderInsertDialog.kt
+ M app/src/main/java/com/lomo/app/feature/memo/ReminderPermissionGate.kt
+ M app/src/main/java/com/lomo/app/feature/preferences/AppPreferencesState.kt
+ M app/src/main/java/com/lomo/app/feature/review/DailyReviewScreen.kt
+ M app/src/main/java/com/lomo/app/feature/review/DailyReviewViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/search/SearchScreen.kt
+ M app/src/main/java/com/lomo/app/feature/search/SearchViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinator.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsCoordinatorFactory.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsDialogOptions.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsDialogState.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsFeatureViewModels.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsGitCoordinator.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsGitDialogs.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsGitSyncSections.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsPreferenceDialogs.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsS3Coordinator.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsS3StateProvider.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsS3SyncPresentation.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsS3SyncSections.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsScreen.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsScreenLayout.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsScreenState.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsScreenSupport.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsSections.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsStateProvider.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsSyncSections.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsTypographyPage.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsUnifiedSyncState.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsWebDavCoordinator.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsWebDavDialogs.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SettingsWebDavSyncSections.kt
+ M app/src/main/java/com/lomo/app/feature/settings/SyncSettingsSection.kt
+ M app/src/main/java/com/lomo/app/feature/share/LanShareNetworkPermissionPolicy.kt
+ M app/src/main/java/com/lomo/app/feature/share/ShareDeviceDiscoverySection.kt
+ M app/src/main/java/com/lomo/app/feature/share/ShareNetworkPermissionHandlers.kt
+ M app/src/main/java/com/lomo/app/feature/share/ShareScreen.kt
+ M app/src/main/java/com/lomo/app/feature/share/ShareViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/statistics/StatisticsScreen.kt
+ M app/src/main/java/com/lomo/app/feature/statistics/StatisticsShare.kt
+ M app/src/main/java/com/lomo/app/feature/statistics/StatisticsViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/tag/TagFilterScreen.kt
+ M app/src/main/java/com/lomo/app/feature/tag/TagFilterViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/trash/TrashScreen.kt
+ M app/src/main/java/com/lomo/app/feature/trash/TrashViewModel.kt
+ M app/src/main/java/com/lomo/app/feature/update/AppUpdateDownloadManager.kt
+ M app/src/main/java/com/lomo/app/feature/update/AppUpdateProgressBackdropApi33.kt
+ M app/src/main/java/com/lomo/app/feature/update/AppUpdateProgressDialog.kt
+ M app/src/main/java/com/lomo/app/feature/update/AppUpdateProgressPresentation.kt
+ M app/src/main/java/com/lomo/app/feature/update/AppUpdateViewModel.kt
+ M app/src/main/java/com/lomo/app/navigation/GalleryReelNavigation.kt
+ M app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt
+ M app/src/main/java/com/lomo/app/navigation/NavRoute.kt
+ M app/src/main/java/com/lomo/app/navigation/NavigationTransitions.kt
+ M app/src/main/java/com/lomo/app/presentation/sharecard/ShareCardDisplayFormatter.kt
+ M app/src/main/java/com/lomo/app/provider/ImageMapProvider.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardBitmapRenderer.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardBitmapRendererCanvas.kt
+ D app/src/main/java/com/lomo/app/util/ShareCardBitmapRendererImages.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardBitmapRendererModels.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardBitmapRendererRenderLines.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardBitmapRendererText.kt
+ M app/src/main/java/com/lomo/app/util/ShareCardMarkdownTextStyleHelpers.kt
+ M app/src/main/java/com/lomo/app/util/ShareUtils.kt
+ M app/src/main/java/com/lomo/app/widget/LomoWidget.kt
+ M app/src/main/java/com/lomo/app/widget/WidgetEntryPoint.kt
+ M app/src/main/res/values-zh-rCN/strings.xml
+ M app/src/main/res/values/strings.xml
+ M app/src/test/java/com/lomo/app/feature/common/AppConfigStateProviderTest.kt
+ M app/src/test/java/com/lomo/app/feature/common/AppConfigUiCoordinatorMemoActionUsageTest.kt
+ M app/src/test/java/com/lomo/app/feature/common/AppConfigUiCoordinatorScopedMemoActionUsageTest.kt
+ M app/src/test/java/com/lomo/app/feature/conflict/SyncConflictViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/gallery/GalleryScreenDisplayStateTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/MainScreenNewMemoInsertAnimationPolicyTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/MainVersionHistoryCoordinatorTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/MainViewModelInitialImportStateTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/MainViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/MemoUiMapperStorageHeaderRecoveryTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/NewMemoInsertAnimationSessionTest.kt
+ M app/src/test/java/com/lomo/app/feature/main/SidebarViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/memo/MemoEditorControllerTest.kt
+ M app/src/test/java/com/lomo/app/feature/memo/MemoJumpNavigationHandlerTest.kt
+ M app/src/test/java/com/lomo/app/feature/preferences/AppPreferencesMemoActionStateTest.kt
+ M app/src/test/java/com/lomo/app/feature/preferences/AppPreferencesShareCardOptionsTest.kt
+ M app/src/test/java/com/lomo/app/feature/preferences/AppPreferencesStateTest.kt
+ M app/src/test/java/com/lomo/app/feature/review/DailyReviewViewModelSessionTest.kt
+ M app/src/test/java/com/lomo/app/feature/review/DailyReviewViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/search/SearchInputMorphTargetsTest.kt
+ M app/src/test/java/com/lomo/app/feature/search/SearchViewModelFilterTest.kt
+ M app/src/test/java/com/lomo/app/feature/search/SearchViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinatorMemoActionOrderingTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinatorShareCardTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinatorSnapshotTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinatorSyncInboxStructureTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsAppConfigCoordinatorTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsSystemFeatureViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/settings/SettingsViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/share/LanShareNetworkPermissionPolicyTest.kt
+ M app/src/test/java/com/lomo/app/feature/share/ShareViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/statistics/StatisticsViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/tag/TagFilterViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/trash/TrashViewModelTest.kt
+ M app/src/test/java/com/lomo/app/feature/update/AppUpdateDownloadManagerDebugSimulationTest.kt
+ M app/src/test/java/com/lomo/app/feature/update/AppUpdateDownloadManagerTest.kt
+ M app/src/test/java/com/lomo/app/navigation/ShareRoutePayloadStoreTest.kt
+ M app/src/test/java/com/lomo/app/presentation/sharecard/ShareCardDisplayFormatterTest.kt
+ M app/src/test/java/com/lomo/app/testing/fakes/FakeAppConfigRepository.kt
+ D app/src/test/java/com/lomo/app/testing/fakes/FakeMemoRepository.kt
+ M app/src/test/java/com/lomo/app/util/ShareCardBitmapRendererBodyTest.kt
+ M app/src/test/java/com/lomo/app/util/ShareCardMarkdownBodyLinesTest.kt
+ M buildSrc/build.gradle.kts
+ M buildSrc/src/main/kotlin/com/lomo/baseline/StaticBaselineProfilePlugin.kt
+ M buildSrc/src/main/kotlin/com/lomo/baseline/StaticBaselineProfileTask.kt
+ M buildSrc/src/test/kotlin/com/lomo/baseline/StaticBaselineProfileTaskTest.kt
+ M data/README.md
+ M data/src/main/AndroidManifest.xml
+ M data/src/main/java/com/lomo/data/di/ApplicationScope.kt
+ M data/src/main/java/com/lomo/data/di/DataModule.kt
+ M data/src/main/java/com/lomo/data/di/ReminderModule.kt
+ M data/src/main/java/com/lomo/data/git/GitCredentialStore.kt
+ M data/src/main/java/com/lomo/data/git/GitMediaSyncBridge.kt
+ M data/src/main/java/com/lomo/data/git/GitMediaSyncPlanner.kt
+ M data/src/main/java/com/lomo/data/git/GitMediaSyncStateStore.kt
+ M data/src/main/java/com/lomo/data/git/GitSyncConflictRecoveryCoordinator.kt
+ M data/src/main/java/com/lomo/data/local/DatabaseMigrationContentBackfill.kt
+ M data/src/main/java/com/lomo/data/local/DatabaseMigrationSupport.kt
+ M data/src/main/java/com/lomo/data/local/DatabaseMigrationTableBuilders.kt
+ M data/src/main/java/com/lomo/data/local/DatabaseMigrations.kt
+ M data/src/main/java/com/lomo/data/local/MemoDatabase.kt
+ M data/src/main/java/com/lomo/data/local/MemoFileOutboxProjection.kt
+ M data/src/main/java/com/lomo/data/local/MemoFtsTelemetry.kt
+ M data/src/main/java/com/lomo/data/local/S3DatabaseMigrationTableBuilders.kt
+ M data/src/main/java/com/lomo/data/local/SyncDatabaseMigrationSupport.kt
+ M data/src/main/java/com/lomo/data/local/dao/DefaultMainListDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoImageDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoOutboxDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoSearchDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoTagDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/MemoTrashDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/PendingSyncConflictDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/S3LocalChangeJournalDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/S3RemoteIndexDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/S3RemoteShardStateDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/S3SyncMetadataDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/S3SyncProtocolStateDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/WebDavLocalChangeJournalDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/WebDavLocalFingerprintDao.kt
+ M data/src/main/java/com/lomo/data/local/dao/WebDavSyncMetadataDao.kt
+ M data/src/main/java/com/lomo/data/local/datastore/LomoDataStore.kt
+ M data/src/main/java/com/lomo/data/local/datastore/LomoDataStoreDelegates.kt
+ M data/src/main/java/com/lomo/data/local/entity/MemoEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/MemoFileOutboxEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/MemoImageAttachmentEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/MemoStringListCodec.kt
+ M data/src/main/java/com/lomo/data/local/entity/MemoTagCrossRefEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/PendingSyncConflictEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/S3LocalChangeJournalEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/S3RemoteIndexEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/S3RemoteShardStateEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/S3SyncMetadataEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/S3SyncProtocolStateEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/TrashMemoEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/WebDavLocalChangeJournalEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/WebDavLocalFingerprintEntity.kt
+ M data/src/main/java/com/lomo/data/local/entity/WebDavSyncMetadataEntity.kt
+ M data/src/main/java/com/lomo/data/network/SyncHttpClientProvider.kt
+ M data/src/main/java/com/lomo/data/parser/MarkdownParser.kt
+ M data/src/main/java/com/lomo/data/reminder/AlarmManagerReminderCoordinator.kt
+ M data/src/main/java/com/lomo/data/reminder/ReminderActionReceiver.kt
+ M data/src/main/java/com/lomo/data/reminder/ReminderAlarmReceiver.kt
+ M data/src/main/java/com/lomo/data/reminder/ReminderBootReceiver.kt
+ M data/src/main/java/com/lomo/data/reminder/ReminderNotifier.kt
+ M data/src/main/java/com/lomo/data/repository/AppRuntimeInfoRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/AppUpdateDownloadRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/AppUpdateHttpDownloader.kt
+ M data/src/main/java/com/lomo/data/repository/AppUpdateRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/AsyncMemoVersionRecorder.kt
+ M data/src/main/java/com/lomo/data/repository/AttachmentOrphanCleaner.kt
+ M data/src/main/java/com/lomo/data/repository/DailyReviewSessionRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/GitSyncConfigurationRepositories.kt
+ M data/src/main/java/com/lomo/data/repository/GitSyncOperationRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/IncrementalReconcileInputs.kt
+ M data/src/main/java/com/lomo/data/repository/MemoMutationDbTransactions.kt
+ D data/src/main/java/com/lomo/data/repository/MemoMutationFileOps.kt
+ M data/src/main/java/com/lomo/data/repository/MemoMutationHandler.kt
+ M data/src/main/java/com/lomo/data/repository/MemoMutationOutboxBuilders.kt
+ M data/src/main/java/com/lomo/data/repository/MemoMutationRepositories.kt
+ M data/src/main/java/com/lomo/data/repository/MemoOutboxMutationDelegate.kt
+ M data/src/main/java/com/lomo/data/repository/MemoQueryRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/MemoRefreshDbApplier.kt
+ M data/src/main/java/com/lomo/data/repository/MemoRefreshEngine.kt
+ M data/src/main/java/com/lomo/data/repository/MemoRefreshParserWorker.kt
+ M data/src/main/java/com/lomo/data/repository/MemoRefreshPlanner.kt
+ D data/src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/MemoSearchRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/MemoSynchronizer.kt
+ M data/src/main/java/com/lomo/data/repository/MemoTrashMutationHandler.kt
+ M data/src/main/java/com/lomo/data/repository/MemoVersionAttachmentSupport.kt
+ M data/src/main/java/com/lomo/data/repository/MemoVersionJournal.kt
+ M data/src/main/java/com/lomo/data/repository/MemoVersionJournalRestoreSupport.kt
+ M data/src/main/java/com/lomo/data/repository/MemoVersionJournalSupport.kt
+ M data/src/main/java/com/lomo/data/repository/PendingSyncConflictStore.kt
+ M data/src/main/java/com/lomo/data/repository/S3EndpointProfile.kt
+ M data/src/main/java/com/lomo/data/repository/S3IncrementalPreparation.kt
+ M data/src/main/java/com/lomo/data/repository/S3IncrementalSyncSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3InitialSyncClassification.kt
+ M data/src/main/java/com/lomo/data/repository/S3PreparedActionVerificationGate.kt
+ M data/src/main/java/com/lomo/data/repository/S3RemoteIndexEntryMappings.kt
+ M data/src/main/java/com/lomo/data/repository/S3RemoteIndexSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3RemoteReconcileComponents.kt
+ M data/src/main/java/com/lomo/data/repository/S3RemoteScanCursorSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3RemoteShardStateSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3SafTreeAccess.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncActionApplier.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncConfigurationRepositories.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncConflictRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncExecutionSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncExecutor.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncExecutorLifecycleSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileBridge.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileBridgeLocalOps.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileBridgeMode.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileBridgePathFilters.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileBridgeQueries.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncFileVaultRootOps.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncOperationRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncPlanner.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncReconcileSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncRepositorySupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3SyncTransactionSupport.kt
+ M data/src/main/java/com/lomo/data/repository/S3TrackedMemoContentResolution.kt
+ M data/src/main/java/com/lomo/data/repository/SaveMemoMutationDelegate.kt
+ M data/src/main/java/com/lomo/data/repository/SettingsPreferenceRepositories.kt
+ M data/src/main/java/com/lomo/data/repository/ShareImageRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/SyncExecutionGate.kt
+ M data/src/main/java/com/lomo/data/repository/SyncInboxRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/TrashMemoMutationDelegate.kt
+ M data/src/main/java/com/lomo/data/repository/UpdateMemoMutationDelegate.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavIncrementalSyncSupport.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavInitialSyncClassification.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncCaches.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncConfigurationRepositories.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncConflictRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncFileBridge.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncOperationRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncPlanner.kt
+ M data/src/main/java/com/lomo/data/repository/WebDavSyncRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/repository/WorkspaceMediaAccess.kt
+ M data/src/main/java/com/lomo/data/repository/WorkspaceMediaDirectAccess.kt
+ M data/src/main/java/com/lomo/data/repository/WorkspaceMediaSafAccess.kt
+ M data/src/main/java/com/lomo/data/repository/WorkspaceMediaSafStreamAccess.kt
+ M data/src/main/java/com/lomo/data/repository/WorkspaceTransitionRepositoryImpl.kt
+ M data/src/main/java/com/lomo/data/s3/LomoS3Client.kt
+ M data/src/main/java/com/lomo/data/s3/S3CredentialStore.kt
+ M data/src/main/java/com/lomo/data/security/KeystoreBackedPreferences.kt
+ M data/src/main/java/com/lomo/data/security/SecureStringStore.kt
+ M data/src/main/java/com/lomo/data/share/LanShareActiveDiscovery.kt
+ M data/src/main/java/com/lomo/data/share/LanShareAddressPolicy.kt
+ M data/src/main/java/com/lomo/data/share/NsdDiscoveryServiceSupport.kt
+ M data/src/main/java/com/lomo/data/share/ShareAttachmentResolver.kt
+ M data/src/main/java/com/lomo/data/share/ShareAttachmentStorage.kt
+ M data/src/main/java/com/lomo/data/share/ShareIncomingMemoSaver.kt
+ M data/src/main/java/com/lomo/data/share/ShareServiceLifecycleController.kt
+ M data/src/main/java/com/lomo/data/share/ShareTransferPayloadBuilder.kt
+ M data/src/main/java/com/lomo/data/source/DirectMarkdownStorageBackendDelegate.kt
+ M data/src/main/java/com/lomo/data/source/DirectMarkdownStorageListing.kt
+ M data/src/main/java/com/lomo/data/source/DirectMediaStorageBackendDelegate.kt
+ M data/src/main/java/com/lomo/data/source/FileDataSource.kt
+ M data/src/main/java/com/lomo/data/source/FileMarkdownStorageDataSourceDelegate.kt
+ M data/src/main/java/com/lomo/data/source/FileMediaStorageDataSourceDelegate.kt
+ M data/src/main/java/com/lomo/data/source/SafDocumentAccess.kt
+ M data/src/main/java/com/lomo/data/source/SafMarkdownStorageBackendDelegate.kt
+ M data/src/main/java/com/lomo/data/source/SafMarkdownStorageCursorMapping.kt
+ M data/src/main/java/com/lomo/data/source/SafMarkdownStorageListing.kt
+ M data/src/main/java/com/lomo/data/source/SafMarkdownStorageReading.kt
+ M data/src/main/java/com/lomo/data/source/SafRelativePathResolver.kt
+ M data/src/main/java/com/lomo/data/source/StorageBackend.kt
+ M data/src/main/java/com/lomo/data/source/StorageRootConfig.kt
+ M data/src/main/java/com/lomo/data/source/VfsStorageBackend.kt
+ M data/src/main/java/com/lomo/data/util/MemoTextProcessor.kt
+ M data/src/main/java/com/lomo/data/util/PreferenceKeys.kt
+ M data/src/main/java/com/lomo/data/util/SearchTokenizer.kt
+ M data/src/main/java/com/lomo/data/webdav/Dav4jvmWebDavClient.kt
+ M data/src/main/java/com/lomo/data/webdav/WebDavClient.kt
+ M data/src/main/java/com/lomo/data/webdav/WebDavCredentialStore.kt
+ M data/src/main/java/com/lomo/data/worker/GitSyncScheduler.kt
+ M data/src/main/java/com/lomo/data/worker/PeriodicSyncSchedulingSupport.kt
+ D data/src/main/java/com/lomo/data/worker/S3ReconcileScheduler.kt
+ M data/src/main/java/com/lomo/data/worker/S3SyncScheduler.kt
+ M data/src/main/java/com/lomo/data/worker/S3SyncWorker.kt
+ M data/src/main/java/com/lomo/data/worker/WebDavSyncScheduler.kt
+ M data/src/main/java/com/lomo/data/worker/WebDavSyncWorker.kt
+ M data/src/main/res/values-zh-rCN/strings.xml
+ M data/src/main/res/values/strings.xml
+ M data/src/test/java/com/lomo/data/git/GitMediaSyncBridgeTest.kt
+ M data/src/test/java/com/lomo/data/git/GitMediaSyncPlannerTest.kt
+ M data/src/test/java/com/lomo/data/git/GitSyncEngineConflictTest.kt
+ M data/src/test/java/com/lomo/data/local/DatabaseMigrationsTest.kt
+ M data/src/test/java/com/lomo/data/local/StableDatabaseBaselineCatalogTest.kt
+ M data/src/test/java/com/lomo/data/local/TestSQLiteConnectionFakes.kt
+ M data/src/test/java/com/lomo/data/local/dao/DaoChunkingBehaviorTest.kt
+ D data/src/test/java/com/lomo/data/local/entity/MemoEntityRecoveryTest.kt
+ M data/src/test/java/com/lomo/data/local/entity/MemoEntitySerializationTest.kt
+ D data/src/test/java/com/lomo/data/local/entity/MemoTagCrossRefEntityTest.kt
+ M data/src/test/java/com/lomo/data/repository/AppUpdateDownloadInstallStateEmissionTest.kt
+ M data/src/test/java/com/lomo/data/repository/AppUpdateReleaseParsingTest.kt
+ M data/src/test/java/com/lomo/data/repository/GitSyncConflictRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/GitSyncExecutorsTest.kt
+ M data/src/test/java/com/lomo/data/repository/GitSyncOperationRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/GitSyncRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/MainListCountFlowContractTest.kt
+ D data/src/test/java/com/lomo/data/repository/MemoMutationFileOpsSafetyTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoMutationHandlerTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoMutationHistorySchedulingTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoMutationOutboxBuildersTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoQueryRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoRefreshDbApplierTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoRefreshEngineTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoRefreshParserWorkerTest.kt
+ D data/src/test/java/com/lomo/data/repository/MemoRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoSearchRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoSynchronizerOutboxPolicyTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoSynchronizerTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoSynchronizerUpdateSchedulingTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoTrashMutationHandlerTest.kt
+ M data/src/test/java/com/lomo/data/repository/MemoVersionJournalTest.kt
+ M data/src/test/java/com/lomo/data/repository/PendingSyncConflictStoreTest.kt
+ M data/src/test/java/com/lomo/data/repository/RemoteSyncOperationSupportTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3ConflictResolverTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3ConflictSessionClassifierTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3InitialSyncOptimizationTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3PreparedActionVerificationGateTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3RemoteReconcileSupportTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncActionApplierTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncExecutorPerformancePolicyTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncExecutorScalabilityTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncExecutorTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncIncrementalExecutorTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncIncrementalStatusTesterTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncOperationRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncOperationRepositoryRefreshAggregationTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncPlannerTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncPlannerVerificationLevelTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncStatusTesterPerformanceTest.kt
+ M data/src/test/java/com/lomo/data/repository/S3SyncStatusTesterTest.kt
+ M data/src/test/java/com/lomo/data/repository/SettingsRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/SyncInboxRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/SyncInboxRepositoryStructureTest.kt
+ M data/src/test/java/com/lomo/data/repository/TestMemoDaoSuite.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavConflictResolverTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavInitialSyncClassificationTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavSyncActionApplierTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavSyncFileBridgeTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavSyncOperationRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavSyncPlannerTest.kt
+ M data/src/test/java/com/lomo/data/repository/WebDavSyncRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/repository/WorkspaceTransitionRepositoryImplTest.kt
+ M data/src/test/java/com/lomo/data/s3/AwsSdkS3ClientTest.kt
+ M data/src/test/java/com/lomo/data/share/LanShareActiveDiscoveryClientTest.kt
+ M data/src/test/java/com/lomo/data/share/LanShareActiveDiscoveryTargetPolicyTest.kt
+ M data/src/test/java/com/lomo/data/share/ShareIncomingMemoSaverTest.kt
+ M data/src/test/java/com/lomo/data/share/ShareServiceLifecycleControllerActiveDiscoveryTest.kt
+ M data/src/test/java/com/lomo/data/source/DirectMarkdownStorageListingTest.kt
+ M data/src/test/java/com/lomo/data/source/FileMediaStorageDataSourceDelegateTest.kt
+ M data/src/test/java/com/lomo/data/testing/fakes/FakeDaos.kt
+ M data/src/test/java/com/lomo/data/testing/fakes/FakeFileDataSource.kt
+ M data/src/test/java/com/lomo/data/util/SearchTokenizerTest.kt
+ D data/src/test/java/com/lomo/data/worker/S3RefreshSignalPolicyTest.kt
+ D data/src/test/java/com/lomo/data/worker/S3SyncSchedulerPolicyTest.kt
+ M data/src/test/java/com/lomo/data/worker/S3SyncWorkerTest.kt
+ M domain/detekt-baseline.xml
+ M domain/src/main/java/com/lomo/domain/model/AppUpdateInstallState.kt
+ M domain/src/main/java/com/lomo/domain/model/AppUpdateModels.kt
+ M domain/src/main/java/com/lomo/domain/model/MemoStatistics.kt
+ M domain/src/main/java/com/lomo/domain/model/PreferenceDefaults.kt
+ M domain/src/main/java/com/lomo/domain/model/ReminderMarker.kt
+ M domain/src/main/java/com/lomo/domain/model/S3SyncModels.kt
+ M domain/src/main/java/com/lomo/domain/model/SimpleLineDiff.kt
+ M domain/src/main/java/com/lomo/domain/model/StorageFilenameFormats.kt
+ M domain/src/main/java/com/lomo/domain/model/StorageTimestampFormats.kt
+ M domain/src/main/java/com/lomo/domain/model/SyncConflictAutoResolutionAdvisor.kt
+ M domain/src/main/java/com/lomo/domain/model/SyncConflictModels.kt
+ M domain/src/main/java/com/lomo/domain/model/SyncConflictTextMerge.kt
+ M domain/src/main/java/com/lomo/domain/model/UnifiedSyncModels.kt
+ M domain/src/main/java/com/lomo/domain/model/WebDavSyncModels.kt
+ M domain/src/main/java/com/lomo/domain/repository/AppRuntimeInfoRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/GitSyncRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/MemoRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/MemoVersionRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/PreferencesRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/S3SyncRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/ShareImageRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/SyncInboxRepository.kt
+ M domain/src/main/java/com/lomo/domain/repository/UnifiedSyncProvider.kt
+ M domain/src/main/java/com/lomo/domain/repository/WebDavSyncRepository.kt
+ M domain/src/main/java/com/lomo/domain/usecase/AppUpdateEvaluation.kt
+ D domain/src/main/java/com/lomo/domain/usecase/ApplyMainMemoFilterUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/CheckAppUpdateUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/CheckStartupAppUpdateUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/CreateMemoUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/DailyReviewQueryUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/DeleteMemoUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/ExtractShareAttachmentsUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/GitSyncSettingsUseCase.kt
+ D domain/src/main/java/com/lomo/domain/usecase/MemoContentFlags.kt
+ D domain/src/main/java/com/lomo/domain/usecase/MemoMaintenanceUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/MemoStatisticsUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/ParseRemindersUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/PersistShareImageUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/RefreshMemosUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/RestoreMemoRevisionUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/S3SyncSettingsUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/SyncAndRebuildUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/SyncConflictResolutionUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/ToggleMemoCheckboxUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/UnifiedSyncProviders.kt
+ M domain/src/main/java/com/lomo/domain/usecase/UpdateMemoContentUseCase.kt
+ M domain/src/main/java/com/lomo/domain/usecase/WebDavSyncSettingsUseCase.kt
+ M domain/src/test/java/com/lomo/domain/model/SimpleLineDiffTest.kt
+ M domain/src/test/java/com/lomo/domain/model/SyncConflictTextMergeTest.kt
+ D domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoRepository.kt
+ M domain/src/test/java/com/lomo/domain/testing/fakes/FakePreferencesRepository.kt
+ M domain/src/test/java/com/lomo/domain/testing/fakes/FakeRemoteSyncRepositories.kt
+ M domain/src/test/java/com/lomo/domain/testing/fakes/FakeSmallRepositories.kt
+ M domain/src/test/java/com/lomo/domain/testing/fakes/FakeSyncRepositories.kt
+ D domain/src/test/java/com/lomo/domain/usecase/ApplyMainMemoFilterUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/CheckAppUpdateUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/CheckStartupAppUpdateUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/CreateMemoUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/DailyReviewQueryUseCaseSeededOrderTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/DailyReviewQueryUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/DeleteMemoUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/ExtractShareAttachmentsUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/GitSyncSettingsUseCaseTest.kt
+ D domain/src/test/java/com/lomo/domain/usecase/MemoContentFlagsTest.kt
+ D domain/src/test/java/com/lomo/domain/usecase/MemoMaintenanceUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/MemoStatisticsUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/ParseRemindersUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/PersistShareImageUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/RefreshMemosUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/RemoteSyncSettingsSharedTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/S3SyncSettingsUseCaseStrongCompatTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/S3SyncSettingsUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/StartupMaintenanceSyncInboxStructureTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/StartupMaintenanceUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/SyncAndRebuildUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/SyncConflictResolutionUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/ToggleMemoCheckboxUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/UpdateMemoContentUseCaseTest.kt
+ M domain/src/test/java/com/lomo/domain/usecase/WebDavSyncSettingsUseCaseTest.kt
+ M quality/README.md
+ M quality/detekt-rules/src/main/kotlin/com/lomo/detektrules/LomoArchitectureRuleSetProvider.kt
+ M quality/detekt-rules/src/main/kotlin/com/lomo/detektrules/LomoBaseRule.kt
+ M quality/detekt-rules/src/main/kotlin/com/lomo/detektrules/MockedStatefulCollaboratorRule.kt
+ M quality/detekt-rules/src/main/kotlin/com/lomo/detektrules/TestAntiPatternRules.kt
+ M quality/detekt/config/app.yml
+ M quality/detekt/config/data.yml
+ M quality/detekt/config/domain.yml
+ M quality/detekt/config/test-style.yml
+ M quality/detekt/config/ui-components.yml
+ M quality/scripts/ai_gradle_env.sh
+ M quality/scripts/ai_local_maintenance_check.sh
+ M quality/scripts/test/check_meaningful_tests_fixtures/missing_scenario_matrix/head/app/src/test/java/com/example/MissingScenarioMatrixTest.kt
+ M quality/scripts/test/check_meaningful_tests_smoke_test.sh
+ M ui-components/build.gradle.kts
+ M ui-components/src/androidTest/java/com/lomo/ui/component/input/InputSheetLongFormModeUiTest.kt
+ M ui-components/src/androidTest/java/com/lomo/ui/component/menu/MemoMenuHostFirstOpenMotionTest.kt
+ M ui-components/src/main/java/com/lomo/ui/component/card/MemoCard.kt
+ M ui-components/src/main/java/com/lomo/ui/component/card/MemoCardBodyContent.kt
+ M ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialog.kt
+ M ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogSupport.kt
+ D ui-components/src/main/java/com/lomo/ui/component/input/InputEditorBackfillBadge.kt
+ M ui-components/src/main/java/com/lomo/ui/component/input/InputEditorToolbarComponents.kt
+ M ui-components/src/main/java/com/lomo/ui/component/input/InputSheet.kt
+ M ui-components/src/main/java/com/lomo/ui/component/input/InputSheetComponents.kt
+ M ui-components/src/main/java/com/lomo/ui/component/input/InputSheetContent.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownImageCache.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownImagePresentationPolicy.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownKnownTagFilter.kt
+M  ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownRenderer.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownRendererInline.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownSemanticDocument.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownSemanticDocumentParser.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/MarkdownSemanticInlineParser.kt
+M  ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownAstRenderer.kt
+M  ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownListRenderer.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownRenderPlan.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownRenderPlanSupport.kt
+M  ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownRenderer.kt
+ M ui-components/src/main/java/com/lomo/ui/component/markdown/ModernParagraphItem.kt
+ D ui-components/src/main/java/com/lomo/ui/component/menu/MemoActionReorder.kt
+ M ui-components/src/main/java/com/lomo/ui/component/menu/MemoActionSheet.kt
+ M ui-components/src/main/java/com/lomo/ui/component/menu/MemoActionSheetDefaults.kt
+ M ui-components/src/main/java/com/lomo/ui/component/menu/MemoContextMenu.kt
+ M ui-components/src/main/java/com/lomo/ui/component/menu/MemoMenuBottomSheet.kt
+ M ui-components/src/main/java/com/lomo/ui/component/menu/MemoMenuHost.kt
+ M ui-components/src/main/java/com/lomo/ui/component/navigation/SidebarDrawer.kt
+ M ui-components/src/main/java/com/lomo/ui/component/stats/CalendarHeatmap.kt
+ M ui-components/src/main/java/com/lomo/ui/component/stats/CalendarHeatmapContent.kt
+ M ui-components/src/main/java/com/lomo/ui/component/stats/TagDistributionChart.kt
+ M ui-components/src/main/java/com/lomo/ui/text/MemoComposeParagraphText.kt
+ M ui-components/src/main/java/com/lomo/ui/text/MemoParagraphText.kt
+ M ui-components/src/main/java/com/lomo/ui/text/MemoTextDrawing.kt
+ M ui-components/src/main/java/com/lomo/ui/text/MemoTextPaint.kt
+ M ui-components/src/main/java/com/lomo/ui/text/ScriptAwareText.kt
+ M ui-components/src/main/java/com/lomo/ui/theme/Color.kt
+ M ui-components/src/main/java/com/lomo/ui/theme/MemoTypography.kt
+ M ui-components/src/main/java/com/lomo/ui/theme/Theme.kt
+ M ui-components/src/main/java/com/lomo/ui/theme/Type.kt
+ M ui-components/src/main/res/values-zh-rCN/strings.xml
+ M ui-components/src/main/res/values/strings.xml
+ M ui-components/src/test/java/com/lomo/ui/component/input/InputEditorToolbarOrderTest.kt
+A  ui-components/src/test/java/com/lomo/ui/component/markdown/ModernMarkdownHideImagesTest.kt
+ M ui-components/src/test/java/com/lomo/ui/component/markdown/ModernMarkdownRenderPlanTest.kt
+ M ui-components/src/test/java/com/lomo/ui/component/markdown/ModernParagraphItemTest.kt
+ D ui-components/src/test/java/com/lomo/ui/component/menu/MemoActionSheetActionOrderTest.kt
+ M ui-components/src/test/java/com/lomo/ui/text/ScriptAwareTextTest.kt
+ M ui-components/src/test/java/com/lomo/ui/theme/MemoTypographyTest.kt
+?? app/detekt-baseline-debug.xml
+?? app/src/main/java/com/lomo/app/AppLockPolicy.kt
+?? app/src/main/java/com/lomo/app/AppShutdownCoordinator.kt
+?? app/src/main/java/com/lomo/app/CapabilityGatePolicy.kt
+?? app/src/main/java/com/lomo/app/di/DomainMemoMutationBindingsModule.kt
+?? app/src/main/java/com/lomo/app/di/DomainMemoReadBindingsModule.kt
+?? app/src/main/java/com/lomo/app/di/DomainSearchBindingsModule.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoCollectionActions.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoCollectionProjectionMapper.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoCollectionStateHolder.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoCollectionUiState.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoCollectionWindowStateHolder.kt
+?? app/src/main/java/com/lomo/app/feature/common/MemoVisibleContentReplacement.kt
+?? app/src/main/java/com/lomo/app/feature/conflict/SyncConflictDialogStateReducer.kt
+?? app/src/main/java/com/lomo/app/feature/conflict/SyncConflictSafeAutoResolve.kt
+?? app/src/main/java/com/lomo/app/feature/main/MainMemoEditorSurface.kt
+?? app/src/main/java/com/lomo/app/feature/main/MainMemoFilterColorPolicy.kt
+?? app/src/main/java/com/lomo/app/feature/main/MainMemoLocationCommand.kt
+?? app/src/main/java/com/lomo/app/feature/main/MainReminderClickAction.kt
+?? app/src/main/java/com/lomo/app/feature/memo/MemoActionId.kt
+?? app/src/main/java/com/lomo/app/feature/memo/MemoBackfillSelectionState.kt
+?? app/src/main/java/com/lomo/app/feature/memo/MemoEditorSurface.kt
+?? app/src/main/java/com/lomo/app/feature/memo/MemoMenuCommandHandler.kt
+?? app/src/main/java/com/lomo/app/feature/memo/MemoMenuSelection.kt
+?? app/src/main/java/com/lomo/app/feature/memo/ReminderIntervalChoiceLayoutPolicy.kt
+?? app/src/main/java/com/lomo/app/feature/memo/ReminderPermissionPolicy.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchContentState.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchInputMorph.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchMemoEditorSurface.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchMemoMenuCommandHandler.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchScreenContent.kt
+?? app/src/main/java/com/lomo/app/feature/search/SearchScreenUiSnapshot.kt
+?? app/src/main/java/com/lomo/app/feature/settings/ColorPickerMath.kt
+?? app/src/main/java/com/lomo/app/feature/settings/ColorSourceLabels.kt
+?? app/src/main/java/com/lomo/app/feature/settings/FontPreferenceLabels.kt
+?? app/src/main/java/com/lomo/app/feature/settings/RemoteSyncSettingsCoordinator.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsColorPalettePage.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsCredentialPresentation.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsFontPage.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsHomeHero.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsHomeHeroState.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsHomeRows.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsMigrationFeatureViewModel.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsMigrationOperationPresentation.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsQuickControls.kt
+?? app/src/main/java/com/lomo/app/feature/settings/SettingsSubPages.kt
+?? app/src/main/java/com/lomo/app/feature/share/DeviceDiscoveryContentState.kt
+?? app/src/main/java/com/lomo/app/feature/share/ShareDeviceDiscoveryList.kt
+?? app/src/main/java/com/lomo/app/feature/statistics/StatisticsPresentationPolicy.kt
+?? app/src/main/java/com/lomo/app/feature/update/UpdateStartupOrchestration.kt
+?? app/src/main/java/com/lomo/app/navigation/NavigationPayloadRegistry.kt
+?? app/src/main/java/com/lomo/app/navigation/ShareRoutePayloadPersistentCache.kt
+?? app/src/main/java/com/lomo/app/presentation/markdown/
+?? app/src/main/java/com/lomo/app/util/ShareCardImageDecodeSource.kt
+?? app/src/main/java/com/lomo/app/util/ShareCardPalettePolicy.kt
+?? app/src/main/java/com/lomo/app/util/ShareImagePngEncodingPolicy.kt
+?? app/src/test/java/com/lomo/app/AppLockPolicyTest.kt
+?? app/src/test/java/com/lomo/app/AppShutdownCoordinatorTest.kt
+?? app/src/test/java/com/lomo/app/CapabilityGatePolicyTest.kt
+?? app/src/test/java/com/lomo/app/MainActivityLaunchRoutingTest.kt
+?? app/src/test/java/com/lomo/app/feature/common/MemoCollectionStateHolderTest.kt
+?? app/src/test/java/com/lomo/app/feature/common/MemoRepositoryBoundaryContractTest.kt
+?? app/src/test/java/com/lomo/app/feature/gallery/GalleryReelActionContractTest.kt
+?? app/src/test/java/com/lomo/app/feature/main/MainMemoFilterColorPolicyTest.kt
+?? app/src/test/java/com/lomo/app/feature/main/MainReminderClickActionTest.kt
+?? app/src/test/java/com/lomo/app/feature/main/MemoUiMapperProjectionTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/MemoEditorHostSurfaceContractTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/MemoMenuCommandHandlerTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/MemoMenuHandlerSurfaceContractTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/ReminderInsertDialogTokenBuilderTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/ReminderIntervalChoiceLayoutPolicyTest.kt
+?? app/src/test/java/com/lomo/app/feature/memo/ReminderPermissionPolicyTest.kt
+?? app/src/test/java/com/lomo/app/feature/search/SearchCollectionBoundaryContractTest.kt
+?? app/src/test/java/com/lomo/app/feature/search/SearchContentStateTest.kt
+?? app/src/test/java/com/lomo/app/feature/settings/RemoteSyncSettingsCoordinatorTest.kt
+?? app/src/test/java/com/lomo/app/feature/settings/SettingsCredentialStatusStateTest.kt
+?? app/src/test/java/com/lomo/app/feature/settings/SettingsHomeHeroStateTest.kt
+?? app/src/test/java/com/lomo/app/feature/settings/SettingsMigrationFeatureViewModelTest.kt
+?? app/src/test/java/com/lomo/app/feature/share/DeviceDiscoveryContentStatePolicyTest.kt
+?? app/src/test/java/com/lomo/app/feature/statistics/StatisticsPresentationPolicyTest.kt
+?? app/src/test/java/com/lomo/app/feature/update/UpdateStartupOrchestrationContractTest.kt
+?? app/src/test/java/com/lomo/app/navigation/NavigationPayloadRegistryTest.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeAppVersionRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeAppWidgetRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeAudioPlayerManager.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeCustomFontStore.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeGitSyncRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeImageMapProvider.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMediaRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoMutationRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoQueryRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoSearchRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoStatisticsRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoStore.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoTrashRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeMemoVersionRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeReminderCoordinator.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeS3SyncRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeSyncInboxRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeSyncPolicyRepository.kt
+?? app/src/test/java/com/lomo/app/testing/fakes/FakeWebDavSyncRepository.kt
+?? app/src/test/java/com/lomo/app/util/ShareCardBitmapRendererImagesTest.kt
+?? app/src/test/java/com/lomo/app/util/ShareCardPalettePolicyTest.kt
+?? app/src/test/java/com/lomo/app/util/ShareImagePngEncodingPolicyTest.kt
+?? app/src/test/java/com/lomo/app/widget/
+?? app/src/test/java/com/lomo/domain/
+?? buildSrc/src/test/kotlin/com/lomo/baseline/StaticBaselineProfilePluginBudgetTest.kt
+?? data/detekt-baseline-debug.xml
+?? data/schemas/com.lomo.data.local.MemoDatabase/56.json
+?? data/schemas/com.lomo.data.local.MemoDatabase/57.json
+?? data/schemas/com.lomo.data.local.MemoDatabase/58.json
+?? data/schemas/com.lomo.data.local.MemoDatabase/59.json
+?? data/schemas/com.lomo.data.local.MemoDatabase/60.json
+?? data/src/main/java/com/lomo/data/local/DatabasePendingSessionMigrations.kt
+?? data/src/main/java/com/lomo/data/local/DatabaseRecentMigrations.kt
+?? data/src/main/java/com/lomo/data/local/DatabaseSyncStateMigrations.kt
+?? data/src/main/java/com/lomo/data/local/DatabaseWorkspaceScopedSyncMigrations.kt
+?? data/src/main/java/com/lomo/data/local/dao/MemoRandomDao.kt
+?? data/src/main/java/com/lomo/data/local/dao/MemoStatisticsDao.kt
+?? data/src/main/java/com/lomo/data/local/dao/PendingSyncReviewDao.kt
+?? data/src/main/java/com/lomo/data/local/dao/SyncStateResetDao.kt
+?? data/src/main/java/com/lomo/data/local/entity/PendingSyncReviewEntity.kt
+?? data/src/main/java/com/lomo/data/local/entity/SyncStateWorkspaceGeneration.kt
+?? data/src/main/java/com/lomo/data/local/projection/
+?? data/src/main/java/com/lomo/data/network/SyncHttpRetryPolicy.kt
+?? data/src/main/java/com/lomo/data/reminder/ReminderAsyncRunner.kt
+?? data/src/main/java/com/lomo/data/reminder/ReminderRequestCodePolicy.kt
+?? data/src/main/java/com/lomo/data/repository/AppUpdateTransportOwner.kt
+?? data/src/main/java/com/lomo/data/repository/CustomFontStoreImpl.kt
+?? data/src/main/java/com/lomo/data/repository/DataStoreMigrationSettingsStore.kt
+?? data/src/main/java/com/lomo/data/repository/DataStoreWorkspaceSyncGenerationProvider.kt
+?? data/src/main/java/com/lomo/data/repository/MemoLifecycleCommand.kt
+?? data/src/main/java/com/lomo/data/repository/MemoOutboxVersionRestoreFlush.kt
+?? data/src/main/java/com/lomo/data/repository/MemoPagingSources.kt
+?? data/src/main/java/com/lomo/data/repository/MemoStatisticsRepositoryImpl.kt
+?? data/src/main/java/com/lomo/data/repository/MemoVersionRepositoryImpl.kt
+?? data/src/main/java/com/lomo/data/repository/MemoVersionRestoreSupport.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceBlockSupport.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceFileStateStore.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceProjector.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceReader.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceShardWriter.kt
+?? data/src/main/java/com/lomo/data/repository/MemoWorkspaceStore.kt
+?? data/src/main/java/com/lomo/data/repository/MigrationArchiveDryRunPlanner.kt
+?? data/src/main/java/com/lomo/data/repository/MigrationArchiveRepositoryImpl.kt
+?? data/src/main/java/com/lomo/data/repository/MigrationArchiveSupport.kt
+?? data/src/main/java/com/lomo/data/repository/MigrationSettingsEncryption.kt
+?? data/src/main/java/com/lomo/data/repository/MigrationSettingsStoreSupport.kt
+?? data/src/main/java/com/lomo/data/repository/PendingSyncRestoreErrorMapping.kt
+?? data/src/main/java/com/lomo/data/repository/PendingSyncReviewStore.kt
+?? data/src/main/java/com/lomo/data/repository/PendingSyncSessionRestore.kt
+?? data/src/main/java/com/lomo/data/repository/RemoteSyncLifecycleExecutionOwner.kt
+?? data/src/main/java/com/lomo/data/repository/RemoteSyncLifecycleRunner.kt
+?? data/src/main/java/com/lomo/data/repository/RemoteSyncPlannerCore.kt
+?? data/src/main/java/com/lomo/data/repository/RemovedMemoBlock.kt
+?? data/src/main/java/com/lomo/data/repository/RestoreMemoRevisionMutationDelegate.kt
+?? data/src/main/java/com/lomo/data/repository/S3FailureDiagnostics.kt
+?? data/src/main/java/com/lomo/data/repository/S3PendingConflictSessionRestorer.kt
+?? data/src/main/java/com/lomo/data/repository/S3RemoteSyncActionMappings.kt
+?? data/src/main/java/com/lomo/data/repository/S3RemoteSyncSnapshotMappings.kt
+?? data/src/main/java/com/lomo/data/repository/S3SyncFileBridgePathShape.kt
+?? data/src/main/java/com/lomo/data/repository/S3SyncProviderModels.kt
+?? data/src/main/java/com/lomo/data/repository/S3SyncWorkIntent.kt
+?? data/src/main/java/com/lomo/data/repository/SettingsKey.kt
+?? data/src/main/java/com/lomo/data/repository/SyncInboxPendingReviewRestorer.kt
+?? data/src/main/java/com/lomo/data/repository/SyncStateResetRepositoryImpl.kt
+?? data/src/main/java/com/lomo/data/repository/WebDavPendingConflictSessionRestorer.kt
+?? data/src/main/java/com/lomo/data/repository/WebDavRemoteSyncActionMappings.kt
+?? data/src/main/java/com/lomo/data/repository/WebDavRemoteSyncSnapshotMappings.kt
+?? data/src/main/java/com/lomo/data/repository/WebDavSyncProviderModels.kt
+?? data/src/main/java/com/lomo/data/repository/WorkspaceMediaSafMimeTypes.kt
+?? data/src/main/java/com/lomo/data/repository/WorkspaceScopedSyncMetadataStores.kt
+?? data/src/main/java/com/lomo/data/security/SensitiveCredentialPreferencePolicy.kt
+?? data/src/main/java/com/lomo/data/share/LanShareActiveDiscoverySchedulePolicy.kt
+?? data/src/main/java/com/lomo/data/share/ShareAttachmentReferenceRemapper.kt
+?? data/src/main/java/com/lomo/data/source/DirectMarkdownStorageStreaming.kt
+?? data/src/main/java/com/lomo/data/sync/S3AutoSyncIntervals.kt
+?? data/src/main/java/com/lomo/data/sync/S3SyncWorkPolicy.kt
+?? data/src/main/java/com/lomo/data/sync/SyncRefreshCoalescer.kt
+?? data/src/main/java/com/lomo/data/sync/SyncWorkPolicy.kt
+?? data/src/test/java/com/lomo/data/local/dao/DefaultMainListDaoSqlRegressionTest.kt
+?? data/src/test/java/com/lomo/data/local/dao/MemoSearchDaoSqlRegressionTest.kt
+?? data/src/test/java/com/lomo/data/local/entity/MemoEntityStrictMappingTest.kt
+?? data/src/test/java/com/lomo/data/local/projection/
+?? data/src/test/java/com/lomo/data/network/
+?? data/src/test/java/com/lomo/data/reminder/
+?? data/src/test/java/com/lomo/data/repository/AppUpdateDownloadRepositoryHttpClientLifecycleTest.kt
+?? data/src/test/java/com/lomo/data/repository/AppUpdateDownloadedApkMetadataVerificationTest.kt
+?? data/src/test/java/com/lomo/data/repository/AppUpdateTransportOwnerTest.kt
+?? data/src/test/java/com/lomo/data/repository/CredentialStatusRepositoryTest.kt
+?? data/src/test/java/com/lomo/data/repository/DataStoreMigrationSettingsStoreTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoBackgroundOwnershipTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoLifecycleCommandTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoMutationSaveReminderSchedulingTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoOutboxMutationDelegateTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoPermanentDeleteBoundaryTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoQueryRepositoryContractTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoStatisticsRepositoryImplTest.kt
+?? data/src/test/java/com/lomo/data/repository/MemoWorkspaceStoreTest.kt
+?? data/src/test/java/com/lomo/data/repository/MigrationArchiveRepositoryImplTest.kt
+?? data/src/test/java/com/lomo/data/repository/PendingSyncReviewStoreTest.kt
+?? data/src/test/java/com/lomo/data/repository/PendingSyncSessionRestoreValidationTest.kt
+?? data/src/test/java/com/lomo/data/repository/RemotePayloadStreamingContractTest.kt
+?? data/src/test/java/com/lomo/data/repository/RemoteSyncLifecycleProviderRoutingTest.kt
+?? data/src/test/java/com/lomo/data/repository/RemoteSyncLifecycleRunnerTest.kt
+?? data/src/test/java/com/lomo/data/repository/S3OptimizationContainmentContractTest.kt
+?? data/src/test/java/com/lomo/data/repository/S3SyncFileVaultRootPathGuardTest.kt
+?? data/src/test/java/com/lomo/data/repository/S3SyncLifecycleStageBoundaryTest.kt
+?? data/src/test/java/com/lomo/data/repository/S3SyncProviderModelsTest.kt
+?? data/src/test/java/com/lomo/data/repository/ShareImageRepositoryImplTest.kt
+?? data/src/test/java/com/lomo/data/repository/SyncStateGenerationIsolationTest.kt
+?? data/src/test/java/com/lomo/data/repository/SyncStateResetRepositoryImplTest.kt
+?? data/src/test/java/com/lomo/data/repository/TestBackgroundScopes.kt
+?? data/src/test/java/com/lomo/data/repository/TestMediaRepositories.kt
+?? data/src/test/java/com/lomo/data/repository/TestMemoWorkspaceStore.kt
+?? data/src/test/java/com/lomo/data/repository/TestPendingSyncStores.kt
+?? data/src/test/java/com/lomo/data/repository/TestRemoteSyncLifecycleOwner.kt
+?? data/src/test/java/com/lomo/data/repository/TestS3SyncStateStores.kt
+?? data/src/test/java/com/lomo/data/repository/TestWebDavSyncStateStores.kt
+?? data/src/test/java/com/lomo/data/repository/WorkspaceMediaAccessContractTest.kt
+?? data/src/test/java/com/lomo/data/repository/WorkspaceMediaSafStreamAccessTest.kt
+?? data/src/test/java/com/lomo/data/security/
+?? data/src/test/java/com/lomo/data/share/LanShareActiveDiscoveryPolicyTest.kt
+?? data/src/test/java/com/lomo/data/source/DirectMediaStorageBackendDelegateTest.kt
+?? data/src/test/java/com/lomo/data/source/SafMarkdownStorageStreamingTest.kt
+?? data/src/test/java/com/lomo/data/sync/S3SyncWorkPolicyTest.kt
+?? data/src/test/java/com/lomo/data/sync/SyncWorkPolicyContractTest.kt
+?? data/src/test/java/com/lomo/data/testing/MemoProjectionTestFixtures.kt
+?? data/src/test/java/com/lomo/data/testing/fakes/FakeReminderCoordinator.kt
+?? data/src/test/java/com/lomo/data/worker/RemoteSyncSchedulerPolicyTest.kt
+?? debug_sanitized.txt
+?? domain/src/main/java/com/lomo/domain/model/ColorPresetId.kt
+?? domain/src/main/java/com/lomo/domain/model/ColorSource.kt
+?? domain/src/main/java/com/lomo/domain/model/CredentialState.kt
+?? domain/src/main/java/com/lomo/domain/model/CustomFontInfo.kt
+?? domain/src/main/java/com/lomo/domain/model/DailyReviewCollectionSource.kt
+?? domain/src/main/java/com/lomo/domain/model/FontPreference.kt
+?? domain/src/main/java/com/lomo/domain/model/MemoQuerySpec.kt
+?? domain/src/main/java/com/lomo/domain/model/MemoSidebarStatistics.kt
+?? domain/src/main/java/com/lomo/domain/repository/AppBackgroundWorkRepository.kt
+?? domain/src/main/java/com/lomo/domain/repository/AppUpdateTransportLifecycleRepository.kt
+?? domain/src/main/java/com/lomo/domain/repository/CustomFontStore.kt
+?? domain/src/main/java/com/lomo/domain/repository/MigrationArchiveRepository.kt
+?? domain/src/main/java/com/lomo/domain/repository/SyncStateResetRepository.kt
+?? domain/src/main/java/com/lomo/domain/repository/WorkspaceSyncGenerationProvider.kt
+?? domain/src/main/java/com/lomo/domain/usecase/DispatcherProvider.kt
+?? domain/src/main/java/com/lomo/domain/usecase/FakeDispatcherProvider.kt
+?? domain/src/main/java/com/lomo/domain/usecase/GetMemosByTagPageUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/MainMemoListQueryUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/MarkReminderDoneUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/MemoContentAnalyzer.kt
+?? domain/src/main/java/com/lomo/domain/usecase/MemoTrashUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/MigrationUseCases.kt
+?? domain/src/main/java/com/lomo/domain/usecase/ObserveActiveDayCountUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/ObserveSidebarStatisticsUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/SearchMemosPageUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/SetMemoPinnedUseCase.kt
+?? domain/src/main/java/com/lomo/domain/usecase/SyncReviewResolutionUseCase.kt
+?? domain/src/test/java/com/lomo/domain/model/ColorSourceTest.kt
+?? domain/src/test/java/com/lomo/domain/model/CredentialStateTest.kt
+?? domain/src/test/java/com/lomo/domain/model/FontPreferenceTest.kt
+?? domain/src/test/java/com/lomo/domain/model/StorageFormatCompatibilityFixtureTest.kt
+?? domain/src/test/java/com/lomo/domain/repository/MemoSearchRepositoryContractTest.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoMutationRepository.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoQueryRepository.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoSearchRepository.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoStatisticsRepository.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoStore.kt
+?? domain/src/test/java/com/lomo/domain/testing/fakes/FakeMemoTrashRepository.kt
+?? domain/src/test/java/com/lomo/domain/usecase/MemoContentAnalyzerTest.kt
+?? domain/src/test/java/com/lomo/domain/usecase/MemoQuerySpecTest.kt
+?? domain/src/test/java/com/lomo/domain/usecase/MigrationUseCaseTest.kt
+?? domain/src/test/java/com/lomo/domain/usecase/SearchMemosPageUseCaseTest.kt
+?? domain/src/test/java/com/lomo/domain/usecase/UnifiedSyncProvidersTest.kt
+?? quality/compatibility-matrix.md
+?? quality/detekt-rules/src/test/kotlin/com/lomo/detektrules/AppBoundaryArchitectureRuleTest.kt
+?? quality/detekt-rules/src/test/kotlin/com/lomo/detektrules/NoDeprecatedKeptRuleTest.kt
+?? quality/detekt-rules/src/test/kotlin/com/lomo/detektrules/NoSwallowedResultRuleTest.kt
+?? quality/resources-release-checklist.md
+?? quality/scripts/check_string_resource_parity.sh
+?? quality/scripts/test/check_string_resource_parity_smoke_test.sh
+?? quality/scripts/test/testing_coverage_matrix_contract_test.sh
+?? quality/testing-coverage-matrix.md
+?? status.txt
+?? ui-components/detekt-baseline-debug.xml
+?? ui-components/src/main/java/com/lomo/ui/component/card/MemoCardFooterComponents.kt
+?? ui-components/src/main/java/com/lomo/ui/component/card/MemoCardSummaryUtils.kt
+?? ui-components/src/main/java/com/lomo/ui/component/card/MemoMetadataPillColors.kt
+?? ui-components/src/main/java/com/lomo/ui/component/card/ReminderDisplayFormatter.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/ConflictTextDiffPresentation.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictChoiceColors.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogCards.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogChoiceRows.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogChrome.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogContent.kt
+?? ui-components/src/main/java/com/lomo/ui/component/dialog/SyncConflictResolutionDialogLists.kt
+?? ui-components/src/main/java/com/lomo/ui/component/input/InputEditorActionBadge.kt
+?? ui-components/src/main/java/com/lomo/ui/component/input/InputEditorSurface.kt
+?? ui-components/src/main/java/com/lomo/ui/component/markdown/ModernMarkdownGalleryRenderer.kt
+?? ui-components/src/main/java/com/lomo/ui/component/menu/ActionSheetUi.kt
+?? ui-components/src/main/java/com/lomo/ui/component/menu/MemoMenuActionLifecycle.kt
+?? ui-components/src/main/java/com/lomo/ui/component/picker/
+?? ui-components/src/main/java/com/lomo/ui/component/stats/CalendarHeatmapWindow.kt
+?? ui-components/src/main/java/com/lomo/ui/text/MemoTextRenderingPolicy.kt
+?? ui-components/src/main/java/com/lomo/ui/theme/ColorSchemeGenerator.kt
+?? ui-components/src/main/java/com/lomo/ui/theme/LomoColorScheme.kt
+?? ui-components/src/main/java/com/lomo/ui/theme/ThemeMode.kt
+?? ui-components/src/test/java/com/lomo/ui/component/card/MemoMetadataPillColorsTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/card/ReminderDisplayFormatterTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/dialog/
+?? ui-components/src/test/java/com/lomo/ui/component/input/InputEditorToolbarRegistryTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/input/InputSheetSurfaceContractTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/markdown/MarkdownImageLayoutPolicyTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/markdown/ModernMarkdownTaskListSanitizationTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/menu/ActionSheetPresentationOrderTest.kt
+?? ui-components/src/test/java/com/lomo/ui/component/picker/
+?? ui-components/src/test/java/com/lomo/ui/component/stats/StatsChartPolicyTest.kt
+?? ui-components/src/test/java/com/lomo/ui/text/MemoTextRenderingPolicyTest.kt
+?? ui-components/src/test/java/com/lomo/ui/theme/ColorSchemeGeneratorTest.kt
+?? ui-components/src/test/java/com/lomo/ui/theme/LomoColorSchemeTest.kt

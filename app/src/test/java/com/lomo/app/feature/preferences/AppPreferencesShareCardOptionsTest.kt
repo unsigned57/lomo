@@ -19,6 +19,7 @@ package com.lomo.app.feature.preferences
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -50,7 +51,7 @@ class AppPreferencesShareCardOptionsTest : AppFunSpec() {
             runTest {
                 appConfigRepository.setShareCardSignatureText("Unsigned57")
 
-                val state = appConfigRepository.observeAppPreferences().first()
+                val state = appConfigRepository.observeAppPreferences(FakeCustomFontStore()).first()
 
                 state.shareCardSignatureText shouldBe "Unsigned57"
             }

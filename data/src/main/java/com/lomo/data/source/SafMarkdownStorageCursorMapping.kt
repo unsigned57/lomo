@@ -4,6 +4,9 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 internal fun safQueryChildDocumentsWithIds(
     context: Context,
@@ -31,6 +34,34 @@ internal fun safQueryChildDocumentsWithIds(
     }
     return result
 }
+
+internal fun safStreamChildDocumentsWithIds(
+    context: Context,
+    rootUri: Uri,
+    parentDocId: String,
+): Flow<FileMetadataWithId> =
+    flow {
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+        val projection =
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            )
+        context.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
+            val indexes =
+                SafCursorColumnIndexes(
+                    documentId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                    displayName = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                    lastModified = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+                )
+            while (cursor.moveToNext()) {
+                safMapCursorToMetadataWithId(cursor, indexes, rootUri)?.let { metadata ->
+                    emit(metadata)
+                }
+            }
+        }
+    }.flowOn(SAF_IO_DISPATCHER)
 
 private fun safMapCursorToMetadataWithId(
     cursor: Cursor,

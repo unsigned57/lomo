@@ -27,7 +27,7 @@ import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -245,6 +245,7 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
             fileBridge = S3SyncFileBridge(runtime, encodingSupport),
             protocolStateStore = protocolStateStore,
             localChangeJournalStore = journalStore,
+            remoteIndexStore = DisabledS3RemoteIndexStore,
         )
     }
 }
@@ -326,16 +327,40 @@ private class ProbeStatusS3Client(
         return onList()
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         throw AssertionError("Status checks should not download remote objects: $key")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
     ) = throw AssertionError("Status checks should not upload remote objects: $key")
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) =
         throw AssertionError("Status checks should not delete remote objects: $key")

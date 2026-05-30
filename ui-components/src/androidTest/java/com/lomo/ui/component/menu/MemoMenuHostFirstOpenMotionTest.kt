@@ -1,6 +1,8 @@
 package com.lomo.ui.component.menu
 
 import androidx.activity.ComponentActivity
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -9,20 +11,33 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.lomo.ui.benchmark.BenchmarkAnchorConfig
 import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
+import kotlinx.collections.immutable.persistentListOf
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoMenuHost first-open bottom-sheet motion on a real device.
- * - Behavior focus: the first menu open after host composition must enter from an off-screen start and settle
- *   over time instead of appearing immediately at the final expanded position.
- * - Observable outcomes: sampled benchmark-root top positions across animation frames and final visible menu root.
- * - Red phase: Fails before the fix when the first visible sampled frame already matches the final settled top and
- *   no upward settling motion is observable during first open.
- * - Excludes: exact easing fidelity, menu action business callbacks, and full MainScreen wiring.
+ * - Owning layer: ui-components menu host.
+ * - Priority tier: P1.
+ * - Capability: the first menu open after host composition enters from an off-screen start and
+ *   settles over time instead of appearing immediately at the final expanded position.
+ *
+ * Scenarios:
+ * - Given a freshly composed menu host, when the first menu is launched, then sampled visible
+ *   positions start below the final settled top and move upward during the opening animation.
+ *
+ * Observable outcomes:
+ * - Sampled benchmark-root top positions across animation frames and final visible menu root.
+ *
+ * TDD proof:
+ * - RED: Fails before the first-open motion fix when the first visible sampled frame already
+ *   matches the final settled top and no upward settling motion is observable during first open.
+ *
+ * Excludes:
+ * - Exact easing fidelity, menu action business callbacks, and full MainScreen wiring.
  */
 @RunWith(AndroidJUnit4::class)
 class MemoMenuHostFirstOpenMotionTest {
@@ -46,14 +61,24 @@ class MemoMenuHostFirstOpenMotionTest {
                 MaterialTheme {
                     PrewarmMemoMenuMotion()
                     MemoMenuHost(
-                        onEdit = {},
-                        onDelete = {},
+                        actions = { _, _ ->
+                            persistentListOf(
+                                ActionItemUi(
+                                    key = "copy",
+                                    icon = Icons.Outlined.ContentCopy,
+                                    label = "Copy",
+                                    onClick = {},
+                                ),
+                            )
+                        },
+                        onMenuCleared = {},
                         benchmarkRootTag = MENU_ROOT_TAG,
-                    ) { launcher ->
-                        SideEffect {
-                            showMenu = launcher
-                        }
-                    }
+                        content = { launcher ->
+                            SideEffect {
+                                showMenu = launcher
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -104,6 +129,5 @@ class MemoMenuHostFirstOpenMotionTest {
             wordCount = 12,
             createdTime = "2026-04-10 09:30",
             content = "First-open menu motion regression target",
-            isPinned = false,
         )
 }

@@ -8,6 +8,7 @@ import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
+import java.io.ByteArrayOutputStream
 
 class FakeShareImageRepository : ShareImageRepository {
     data class StoredImage(
@@ -19,10 +20,12 @@ class FakeShareImageRepository : ShareImageRepository {
     var nextPath: String = "/tmp/share.png"
 
     override suspend fun storeShareImage(
-        pngBytes: ByteArray,
         fileNamePrefix: String,
+        writer: suspend (java.io.OutputStream) -> Unit,
     ): String {
-        storedImages += StoredImage(pngBytes = pngBytes, fileNamePrefix = fileNamePrefix)
+        val output = ByteArrayOutputStream()
+        writer(output)
+        storedImages += StoredImage(pngBytes = output.toByteArray(), fileNamePrefix = fileNamePrefix)
         return nextPath
     }
 }
@@ -61,13 +64,21 @@ class FakeAppUpdateRepository(
 
 class FakeAppRuntimeInfoRepository(
     var currentVersionName: String = "1.0.0",
+    var currentVersionCode: Long? = null,
 ) : AppRuntimeInfoRepository {
     var getCurrentVersionNameCallCount = 0
+        private set
+    var getCurrentVersionCodeCallCount = 0
         private set
 
     override suspend fun getCurrentVersionName(): String {
         getCurrentVersionNameCallCount += 1
         return currentVersionName
+    }
+
+    override suspend fun getCurrentVersionCode(): Long? {
+        getCurrentVersionCodeCallCount += 1
+        return currentVersionCode
     }
 }
 

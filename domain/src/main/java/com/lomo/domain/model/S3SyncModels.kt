@@ -63,30 +63,6 @@ enum class S3SyncReason {
     CONFLICT,
 }
 
-enum class S3SyncScanPolicy {
-    FAST_ONLY,
-    FAST_THEN_RECONCILE,
-    FULL_RECONCILE,
-}
-
-enum class S3RemoteVerificationLevel {
-    VERIFIED_REMOTE,
-    INDEX_CACHED_REMOTE,
-    SUSPECT_REMOTE_MISSING,
-    UNKNOWN_REMOTE,
-}
-
-data class S3RemoteIndexState(
-    val lastFullRemoteScanAt: Long?,
-    val lastFastSyncAt: Long?,
-    val lastReconcileAt: Long?,
-    val indexedRemoteFileCount: Int,
-    val indexedLocalFileCount: Int,
-    val remoteScanCursor: String?,
-    val scanEpoch: Long,
-    val localModeFingerprint: String?,
-)
-
 data class S3SyncOutcome(
     val path: String,
     val direction: S3SyncDirection,
@@ -130,6 +106,11 @@ sealed interface S3SyncResult {
         val message: String,
         val conflicts: SyncConflictSet,
     ) : S3SyncResult
+
+    data class Review(
+        val message: String,
+        val review: SyncReviewSession,
+    ) : S3SyncResult
 }
 
 sealed interface S3SyncState {
@@ -170,7 +151,7 @@ sealed interface S3SyncState {
     data object NotConfigured : S3SyncState
 
     data class PreviewingInitialSync(
-        val conflicts: SyncConflictSet,
+        val review: SyncReviewSession,
     ) : S3SyncState
 
     data class ConflictDetected(

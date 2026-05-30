@@ -154,6 +154,9 @@ class S3SyncStatusTesterTest : DataFunSpec() {
                 support = S3SyncRepositorySupport(runtime),
                 encodingSupport = S3SyncEncodingSupport(),
                 fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
+                protocolStateStore = DisabledS3SyncProtocolStateStore,
+                localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+                remoteIndexStore = DisabledS3RemoteIndexStore,
             )
     }
 

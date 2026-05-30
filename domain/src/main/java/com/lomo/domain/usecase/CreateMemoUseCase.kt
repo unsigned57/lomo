@@ -1,10 +1,10 @@
 package com.lomo.domain.usecase
 
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 
 open class CreateMemoUseCase
 (
-        private val memoRepository: MemoRepository,
+        private val memoRepository: MemoMutationRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val validator: ValidateMemoContentUseCase,
     ) {

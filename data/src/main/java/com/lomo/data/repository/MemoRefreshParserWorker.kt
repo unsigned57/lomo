@@ -4,17 +4,14 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileMetadataWithId
-import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.domain.model.Memo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 
 internal data class MemoRefreshParseResult(
     val mainMemos: List<MemoEntity>,
@@ -31,9 +28,8 @@ private data class ParsedRefreshBatch<T>(
 )
 
 class MemoRefreshParserWorker(
-    private val markdownStorageDataSource: MarkdownStorageDataSource,
+    private val workspaceProjector: MemoWorkspaceProjector,
     private val dao: MemoDao,
-    private val parser: MarkdownParser,
     private val fileParseBatchSize: Int = defaultFileParseBatchSize(),
 ) {
     internal suspend fun parseMainFileContents(
@@ -45,34 +41,18 @@ class MemoRefreshParserWorker(
 
         files.forEach { file ->
             val filename = file.filename.removeSuffix(".md")
-            val domainMemos =
-                parser.parseContent(
-                    content = file.content,
-                    filename = filename,
-                    fallbackTimestampMillis = file.lastModified,
-                )
             val existingMemosByTimestamp =
                 dao
                     .getMemosByDate(filename)
                     .groupBy(MemoEntity::timestamp)
-            mainMemos.addAll(
-                domainMemos.map { memo ->
-                    MemoEntity
-                        .fromDomain(
-                            memo.withStableRefreshId(
-                                existingMemosByTimestamp = existingMemosByTimestamp,
-                            ),
-                        ).copy(updatedAt = file.lastModified)
-                },
-            )
-            metadata.add(
-                LocalFileStateEntity(
-                    filename = file.filename,
-                    isTrash = false,
-                    lastKnownModifiedTime = file.lastModified,
-                ),
-            )
-            datesToReplace += filename
+            val changeSet =
+                workspaceProjector.projectMainFileContent(
+                    file = file,
+                    existingActiveMemos = existingMemosByTimestamp.values.flatten(),
+                )
+            mainMemos.addAll(changeSet.memos)
+            metadata.add(changeSet.metadata)
+            datesToReplace += changeSet.dateKey
         }
 
         return MemoRefreshParseResult(
@@ -110,17 +90,10 @@ class MemoRefreshParserWorker(
             val lookupExisting: suspend (String) -> List<MemoEntity> = { date ->
                 existingByDate[date].orEmpty()
             }
-            loadParsedResults(chunk) { meta -> parseMainFile(meta, lookupExisting) }.forEach { (memos, meta) ->
-                datesToReplace.add(meta.filename.removeSuffix(".md"))
-                mainMemos.addAll(memos)
-                metadata.add(
-                    LocalFileStateEntity(
-                        filename = meta.filename,
-                        isTrash = false,
-                        safUri = meta.uriString,
-                        lastKnownModifiedTime = meta.lastModified,
-                    ),
-                )
+            loadParsedResults(chunk) { meta -> parseMainFile(meta, lookupExisting) }.forEach { changeSet ->
+                datesToReplace.add(changeSet.dateKey)
+                mainMemos.addAll(changeSet.memos)
+                metadata.add(changeSet.metadata)
             }
         }
 
@@ -148,16 +121,10 @@ class MemoRefreshParserWorker(
             val chunkResults = loadParsedResults(chunk, ::parseTrashFile)
             val activeMemoIdsInDb = resolveActiveMemoIds(chunkResults)
 
-            chunkResults.forEach { (memos, meta) ->
-                datesToReplace.add(meta.filename.removeSuffix(".md"))
-                trashMemos.addAll(memos.filter { it.id !in activeMemoIdsInDb })
-                metadata.add(
-                    LocalFileStateEntity(
-                        filename = meta.filename,
-                        isTrash = true,
-                        lastKnownModifiedTime = meta.lastModified,
-                    ),
-                )
+            chunkResults.forEach { changeSet ->
+                datesToReplace.add(changeSet.dateKey)
+                trashMemos.addAll(changeSet.memos.filter { it.id !in activeMemoIdsInDb })
+                metadata.add(changeSet.metadata)
             }
         }
 
@@ -170,8 +137,8 @@ class MemoRefreshParserWorker(
 
     private suspend fun <T> loadParsedResults(
         chunk: List<FileMetadataWithId>,
-        parserBlock: suspend (FileMetadataWithId) -> Pair<List<T>, FileMetadataWithId>?,
-    ): List<Pair<List<T>, FileMetadataWithId>> =
+        parserBlock: suspend (FileMetadataWithId) -> T?,
+    ): List<T> =
         coroutineScope {
             chunk.map { meta ->
                 async(Dispatchers.Default) {
@@ -181,11 +148,11 @@ class MemoRefreshParserWorker(
         }.filterNotNull()
 
     private suspend fun resolveActiveMemoIds(
-        chunkResults: List<Pair<List<TrashMemoEntity>, FileMetadataWithId>>,
+        chunkResults: List<MemoProjectionChangeSet.Trash>,
     ): Set<String> {
         val trashMemoIdsInChunk =
             chunkResults
-                .flatMap { (memos, _) -> memos.map { it.id } }
+                .flatMap { changeSet -> changeSet.memos.map { it.id } }
                 .distinct()
         return if (trashMemoIdsInChunk.isNotEmpty()) {
             trashMemoIdsInChunk
@@ -202,62 +169,28 @@ class MemoRefreshParserWorker(
     private suspend fun parseMainFile(
         meta: FileMetadataWithId,
         existingByFilename: suspend (String) -> List<MemoEntity> = { dao.getMemosByDate(it) },
-    ): Pair<List<MemoEntity>, FileMetadataWithId>? {
-        val content =
-            withContext(Dispatchers.IO) {
-                markdownStorageDataSource.readFileByDocumentIdIn(
-                    MemoDirectoryType.MAIN,
-                    meta.documentId,
-                )
-            }
-        if (content == null) return null
-
+    ): MemoProjectionChangeSet.Active? {
         val filename = meta.filename.removeSuffix(".md")
-        val domainMemos =
-            parser.parseContent(
-                content = content,
-                filename = filename,
-                fallbackTimestampMillis = meta.lastModified,
-            )
-        val existingMemosByTimestamp =
-            existingByFilename(filename).groupBy(MemoEntity::timestamp)
-        val memos =
-            domainMemos.map { memo ->
-                MemoEntity
-                    .fromDomain(
-                        memo.withStableRefreshId(
-                            existingMemosByTimestamp = existingMemosByTimestamp,
-                        ),
-                    ).copy(updatedAt = meta.lastModified)
-            }
-        return memos to meta
+        return workspaceProjector.projectShard(
+            directory = MemoDirectoryType.MAIN,
+            metadata = meta,
+            existingActiveMemos = existingByFilename(filename),
+        ) as? MemoProjectionChangeSet.Active
     }
 
-    private suspend fun parseTrashFile(meta: FileMetadataWithId): Pair<List<TrashMemoEntity>, FileMetadataWithId>? {
-        val content =
-            withContext(Dispatchers.IO) {
-                markdownStorageDataSource.readFileByDocumentIdIn(
-                    MemoDirectoryType.TRASH,
-                    meta.documentId,
+    private suspend fun parseTrashFile(meta: FileMetadataWithId): MemoProjectionChangeSet.Trash? =
+        when (
+            val changeSet =
+                workspaceProjector.projectShard(
+                    directory = MemoDirectoryType.TRASH,
+                    metadata = meta,
                 )
-            }
-        if (content == null) return null
-
-        val filename = meta.filename.removeSuffix(".md")
-        val domainMemos =
-            parser.parseContent(
-                content = content,
-                filename = filename,
-                fallbackTimestampMillis = meta.lastModified,
-            )
-        val memos =
-            domainMemos.map { memo ->
-                TrashMemoEntity
-                    .fromDomain(memo.copy(isDeleted = true))
-                    .copy(updatedAt = meta.lastModified)
-            }
-        return memos to meta
-    }
+        ) {
+            is MemoProjectionChangeSet.Trash -> changeSet
+            null -> null
+            is MemoProjectionChangeSet.Active ->
+                error("Trash projection returned active change set for ${meta.filename}")
+        }
 }
 
 private const val MEMO_LOOKUP_BATCH_SIZE = 500

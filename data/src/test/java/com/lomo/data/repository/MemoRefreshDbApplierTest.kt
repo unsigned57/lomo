@@ -183,8 +183,7 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
                             memoEntity(
                                 id = "memo-main",
                                 date = "2024_01_20",
-                                content = "main",
-                                imageUrls = "a.png,a.png,aaa.png",
+                                content = "main ![a](a.png) ![a again](a.png) ![aaa](aaa.png)",
                             ),
                         ),
                     trashMemos =
@@ -192,8 +191,7 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
                             trashMemoEntity(
                                 id = "memo-trash",
                                 date = "2024_01_20",
-                                content = "trash",
-                                imageUrls = "trash.png",
+                                content = "trash ![image](trash.png)",
                             ),
                         ),
                     metadataToUpdate = emptyList(),
@@ -205,19 +203,19 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
 
             coVerify(exactly = 1) {
                 dao.replaceImageRefsForMemos(
-                    match { memos ->
-                        memos.size == 1 &&
-                            memos.first().id == "memo-main" &&
-                            memos.first().imageUrls == "a.png,a.png,aaa.png"
+                    match { projections ->
+                        projections.size == 1 &&
+                            projections.first().entity.id == "memo-main" &&
+                            projections.first().imageRefs.map { it.imagePath } == listOf("a.png", "aaa.png")
                     },
                 )
             }
             coVerify(exactly = 1) {
                 dao.replaceImageRefsForTrashMemos(
-                    match { memos ->
-                        memos.size == 1 &&
-                            memos.first().id == "memo-trash" &&
-                            memos.first().imageUrls == "trash.png"
+                    match { projections ->
+                        projections.size == 1 &&
+                            projections.first().entity.id == "memo-trash" &&
+                            projections.first().imageRefs.map { it.imagePath } == listOf("trash.png")
                     },
                 )
             }
@@ -379,6 +377,7 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
             id = id,
             timestamp = 1_700_000_000_000,
             content = content,
+            searchContent = content,
             rawContent = "- 10:00:00 $content",
             date = date,
             tags = "",

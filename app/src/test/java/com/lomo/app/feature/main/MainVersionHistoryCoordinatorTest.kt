@@ -7,6 +7,7 @@ import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.model.MemoRevisionPage
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
@@ -18,13 +19,28 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: MainVersionHistoryCoordinator
- * - Behavior focus: history pagination state, incremental loading, and restore re-entry protection.
- * - Observable outcomes: exposed loaded state contents, has-more/loading-more/restoring flags, hidden-on-success,
- *   and suppressed duplicate restore attempts while one restore is still in flight.
- * - Red phase: Fails before the fix because the coordinator only supports one-shot loads and has no restore-in-progress guard.
- * - Excludes: Compose rendering, ViewModel wiring, and repository persistence internals.
+ * Behavior Contract:
+ * - Unit under test: MainVersionHistoryCoordinator.
+ * - Owning layer: app/main version history orchestration.
+ * - Priority tier: P1.
+ * - Capability: load paged version history from the version repository while routing restore commands through
+ *   the mutation lifecycle boundary.
+ *
+ * Scenarios:
+ * - Given multiple history pages, when loadMore is requested, then loaded state appends pages until exhausted.
+ * - Given a restore is already running, when restore is requested again, then only one mutation restore command runs.
+ * - Given the current revision is selected, when restore is requested, then no mutation restore command runs.
+ *
+ * Observable outcomes:
+ * - loaded version rows, has-more/loading-more/restoring flags, hidden-on-success state, requested cursors,
+ *   and recorded mutation restore calls.
+ *
+ * TDD proof:
+ * - RED: app test compilation fails until RestoreMemoRevisionUseCase is wired to MemoMutationRepository
+ *   instead of the query-only MemoVersionRepository.
+ *
+ * Excludes:
+ * - Compose rendering, ViewModel wiring, repository persistence internals, and data-layer restore execution.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainVersionHistoryCoordinatorTest : AppFunSpec() {
@@ -48,10 +64,11 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                                     ),
                             ),
                     )
+                val mutationRepository = FakeMemoMutationRepository()
                 val coordinator =
                     MainVersionHistoryCoordinator(
                         loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(repository),
-                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(repository),
+                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(mutationRepository),
                     )
 
                 coordinator.load(memo)
@@ -69,9 +86,7 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 (repository.requestedCursors) shouldBe (listOf(null, MemoRevisionCursor(createdAt = 2L, revisionId = "r2")))
             }
         }
-    }
 
-    init {
         test("restore ignores duplicate requests while a restore is already running") {
             runTest {
                 val memo = testMemo(id = "memo-restore")
@@ -83,12 +98,12 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                             linkedMapOf(
                                 null to MemoRevisionPage(items = listOf(revision), nextCursor = null),
                             ),
-                        restoreGate = gate,
                     )
+                val mutationRepository = FakeMemoMutationRepository(restoreGate = gate)
                 val coordinator =
                     MainVersionHistoryCoordinator(
                         loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(repository),
-                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(repository),
+                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(mutationRepository),
                     )
                 coordinator.load(memo)
 
@@ -101,7 +116,7 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
 
                 ((restoringState.isRestoring)) shouldBe true
                 (restoringState.restoringRevisionId) shouldBe ("restore-target")
-                (repository.restoreCalls) shouldBe (1)
+                (mutationRepository.restoreCalls) shouldBe (1)
 
                 gate.complete(Unit)
                 firstRestore.await()
@@ -110,9 +125,7 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                 (coordinator.state.value) shouldBe (MainVersionHistoryState.Hidden)
             }
         }
-    }
 
-    init {
         test("restore ignores the current revision") {
             runTest {
                 val memo = testMemo(id = "memo-current")
@@ -124,10 +137,11 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
                                 null to MemoRevisionPage(items = listOf(currentRevision), nextCursor = null),
                             ),
                     )
+                val mutationRepository = FakeMemoMutationRepository()
                 val coordinator =
                     MainVersionHistoryCoordinator(
                         loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(repository),
-                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(repository),
+                        restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(mutationRepository),
                     )
 
                 coordinator.load(memo)
@@ -135,7 +149,7 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
 
                 coordinator.restore(memo, currentRevision)
 
-                (repository.restoreCalls) shouldBe (0)
+                (mutationRepository.restoreCalls) shouldBe (0)
                 (coordinator.state.value) shouldBe (loadedState)
             }
         }
@@ -145,11 +159,8 @@ class MainVersionHistoryCoordinatorTest : AppFunSpec() {
 
 private class FakeMemoVersionRepository(
     private val pagesByCursor: Map<MemoRevisionCursor?, MemoRevisionPage>,
-    private val restoreGate: CompletableDeferred<Unit>? = null,
 ) : MemoVersionRepository {
     val requestedCursors = mutableListOf<MemoRevisionCursor?>()
-    var restoreCalls: Int = 0
-        private set
 
     override suspend fun listMemoRevisions(
         memo: Memo,
@@ -160,6 +171,30 @@ private class FakeMemoVersionRepository(
         return requireNotNull(pagesByCursor[cursor]) { "Missing page for cursor=$cursor" }
     }
 
+    override suspend fun clearAllMemoSnapshots() = Unit
+}
+
+private class FakeMemoMutationRepository(
+    private val restoreGate: CompletableDeferred<Unit>? = null,
+) : MemoMutationRepository {
+    var restoreCalls: Int = 0
+        private set
+
+    override suspend fun refreshMemos() = Unit
+
+    override suspend fun saveMemo(
+        content: String,
+        timestamp: Long,
+        geoLocation: String?,
+    ) = Unit
+
+    override suspend fun updateMemo(
+        memo: Memo,
+        newContent: String,
+    ) = Unit
+
+    override suspend fun deleteMemo(memo: Memo) = Unit
+
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
         revisionId: String,
@@ -168,7 +203,10 @@ private class FakeMemoVersionRepository(
         restoreGate?.await()
     }
 
-    override suspend fun clearAllMemoSnapshots() = Unit
+    override suspend fun setMemoPinned(
+        memoId: String,
+        pinned: Boolean,
+    ) = Unit
 }
 
 private fun testMemo(id: String): Memo =

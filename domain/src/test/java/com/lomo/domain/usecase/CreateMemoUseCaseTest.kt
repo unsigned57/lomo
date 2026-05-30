@@ -40,7 +40,7 @@ import com.lomo.domain.model.StorageArea
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
@@ -53,7 +53,7 @@ import kotlinx.coroutines.test.runTest
  * - Excludes: memo repository persistence internals and validator rule implementation.
  */
 class CreateMemoUseCaseTest : DomainFunSpec() {
-    private val memoRepository = FakeMemoRepository()
+    private val memoRepository = FakeMemoStore()
     private val directorySettingsRepository = FakeDirectorySettingsRepository()
     private val initializeWorkspaceUseCase =
         InitializeWorkspaceUseCase(
@@ -61,7 +61,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             mediaRepository = FakeMediaRepository(),
         )
     private val validator = ValidateMemoContentUseCase()
-    private val useCase = CreateMemoUseCase(memoRepository, initializeWorkspaceUseCase, validator)
+    private val useCase = CreateMemoUseCase(com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository), initializeWorkspaceUseCase, validator)
     init {
         test("invoke fails fast when workspace root is missing") {
             runTest {
@@ -84,7 +84,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
 
                         memoRepository.savedMemos shouldBe
                             listOf(
-                                FakeMemoRepository.SavedMemo(
+                                FakeMemoStore.SavedMemo(
                                     content = "meaningful note",
                                     timestamp = 456L,
                                     geoLocation = null,

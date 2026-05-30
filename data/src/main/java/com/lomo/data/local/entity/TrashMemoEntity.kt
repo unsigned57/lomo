@@ -26,17 +26,11 @@ data class TrashMemoEntity(
     val imageUrls: String,
 ) {
     fun toDomain(isPinned: Boolean = false): Memo =
-        StoredMemoRecovery.recoverOrNull(
-            rawContent = rawContent,
-            storedContent = content,
-            storedTimestamp = timestamp,
-            dateKey = date,
-        ).let { recovered ->
-            Memo(
+        Memo(
             id = id,
-            timestamp = recovered?.timestamp ?: timestamp,
-            updatedAt = if (recovered != null && updatedAt == timestamp) recovered.timestamp else updatedAt,
-            content = recovered?.content ?: content,
+            timestamp = timestamp,
+            updatedAt = updatedAt,
+            content = content,
             rawContent = rawContent,
             dateKey = date,
             localDate = MemoLocalDateResolver.resolve(date),
@@ -45,19 +39,4 @@ data class TrashMemoEntity(
             isPinned = isPinned,
             isDeleted = true,
         )
-        }
-
-    companion object {
-        fun fromDomain(memo: Memo): TrashMemoEntity =
-            TrashMemoEntity(
-                id = memo.id,
-                timestamp = memo.timestamp,
-                updatedAt = memo.updatedAt,
-                content = memo.content,
-                rawContent = memo.rawContent,
-                date = memo.dateKey,
-                tags = encodeStoredMemoStringList(memo.tags),
-                imageUrls = encodeStoredMemoStringList(memo.imageUrls),
-            )
-    }
 }

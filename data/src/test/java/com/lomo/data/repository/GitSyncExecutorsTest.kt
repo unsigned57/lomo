@@ -194,6 +194,7 @@ class GitSyncExecutorsTest : DataFunSpec() {
                 runtime = runtime,
                 support = support,
                 memoMirror = memoMirror,
+                lifecycleRunner = testRemoteSyncLifecycleRunner(),
             )
         maintenanceExecutor =
             GitSyncMaintenanceExecutor(

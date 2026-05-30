@@ -20,7 +20,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import java.util.concurrent.atomic.AtomicInteger
@@ -105,12 +104,16 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                             pendingChanges = 1,
                         ),
                     normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_REMOTE, S3SyncReason.LOCAL_DELETED)),
-                    conflictSet = null,
                     completeSnapshot = false,
                     protocolState = S3SyncProtocolState(scanEpoch = 7L),
                     remoteFileCountHint = 1,
                 )
-            val verifier = S3PreparedActionVerificationGate(planner = planner, encodingSupport = encodingSupport)
+            val verifier =
+                S3PreparedActionVerificationGate(
+                    planner = planner,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = DisabledS3RemoteIndexStore,
+                )
             val client =
                 VerificationProbeS3Client(
                     onHead = { key ->
@@ -159,7 +162,6 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                             pendingChanges = 1,
                         ),
                     normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
-                    conflictSet = null,
                     completeSnapshot = false,
                     protocolState = S3SyncProtocolState(scanEpoch = 11L),
                     remoteFileCountHint = 0,
@@ -206,7 +208,6 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                             pendingChanges = 1,
                         ),
                     normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
-                    conflictSet = null,
                     completeSnapshot = false,
                     protocolState = S3SyncProtocolState(scanEpoch = 12L),
                     remoteFileCountHint = 0,
@@ -266,7 +267,6 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                             pendingChanges = 1,
                         ),
                     normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
-                    conflictSet = null,
                     completeSnapshot = false,
                     protocolState = S3SyncProtocolState(scanEpoch = 13L),
                     remoteFileCountHint = 0,
@@ -345,7 +345,6 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                         },
                     plan = S3SyncPlan(actions = actions, pendingChanges = actions.size),
                     normalActions = actions,
-                    conflictSet = null,
                     completeSnapshot = false,
                     protocolState = S3SyncProtocolState(scanEpoch = 21L),
                     remoteFileCountHint = actions.size,
@@ -369,7 +368,11 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     },
                 )
 
-            S3PreparedActionVerificationGate(planner = planner, encodingSupport = encodingSupport)
+            S3PreparedActionVerificationGate(
+                planner = planner,
+                encodingSupport = encodingSupport,
+                remoteIndexStore = DisabledS3RemoteIndexStore,
+            )
                 .verify(prepared = prepared, client = client, config = config)
 
             client.headKeys.sorted() shouldBe paths
@@ -401,11 +404,11 @@ private class VerificationProbeS3Client(
     ): com.lomo.data.s3.S3RemoteListPage =
         com.lomo.data.s3.S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
 
-    override suspend fun getObject(key: String): com.lomo.data.s3.S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): com.lomo.data.s3.S3SmallObjectPayload {
         error("verification gate test should not download objects")
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -413,6 +416,30 @@ private class VerificationProbeS3Client(
     ): com.lomo.data.s3.S3PutObjectResult {
         error("verification gate test should not upload objects")
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) {
         error("verification gate test should not delete objects")

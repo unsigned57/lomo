@@ -64,7 +64,7 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
             val markdownStorageDataSource = com.lomo.data.testing.fakes.FakeFileDataSource()
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
             val runtime = mockRuntime(markdownStorageDataSource, localMediaSyncStore)
-            val bridge = WebDavSyncFileBridge(runtime)
+            val bridge = testWebDavSyncFileBridge(runtime)
             val layout = standardLayout()
             markdownStorageDataSource.listMetadataInResult = {
                 listOf(FileMetadata(filename = "note.md", lastModified = 10L, size = 7L))
@@ -88,7 +88,7 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
             val markdownStorageDataSource = com.lomo.data.testing.fakes.FakeFileDataSource()
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
             val runtime = mockRuntime(markdownStorageDataSource, localMediaSyncStore)
-            val bridge = WebDavSyncFileBridge(runtime)
+            val bridge = testWebDavSyncFileBridge(runtime)
             val layout = standardLayout()
             markdownStorageDataSource.listMetadataInResult = { emptyList() }
             coEvery { localMediaSyncStore.listFiles(layout) } returns
@@ -123,11 +123,25 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
                         )
                     }
 
-                    override fun get(path: String) = error("not used")
+                    override fun getSmallFile(path: String) = error("not used")
 
-                    override fun put(
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("not used")
+
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
                         contentType: String,
                         lastModifiedHint: Long?,
                         expectedEtag: String?,
@@ -153,7 +167,7 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
 
                     override fun testConnection() = Unit
                 }
-            val bridge = WebDavSyncFileBridge(mockRuntime())
+            val bridge = testWebDavSyncFileBridge(mockRuntime())
             val layout = standardLayout()
 
             val first = bridge.remoteFiles(client, layout)
@@ -176,11 +190,25 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
                         return emptyList()
                     }
 
-                    override fun get(path: String) = error("not used")
+                    override fun getSmallFile(path: String) = error("not used")
 
-                    override fun put(
+                    override fun getToFile(
+                        path: String,
+                        destination: java.io.File,
+                    ): WebDavRemoteResource = error("not used")
+
+                    override fun putSmallFile(
                         path: String,
                         bytes: ByteArray,
+                        contentType: String,
+                        lastModifiedHint: Long?,
+                        expectedEtag: String?,
+                        requireAbsent: Boolean,
+                    ) = Unit
+
+                    override fun putFile(
+                        path: String,
+                        file: java.io.File,
                         contentType: String,
                         lastModifiedHint: Long?,
                         expectedEtag: String?,
@@ -206,7 +234,7 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
 
                     override fun testConnection() = Unit
                 }
-            val bridge = WebDavSyncFileBridge(mockRuntime())
+            val bridge = testWebDavSyncFileBridge(mockRuntime())
             val layout = standardLayout()
 
             val startedAt = System.nanoTime()
@@ -234,6 +262,13 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
             imageFolder = "images",
             voiceFolder = "voice",
             allSameDirectory = false,
+        )
+
+    private fun testWebDavSyncFileBridge(runtime: WebDavSyncRepositoryContext): WebDavSyncFileBridge =
+        WebDavSyncFileBridge(
+            runtime = runtime,
+            localFingerprintCache = TestInMemoryWebDavLocalFingerprintCache(),
+            remoteListingCache = WebDavRemoteListingCache(),
         )
 
     private companion object {

@@ -17,10 +17,6 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -37,82 +33,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.lomo.domain.model.ColorPresetId
+import com.lomo.domain.model.ColorSource
 import com.lomo.ui.R
-import java.util.Locale
-
-private val DarkColorScheme =
-    darkColorScheme(
-        primary = IndigoPrimaryDark,
-        onPrimary = Color.Black,
-        primaryContainer = IndigoContainerDark,
-        onPrimaryContainer = IndigoContainerLight,
-        secondary = SlateSecondaryDark,
-        onSecondary = Color.Black,
-        secondaryContainer = SlateContainerDark,
-        onSecondaryContainer = SlateContainerLight,
-        tertiary = CyanTertiaryDark,
-        onTertiary = Color.Black,
-        background = Neutral10,
-        onBackground = Neutral90,
-        surface = SurfaceContainerLowDark, // Switch to Container Low for default surface in Dark
-        onSurface = Neutral90,
-        surfaceVariant = Neutral30,
-        onSurfaceVariant = Neutral80,
-        error = ErrorDark,
-        outline = OutlineDark,
-        outlineVariant = OutlineVariantDark,
-        // M3 Surface Roles
-        surfaceContainerLowest = SurfaceContainerLowestDark,
-        surfaceContainerLow = SurfaceContainerLowDark,
-        surfaceContainer = SurfaceContainerDark,
-        surfaceContainerHigh = SurfaceContainerHighDark,
-        surfaceContainerHighest = SurfaceContainerHighestDark,
-    )
-
-private val LightColorScheme =
-    lightColorScheme(
-        primary = IndigoPrimaryLight,
-        onPrimary = Color.White,
-        primaryContainer = IndigoContainerLight,
-        onPrimaryContainer = OnIndigoContainerLight,
-        secondary = SlateSecondaryLight,
-        onSecondary = Color.White,
-        secondaryContainer = SlateContainerLight,
-        onSecondaryContainer = OnSlateContainerLight,
-        tertiary = CyanTertiaryLight,
-        onTertiary = Color.White,
-        background = Neutral99,
-        onBackground = Neutral10,
-        surface = Neutral99,
-        onSurface = Neutral10,
-        surfaceVariant = Neutral90,
-        onSurfaceVariant = Neutral30,
-        error = ErrorLight,
-        outline = OutlineLight,
-        outlineVariant = OutlineVariantLight,
-        // M3 Surface Roles
-        surfaceContainerLowest = SurfaceContainerLowestLight,
-        surfaceContainerLow = SurfaceContainerLowLight,
-        surfaceContainer = SurfaceContainerLight,
-        surfaceContainerHigh = SurfaceContainerHighLight,
-        surfaceContainerHighest = SurfaceContainerHighestLight,
-    )
-
-enum class ThemeMode(
-    val storageValue: String,
-) {
-    SYSTEM("system"),
-    LIGHT("light"),
-    DARK("dark"),
-    ;
-
-    companion object {
-        fun fromStorageValue(value: String?): ThemeMode {
-            val normalized = value?.lowercase(Locale.ROOT)
-            return entries.firstOrNull { it.storageValue == normalized } ?: SYSTEM
-        }
-    }
-}
 
 private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
 private const val THEME_COLOR_ANIMATION_DURATION_MS = 220
@@ -189,7 +112,8 @@ private data class AnimatedFixedColors(
 @Composable
 fun LomoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
-    dynamicColor: Boolean = true,
+    colorSource: ColorSource = ColorSource.default(),
+    customFontPath: String? = null,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
@@ -198,24 +122,7 @@ fun LomoTheme(
     val darkTheme = resolveDarkTheme(themeMode, currentUiMode, isSystemInDarkTheme())
     var previousDarkTheme by remember(themeMode) { mutableStateOf<Boolean?>(null) }
 
-    val targetColorScheme =
-        when {
-            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                if (darkTheme) {
-                    dynamicDarkColorScheme(context)
-                } else {
-                    dynamicLightColorScheme(context)
-                }
-            }
-
-            darkTheme -> {
-                DarkColorScheme
-            }
-
-            else -> {
-                LightColorScheme
-            }
-        }
+    val targetColorScheme = resolveLomoColorScheme(context, colorSource, darkTheme)
 
     val animatedColorScheme =
         animateColorSchemeAsState(
@@ -234,9 +141,10 @@ fun LomoTheme(
         } else {
             FONT_WEIGHT_ADJUSTMENT_FALLBACK
         }
+    val fontFamily = remember(customFontPath) { resolveAppFontFamily(customFontPath) }
     val typography =
-        remember(systemFontWeightAdjustment) {
-            Typography.withSystemFontWeightAdjustment(systemFontWeightAdjustment)
+        remember(systemFontWeightAdjustment, fontFamily) {
+            buildAppTypography(fontFamily).withSystemFontWeightAdjustment(systemFontWeightAdjustment)
         }
 
     val view = LocalView.current
@@ -275,14 +183,16 @@ fun LomoTheme(
 @Composable
 fun LomoTheme(
     themeMode: String,
-    dynamicColor: Boolean = true,
+    colorSource: ColorSource = ColorSource.default(),
+    customFontPath: String? = null,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
     LomoTheme(
         themeMode = ThemeMode.fromStorageValue(themeMode),
-        dynamicColor = dynamicColor,
+        colorSource = colorSource,
+        customFontPath = customFontPath,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
         content = content,
@@ -457,7 +367,7 @@ private tailrec fun Context.findActivity(): Activity? =
 @Preview(name = "Theme Light", showBackground = true)
 @Composable
 private fun LomoThemeLightPreview() {
-    LomoTheme(themeMode = ThemeMode.LIGHT, dynamicColor = false) {
+    LomoTheme(themeMode = ThemeMode.LIGHT, colorSource = ColorSource.Preset(ColorPresetId.INDIGO)) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.padding(24.dp)) {
                 Text(
@@ -473,7 +383,7 @@ private fun LomoThemeLightPreview() {
 @Preview(name = "Theme Dark", showBackground = true)
 @Composable
 private fun LomoThemeDarkPreview() {
-    LomoTheme(themeMode = ThemeMode.DARK, dynamicColor = false) {
+    LomoTheme(themeMode = ThemeMode.DARK, colorSource = ColorSource.Preset(ColorPresetId.INDIGO)) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.padding(24.dp)) {
                 Text(

@@ -29,7 +29,7 @@ import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.data.webdav.WebDavEndpointResolver
-import com.lomo.data.webdav.WebDavRemoteFile
+import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -145,7 +145,12 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                 stateHolder = stateHolder,
             )
         val support = WebDavSyncRepositorySupport(runtime)
-        val fileBridge = WebDavSyncFileBridge(runtime)
+        val fileBridge =
+            WebDavSyncFileBridge(
+                runtime = runtime,
+                localFingerprintCache = TestInMemoryWebDavLocalFingerprintCache(),
+                remoteListingCache = WebDavRemoteListingCache(),
+            )
         repository =
             WebDavSyncRepositoryImpl(
                 configurationRepository = WebDavSyncConfigurationRepositoryImpl(dataStore),
@@ -163,6 +168,10 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                                 support = support,
                                 fileBridge = fileBridge,
                                 actionApplier = WebDavSyncActionApplier(runtime, fileBridge),
+                                lifecycleRunner = testRemoteSyncLifecycleRunner(),
+                                localChangeJournalStore = TestDisabledWebDavLocalChangeJournalStore,
+                                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                                pendingReviewStore = InMemoryPendingSyncReviewStore(),
                             ),
                         statusTester =
                             WebDavSyncStatusTester(
@@ -171,6 +180,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                                 fileBridge = fileBridge,
                             ),
                         stateHolder = stateHolder,
+                        pendingConflictStore = InMemoryPendingSyncConflictStore(),
                     ),
                 conflictRepository =
                     WebDavSyncConflictRepositoryImpl(
@@ -179,6 +189,19 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                                 runtime = runtime,
                                 support = support,
                                 fileBridge = fileBridge,
+                                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                                lifecycleRunner = testRemoteSyncLifecycleRunner(),
+                            ),
+                    ),
+                reviewRepository =
+                    WebDavSyncReviewRepositoryImpl(
+                        resolver =
+                            WebDavReviewResolver(
+                                runtime = runtime,
+                                support = support,
+                                fileBridge = fileBridge,
+                                pendingReviewStore = InMemoryPendingSyncReviewStore(),
+                                lifecycleRunner = testRemoteSyncLifecycleRunner(),
                             ),
                     ),
                 stateRepository = WebDavSyncStateRepositoryImpl(stateHolder),
@@ -226,7 +249,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             verify(exactly = 1) { client.list("lomo/images") }
             verify(exactly = 1) { client.list("lomo/voice") }
             verify(exactly = 1) {
-                client.put("lomo/memos/note.md", any(), any(), 100L, null, true)
+                client.putSmallFile("lomo/memos/note.md", any(), any(), 100L, null, true)
             }
             metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
             metadataDao.allEntities.single().etag shouldBe "etag-2"
@@ -248,8 +271,8 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             every { client.list("lomo/images") } returns emptyList()
             every { client.list("lomo/voice") } returns emptyList()
             every {
-                client.get("lomo/memos/note.md")
-            } returns WebDavRemoteFile("lomo/memos/note.md", "# note".toByteArray(), "etag-1", 100L)
+                client.getSmallFile("lomo/memos/note.md")
+            } returns WebDavSmallRemoteFile("lomo/memos/note.md", "# note".toByteArray(), "etag-1", 100L)
 
             val result = repository.sync()
 
@@ -259,7 +282,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             verify(exactly = 1) { client.list("lomo/memos") }
             verify(exactly = 1) { client.list("lomo/images") }
             verify(exactly = 1) { client.list("lomo/voice") }
-            verify(exactly = 1) { client.get("lomo/memos/note.md") }
+            verify(exactly = 1) { client.getSmallFile("lomo/memos/note.md") }
             metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
             metadataDao.allEntities.single().localLastModified shouldBe 100L
         }
@@ -295,8 +318,8 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             verify(exactly = 1) { client.list("lomo/memos") }
             verify(exactly = 1) { client.list("lomo/images") }
             verify(exactly = 1) { client.list("lomo/voice") }
-            verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
-            verify(exactly = 0) { client.get(any()) }
+            verify(exactly = 0) { client.putSmallFile(any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { client.getSmallFile(any()) }
             verify(exactly = 0) { client.delete(any(), any()) }
             metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
             metadataDao.allEntities.single().etag shouldBe "etag-1"
@@ -329,14 +352,14 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             every { client.list("lomo/images") } returns emptyList()
             every { client.list("lomo/voice") } returns emptyList()
             every {
-                client.get("lomo/memos/note.md")
-            } returns WebDavRemoteFile("lomo/memos/note.md", "# revived".toByteArray(), "etag-2", 200L)
+                client.getSmallFile("lomo/memos/note.md")
+            } returns WebDavSmallRemoteFile("lomo/memos/note.md", "# revived".toByteArray(), "etag-2", 200L)
 
             val result = repository.sync()
 
             (result is WebDavSyncResult.Success).shouldBeTrue()
             verify(exactly = 2) { client.list("lomo/memos") }
-            verify(exactly = 1) { client.get("lomo/memos/note.md") }
+            verify(exactly = 1) { client.getSmallFile("lomo/memos/note.md") }
             fileDataSource.files[Pair(MemoDirectoryType.MAIN, "note.md")] shouldBe "# revived"
             fileDataSource.deleteFileInCalls.isEmpty() shouldBe true
         }

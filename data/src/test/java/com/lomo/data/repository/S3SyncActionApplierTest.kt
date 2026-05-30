@@ -25,7 +25,7 @@ import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
@@ -217,7 +217,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
                     payloads =
                         mapOf(
                             path to
-                                S3RemoteObjectPayload(
+                                S3SmallObjectPayload(
                                     key = path,
                                     eTag = "etag-banner",
                                     lastModified = 20L,
@@ -315,7 +315,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
                     payloads =
                         mapOf(
                             path to
-                                S3RemoteObjectPayload(
+                                S3SmallObjectPayload(
                                     key = path,
                                     eTag = "etag-banner",
                                     lastModified = 20L,
@@ -398,7 +398,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
                                     etag = "etag-stale",
                                     lastModified = 10L,
                                     remotePath = path,
-                                    verificationLevel = com.lomo.domain.model.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                    verificationLevel = com.lomo.data.repository.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
                                 ),
                         ),
                     metadataByPath = emptyMap(),
@@ -438,7 +438,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
                                     etag = "etag-stale",
                                     lastModified = 10L,
                                     remotePath = path,
-                                    verificationLevel = com.lomo.domain.model.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                    verificationLevel = com.lomo.data.repository.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
                                 ),
                         ),
                     metadataByPath = emptyMap(),
@@ -490,7 +490,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
 }
 
 private class RecordingS3Client(
-    private val payloads: Map<String, S3RemoteObjectPayload> = emptyMap(),
+    private val payloads: Map<String, S3SmallObjectPayload> = emptyMap(),
     private val metadataByKey: Map<String, S3RemoteObject> = emptyMap(),
 ) : LomoS3Client {
     val uploadedBytes = linkedMapOf<String, ByteArray>()
@@ -505,14 +505,14 @@ private class RecordingS3Client(
         maxKeys: Int?,
     ): List<S3RemoteObject> = emptyList()
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload = requireNotNull(payloads[key])
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload = requireNotNull(payloads[key])
 
     override suspend fun getObjectMetadata(key: String): S3RemoteObject? {
         headCalls[key] = (headCalls[key] ?: 0) + 1
         return metadataByKey[key]
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -522,6 +522,30 @@ private class RecordingS3Client(
         uploadedMetadata[key] = metadata
         return S3PutObjectResult(eTag = "etag-uploaded")
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) {
         deletedKeys += key

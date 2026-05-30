@@ -36,12 +36,24 @@ internal class SyncExecutionGate<TResult>(
 internal suspend fun <TResult> restorePendingConflict(
     pendingConflictStore: PendingSyncConflictStore,
     backendType: SyncBackendType,
+    restorer: suspend (PendingSyncConflictDescriptor) -> PendingSyncRestoreResult<SyncConflictSet>,
     onRestored: (SyncConflictSet) -> Unit,
     asResult: (SyncConflictSet) -> TResult,
+    asInvalidatedResult: (PendingSyncInvalidationReason) -> TResult,
+    asFailedResult: (PendingSyncRestoreError) -> TResult,
 ): TResult? {
-    val pending = pendingConflictStore.read(backendType) ?: return null
-    onRestored(pending)
-    return asResult(pending)
+    val descriptor = pendingConflictStore.readDescriptor(backendType) ?: return null
+    return when (val restored = restorer(descriptor)) {
+        is PendingSyncRestoreResult.Restored -> {
+            onRestored(restored.session)
+            asResult(restored.session)
+        }
+        is PendingSyncRestoreResult.Invalidated -> {
+            pendingConflictStore.clear(backendType)
+            asInvalidatedResult(restored.reason)
+        }
+        is PendingSyncRestoreResult.Failed -> asFailedResult(restored.error)
+    }
 }
 
 internal suspend fun <TResult> clearPendingConflictOnSuccess(

@@ -1,6 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -12,7 +11,7 @@ internal class S3PreparedActionVerificationGate(
     private val planner: S3SyncPlanner,
     private val encodingSupport: S3SyncEncodingSupport,
     private val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
-    private val remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
+    private val remoteIndexStore: S3RemoteIndexStore,
 ) {
     suspend fun verify(
         prepared: PreparedS3Sync,
@@ -67,17 +66,20 @@ internal class S3PreparedActionVerificationGate(
         val initialReplannedActions =
             planner.planPaths(
                 paths = replannedPaths,
-                localFiles = prepared.localFiles,
-                remoteFiles = verifiedRemoteFiles,
-                metadata = prepared.metadataByPath,
+                localFiles = prepared.localFiles.toS3RemoteSyncLocalSnapshots(),
+                remoteFiles = verifiedRemoteFiles.toS3RemoteSyncRemoteSnapshots(),
+                metadata = prepared.metadataByPath.toS3RemoteSyncMetadataSnapshots(),
                 preResolvedActionsByPath =
-                    prepared.preResolvedActionsByPath.filterKeys(replannedPaths::contains),
+                    prepared.preResolvedActionsByPath
+                        .filterKeys(replannedPaths::contains)
+                        .toS3RemoteSyncActions(),
                 missingRemoteVerificationByPath =
                     verifiedMissingRemotePaths.associateWith {
                         S3RemoteVerificationLevel.VERIFIED_REMOTE
-                    },
-                defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
-            )
+                    }.toS3RemoteSyncRemoteAbsenceVerifications(),
+                defaultMissingRemoteVerification =
+                    S3RemoteVerificationLevel.UNKNOWN_REMOTE.toRemoteSyncRemoteAbsenceVerification(),
+            ).toS3Plan()
         val replannedActions =
             if (layout != null && fileBridgeScope != null && mode != null) {
                 refineTrackedMemoPlanWithContent(

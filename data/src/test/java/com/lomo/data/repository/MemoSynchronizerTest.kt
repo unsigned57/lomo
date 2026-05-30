@@ -1,25 +1,9 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
+import com.lomo.data.local.entity.MemoFileOutboxEntity
+import com.lomo.data.local.entity.MemoFileOutboxOp
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
@@ -30,8 +14,10 @@ import com.lomo.domain.usecase.MemoIdentityPolicy
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.slot
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -41,10 +27,31 @@ import io.kotest.matchers.shouldBe
 /*
  * Behavior Contract:
  * - Unit under test: MemoSynchronizer
- * - Behavior focus: file-to-db refresh, save path selection, and timestamp persistence rules.
- * - Observable outcomes: DAO writes, file data source interactions, and canonicalized stored content.
- * - TDD proof: Fails before behavior changes or migration are applied.
- * - Excludes: Room integration, filesystem implementation details, and UI-facing rendering.
+ * - Owning layer: data repository orchestration.
+ * - Priority tier: P0.
+ * - Capability: refresh workspace shards into DB state and queue DB-first save lifecycle commands
+ *   for workspace-store file completion.
+ *
+ * Scenarios:
+ * - Given changed markdown shard metadata, when refresh runs, then parsed memo projections are
+ *   applied to the DAO.
+ * - Given no changed shard metadata, when refresh runs, then memo rows are not rewritten.
+ * - Given a new memo save, when saveMemo completes, then a CREATE lifecycle outbox command carries
+ *   the canonical raw content for later workspace-store append.
+ * - Given minute-granularity storage format, when saveMemo completes, then the persisted DB memo
+ *   timestamp matches the canonical storage timestamp.
+ *
+ * Observable outcomes:
+ * - DAO writes, persisted file-state metadata, captured lifecycle outbox rows, and canonicalized
+ *   stored memo entity content.
+ *
+ * TDD proof:
+ * - Save command assertions fail before the DB-first lifecycle boundary because saveMemo writes
+ *   markdown directly instead of persisting a CREATE outbox command for workspace-store completion.
+ *
+ * Excludes:
+ * - Room integration, filesystem backend implementation, background outbox drain timing, and
+ *   UI-facing rendering.
  */
 /**
  * Unit tests for MemoSynchronizer. These tests verify the synchronization logic between file system
@@ -64,9 +71,11 @@ class MemoSynchronizerTest : DataFunSpec() {
 
         test("refresh does not clear when files exist but unchanged") { `refresh does not clear when files exist but unchanged`() }
 
-        test("saveMemo creates new memo file entry") { `saveMemo creates new memo file entry`() }
+        test("saveMemo queues create lifecycle command for new memo") { `saveMemo queues create lifecycle command for new memo`() }
 
-        test("saveMemo appends to existing file") { `saveMemo appends to existing file`() }
+        test("saveMemo queues create lifecycle command with canonical raw content") {
+            `saveMemo queues create lifecycle command with canonical raw content`()
+        }
 
         test("saveMemo stores canonical timestamp for HH_mm format") { `saveMemo stores canonical timestamp for HH_mm format`() }
     }
@@ -88,40 +97,65 @@ class MemoSynchronizerTest : DataFunSpec() {
     private lateinit var synchronizer: MemoSynchronizer
 
     private fun createSynchronizer(): MemoSynchronizer {
+        val workspaceStore =
+            testMemoWorkspaceStore(
+                markdownStorageDataSource = fileDataSource,
+                localFileStateDao = localFileStateDao,
+                textProcessor = processor,
+                memoIdentityPolicy = memoIdentityPolicy,
+                parser = parser,
+            )
+        val workspaceReader =
+            testMemoWorkspaceReader(
+                markdownStorageDataSource = fileDataSource,
+                localFileStateDao = localFileStateDao,
+            )
+        val workspaceProjector =
+            testMemoWorkspaceProjector(
+                markdownStorageDataSource = fileDataSource,
+                localFileStateDao = localFileStateDao,
+                textProcessor = processor,
+                memoIdentityPolicy = memoIdentityPolicy,
+                parser = parser,
+            )
         val mutationHandler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
                 mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(memoDao),
-                memoSearchDao = memoDao,
+                memoStatisticsDao = memoDao,
                 localFileStateDao = localFileStateDao,
+                workspaceStore = workspaceStore,
+                workspaceMediaAccess = ThrowingWorkspaceMediaAccess,
                 savePlanFactory = MemoSavePlanFactory(parser, processor, memoIdentityPolicy),
                 textProcessor = processor,
                 dataStore = dataStore,
                 trashMutationHandler =
                     MemoTrashMutationHandler(
-                        markdownStorageDataSource = fileDataSource,
-                        mediaStorageDataSource = fileDataSource,
+                        workspaceStore = workspaceStore,
                         memoWriteDao = memoDao,
                         memoTagDao = memoDao,
                         memoImageDao = memoDao,
                         memoTrashDao = memoDao,
-                        memoSearchDao = memoDao,
-                        localFileStateDao = localFileStateDao,
-                        textProcessor = processor,
-                        memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
-                    ),
+                        memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal, immediateTestBackgroundScope()),
+                ),
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionJournal = memoVersionJournal,
+                mediaRepository = ThrowingMediaRepository,
                 s3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-                webDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+                webDavLocalChangeRecorder = TestNoOpWebDavLocalChangeRecorder,
+                backgroundScope = immediateTestBackgroundScope(),
             )
         val refreshEngine =
             MemoRefreshEngine(
-                markdownStorageDataSource = fileDataSource,
+                workspaceReader = workspaceReader,
                 localFileStateDao = localFileStateDao,
                 refreshPlanner = MemoRefreshPlanner,
-                refreshParserWorker = MemoRefreshParserWorker(markdownStorageDataSource = fileDataSource, dao = memoDao, parser = parser),
+                refreshParserWorker =
+                    MemoRefreshParserWorker(
+                        workspaceProjector = workspaceProjector,
+                        dao = memoDao,
+                    ),
                 refreshDbApplier =
                     MemoRefreshDbApplier(
                         memoDao = memoDao,
@@ -135,8 +169,10 @@ class MemoSynchronizerTest : DataFunSpec() {
             )
 
         return MemoSynchronizer(
-            refreshEngine,
-            mutationHandler,
+            refreshEngine = refreshEngine,
+            mutationHandler = mutationHandler,
+            outboxScope = immediateTestBackgroundScope(),
+            startOutboxCoordinator = false,
         )
     }
 
@@ -166,8 +202,11 @@ class MemoSynchronizerTest : DataFunSpec() {
             val fileContent = "- 10:30:00 Test memo content"
 
             // Mock the incremental sync path
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns listOf(metadata)
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns flowOf(metadata)
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns flowOf()
+            every {
+                fileDataSource.streamFileByDocumentIdIn(MemoDirectoryType.MAIN, "doc123")
+            } returns flowOf(fileContent)
             coEvery { fileDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, "doc123") } returns fileContent
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns emptyList()
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
@@ -180,8 +219,8 @@ class MemoSynchronizerTest : DataFunSpec() {
 
     private fun `refresh handles empty file list`() =
         runTest {
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns flowOf()
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns flowOf()
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns emptyList()
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
 
@@ -224,8 +263,8 @@ class MemoSynchronizerTest : DataFunSpec() {
                     lastKnownModifiedTime = 1000L, // Same as metadata - file unchanged
                 )
 
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns listOf(metadata)
-            coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns flowOf(metadata)
+            every { fileDataSource.streamMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns flowOf()
             coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(syncEntity)
             coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
 
@@ -236,62 +275,53 @@ class MemoSynchronizerTest : DataFunSpec() {
             coVerify(exactly = 0) { memoDao.clearAll() }
         }
 
-    private fun `saveMemo creates new memo file entry`() =
+    private fun `saveMemo queues create lifecycle command for new memo`() =
         runTest {
             val timestamp = System.currentTimeMillis()
             val content = "New memo content"
+            val outboxSlot = slot<MemoFileOutboxEntity>()
 
             // Mock that memo doesn't exist (for unique ID check)
             coEvery { memoDao.getMemo(any()) } returns null
-            coEvery {
-                fileDataSource.saveFileIn(
-                    MemoDirectoryType.MAIN,
-                    any(),
-                    any(),
-                    any(),
-                    any(),
-                )
-            } returns "uri"
+            coEvery { memoDao.insertMemoFileOutbox(capture(outboxSlot)) } returns 1L
 
             synchronizer.saveMemo(content, timestamp)
 
-            coVerify {
+            outboxSlot.captured.operation shouldBe MemoFileOutboxOp.CREATE
+            outboxSlot.captured.newContent shouldBe content
+            outboxSlot.captured.createRawContent shouldBe outboxSlot.captured.memoRawContent
+            coVerify(exactly = 0) {
                 fileDataSource.saveFileIn(
                     MemoDirectoryType.MAIN,
                     any(),
                     any(),
-                    eq(true),
+                    any(),
                     any(),
                 )
-            } // append = true
+            }
         }
 
-    private fun `saveMemo appends to existing file`() =
+    private fun `saveMemo queues create lifecycle command with canonical raw content`() =
         runTest {
             val timestamp = System.currentTimeMillis()
             val content = "Another memo"
+            val outboxSlot = slot<MemoFileOutboxEntity>()
 
             // Mock that memo doesn't exist (for unique ID check)
             coEvery { memoDao.getMemo(any()) } returns null
-            coEvery {
-                fileDataSource.saveFileIn(
-                    MemoDirectoryType.MAIN,
-                    any(),
-                    any(),
-                    any(),
-                    any(),
-                )
-            } returns "uri"
+            coEvery { memoDao.insertMemoFileOutbox(capture(outboxSlot)) } returns 2L
 
             synchronizer.saveMemo(content, timestamp)
 
-            // saveMemo always appends
-            coVerify {
+            outboxSlot.captured.operation shouldBe MemoFileOutboxOp.CREATE
+            outboxSlot.captured.createRawContent shouldBe outboxSlot.captured.memoRawContent
+            outboxSlot.captured.createRawContent?.contains(content) shouldBe true
+            coVerify(exactly = 0) {
                 fileDataSource.saveFileIn(
                     MemoDirectoryType.MAIN,
                     any(),
                     any(),
-                    eq(true),
+                    any(),
                     any(),
                 )
             }
@@ -334,6 +364,7 @@ class MemoSynchronizerTest : DataFunSpec() {
                 )
             } returns FileMetadata("2024_01_15.md", 1000L)
             coEvery { localFileStateDao.getByFilename("2024_01_15.md", false) } returns null
+            coEvery { memoDao.insertMemoFileOutbox(any()) } returns 3L
 
             val memoEntitySlot = slot<com.lomo.data.local.entity.MemoEntity>()
             coEvery { memoDao.insertMemo(capture(memoEntitySlot)) } returns Unit

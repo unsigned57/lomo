@@ -22,10 +22,15 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
+import com.lomo.data.parser.MarkdownMemoBlock
+import com.lomo.data.parser.MarkdownMemoDocument
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.parser.MarkdownSourceSpan
 import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.projectedMemoEntity
+import com.lomo.data.testing.projectedTrashMemoEntity
 import com.lomo.domain.model.Memo
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -33,6 +38,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.verify
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import java.time.LocalDate
 import com.lomo.data.testing.DataFunSpec
@@ -82,11 +89,15 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
 
     private fun setUp() {
         MockKAnnotations.init(this)
+        coEvery { parser.parseDocumentLines(any(), any(), any()) } returns MarkdownMemoDocument(emptyList())
         worker =
             MemoRefreshParserWorker(
-                markdownStorageDataSource = markdownStorageDataSource,
+                workspaceProjector =
+                    testMemoWorkspaceProjector(
+                        markdownStorageDataSource = markdownStorageDataSource,
+                        parser = parser,
+                    ),
                 dao = dao,
-                parser = parser,
             )
     }
 
@@ -97,24 +108,16 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
             val mainDomainMemo = memo(id = "main_1", dateKey = "2026_03_01", content = "main content")
             val trashDomainMemo = memo(id = "trash_1", dateKey = "2026_03_02", content = "trash content")
 
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
-            } returns "- 10:00 main content"
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.TRASH, trashMeta.documentId)
-            } returns "- 11:00 trash content"
-            every {
-                parser.parseContent("- 10:00 main content", "2026_03_01", 101L)
-            } returns listOf(mainDomainMemo)
-            every {
-                parser.parseContent("- 11:00 trash content", "2026_03_02", 202L)
-            } returns listOf(trashDomainMemo)
+            stubDocumentStream(MemoDirectoryType.MAIN, mainMeta.documentId, "- 10:00 main content")
+            stubDocumentStream(MemoDirectoryType.TRASH, trashMeta.documentId, "- 11:00 trash content")
+            stubParsedDocument("2026_03_01", 101L, mainDomainMemo)
+            stubParsedDocument("2026_03_02", 202L, trashDomainMemo)
             coEvery { dao.getMemosByIds(listOf("trash_1")) } returns emptyList()
 
             val result = worker.parse(listOf(mainMeta), listOf(trashMeta))
 
-            result.mainMemos shouldBe listOf(MemoEntity.fromDomain(mainDomainMemo).copy(updatedAt = 101L))
-            result.trashMemos shouldBe listOf(TrashMemoEntity.fromDomain(trashDomainMemo.copy(isDeleted = true)).copy(updatedAt = 202L))
+            result.mainMemos shouldBe listOf(projectedMemoEntity(mainDomainMemo).copy(updatedAt = 101L))
+            result.trashMemos shouldBe listOf(projectedTrashMemoEntity(trashDomainMemo).copy(updatedAt = 202L))
             result.metadataToUpdate shouldBe listOf(
                     LocalFileStateEntity(
                         filename = "2026_03_01.md",
@@ -131,12 +134,8 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
                 )
             result.mainDatesToReplace shouldBe setOf("2026_03_01")
             result.trashDatesToReplace shouldBe setOf("2026_03_02")
-            verify(exactly = 1) {
-                parser.parseContent("- 10:00 main content", "2026_03_01", 101L)
-            }
-            verify(exactly = 1) {
-                parser.parseContent("- 11:00 trash content", "2026_03_02", 202L)
-            }
+            coVerify(exactly = 1) { parser.parseDocumentLines(any(), "2026_03_01", 101L) }
+            coVerify(exactly = 1) { parser.parseDocumentLines(any(), "2026_03_02", 202L) }
         }
 
     private fun `parse skips files whose contents cannot be read`() =
@@ -144,12 +143,8 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
             val mainMeta = fileMeta("2026_03_03.md", 303L, "main-empty", "content://lomo/main-empty")
             val trashMeta = fileMeta("2026_03_04.md", 404L, "trash-empty", "content://lomo/trash-empty")
 
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
-            } returns null
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.TRASH, trashMeta.documentId)
-            } returns null
+            stubMissingDocumentStream(MemoDirectoryType.MAIN, mainMeta.documentId)
+            stubMissingDocumentStream(MemoDirectoryType.TRASH, trashMeta.documentId)
 
             val result = worker.parse(listOf(mainMeta), listOf(trashMeta))
 
@@ -158,7 +153,8 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
             result.metadataToUpdate shouldBe emptyList<LocalFileStateEntity>()
             result.mainDatesToReplace shouldBe emptySet<String>()
             result.trashDatesToReplace shouldBe emptySet<String>()
-            verify(exactly = 0) { parser.parseContent(any(), any(), any()) }
+            coVerify(exactly = 1) { parser.parseDocumentLines(any(), "2026_03_03", 303L) }
+            coVerify(exactly = 1) { parser.parseDocumentLines(any(), "2026_03_04", 404L) }
             coVerify(exactly = 0) { dao.getMemosByIds(any()) }
         }
 
@@ -173,17 +169,13 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
                     rawContent = "- 10:00 beta",
                 )
 
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
-            } returns "- 10:00 beta"
-            every {
-                parser.parseContent("- 10:00 beta", "2026_03_06", 606L)
-            } returns listOf(reparsedMemo)
-            coEvery { dao.getMemosByDates(listOf("2026_03_06")) } returns listOf(MemoEntity.fromDomain(existingMemo))
+            stubDocumentStream(MemoDirectoryType.MAIN, mainMeta.documentId, "- 10:00 beta")
+            stubParsedDocument("2026_03_06", 606L, reparsedMemo)
+            coEvery { dao.getMemosByDates(listOf("2026_03_06")) } returns listOf(projectedMemoEntity(existingMemo))
 
             val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
 
-            result.mainMemos shouldBe listOf(MemoEntity.fromDomain(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L))
+            result.mainMemos shouldBe listOf(projectedMemoEntity(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L))
             coVerify(exactly = 1) { dao.getMemosByDates(listOf("2026_03_06")) }
             coVerify(exactly = 0) { dao.getMemosByDate("2026_03_06") }
         }
@@ -199,16 +191,12 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
                     rawContent = "- 10:00 beta",
                 )
 
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
-            } returns "- 10:00 beta"
-            every {
-                parser.parseContent("- 10:00 beta", "2026_03_07", 707L)
-            } returns listOf(reparsedMemo)
+            stubDocumentStream(MemoDirectoryType.MAIN, mainMeta.documentId, "- 10:00 beta")
+            stubParsedDocument("2026_03_07", 707L, reparsedMemo)
             coEvery { dao.getMemosByDates(listOf("2026_03_07")) } returns
                 listOf(
-                    MemoEntity.fromDomain(existingAlpha),
-                    MemoEntity.fromDomain(existingBeta),
+                    projectedMemoEntity(existingAlpha),
+                    projectedMemoEntity(existingBeta),
                 )
 
             val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
@@ -224,19 +212,15 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
             val activeMemo = memo(id = "memo_active", dateKey = "2026_03_05", content = "active content")
             val archivedMemo = memo(id = "memo_archived", dateKey = "2026_03_05", content = "archived content")
 
-            coEvery {
-                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.TRASH, trashMeta.documentId)
-            } returns "- 09:00 active\n- 09:30 archived"
-            every {
-                parser.parseContent("- 09:00 active\n- 09:30 archived", "2026_03_05", 505L)
-            } returns listOf(activeMemo, archivedMemo)
+            stubDocumentStream(MemoDirectoryType.TRASH, trashMeta.documentId, "- 09:00 active\n- 09:30 archived")
+            stubParsedDocument("2026_03_05", 505L, activeMemo, archivedMemo)
             coEvery { dao.getMemosByIds(listOf("memo_active", "memo_archived")) } returns
-                listOf(MemoEntity.fromDomain(activeMemo))
+                listOf(projectedMemoEntity(activeMemo))
 
             val result = worker.parse(mainFilesToUpdate = emptyList(), trashFilesToUpdate = listOf(trashMeta))
 
             result.mainMemos shouldBe emptyList<MemoEntity>()
-            result.trashMemos shouldBe listOf(TrashMemoEntity.fromDomain(archivedMemo.copy(isDeleted = true)).copy(updatedAt = 505L))
+            result.trashMemos shouldBe listOf(projectedTrashMemoEntity(archivedMemo).copy(updatedAt = 505L))
             result.metadataToUpdate shouldBe listOf(
                     LocalFileStateEntity(
                         filename = "2026_03_05.md",
@@ -266,6 +250,39 @@ class MemoRefreshParserWorkerTest : DataFunSpec() {
             documentId = documentId,
             uriString = uriString,
         )
+
+    private fun stubDocumentStream(
+        directory: MemoDirectoryType,
+        documentId: String,
+        content: String,
+    ) {
+        every {
+            markdownStorageDataSource.streamFileByDocumentIdIn(directory, documentId)
+        } returns flowOf(*content.lines().toTypedArray())
+    }
+
+    private fun stubMissingDocumentStream(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ) {
+        every { markdownStorageDataSource.streamFileByDocumentIdIn(directory, documentId) } returns emptyFlow()
+    }
+
+    private fun stubParsedDocument(
+        filename: String,
+        lastModified: Long,
+        vararg memos: Memo,
+    ) {
+        coEvery { parser.parseDocumentLines(any(), filename, lastModified) } returns
+            MarkdownMemoDocument(
+                memos.mapIndexed { index, memo ->
+                    MarkdownMemoBlock(
+                        memo = memo,
+                        span = MarkdownSourceSpan(startLine = index, endLine = index),
+                    )
+                },
+            )
+    }
 
     private fun memo(
         id: String,

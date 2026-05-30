@@ -73,7 +73,7 @@ internal fun normalizeRemoteRelativePath(
     mode: S3LocalSyncMode,
 ): String? =
     when (mode) {
-        is S3LocalSyncMode.VaultRoot -> resolveVaultRootPath(relativePath, layout, mode)
+        is S3LocalSyncMode.VaultRoot -> resolveVaultRootPath(relativePath, layout, mode)?.value
 
         is S3LocalSyncMode.Legacy -> {
             val sanitized = sanitizeRelativePath(relativePath) ?: return null
@@ -102,7 +102,7 @@ internal fun resolveVaultRootPath(
     path: String,
     layout: SyncDirectoryLayout,
     mode: S3LocalSyncMode.VaultRoot,
-): String? {
+): VaultRootPath? {
     val sanitized = sanitizeRelativePath(path) ?: return null
     val normalized =
         if (mode.legacyRemoteCompatibility) {
@@ -114,7 +114,7 @@ internal fun resolveVaultRootPath(
         } else {
             sanitized.takeUnless { isLegacyVaultRootCompatibilityPath(it, layout) } ?: return null
         }
-    return normalized.takeIf(::isSyncableContentPath)
+    return VaultRootPath.from(normalized)?.takeIf { path -> isSyncableContentPath(path.value) }
 }
 
 internal fun legacyIsMemoPath(

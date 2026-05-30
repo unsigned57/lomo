@@ -2,11 +2,14 @@ package com.lomo.data.local.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
-import androidx.room3.PrimaryKey
 
-@Entity(tableName = "s3_sync_protocol_state")
+@Entity(
+    tableName = "s3_sync_protocol_state",
+    primaryKeys = ["workspace_generation", "id"],
+)
 data class S3SyncProtocolStateEntity(
-    @PrimaryKey val id: Int = SINGLETON_ID,
+    @ColumnInfo(name = "workspace_generation") val workspaceGeneration: String = TRANSIENT_WORKSPACE_GENERATION,
+    val id: Int = SINGLETON_ID,
     @ColumnInfo(name = "protocol_version") val protocolVersion: Int,
     @ColumnInfo(name = "last_successful_sync_at") val lastSuccessfulSyncAt: Long?,
     @ColumnInfo(name = "last_fast_sync_at") val lastFastSyncAt: Long? = null,
@@ -18,6 +21,10 @@ data class S3SyncProtocolStateEntity(
     @ColumnInfo(name = "remote_scan_cursor") val remoteScanCursor: String? = null,
     @ColumnInfo(name = "scan_epoch") val scanEpoch: Long = 0L,
 ) {
+    init {
+        require(workspaceGeneration.isNotBlank()) { "S3 protocol state must be scoped to a workspace generation" }
+    }
+
     companion object {
         const val SINGLETON_ID = 1
     }

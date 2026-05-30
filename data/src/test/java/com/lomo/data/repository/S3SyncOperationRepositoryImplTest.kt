@@ -18,8 +18,14 @@ package com.lomo.data.repository
 
 
 
-import com.lomo.data.worker.S3RefreshSyncPlan
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.sync.SyncScheduledWork
+import com.lomo.data.sync.SyncWorkCadence
+import com.lomo.data.sync.SyncWorkDecision
+import com.lomo.data.sync.SyncWorkNetworkRequirement
+import com.lomo.data.sync.SyncWorkPayload
+import com.lomo.data.sync.SyncExistingWorkPolicy
+import com.lomo.data.worker.S3SyncWorker
+import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.SyncBackendType
@@ -83,10 +89,10 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
     private lateinit var statusTester: S3SyncStatusTester
 
     @MockK(relaxed = true)
-    private lateinit var refreshPlanner: S3RefreshSyncPlanner
+    private lateinit var refreshPolicyPlanner: S3RefreshSyncPolicyPlanner
 
     @MockK(relaxed = true)
-    private lateinit var refreshScheduler: S3RefreshCatchUpScheduler
+    private lateinit var scheduledWorkEnqueuer: S3ScheduledSyncWorkEnqueuer
 
     @MockK(relaxed = true)
     private lateinit var pendingConflictStore: PendingSyncConflictStore
@@ -98,13 +104,13 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
     private fun setUp() {
         MockKAnnotations.init(this)
         stateHolder = S3SyncStateHolder()
-        coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns null
+        coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns null
         repository =
             S3SyncOperationRepositoryImpl(
                 syncExecutor = syncExecutor,
                 statusTester = statusTester,
-                refreshPlanner = refreshPlanner,
-                refreshScheduler = refreshScheduler,
+                refreshPolicyPlanner = refreshPolicyPlanner,
+                scheduledWorkEnqueuer = scheduledWorkEnqueuer,
                 pendingConflictStore = pendingConflictStore,
                 stateHolder = stateHolder,
             )
@@ -112,19 +118,19 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
 
     private fun `sync propagates not-configured result from executor`() =
         runTest {
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } returns
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) } returns
                 S3SyncResult.NotConfigured
 
             val result = repository.sync()
 
             result shouldBe S3SyncResult.NotConfigured
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) }
         }
 
     private fun `sync short-circuits when another s3 sync is in progress`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } coAnswers {
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) } coAnswers {
                 gate.await()
                 S3SyncResult.Success("sync done")
             }
@@ -137,12 +143,12 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
 
             gate.complete(Unit)
             firstCall.await() shouldBe S3SyncResult.Success("sync done")
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) }
         }
 
     private fun `sync releases guard after failure so a later sync can run`() =
         runTest {
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } throws
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) } throws
                 IllegalStateException("sync failed") andThen
                 S3SyncResult.Success("recovered")
 
@@ -155,18 +161,18 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
             (firstFailure is IllegalStateException).shouldBeTrue()
             firstFailure?.message shouldBe "sync failed"
             secondResult shouldBe S3SyncResult.Success("recovered")
-            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) }
         }
 
     private fun `sync forwards explicit scan policy to executor`() =
         runTest {
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FULL_RECONCILE) } returns
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FULL_RECONCILE) } returns
                 S3SyncResult.Success("deep reconcile")
 
-            val result = repository.sync(S3SyncScanPolicy.FULL_RECONCILE)
+            val result = repository.executeS3Sync(S3SyncWorkIntent.FULL_RECONCILE)
 
             result shouldBe S3SyncResult.Success("deep reconcile")
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FULL_RECONCILE) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FULL_RECONCILE) }
         }
 
     private fun `sync restores pending s3 conflicts from store before invoking executor`() =
@@ -185,7 +191,8 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
                         ),
                     timestamp = 123L,
                 )
-            coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns pending
+            coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns pending.toPendingDescriptor()
+            coEvery { syncExecutor.restorePendingConflict(any()) } returns PendingSyncRestoreResult.Restored(pending)
 
             val result = repository.sync()
 
@@ -223,18 +230,44 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
 
     private fun `syncForRefresh runs resolved fast policy and schedules catch-up`() =
         runTest {
-            coEvery { refreshPlanner.planRefreshSync() } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                    catchUpPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+            val catchUpWork = catchUpWork(S3SyncWorkIntent.FAST_THEN_RECONCILE)
+            coEvery { refreshPolicyPlanner.planRefreshSync(any()) } returns
+                refreshDecision(
+                    foregroundPolicy = S3SyncWorkIntent.FAST_ONLY,
+                    scheduledWork = listOf(catchUpWork),
                 )
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) } returns
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) } returns
                 S3SyncResult.Success("fast refresh")
 
             val result = repository.syncForRefresh()
 
             result shouldBe S3SyncResult.Success("fast refresh")
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) }
-            coVerify(exactly = 1) { refreshScheduler.scheduleCatchUp(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) }
+            coVerify(exactly = 1) { scheduledWorkEnqueuer.enqueue(listOf(catchUpWork)) }
         }
+
+    private fun refreshDecision(
+        foregroundPolicy: S3SyncWorkIntent,
+        scheduledWork: List<SyncScheduledWork> = emptyList(),
+    ): SyncWorkDecision =
+        SyncWorkDecision(
+            foregroundWork =
+                com.lomo.data.sync.SyncForegroundWork(
+                    backend = SyncBackendType.S3,
+                    trigger = com.lomo.data.sync.SyncWorkTrigger.REFRESH,
+                    payload = SyncWorkPayload.ProviderParameters(mapOf(S3_SYNC_WORK_INTENT_PARAMETER to foregroundPolicy.name)),
+                ),
+            scheduledWork = scheduledWork,
+        )
+
+    private fun catchUpWork(policy: S3SyncWorkIntent): SyncScheduledWork =
+        SyncScheduledWork(
+            backend = SyncBackendType.S3,
+            trigger = com.lomo.data.sync.SyncWorkTrigger.CATCH_UP,
+            uniqueWorkName = S3SyncWorker.RECONCILE_CATCH_UP_WORK_NAME,
+            cadence = SyncWorkCadence.OneTime,
+            networkRequirement = SyncWorkNetworkRequirement.Connected,
+            existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+            payload = SyncWorkPayload.ProviderParameters(mapOf(S3_SYNC_WORK_INTENT_PARAMETER to policy.name)),
+        )
 }

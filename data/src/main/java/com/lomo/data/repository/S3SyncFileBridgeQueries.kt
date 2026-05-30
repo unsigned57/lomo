@@ -15,7 +15,7 @@ internal fun isMemoPath(
 ): Boolean =
     when (mode) {
         is S3LocalSyncMode.VaultRoot ->
-            resolveVaultRootPath(path, layout, mode)?.endsWith(S3_MEMO_SUFFIX) == true
+            resolveVaultRootPath(path, layout, mode)?.value?.endsWith(S3_MEMO_SUFFIX) == true
 
         is S3LocalSyncMode.Legacy -> legacyIsMemoPath(path, layout)
     }
@@ -26,7 +26,7 @@ internal fun extractMemoFilename(
     mode: S3LocalSyncMode,
 ): String =
     when (mode) {
-        is S3LocalSyncMode.VaultRoot -> resolveVaultRootPath(path, layout, mode) ?: path
+        is S3LocalSyncMode.VaultRoot -> resolveVaultRootPath(path, layout, mode)?.value ?: path
         is S3LocalSyncMode.Legacy -> legacyExtractMemoFilename(path, layout)
     }
 
@@ -37,7 +37,7 @@ internal fun resolveMemoRefreshTarget(
 ): String? {
     return when (mode) {
         is S3LocalSyncMode.VaultRoot -> {
-            val mapped = resolveVaultRootPath(path, layout, mode) ?: return null
+            val mapped = resolveVaultRootPath(path, layout, mode)?.value ?: return null
             if (!mapped.endsWith(S3_MEMO_SUFFIX)) {
                 return null
             }
@@ -64,14 +64,14 @@ internal fun contentTypeForPath(
 ): String =
     when {
         mode is S3LocalSyncMode.VaultRoot &&
-            resolveVaultRootPath(path, layout, mode)?.endsWith(S3_MEMO_SUFFIX) == true ->
+            resolveVaultRootPath(path, layout, mode)?.value?.endsWith(S3_MEMO_SUFFIX) == true ->
             S3_MARKDOWN_CONTENT_TYPE
 
         mode is S3LocalSyncMode.Legacy && legacyIsMemoPath(path, layout) ->
             S3_MARKDOWN_CONTENT_TYPE
 
         mode is S3LocalSyncMode.VaultRoot ->
-            contentTypeForRelativePath(resolveVaultRootPath(path, layout, mode) ?: path)
+            contentTypeForRelativePath(resolveVaultRootPath(path, layout, mode)?.value ?: path)
 
         else -> runtime.localMediaSyncStore.contentTypeForPath(path, layout)
     }

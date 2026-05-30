@@ -2,11 +2,13 @@ package com.lomo.data.local.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
-import androidx.room3.PrimaryKey
 
-@Entity(tableName = "s3_remote_shard_state")
+@Entity(
+    tableName = "s3_remote_shard_state",
+    primaryKeys = ["workspace_generation", "bucket_id"],
+)
 data class S3RemoteShardStateEntity(
-    @PrimaryKey
+    @ColumnInfo(name = "workspace_generation") val workspaceGeneration: String = TRANSIENT_WORKSPACE_GENERATION,
     @ColumnInfo(name = "bucket_id") val bucketId: String,
     @ColumnInfo(name = "relative_prefix") val relativePrefix: String?,
     @ColumnInfo(name = "last_scanned_at") val lastScannedAt: Long,
@@ -16,4 +18,8 @@ data class S3RemoteShardStateEntity(
     @ColumnInfo(name = "idle_scan_streak") val idleScanStreak: Int = 0,
     @ColumnInfo(name = "last_verification_attempt_count") val lastVerificationAttemptCount: Int = 0,
     @ColumnInfo(name = "last_verification_failure_count") val lastVerificationFailureCount: Int = 0,
-)
+) {
+    init {
+        require(workspaceGeneration.isNotBlank()) { "S3 shard state must be scoped to a workspace generation" }
+    }
+}

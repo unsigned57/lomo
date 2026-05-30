@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
-import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncState
 import timber.log.Timber

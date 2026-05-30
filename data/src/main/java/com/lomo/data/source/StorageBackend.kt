@@ -1,6 +1,8 @@
 package com.lomo.data.source
 
 import android.net.Uri
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 interface WorkspaceConfigBackend {
     suspend fun createDirectory(name: String): String
@@ -10,6 +12,8 @@ interface MarkdownStorageBackend {
     suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata>
 
     suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>
+
+    fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId>
 
     suspend fun getFileMetadataIn(
         directory: MemoDirectoryType,
@@ -27,6 +31,16 @@ interface MarkdownStorageBackend {
         directory: MemoDirectoryType,
         documentId: String,
     ): String?
+
+    fun streamFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): Flow<String> =
+        flow {
+            readFileByDocumentIdIn(directory, documentId)
+                ?.lineSequence()
+                ?.forEach { line -> emit(line) }
+        }
 
     suspend fun saveFileIn(
         directory: MemoDirectoryType,

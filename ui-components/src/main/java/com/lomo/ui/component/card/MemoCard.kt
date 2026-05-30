@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,6 +48,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
+import com.lomo.ui.component.markdown.MarkdownMediaPresentation
+import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
@@ -54,9 +57,11 @@ import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.memoSummaryTextStyle
+import com.lomo.domain.model.ReminderMarker
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -89,58 +94,50 @@ fun MemoCard(
     onImageClick: ((String) -> Unit)? = null,
     shouldShowExpand: Boolean = shouldShowMemoCardExpand(content),
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
+    reminders: ImmutableList<ReminderMarker> = persistentListOf(),
+    onReminderClick: (ReminderMarker) -> Unit = {},
     menuContent: (@Composable () -> Unit)? = null,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
     var internalExpanded by rememberSaveable(timestamp) { mutableStateOf(false) }
     val effectiveExpanded = isExpanded ?: internalExpanded
     val updateExpanded: (Boolean) -> Unit = { expanded ->
-        if (isExpanded == null) {
-            internalExpanded = expanded
-        }
+        if (isExpanded == null) internalExpanded = expanded
         onExpandedChange?.invoke(expanded)
     }
     val isCollapsedPreview = shouldShowExpand && !effectiveExpanded
-    val collapsedPreviewMode =
-        resolveMemoCardCollapsedPreviewMode(
-            isCollapsedPreview = isCollapsedPreview,
-            hasProcessedContent = processedContent.isNotBlank(),
-            collapsedSummary = collapsedSummary,
-        )
+    val collapsedPreviewMode = resolveMemoCardCollapsedPreviewMode(
+        isCollapsedPreview = isCollapsedPreview,
+        hasProcessedContent = processedContent.isNotBlank(),
+        collapsedSummary = collapsedSummary,
+    )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
+    val dateTimeFormatter = remember(dateFormat, timeFormat) {
+        DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
+    }
     val cardInteractionSource = remember { MutableInteractionSource() }
     val cardFeedbackScope = rememberCoroutineScope()
     val memoCardTapFeedback = {
-        cardFeedbackScope.launch {
-            emitMemoCardPressFeedback(cardInteractionSource)
-        }
+        cardFeedbackScope.launch { emitMemoCardPressFeedback(cardInteractionSource) }
         Unit
     }
-    val quickEditOnDoubleClick =
-        onDoubleClick?.let { doubleClick ->
-            {
-                haptic.medium()
-                doubleClick()
-            }
-        }
+    val quickEditOnDoubleClick = onDoubleClick?.let { { haptic.medium(); it() } }
+    val textLongClick = onMenuClick?.let { menuClick -> { haptic.longPress(); menuClick() } }
     // Plain memo-body taps intentionally mirror the footer toggle: collapsed taps expand and expanded taps collapse.
-    val effectiveOnClick: () -> Unit = if (expandOnClick && shouldShowExpand) {
-        {
-            updateExpanded(!effectiveExpanded)
-            onClick()
-        }
+    val effectiveOnClick = if (expandOnClick && shouldShowExpand) {
+        { updateExpanded(!effectiveExpanded); onClick() }
     } else {
         onClick
     }
-    val interactionModifier =
-        Modifier.rememberMemoCardInteractionModifier(
-            allowFreeTextCopy = allowFreeTextCopy,
-            cardInteractionSource = cardInteractionSource,
-            haptic = haptic,
-            onClick = effectiveOnClick,
-            onDoubleClick = quickEditOnDoubleClick,
-            onMenuClick = onMenuClick,
-        )
+    val interactionModifier = Modifier.rememberMemoCardInteractionModifier(
+        allowFreeTextCopy = allowFreeTextCopy,
+        cardInteractionSource = cardInteractionSource,
+        haptic = haptic,
+        onClick = effectiveOnClick,
+        onDoubleClick = quickEditOnDoubleClick,
+        onMenuClick = onMenuClick,
+    )
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -176,17 +173,22 @@ fun MemoCard(
                 onTapFeedback = memoCardTapFeedback,
                 onBodyClick = effectiveOnClick,
                 onDoubleClick = quickEditOnDoubleClick,
+                onLongClick = textLongClick,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
             )
             MemoCardFooter(
                 tags = tags,
+                reminders = reminders,
                 shouldShowExpand = shouldShowExpand,
                 isExpanded = effectiveExpanded,
                 haptic = haptic,
                 onTagClick = onTagClick,
                 onToggleExpanded = { updateExpanded(!effectiveExpanded) },
+                onReminderClick = onReminderClick,
             )
         }
     }
@@ -336,9 +338,12 @@ private fun MemoCardBody(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
     val containerSizeAnimation =
@@ -369,6 +374,7 @@ private fun MemoCardBody(
             onTapFeedback = onTapFeedback,
             onBodyClick = onBodyClick,
             onDoubleClick = onDoubleClick,
+            onLongClick = onLongClick,
             processedContent = processedContent,
             precomputedRenderPlan = precomputedRenderPlan,
             tags = tags,
@@ -377,6 +383,8 @@ private fun MemoCardBody(
             onTodoClick = onTodoClick,
             todoOverrides = todoOverrides,
             onImageClick = onImageClick,
+            mediaPresentationResolver = mediaPresentationResolver,
+            mediaContent = mediaContent,
             bodyTransitionMode = bodyTransitionMode,
         )
     }
@@ -389,6 +397,7 @@ internal fun MemoCardCollapsedSummary(
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)? = null,
     selectionRegistrar: MemoTextSelectionRegistrar? = null,
 ) {
     val displaySummary = collapsedSummary.normalizeCjkMixedSpacingForDisplay()
@@ -407,46 +416,36 @@ internal fun MemoCardCollapsedSummary(
         onTapFeedback = onTapFeedback,
         onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
+        onLongClick = onLongClick,
     )
 }
 
 @Composable
 private fun MemoCardFooter(
     tags: ImmutableList<String>,
+    reminders: ImmutableList<ReminderMarker>,
     shouldShowExpand: Boolean,
     isExpanded: Boolean,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     onTagClick: (String) -> Unit,
     onToggleExpanded: () -> Unit,
+    onReminderClick: (ReminderMarker) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            tags.forEach { tag ->
-                Surface(
-                    onClick = {
-                        haptic.medium()
-                        onTagClick(tag)
-                    },
-                    shape = AppShapes.Small,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.height(24.dp),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    ) {
-                        Text(
-                            text = "#$tag",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
-            }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MemoCardTagPills(tags = tags, haptic = haptic, onTagClick = onTagClick)
+            MemoCardReminderPills(
+                reminders = reminders,
+                haptic = haptic,
+                onReminderClick = onReminderClick,
+            )
         }
 
         if (shouldShowExpand) {
@@ -470,64 +469,6 @@ private fun MemoCardFooter(
     }
 }
 
-private const val EXPAND_CHAR_THRESHOLD = 600
-private const val EXPAND_LINE_THRESHOLD = 15
 private const val MEMO_CARD_EXPAND_ANIMATION_DURATION_MS = 250
 private const val MEMO_CARD_PRESS_FEEDBACK_MILLIS = 120L
 internal const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
-private const val COLLAPSED_SUMMARY_MAX_LINES = 8
-private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
-
-fun shouldShowMemoCardExpand(content: String): Boolean =
-    content.length > EXPAND_CHAR_THRESHOLD ||
-        content.lineSequence().count() > EXPAND_LINE_THRESHOLD
-
-fun buildMemoCardCollapsedSummary(
-    content: String,
-    tags: Iterable<String> = emptyList(),
-): String {
-    if (content.isBlank()) return ""
-
-    val lines = mutableListOf<String>()
-    var charCount = 0
-    val lineIterator = content.lineSequence().iterator()
-
-    while (
-        lineIterator.hasNext() &&
-        lines.size < COLLAPSED_SUMMARY_MAX_LINES &&
-        charCount < COLLAPSED_SUMMARY_MAX_CHARS
-    ) {
-        val line = sanitizeCollapsedSummaryLine(lineIterator.next(), tags)
-        val remaining = COLLAPSED_SUMMARY_MAX_CHARS - charCount
-        val clipped = if (line.length > remaining) line.take(remaining).trimEnd() else line
-
-        if (clipped.isNotBlank()) {
-            lines.add(clipped)
-            charCount += clipped.length
-        }
-    }
-
-    return lines.joinToString(separator = "\n")
-}
-
-private fun sanitizeCollapsedSummaryLine(
-    rawLine: String,
-    tags: Iterable<String>,
-): String =
-    MarkdownKnownTagFilter
-        .stripInlineTags(
-            input =
-                rawLine
-                    .replace(MARKDOWN_IMAGE_PATTERN, "")
-                    .replace(MARKDOWN_LINK_PATTERN, "$1")
-                    .replace(MARKDOWN_INLINE_CODE_PATTERN, "$1")
-                    .replace(MARKDOWN_BLOCK_PREFIX_PATTERN, "")
-                    .replace(MARKDOWN_TASK_PREFIX_PATTERN, ""),
-            tags = tags,
-        ).trim()
-
-private val MARKDOWN_IMAGE_PATTERN = Regex("""!\[[^\]]*]\([^)]+\)""")
-private val MARKDOWN_LINK_PATTERN = Regex("""\[([^\]]+)]\([^)]+\)""")
-private val MARKDOWN_INLINE_CODE_PATTERN = Regex("""`([^`]+)`""")
-private val MARKDOWN_BLOCK_PREFIX_PATTERN = Regex("""^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)""")
-private val MARKDOWN_TASK_PREFIX_PATTERN = Regex("""^\s*\[[ xX]\]\s+""")

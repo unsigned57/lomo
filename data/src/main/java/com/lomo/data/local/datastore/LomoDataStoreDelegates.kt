@@ -162,6 +162,27 @@ internal class DisplayPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.THEME_MODE,
         )
 
+    override val colorSource: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.COLOR_SOURCE,
+            flowName = "colorSource",
+            default = PreferenceKeys.Defaults.COLOR_SOURCE,
+        )
+
+    override val fontPreference: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.FONT_PREFERENCE,
+            flowName = "fontPreference",
+            default = PreferenceKeys.Defaults.FONT_PREFERENCE,
+        )
+
+    override val colorHistory: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.COLOR_HISTORY,
+            flowName = "colorHistory",
+            default = "",
+        )
+
     override suspend fun updateDateFormat(format: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.DATE_FORMAT] = format }
     }
@@ -172,6 +193,28 @@ internal class DisplayPreferencesStoreImpl(
 
     override suspend fun updateThemeMode(mode: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.THEME_MODE] = mode }
+    }
+
+    override suspend fun updateColorSource(source: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.COLOR_SOURCE] = source }
+    }
+
+    override suspend fun updateFontPreference(preference: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.FONT_PREFERENCE] = preference }
+    }
+
+    override suspend fun addColorToHistory(argb: Int) {
+        dataStore.editPreferences {
+            val current = this[LomoDataStoreKeys.COLOR_HISTORY].orEmpty()
+            val list = current.split(",")
+                .filter { it.isNotBlank() }
+                .mapNotNull { it.toIntOrNull() }
+                .toMutableList()
+            list.remove(argb)
+            list.add(0, argb)
+            val updated = list.take(8).joinToString(",")
+            this[LomoDataStoreKeys.COLOR_HISTORY] = updated
+        }
     }
 }
 

@@ -120,6 +120,7 @@ internal fun S3RemoteScanShard.remotePrefix(
 
 internal fun decodeRemoteScanCursor(raw: String?): StoredS3RemoteScanCursor? =
     raw?.takeIf(String::isNotBlank)?.let { value ->
+        // behavior-contract: silent-result-ok: corrupt cursor → null; next full scan rewrites it
         runCatching { remoteScanCursorJson.decodeFromString<StoredS3RemoteScanCursor>(value) }.getOrNull()
     }
 

@@ -20,6 +20,7 @@ package com.lomo.app.feature.preferences
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -57,7 +58,7 @@ class AppPreferencesMemoActionStateTest : AppFunSpec() {
                 )
                 appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
-                val state = appConfigRepository.observeAppPreferences().first()
+                val state = appConfigRepository.observeAppPreferences(FakeCustomFontStore()).first()
 
                 state.memoActionAutoReorderEnabled shouldBe true
                 state.memoActionOrder shouldBe listOf("history", "copy")

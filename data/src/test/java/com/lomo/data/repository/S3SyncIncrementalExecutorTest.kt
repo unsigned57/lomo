@@ -29,7 +29,7 @@ import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -37,7 +37,8 @@ import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.repository.S3SyncWorkIntent
+import com.lomo.domain.model.SyncBackendType
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -417,7 +418,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
 
             val executor = createExecutor(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -474,7 +475,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe path
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-remote",
                             lastModified = 20L,
@@ -492,7 +493,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -539,7 +540,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe path
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-remote",
                             lastModified = 20L,
@@ -557,7 +558,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             val conflict = result as S3SyncResult.Conflict
             conflict.conflicts.files.size shouldBe 1
@@ -607,7 +608,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe path
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "multipart-2",
                             lastModified = 20L,
@@ -630,7 +631,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             client.headKeys shouldBe listOf(path)
@@ -678,7 +679,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe path
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "multipart-2",
                             lastModified = 20L,
@@ -701,7 +702,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -773,7 +774,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
 
             result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             client.headKeys shouldBe listOf(path)
@@ -829,7 +830,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val executor = createExecutor(client = client, metadataDao = metadataDao)
 
-            val result = executor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+            val result = executor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -893,7 +894,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe "lomo/memo/remote.md"
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-remote",
                             lastModified = 70L,
@@ -916,7 +917,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             } returns null
             val repository = createOperationRepository(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
-            val result = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+            val result = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -948,7 +949,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     },
                     onGetObject = { key ->
                         key shouldBe "lomo/memo/cold-remote.md"
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag = "etag-cold",
                             lastModified = 71L,
@@ -971,8 +972,8 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             } returns null
             val repository = createOperationRepository(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
-            val fastOnly = repository.sync(S3SyncScanPolicy.FAST_ONLY)
-            val reconcile = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+            val fastOnly = repository.executeS3Sync(S3SyncWorkIntent.FAST_ONLY)
+            val reconcile = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
 
             fastOnly shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             val reconcileSuccess = reconcile as S3SyncResult.Success
@@ -1003,8 +1004,8 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 )
             val repository = createOperationRepository(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
-            val first = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
-            val second = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+            val first = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
+            val second = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
 
             (first is S3SyncResult.Success).shouldBeTrue()
             (second is S3SyncResult.Success).shouldBeTrue()
@@ -1035,10 +1036,10 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             val repository = createOperationRepository(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
             repeat(3) {
-                val result = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+                val result = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
                 (result is S3SyncResult.Success).shouldBeTrue()
             }
-            val steadyState = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+            val steadyState = repository.executeS3Sync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
 
             listedPrefixes shouldBe listOf("lomo/memo/", "lomo/images/", "lomo/voice/")
             (steadyState is S3SyncResult.Success).shouldBeTrue()
@@ -1108,7 +1109,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                         }
                     },
                     onGetObject = { key ->
-                        S3RemoteObjectPayload(
+                        S3SmallObjectPayload(
                             key = key,
                             eTag =
                                 when (key) {
@@ -1146,7 +1147,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     remoteIndexStore = remoteIndexStore,
                 )
 
-            val result = executor.performSync(S3SyncScanPolicy.FULL_RECONCILE)
+            val result = executor.performSync(S3SyncWorkIntent.FULL_RECONCILE)
 
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
@@ -1185,11 +1186,13 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             encodingSupport = encodingSupport,
             fileBridge = fileBridge,
             actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            lifecycleRunner = testRemoteSyncLifecycleRunner(),
             protocolStateStore = protocolStateStore,
             localChangeJournalStore = localChangeJournalStore,
             remoteIndexStore = remoteIndexStore,
             remoteShardStateStore = DisabledS3RemoteShardStateStore,
-            pendingConflictStore = DisabledPendingSyncConflictStore,
+            pendingConflictStore = InMemoryPendingSyncConflictStore(),
+            pendingReviewStore = InMemoryPendingSyncReviewStore(),
         )
     }
 
@@ -1225,20 +1228,26 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                     fileBridge = S3SyncFileBridge(runtime, encodingSupport),
                     protocolStateStore = protocolStateStore,
                     localChangeJournalStore = journalStore,
+                    remoteIndexStore = remoteIndexStore,
                 ),
-            refreshPlanner =
-                object : S3RefreshSyncPlanner {
-                    override suspend fun planRefreshSync() =
-                        com.lomo.data.worker.S3RefreshSyncPlan(
-                            foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                            catchUpPolicy = null,
+            refreshPolicyPlanner =
+                object : S3RefreshSyncPolicyPlanner {
+                    override suspend fun planRefreshSync(signal: com.lomo.data.sync.SyncRefreshSignal) =
+                        com.lomo.data.sync.SyncWorkDecision(
+                            foregroundWork =
+                                com.lomo.data.sync.SyncForegroundWork(
+                                    backend = SyncBackendType.S3,
+                                    trigger = com.lomo.data.sync.SyncWorkTrigger.REFRESH,
+                                    payload = com.lomo.data.sync.SyncWorkPayload.ProviderParameters(mapOf(S3_SYNC_WORK_INTENT_PARAMETER to S3SyncWorkIntent.FAST_ONLY.name)),
+                                ),
                         )
                 },
-            refreshScheduler =
-                object : S3RefreshCatchUpScheduler {
-                    override suspend fun scheduleCatchUp(policy: S3SyncScanPolicy) = Unit
+            scheduledWorkEnqueuer =
+                object : S3ScheduledSyncWorkEnqueuer {
+                    override suspend fun enqueue(work: List<com.lomo.data.sync.SyncScheduledWork>) = Unit
                 },
             stateHolder = stateHolder,
+            pendingConflictStore = InMemoryPendingSyncConflictStore(),
         )
     }
 
@@ -1333,7 +1342,7 @@ private class ProbeS3Client(
     private val onGetObjectMetadata: suspend (String) -> S3RemoteObject? = {
         throw AssertionError("Unexpected headObject for $it")
     },
-    private val onGetObject: suspend (String) -> S3RemoteObjectPayload = {
+    private val onGetObject: suspend (String) -> S3SmallObjectPayload = {
         throw AssertionError("Unexpected getObject for $it")
     },
     private val onPutObject: suspend (String, ByteArray) -> S3PutObjectResult = { _, _ ->
@@ -1393,13 +1402,13 @@ private class ProbeS3Client(
             }
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         getObjectCallsValue.incrementAndGet()
         getKeys += key
         return onGetObject(key)
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -1408,6 +1417,30 @@ private class ProbeS3Client(
         putKeys += key
         return onPutObject(key, bytes)
     }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: java.io.File,
+    ): com.lomo.data.s3.S3RemoteObject {
+        val payload = getSmallObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return com.lomo.data.s3.S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): com.lomo.data.s3.S3PutObjectResult =
+        putSmallObject(key, file.readBytes(), contentType, metadata)
 
     override suspend fun deleteObject(key: String) {
         deletedKeys += key

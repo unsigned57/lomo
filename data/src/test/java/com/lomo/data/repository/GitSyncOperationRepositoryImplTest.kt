@@ -126,6 +126,7 @@ class GitSyncOperationRepositoryImplTest : DataFunSpec() {
             MemoSynchronizer(
                 refreshEngine = refreshEngine,
                 mutationHandler = mutationHandler,
+                outboxScope = immediateTestBackgroundScope(),
                 startOutboxCoordinator = false,
             )
         runtime =

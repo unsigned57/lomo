@@ -23,8 +23,9 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
+import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
-import com.lomo.data.s3.S3RemoteObjectPayload
+import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -135,16 +136,28 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         )
                     }
 
-                    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+                    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
                         error("getObject should not be used in getStatus test")
                     }
 
-                    override suspend fun putObject(
+                    override suspend fun putSmallObject(
                         key: String,
                         bytes: ByteArray,
                         contentType: String,
                         metadata: Map<String, String>,
                     ) = error("putObject should not be used in getStatus test")
+
+                    override suspend fun getObjectToFile(
+                        key: String,
+                        destination: java.io.File,
+                    ): S3RemoteObject = error("getObjectToFile should not be used in getStatus test")
+
+                    override suspend fun putObjectFile(
+                        key: String,
+                        file: java.io.File,
+                        contentType: String,
+                        metadata: Map<String, String>,
+                    ): S3PutObjectResult = error("putObjectFile should not be used in getStatus test")
 
                     override suspend fun deleteObject(key: String) = Unit
 
@@ -175,6 +188,9 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                     support = S3SyncRepositorySupport(runtime),
                     encodingSupport = S3SyncEncodingSupport(),
                     fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
+                    protocolStateStore = DisabledS3SyncProtocolStateStore,
+                    localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+                    remoteIndexStore = DisabledS3RemoteIndexStore,
                 )
 
             val status = tester.getStatus()
@@ -205,16 +221,28 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         )
                     }
 
-                    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+                    override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
                         error("getObject should not be used in getStatus test")
                     }
 
-                    override suspend fun putObject(
+                    override suspend fun putSmallObject(
                         key: String,
                         bytes: ByteArray,
                         contentType: String,
                         metadata: Map<String, String>,
                     ) = error("putObject should not be used in getStatus test")
+
+                    override suspend fun getObjectToFile(
+                        key: String,
+                        destination: java.io.File,
+                    ): S3RemoteObject = error("getObjectToFile should not be used in getStatus test")
+
+                    override suspend fun putObjectFile(
+                        key: String,
+                        file: java.io.File,
+                        contentType: String,
+                        metadata: Map<String, String>,
+                    ): S3PutObjectResult = error("putObjectFile should not be used in getStatus test")
 
                     override suspend fun deleteObject(key: String) = Unit
 
@@ -249,6 +277,9 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                     support = S3SyncRepositorySupport(runtime),
                     encodingSupport = S3SyncEncodingSupport(),
                     fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
+                    protocolStateStore = DisabledS3SyncProtocolStateStore,
+                    localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+                    remoteIndexStore = DisabledS3RemoteIndexStore,
                 )
 
             val status = tester.getStatus()

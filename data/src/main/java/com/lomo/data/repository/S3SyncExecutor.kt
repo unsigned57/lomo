@@ -1,12 +1,12 @@
 package com.lomo.data.repository
 
-import com.lomo.data.util.runNonFatalCatching
-import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictSet
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.async
@@ -18,17 +18,19 @@ import kotlinx.coroutines.sync.withPermit
 @Singleton
 class S3SyncExecutor
     @Inject
-    constructor(
+    internal constructor(
         private val runtime: S3SyncRepositoryContext,
         private val support: S3SyncRepositorySupport,
         private val encodingSupport: S3SyncEncodingSupport,
         private val fileBridge: S3SyncFileBridge,
         private val actionApplier: S3SyncActionApplier,
+        private val lifecycleRunner: RemoteSyncLifecycleRunner,
         private val protocolStateStore: S3SyncProtocolStateStore,
         private val localChangeJournalStore: S3LocalChangeJournalStore,
         private val remoteIndexStore: S3RemoteIndexStore,
         private val remoteShardStateStore: S3RemoteShardStateStore,
         private val pendingConflictStore: PendingSyncConflictStore,
+        private val pendingReviewStore: PendingSyncReviewStore,
     ) {
         private val preparedActionVerificationGate =
             S3PreparedActionVerificationGate(
@@ -38,116 +40,291 @@ class S3SyncExecutor
                 remoteIndexStore = remoteIndexStore,
             )
         private val recentActivityTracker = S3RemoteRecentActivityTracker()
+        private val snapshotLoader =
+            S3SyncSnapshotLoader(
+                runtime = runtime,
+                encodingSupport = encodingSupport,
+                protocolStateStore = protocolStateStore,
+                localChangeJournalStore = localChangeJournalStore,
+                remoteIndexStore = remoteIndexStore,
+                remoteShardStateStore = remoteShardStateStore,
+                recentActivityTracker = recentActivityTracker,
+            )
+        private val pendingConflictRestorer =
+            S3PendingConflictSessionRestorer(
+                runtime = runtime,
+                support = support,
+                encodingSupport = encodingSupport,
+                fileBridge = fileBridge,
+                lifecycleRunner = lifecycleRunner,
+            )
 
         suspend fun performSync(
-            policy: S3SyncScanPolicy = S3SyncScanPolicy.FAST_ONLY,
+            policy: S3SyncWorkIntent = S3SyncWorkIntent.FAST_ONLY,
         ): S3SyncResult {
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             val layout = com.lomo.data.sync.SyncDirectoryLayout.resolve(runtime.dataStore)
             val mode = resolveLocalSyncMode(runtime)
             val fileBridgeScope = fileBridge.modeAware(mode)
-            return runNonFatalCatching {
-                support.withClient(config) { client ->
-                    val profile = runtime.performanceTuner.currentProfile()
-                    val prepared = prepareFastSync(client, layout, config, fileBridgeScope, mode, policy)
-                    val verified =
-                        verifyDestructiveCandidates(
-                            prepared = prepared,
-                            client = client,
-                            layout = layout,
-                            config = config,
-                            fileBridgeScope = fileBridgeScope,
-                            mode = mode,
-                            verificationGate = preparedActionVerificationGate,
-                            encodingSupport = encodingSupport,
-                            actionConcurrency = profile.s3ActionConcurrency,
-                        )
-                    val execution =
-                        applyPreparedActions(
-                            verified = verified,
-                            client = client,
-                            layout = layout,
-                            config = config,
-                            fileBridgeScope = fileBridgeScope,
-                            mode = mode,
-                            actionApplier = actionApplier,
-                            actionConcurrency = profile.s3ActionConcurrency,
-                            largeTransferConcurrency = profile.s3LargeTransferConcurrency,
-                        )
-                    val result = buildS3SyncResult(verified.prepared, execution)
-                    runtime.transactionRunner.runInTransaction {
-                        persistAppliedS3Actions(
-                            fileBridge = fileBridge,
-                            prepared = verified.prepared,
-                            execution = execution,
-                        )
-                        reconcileRemoteIndexAfterSyncIfNeeded(
-                            protocolStateStore = protocolStateStore,
-                            localChangeJournalStore = localChangeJournalStore,
-                            remoteIndexStore = remoteIndexStore,
-                            recentActivityTracker = recentActivityTracker,
-                            prepared = verified.prepared,
-                            execution = execution,
-                            result = result,
-                            now = System.currentTimeMillis(),
-                        )
-                    }
-                    finalizeAfterS3Sync(runtime, result, execution)
-                }
-            }.getOrElse(support::mapError)
+            return support.runS3Io {
+                lifecycleRunner.run(
+                    S3SyncLifecycleStages(
+                        config = config,
+                        layout = layout,
+                        mode = mode,
+                        fileBridgeScope = fileBridgeScope,
+                        policy = policy,
+                    ),
+                )
+            }
         }
 
-        private suspend fun prepareFastSync(
-            client: com.lomo.data.s3.LomoS3Client,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            config: S3ResolvedConfig,
-            fileBridgeScope: S3SyncFileBridgeScope,
-            mode: S3LocalSyncMode,
-            policy: S3SyncScanPolicy,
-        ): PreparedS3Sync {
-            runtime.stateHolder.state.value = S3SyncState.Initializing
-            runtime.stateHolder.state.value = S3SyncState.Listing
-            val protocolState = protocolStateStore.read()
-            return tryPrepareIncrementalSync(
-                client = client,
-                layout = layout,
-                config = config,
-                fileBridgeScope = fileBridgeScope,
-                mode = mode,
-                policy = policy,
-                protocolState = protocolState,
-            ) ?: prepareFullSync(
-                client = client,
-                layout = layout,
-                config = config,
-                fileBridgeScope = fileBridgeScope,
-                mode = mode,
-                protocolState = protocolState,
-            )
-        }
+        suspend fun restorePendingConflict(
+            descriptor: PendingSyncConflictDescriptor,
+        ): PendingSyncRestoreResult<SyncConflictSet> = pendingConflictRestorer.restore(descriptor)
 
-        private suspend fun prepareFullSync(
-            client: com.lomo.data.s3.LomoS3Client,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            config: S3ResolvedConfig,
-            fileBridgeScope: S3SyncFileBridgeScope,
-            mode: S3LocalSyncMode,
-            protocolState: S3SyncProtocolState?,
-        ): PreparedS3Sync {
-            val fullScanEpoch = nextScanEpoch(protocolState)
-            val fullSnapshot =
-                loadFullSyncSnapshot(
-                    runtime = runtime,
-                    remoteIndexStore = remoteIndexStore,
-                    fileBridgeScope = fileBridgeScope,
-                    client = client,
+        private inner class S3SyncLifecycleStages(
+            private val config: S3ResolvedConfig,
+            private val layout: com.lomo.data.sync.SyncDirectoryLayout,
+            private val mode: S3LocalSyncMode,
+            private val fileBridgeScope: S3SyncFileBridgeScope,
+            private val policy: S3SyncWorkIntent,
+        ) : RemoteSyncLifecycleStages<
+                S3SyncLifecycleSnapshot,
+                PreparedS3Sync,
+                VerifiedPreparedS3Sync,
+                S3ConflictMaterialization,
+                S3ActionExecutionResult,
+                S3CommittedSync,
+                S3SyncResult,
+                S3SyncResult,
+            > {
+            override val context: RemoteSyncLifecycleContext =
+                RemoteSyncLifecycleContext(
+                    backend = SyncBackendType.S3,
+                    budget = RemoteSyncBudgetPolicy.Limited(DEFAULT_REMOTE_SYNC_NETWORK_OPERATION_BUDGET),
+                )
+
+            private var client: com.lomo.data.s3.LomoS3Client? = null
+
+            override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession): S3SyncLifecycleSnapshot {
+                client = session.meter(support.createClient(config))
+                runtime.stateHolder.state.value = S3SyncState.Initializing
+                runtime.stateHolder.state.value = S3SyncState.Listing
+                val protocolState = protocolStateStore.read()
+                val loaded =
+                    snapshotLoader.loadS3PlanningSnapshot(
+                        client = requireClient(),
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                        policy = policy,
+                        protocolState = protocolState,
+                    )
+                return S3SyncLifecycleSnapshot(
+                    client = requireClient(),
+                    loaded = loaded,
+                )
+            }
+
+            override suspend fun plan(
+                snapshot: S3SyncLifecycleSnapshot,
+                session: RemoteSyncLifecycleSession,
+            ): PreparedS3Sync =
+                prepareFastSyncPlan(
+                    client = snapshot.client,
                     layout = layout,
                     config = config,
-                    fullScanEpoch = fullScanEpoch,
+                    fileBridgeScope = fileBridgeScope,
+                    mode = mode,
+                    loaded = snapshot.loaded,
                 )
-            val localFiles = fullSnapshot.localFiles
-            val remoteFiles = fullSnapshot.remoteFiles
-            val metadataByPath = fullSnapshot.metadataByPath
+
+            override suspend fun verify(
+                plan: PreparedS3Sync,
+                session: RemoteSyncLifecycleSession,
+            ): VerifiedPreparedS3Sync =
+                verifyDestructiveCandidates(
+                    prepared = plan,
+                    client = requireClient(),
+                    layout = layout,
+                    config = config,
+                    fileBridgeScope = fileBridgeScope,
+                    mode = mode,
+                    verificationGate = preparedActionVerificationGate,
+                )
+
+            override suspend fun materializeConflicts(
+                verified: VerifiedPreparedS3Sync,
+                session: RemoteSyncLifecycleSession,
+            ): S3ConflictMaterialization {
+                val materialized =
+                    materializeS3Conflicts(
+                        verified = verified,
+                        client = requireClient(),
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                    )
+                materialized.reviewSession?.let { review ->
+                    pendingReviewStore.write(review)
+                    runtime.stateHolder.state.value = S3SyncState.PreviewingInitialSync(review)
+                }
+                materialized.conflictSet?.let { conflictSet ->
+                    pendingConflictStore.write(conflictSet)
+                    runtime.stateHolder.state.value = S3SyncState.ConflictDetected(conflictSet)
+                }
+                return materialized
+            }
+
+            override suspend fun apply(
+                verified: VerifiedPreparedS3Sync,
+                conflicts: S3ConflictMaterialization,
+                session: RemoteSyncLifecycleSession,
+            ): S3ActionExecutionResult {
+                val profile = runtime.performanceTuner.currentProfile()
+                return applyPreparedActions(
+                    verified = conflicts.verified,
+                    client = requireClient(),
+                    layout = layout,
+                    config = config,
+                    fileBridgeScope = fileBridgeScope,
+                    mode = mode,
+                    actionApplier = actionApplier,
+                    actionConcurrency = profile.s3ActionConcurrency,
+                    largeTransferConcurrency = profile.s3LargeTransferConcurrency,
+                )
+            }
+
+            override suspend fun commitMetadata(
+                verified: VerifiedPreparedS3Sync,
+                conflicts: S3ConflictMaterialization,
+                applied: S3ActionExecutionResult,
+                session: RemoteSyncLifecycleSession,
+            ): S3CommittedSync {
+                val result =
+                    buildS3SyncResult(
+                        prepared = conflicts.verified.prepared,
+                        execution = applied,
+                        conflictSet = conflicts.conflictSet,
+                        reviewSession = conflicts.reviewSession,
+                    )
+                runtime.transactionRunner.runInTransaction {
+                    persistAppliedS3Actions(
+                        fileBridge = fileBridge,
+                        prepared = conflicts.verified.prepared,
+                        execution = applied,
+                    )
+                    reconcileRemoteIndexAfterSyncIfNeeded(
+                        protocolStateStore = protocolStateStore,
+                        localChangeJournalStore = localChangeJournalStore,
+                        remoteIndexStore = remoteIndexStore,
+                        recentActivityTracker = recentActivityTracker,
+                        prepared = conflicts.verified.prepared,
+                        execution = applied,
+                        result = result,
+                        hasMaterializedConflict = conflicts.conflictSet != null || conflicts.reviewSession != null,
+                        now = System.currentTimeMillis(),
+                    )
+                }
+                return S3CommittedSync(result = result, execution = applied)
+            }
+
+            override suspend fun finalize(
+                verified: VerifiedPreparedS3Sync,
+                conflicts: S3ConflictMaterialization,
+                applied: S3ActionExecutionResult,
+                metadata: S3CommittedSync,
+                session: RemoteSyncLifecycleSession,
+            ): S3SyncResult =
+                finalizeAfterS3Sync(
+                    runtime = runtime,
+                    result = metadata.result,
+                    execution = metadata.execution,
+                )
+
+            override fun summarizeSnapshot(snapshot: S3SyncLifecycleSnapshot): RemoteSyncSnapshotTelemetry =
+                RemoteSyncSnapshotTelemetry(
+                    localFileCount = snapshot.localFiles.size,
+                    remoteFileCount = snapshot.remoteFiles.size,
+                    metadataEntryCount = snapshot.metadataByPath.size,
+                )
+
+            override fun summarizePlan(plan: PreparedS3Sync): RemoteSyncActionTelemetry =
+                plan.plan.actions.toRemoteSyncActionTelemetry()
+
+            override fun summarizeVerification(verified: VerifiedPreparedS3Sync): RemoteSyncActionTelemetry =
+                verified.prepared.plan.actions.toRemoteSyncActionTelemetry()
+
+            override fun summarizeRefresh(finalized: S3SyncResult): RemoteSyncRefreshTelemetry =
+                RemoteSyncRefreshTelemetry(durationMillis = 0)
+
+            override fun mapResult(finalized: S3SyncResult): S3SyncResult = finalized
+
+            override fun mapError(error: Throwable): S3SyncResult = support.mapError(error)
+
+            override suspend fun release() {
+                client?.close()
+                client = null
+            }
+
+            private fun requireClient(): com.lomo.data.s3.LomoS3Client =
+                checkNotNull(client) { "S3 lifecycle client has not been initialized" }
+        }
+
+        private suspend fun prepareFastSyncPlan(
+            client: com.lomo.data.s3.LomoS3Client,
+            layout: com.lomo.data.sync.SyncDirectoryLayout,
+            config: S3ResolvedConfig,
+            fileBridgeScope: S3SyncFileBridgeScope,
+            mode: S3LocalSyncMode,
+            loaded: LoadedS3PlanningSnapshot,
+        ): PreparedS3Sync =
+            when (loaded) {
+                is LoadedS3PlanningSnapshot.Full ->
+                    prepareFullSyncPlan(
+                        client = client,
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                        snapshot = loaded,
+                    )
+
+                is LoadedS3PlanningSnapshot.LocalOnlyIncremental ->
+                    prepareLocalOnlyIncrementalSyncPlan(
+                        client = client,
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                        snapshot = loaded,
+                    )
+
+                is LoadedS3PlanningSnapshot.ReconcileIncremental ->
+                    prepareIncrementalSyncWithReconcilePlan(
+                        client = client,
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                        snapshot = loaded,
+                    )
+            }
+
+        private suspend fun prepareFullSyncPlan(
+            client: com.lomo.data.s3.LomoS3Client,
+            layout: com.lomo.data.sync.SyncDirectoryLayout,
+            config: S3ResolvedConfig,
+            fileBridgeScope: S3SyncFileBridgeScope,
+            mode: S3LocalSyncMode,
+            snapshot: LoadedS3PlanningSnapshot.Full,
+        ): PreparedS3Sync {
+            val localFiles = snapshot.localFiles
+            val remoteFiles = snapshot.remoteFiles
+            val metadataByPath = snapshot.metadataByPath
             val initialClassification =
                 classifyInitialOverlaps(
                     localFiles = localFiles,
@@ -163,12 +340,12 @@ class S3SyncExecutor
                 )
             val initialPlan =
                 runtime.planner.plan(
-                    localFiles = localFiles,
-                    remoteFiles = remoteFiles,
-                    metadata = metadataByPath,
-                    preResolvedActionsByPath = initialClassification.resolvedActionsByPath,
+                    localFiles = localFiles.toS3RemoteSyncLocalSnapshots(),
+                    remoteFiles = remoteFiles.toS3RemoteSyncRemoteSnapshots(),
+                    metadata = metadataByPath.toS3RemoteSyncMetadataSnapshots(),
+                    preResolvedActionsByPath = initialClassification.resolvedActionsByPath.toS3RemoteSyncActions(),
                     suppressedPaths = initialClassification.equivalentMetadataByPath.keys,
-                )
+                ).toS3Plan()
             val plan =
                 refineTrackedMemoPlanWithContent(
                     plan = initialPlan,
@@ -182,26 +359,6 @@ class S3SyncExecutor
                     layout = layout,
                     mode = mode,
                 )
-            val conflictActions =
-                plan.actions.filter { it.direction == S3SyncDirection.CONFLICT }
-            val conflictSet =
-                buildS3ConflictSet(
-                    actions = conflictActions,
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    remoteFiles = remoteFiles,
-                    fileBridgeScope = fileBridgeScope,
-                    mode = mode,
-                    encodingSupport = encodingSupport,
-                    actionConcurrency = runtime.performanceTuner.currentProfile().s3ActionConcurrency,
-                    sessionKind = determineS3ConflictSessionKind(conflictActions, metadataByPath),
-                    lightweightPreview = initialClassification.lightweightConflictPreview,
-                )
-            if (conflictSet != null) {
-                pendingConflictStore.write(conflictSet)
-                runtime.stateHolder.state.value = conflictSet.toS3ConflictState()
-            }
             return PreparedS3Sync(
                 layout = layout,
                 localFiles = localFiles,
@@ -211,138 +368,26 @@ class S3SyncExecutor
                 preResolvedActionsByPath = initialClassification.resolvedActionsByPath,
                 plan = plan,
                 normalActions = plan.actions.filter { it.direction != S3SyncDirection.CONFLICT },
-                conflictSet = conflictSet,
                 completeSnapshot = true,
-                protocolState = protocolState,
+                protocolState = snapshot.protocolState,
                 remoteFileCountHint = remoteFiles.size,
                 localModeFingerprint = mode.fingerprint(),
-                remoteReconcileState = completedFullSyncReconcileState(fullScanEpoch),
+                remoteReconcileState = completedFullSyncReconcileState(snapshot.fullScanEpoch),
+                conflictPreview = S3ConflictPreview(lightweight = initialClassification.lightweightConflictPreview),
             )
         }
 
-        private suspend fun tryPrepareIncrementalSync(
+        private suspend fun prepareLocalOnlyIncrementalSyncPlan(
             client: com.lomo.data.s3.LomoS3Client,
             layout: com.lomo.data.sync.SyncDirectoryLayout,
             config: S3ResolvedConfig,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
-            policy: S3SyncScanPolicy,
-            protocolState: S3SyncProtocolState?,
-        ): PreparedS3Sync? {
-            if (policy == S3SyncScanPolicy.FULL_RECONCILE) {
-                return null
-            }
-            if (!canUseIncrementalSync(mode, protocolState, protocolStateStore, localChangeJournalStore)) {
-                return null
-            }
-            val protocolStateValue = requireNotNull(protocolState)
-            val effectiveLocalChanges =
-                resolveIncrementalLocalChanges(
-                    layout = layout,
-                    mode = mode,
-                    fileBridgeScope = fileBridgeScope,
-                )
-            if (
-                !protocolStateValue.hasFreshRemoteIndex(config) ||
-                shouldPerformFullLocalAudit(mode, protocolStateValue)
-            ) {
-                return null
-            }
-            return prepareIncrementalSyncFromFreshIndex(
-                client = client,
-                layout = layout,
-                config = config,
-                fileBridgeScope = fileBridgeScope,
-                mode = mode,
-                policy = policy,
-                protocolState = protocolStateValue,
-                journalEntries = effectiveLocalChanges.journalEntries,
-            )
-        }
-
-        private suspend fun prepareIncrementalSyncFromFreshIndex(
-            client: com.lomo.data.s3.LomoS3Client,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            config: S3ResolvedConfig,
-            fileBridgeScope: S3SyncFileBridgeScope,
-            mode: S3LocalSyncMode,
-            policy: S3SyncScanPolicy,
-            protocolState: S3SyncProtocolState,
-            journalEntries: Map<String, S3LocalChangeJournalEntry>,
+            snapshot: LoadedS3PlanningSnapshot.LocalOnlyIncremental,
         ): PreparedS3Sync {
-            val profile = runtime.performanceTuner.currentProfile()
-            val journalEntriesByPath = journalEntries.resolvePaths(layout, mode)
-            recentActivityTracker.recordForegroundCandidates(
-                remoteIndexStore = remoteIndexStore,
-                relativePaths = journalEntriesByPath.keys,
-                scanEpoch = protocolState.scanEpoch,
-            )
-            val remoteReconcileState =
-                if (
-                    shouldRunIncrementalReconcile(policy, config, protocolState) &&
-                    remoteIndexStore.remoteIndexEnabled
-                ) {
-                    prepareRemoteReconcile(
-                        client = client,
-                        layout = layout,
-                        config = config,
-                        mode = mode,
-                        protocolState = protocolState,
-                        encodingSupport = encodingSupport,
-                        remoteIndexStore = remoteIndexStore,
-                        shardStateStore = remoteShardStateStore,
-                    )
-                } else {
-                    null
-                }
-            return if (remoteReconcileState == null) {
-                prepareLocalOnlyIncrementalSync(
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    mode = mode,
-                    fileBridgeScope = fileBridgeScope,
-                    protocolState = protocolState,
-                    journalEntries = journalEntries,
-                )
-            } else {
-                prepareIncrementalSyncWithReconcile(
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    fileBridgeScope = fileBridgeScope,
-                    mode = mode,
-                    protocolState = protocolState,
-                    journalEntries = journalEntries,
-                    journalEntriesByPath = journalEntriesByPath,
-                    remoteReconcileState = remoteReconcileState,
-                )
-            }
-        }
-
-        private suspend fun prepareLocalOnlyIncrementalSync(
-            client: com.lomo.data.s3.LomoS3Client,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            config: S3ResolvedConfig,
-            mode: S3LocalSyncMode,
-            fileBridgeScope: S3SyncFileBridgeScope,
-            protocolState: S3SyncProtocolState,
-            journalEntries: Map<String, S3LocalChangeJournalEntry>,
-        ): PreparedS3Sync {
-            val profile = runtime.performanceTuner.currentProfile()
-            val initialPreparation =
-                prepareLocalOnlyIncrementalSync(
-                    journalEntries = journalEntries,
-                    layout = layout,
-                    mode = mode,
-                    fileBridgeScope = fileBridgeScope,
-                    planner = runtime.planner,
-                    metadataDao = runtime.metadataDao,
-                    remoteIndexStore = remoteIndexStore,
-                )
             val localOnlyIncremental =
                 enrichLocalOnlyIncrementalWithRemoteVerification(
-                    initial = initialPreparation,
+                    initial = snapshot.initialPreparation,
                     client = client,
                     config = config,
                     fileBridgeScope = fileBridgeScope,
@@ -354,34 +399,12 @@ class S3SyncExecutor
                     action.direction == S3SyncDirection.CONFLICT
                 }
             val conflictPaths = conflictActions.map(S3SyncAction::path).toSet()
-            val conflictSet =
-                buildS3ConflictSet(
-                    actions = conflictActions,
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    remoteFiles = localOnlyIncremental.remoteFiles,
-                    fileBridgeScope = fileBridgeScope,
-                    mode = mode,
-                    encodingSupport = encodingSupport,
-                    actionConcurrency = profile.s3ActionConcurrency,
-                    sessionKind =
-                        determineS3ConflictSessionKind(
-                            conflictActions = conflictActions,
-                            metadataByPath = localOnlyIncremental.metadataByPath,
-                        ),
-                )
-            if (conflictSet != null) {
-                pendingConflictStore.write(conflictSet)
-                runtime.stateHolder.state.value = conflictSet.toS3ConflictState()
-            }
             return buildLocalOnlyPreparedSync(
                 layout = layout,
                 mode = mode,
-                protocolState = protocolState,
-                journalEntries = journalEntries,
+                protocolState = snapshot.protocolState,
+                journalEntries = snapshot.journalEntries,
                 localOnlyIncremental = localOnlyIncremental,
-                conflictSet = conflictSet,
                 conflictPaths = conflictPaths,
             )
         }
@@ -448,12 +471,14 @@ class S3SyncExecutor
             val initialPlan =
                 runtime.planner.planPaths(
                     paths = candidatePaths,
-                    localFiles = initial.localFiles,
-                    remoteFiles = verifiedRemoteFiles,
-                    metadata = initial.metadataByPath,
-                    missingRemoteVerificationByPath = missingRemoteVerificationByPath,
-                    defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
-                )
+                    localFiles = initial.localFiles.toS3RemoteSyncLocalSnapshots(),
+                    remoteFiles = verifiedRemoteFiles.toS3RemoteSyncRemoteSnapshots(),
+                    metadata = initial.metadataByPath.toS3RemoteSyncMetadataSnapshots(),
+                    missingRemoteVerificationByPath =
+                        missingRemoteVerificationByPath.toS3RemoteSyncRemoteAbsenceVerifications(),
+                    defaultMissingRemoteVerification =
+                        S3RemoteVerificationLevel.UNKNOWN_REMOTE.toRemoteSyncRemoteAbsenceVerification(),
+                ).toS3Plan()
             val plan =
                 refineTrackedMemoPlanWithContent(
                     plan = initialPlan,
@@ -473,47 +498,33 @@ class S3SyncExecutor
             )
         }
 
-        private suspend fun prepareIncrementalSyncWithReconcile(
+        private suspend fun prepareIncrementalSyncWithReconcilePlan(
             client: com.lomo.data.s3.LomoS3Client,
             layout: com.lomo.data.sync.SyncDirectoryLayout,
             config: S3ResolvedConfig,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
-            protocolState: S3SyncProtocolState,
-            journalEntries: Map<String, S3LocalChangeJournalEntry>,
-            journalEntriesByPath: Map<String, S3LocalChangeJournalEntry>,
-            remoteReconcileState: PreparedRemoteReconcile,
+            snapshot: LoadedS3PlanningSnapshot.ReconcileIncremental,
         ): PreparedS3Sync {
-            val candidatePaths =
-                (journalEntriesByPath.keys + remoteReconcileState.candidatePaths).toSortedSet()
-            val reconcileInputs =
-                loadIncrementalReconcileInputs(
-                    runtime = runtime,
-                    candidatePaths = candidatePaths,
-                    journalEntriesByPath = journalEntriesByPath,
-                    remoteReconcileState = remoteReconcileState,
-                    remoteIndexStore = remoteIndexStore,
-                    fileBridgeScope = fileBridgeScope,
-                    layout = layout,
-                )
             val initialPlan =
                 runtime.planner.planPaths(
-                    paths = candidatePaths,
-                    localFiles = reconcileInputs.localFiles,
-                    remoteFiles = reconcileInputs.remoteFiles,
-                    metadata = reconcileInputs.plannerMetadataByPath,
+                    paths = snapshot.candidatePaths,
+                    localFiles = snapshot.reconcileInputs.localFiles.toS3RemoteSyncLocalSnapshots(),
+                    remoteFiles = snapshot.reconcileInputs.remoteFiles.toS3RemoteSyncRemoteSnapshots(),
+                    metadata = snapshot.reconcileInputs.plannerMetadataByPath.toS3RemoteSyncMetadataSnapshots(),
                     missingRemoteVerificationByPath =
-                        remoteReconcileState.missingRemotePaths.associateWith {
+                        snapshot.remoteReconcileState.missingRemotePaths.associateWith {
                             S3RemoteVerificationLevel.VERIFIED_REMOTE
-                        },
-                    defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
-                )
+                        }.toS3RemoteSyncRemoteAbsenceVerifications(),
+                    defaultMissingRemoteVerification =
+                        S3RemoteVerificationLevel.UNKNOWN_REMOTE.toRemoteSyncRemoteAbsenceVerification(),
+                ).toS3Plan()
             val plan =
                 refineTrackedMemoPlanWithContent(
                     plan = initialPlan,
-                    localFiles = reconcileInputs.localFiles,
-                    remoteFiles = reconcileInputs.remoteFiles,
-                    metadataByPath = reconcileInputs.plannerMetadataByPath,
+                    localFiles = snapshot.reconcileInputs.localFiles,
+                    remoteFiles = snapshot.reconcileInputs.remoteFiles,
+                    metadataByPath = snapshot.reconcileInputs.plannerMetadataByPath,
                     client = client,
                     config = config,
                     encodingSupport = encodingSupport,
@@ -521,68 +532,367 @@ class S3SyncExecutor
                     layout = layout,
                     mode = mode,
                 )
-            val (conflictPaths, conflictSet) =
-                prepareReconcileConflictState(
-                    plan = plan,
-                    runtime = runtime,
-                    pendingConflictStore = pendingConflictStore,
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    remoteFiles = reconcileInputs.remoteFiles,
-                    fileBridgeScope = fileBridgeScope,
-                    mode = mode,
-                    encodingSupport = encodingSupport,
-                    metadataByPath = reconcileInputs.plannerMetadataByPath,
-                )
+            val conflictPaths =
+                plan.actions
+                    .filter { it.direction == S3SyncDirection.CONFLICT }
+                    .map(S3SyncAction::path)
+                    .toSet()
             return PreparedS3Sync(
                 layout = layout,
-                localFiles = reconcileInputs.localFiles,
-                remoteFiles = reconcileInputs.remoteFiles,
-                metadataByPath = reconcileInputs.plannerMetadataByPath,
+                localFiles = snapshot.reconcileInputs.localFiles,
+                remoteFiles = snapshot.reconcileInputs.remoteFiles,
+                metadataByPath = snapshot.reconcileInputs.plannerMetadataByPath,
                 plan = plan,
                 normalActions = plan.actions.filter { it.direction != S3SyncDirection.CONFLICT },
-                conflictSet = conflictSet,
                 completeSnapshot = false,
-                protocolState = protocolState,
-                remoteFileCountHint = protocolState.indexedRemoteFileCount,
-                journalEntriesById = journalEntries,
-                journalPathsById = journalEntriesByPath.entries.associate { (path, entry) -> entry.id to path },
+                protocolState = snapshot.protocolState,
+                remoteFileCountHint = snapshot.protocolState.indexedRemoteFileCount,
+                journalEntriesById = snapshot.journalEntries,
+                journalPathsById =
+                    snapshot.journalEntriesByPath.entries.associate { (path, entry) ->
+                        entry.id to path
+                    },
                 clearableJournalIds =
-                    journalEntriesByPath
+                    snapshot.journalEntriesByPath
                         .filterKeys { path -> path !in conflictPaths }
                         .values
                         .map(S3LocalChangeJournalEntry::id)
                         .toSet(),
                 localModeFingerprint = mode.fingerprint(),
-                remoteReconcileState = remoteReconcileState,
+                remoteReconcileState = snapshot.remoteReconcileState,
             )
         }
 
-        private suspend fun resolveIncrementalLocalChanges(
+        private suspend fun materializeS3Conflicts(
+            verified: VerifiedPreparedS3Sync,
+            client: com.lomo.data.s3.LomoS3Client,
             layout: com.lomo.data.sync.SyncDirectoryLayout,
-            mode: S3LocalSyncMode,
+            config: S3ResolvedConfig,
             fileBridgeScope: S3SyncFileBridgeScope,
-        ): S3EffectiveLocalChangeSet {
-            val effectiveLocalChanges =
-                resolveEffectiveLocalChangeSet(
-                    journalEntries = localChangeJournalStore.read(),
+            mode: S3LocalSyncMode,
+        ): S3ConflictMaterialization {
+            val conflictActions =
+                verified.prepared.plan.actions.filter { action ->
+                    action.direction == S3SyncDirection.CONFLICT
+                }
+            val conflictSet =
+                buildS3ConflictSet(
+                    actions = conflictActions,
+                    client = client,
                     layout = layout,
-                    mode = mode,
+                    config = config,
+                    remoteFiles = verified.prepared.remoteFiles,
                     fileBridgeScope = fileBridgeScope,
-                    metadataDao = runtime.metadataDao,
+                    mode = mode,
+                    encodingSupport = encodingSupport,
+                    actionConcurrency = runtime.performanceTuner.currentProfile().s3ActionConcurrency,
+                    lightweightPreview = verified.prepared.conflictPreview.lightweight,
                 )
-            if (effectiveLocalChanges.stalePersistedIds.isNotEmpty()) {
-                localChangeJournalStore.remove(effectiveLocalChanges.stalePersistedIds)
-            }
-            return effectiveLocalChanges
+            val reviewSession =
+                conflictSet
+                    ?.takeIf { isS3InitialImportPreview(conflictActions, verified.prepared.metadataByPath) }
+                    ?.toS3InitialImportReview()
+            return S3ConflictMaterialization(
+                verified = verified,
+                conflictSet = conflictSet.takeIf { reviewSession == null },
+                reviewSession = reviewSession,
+            )
         }
+
     }
 
 private data class FullSyncSnapshot(
     val localFiles: Map<String, LocalS3File>,
     val remoteFiles: Map<String, RemoteS3File>,
     val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+)
+
+private class S3SyncSnapshotLoader(
+    private val runtime: S3SyncRepositoryContext,
+    private val encodingSupport: S3SyncEncodingSupport,
+    private val protocolStateStore: S3SyncProtocolStateStore,
+    private val localChangeJournalStore: S3LocalChangeJournalStore,
+    private val remoteIndexStore: S3RemoteIndexStore,
+    private val remoteShardStateStore: S3RemoteShardStateStore,
+    private val recentActivityTracker: S3RemoteRecentActivityTracker,
+) {
+    suspend fun loadS3PlanningSnapshot(
+        client: com.lomo.data.s3.LomoS3Client,
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        config: S3ResolvedConfig,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        mode: S3LocalSyncMode,
+        policy: S3SyncWorkIntent,
+        protocolState: S3SyncProtocolState?,
+    ): LoadedS3PlanningSnapshot =
+        tryLoadIncrementalSyncSnapshot(
+            client = client,
+            layout = layout,
+            config = config,
+            fileBridgeScope = fileBridgeScope,
+            mode = mode,
+            policy = policy,
+            protocolState = protocolState,
+        ) ?: loadFullSyncPlanningSnapshot(
+            client = client,
+            layout = layout,
+            config = config,
+            fileBridgeScope = fileBridgeScope,
+            protocolState = protocolState,
+        )
+
+    private suspend fun loadFullSyncPlanningSnapshot(
+        client: com.lomo.data.s3.LomoS3Client,
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        config: S3ResolvedConfig,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        protocolState: S3SyncProtocolState?,
+    ): LoadedS3PlanningSnapshot.Full {
+        val fullScanEpoch = nextScanEpoch(protocolState)
+        val fullSnapshot =
+            loadFullSyncSnapshot(
+                runtime = runtime,
+                remoteIndexStore = remoteIndexStore,
+                fileBridgeScope = fileBridgeScope,
+                client = client,
+                layout = layout,
+                config = config,
+                fullScanEpoch = fullScanEpoch,
+            )
+        return LoadedS3PlanningSnapshot.Full(
+            localFiles = fullSnapshot.localFiles,
+            remoteFiles = fullSnapshot.remoteFiles,
+            metadataByPath = fullSnapshot.metadataByPath,
+            protocolState = protocolState,
+            fullScanEpoch = fullScanEpoch,
+        )
+    }
+
+    private suspend fun tryLoadIncrementalSyncSnapshot(
+        client: com.lomo.data.s3.LomoS3Client,
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        config: S3ResolvedConfig,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        mode: S3LocalSyncMode,
+        policy: S3SyncWorkIntent,
+        protocolState: S3SyncProtocolState?,
+    ): LoadedS3PlanningSnapshot? {
+        if (policy == S3SyncWorkIntent.FULL_RECONCILE) {
+            return null
+        }
+        if (!canUseIncrementalSync(mode, protocolState, protocolStateStore, localChangeJournalStore)) {
+            return null
+        }
+        val protocolStateValue = requireNotNull(protocolState)
+        val effectiveLocalChanges =
+            resolveIncrementalLocalChanges(
+                layout = layout,
+                mode = mode,
+                fileBridgeScope = fileBridgeScope,
+            )
+        if (
+            !protocolStateValue.hasFreshRemoteIndex(config) ||
+            shouldPerformFullLocalAudit(mode, protocolStateValue)
+        ) {
+            return null
+        }
+        return loadIncrementalSyncSnapshotFromFreshIndex(
+            client = client,
+            layout = layout,
+            config = config,
+            fileBridgeScope = fileBridgeScope,
+            mode = mode,
+            policy = policy,
+            protocolState = protocolStateValue,
+            journalEntries = effectiveLocalChanges.journalEntries,
+        )
+    }
+
+    private suspend fun loadIncrementalSyncSnapshotFromFreshIndex(
+        client: com.lomo.data.s3.LomoS3Client,
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        config: S3ResolvedConfig,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        mode: S3LocalSyncMode,
+        policy: S3SyncWorkIntent,
+        protocolState: S3SyncProtocolState,
+        journalEntries: Map<String, S3LocalChangeJournalEntry>,
+    ): LoadedS3PlanningSnapshot {
+        val journalEntriesByPath = journalEntries.resolvePaths(layout, mode)
+        recentActivityTracker.recordForegroundCandidates(
+            remoteIndexStore = remoteIndexStore,
+            relativePaths = journalEntriesByPath.keys,
+            scanEpoch = protocolState.scanEpoch,
+        )
+        val remoteReconcileState =
+            if (
+                shouldRunIncrementalReconcile(policy, config, protocolState) &&
+                remoteIndexStore.remoteIndexEnabled
+            ) {
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = mode,
+                    protocolState = protocolState,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = remoteShardStateStore,
+                )
+            } else {
+                null
+            }
+        return if (remoteReconcileState == null) {
+            loadLocalOnlyIncrementalSyncSnapshot(
+                layout = layout,
+                mode = mode,
+                fileBridgeScope = fileBridgeScope,
+                protocolState = protocolState,
+                journalEntries = journalEntries,
+            )
+        } else {
+            loadIncrementalSyncWithReconcileSnapshot(
+                layout = layout,
+                fileBridgeScope = fileBridgeScope,
+                protocolState = protocolState,
+                journalEntries = journalEntries,
+                journalEntriesByPath = journalEntriesByPath,
+                remoteReconcileState = remoteReconcileState,
+            )
+        }
+    }
+
+    private suspend fun loadLocalOnlyIncrementalSyncSnapshot(
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        mode: S3LocalSyncMode,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        protocolState: S3SyncProtocolState,
+        journalEntries: Map<String, S3LocalChangeJournalEntry>,
+    ): LoadedS3PlanningSnapshot.LocalOnlyIncremental {
+        val initialPreparation =
+            prepareLocalOnlyIncrementalSync(
+                journalEntries = journalEntries,
+                layout = layout,
+                mode = mode,
+                fileBridgeScope = fileBridgeScope,
+                planner = runtime.planner,
+                metadataDao = runtime.metadataDao,
+                remoteIndexStore = remoteIndexStore,
+            )
+        return LoadedS3PlanningSnapshot.LocalOnlyIncremental(
+            protocolState = protocolState,
+            journalEntries = journalEntries,
+            initialPreparation = initialPreparation,
+        )
+    }
+
+    private suspend fun loadIncrementalSyncWithReconcileSnapshot(
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        fileBridgeScope: S3SyncFileBridgeScope,
+        protocolState: S3SyncProtocolState,
+        journalEntries: Map<String, S3LocalChangeJournalEntry>,
+        journalEntriesByPath: Map<String, S3LocalChangeJournalEntry>,
+        remoteReconcileState: PreparedRemoteReconcile,
+    ): LoadedS3PlanningSnapshot.ReconcileIncremental {
+        val candidatePaths =
+            (journalEntriesByPath.keys + remoteReconcileState.candidatePaths).toSortedSet()
+        val reconcileInputs =
+            loadIncrementalReconcileInputs(
+                runtime = runtime,
+                candidatePaths = candidatePaths,
+                journalEntriesByPath = journalEntriesByPath,
+                remoteReconcileState = remoteReconcileState,
+                remoteIndexStore = remoteIndexStore,
+                fileBridgeScope = fileBridgeScope,
+                layout = layout,
+            )
+        return LoadedS3PlanningSnapshot.ReconcileIncremental(
+            protocolState = protocolState,
+            journalEntries = journalEntries,
+            journalEntriesByPath = journalEntriesByPath,
+            remoteReconcileState = remoteReconcileState,
+            candidatePaths = candidatePaths,
+            reconcileInputs = reconcileInputs,
+        )
+    }
+
+    private suspend fun resolveIncrementalLocalChanges(
+        layout: com.lomo.data.sync.SyncDirectoryLayout,
+        mode: S3LocalSyncMode,
+        fileBridgeScope: S3SyncFileBridgeScope,
+    ): S3EffectiveLocalChangeSet {
+        val effectiveLocalChanges =
+            resolveEffectiveLocalChangeSet(
+                journalEntries = localChangeJournalStore.read(),
+                layout = layout,
+                mode = mode,
+                fileBridgeScope = fileBridgeScope,
+                metadataDao = runtime.metadataDao,
+            )
+        if (effectiveLocalChanges.stalePersistedIds.isNotEmpty()) {
+            localChangeJournalStore.remove(effectiveLocalChanges.stalePersistedIds)
+        }
+        return effectiveLocalChanges
+    }
+}
+
+private sealed interface LoadedS3PlanningSnapshot {
+    val localFiles: Map<String, LocalS3File>
+    val remoteFiles: Map<String, RemoteS3File>
+    val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>
+    val protocolState: S3SyncProtocolState?
+
+    data class Full(
+        override val localFiles: Map<String, LocalS3File>,
+        override val remoteFiles: Map<String, RemoteS3File>,
+        override val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+        override val protocolState: S3SyncProtocolState?,
+        val fullScanEpoch: Long,
+    ) : LoadedS3PlanningSnapshot
+
+    data class LocalOnlyIncremental(
+        override val protocolState: S3SyncProtocolState,
+        val journalEntries: Map<String, S3LocalChangeJournalEntry>,
+        val initialPreparation: S3IncrementalPreparation,
+    ) : LoadedS3PlanningSnapshot {
+        override val localFiles: Map<String, LocalS3File> = initialPreparation.localFiles
+        override val remoteFiles: Map<String, RemoteS3File> = initialPreparation.remoteFiles
+        override val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity> =
+            initialPreparation.metadataByPath
+    }
+
+    data class ReconcileIncremental(
+        override val protocolState: S3SyncProtocolState,
+        val journalEntries: Map<String, S3LocalChangeJournalEntry>,
+        val journalEntriesByPath: Map<String, S3LocalChangeJournalEntry>,
+        val remoteReconcileState: PreparedRemoteReconcile,
+        val candidatePaths: Set<String>,
+        val reconcileInputs: IncrementalReconcileInputs,
+    ) : LoadedS3PlanningSnapshot {
+        override val localFiles: Map<String, LocalS3File> = reconcileInputs.localFiles
+        override val remoteFiles: Map<String, RemoteS3File> = reconcileInputs.remoteFiles
+        override val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity> =
+            reconcileInputs.plannerMetadataByPath
+    }
+}
+
+private data class S3SyncLifecycleSnapshot(
+    val client: com.lomo.data.s3.LomoS3Client,
+    val loaded: LoadedS3PlanningSnapshot,
+    val localFiles: Map<String, LocalS3File> = loaded.localFiles,
+    val remoteFiles: Map<String, RemoteS3File> = loaded.remoteFiles,
+    val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity> = loaded.metadataByPath,
+)
+
+private data class S3ConflictMaterialization(
+    val verified: VerifiedPreparedS3Sync,
+    val conflictSet: com.lomo.domain.model.SyncConflictSet?,
+    val reviewSession: com.lomo.domain.model.SyncReviewSession?,
+)
+
+private data class S3CommittedSync(
+    val result: S3SyncResult,
+    val execution: S3ActionExecutionResult,
 )
 
 private suspend fun loadFullSyncSnapshot(
@@ -742,8 +1052,6 @@ private suspend fun verifyDestructiveCandidates(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     verificationGate: S3PreparedActionVerificationGate,
-    encodingSupport: S3SyncEncodingSupport,
-    actionConcurrency: Int,
 ): VerifiedPreparedS3Sync {
     val verified =
         verificationGate.verify(
@@ -754,35 +1062,9 @@ private suspend fun verifyDestructiveCandidates(
             fileBridgeScope = fileBridgeScope,
             mode = mode,
         )
-    val conflictSet = verified.prepared.conflictSet
-    val conflictActions =
-        verified.prepared.plan.actions.filter { action ->
-            action.direction == S3SyncDirection.CONFLICT
-        }
-    if (conflictSet != null || conflictActions.isEmpty()) {
-        return verified
-    }
-    val rebuiltConflictSet =
-        buildS3ConflictSet(
-            actions = conflictActions,
-            client = client,
-            layout = layout,
-            config = config,
-            remoteFiles = verified.prepared.remoteFiles,
-            fileBridgeScope = fileBridgeScope,
-            mode = mode,
-            encodingSupport = encodingSupport,
-            actionConcurrency = actionConcurrency,
-            sessionKind =
-                determineS3ConflictSessionKind(
-                    conflictActions = conflictActions,
-                    metadataByPath = verified.prepared.metadataByPath,
-                ),
-        )
     return verified.copy(
         prepared =
             verified.prepared.copy(
-                conflictSet = rebuiltConflictSet,
                 normalActions =
                     verified.prepared.plan.actions.filter { action ->
                         action.direction != S3SyncDirection.CONFLICT
@@ -816,6 +1098,7 @@ private suspend fun reconcileRemoteIndexAfterSyncIfNeeded(
     prepared: PreparedS3Sync,
     execution: S3ActionExecutionResult,
     result: S3SyncResult,
+    hasMaterializedConflict: Boolean,
     now: Long,
 ) {
     commitIncrementalS3StateIfNeeded(
@@ -826,20 +1109,17 @@ private suspend fun reconcileRemoteIndexAfterSyncIfNeeded(
         prepared = prepared,
         execution = execution,
         result = result,
+        hasMaterializedConflict = hasMaterializedConflict,
         now = now,
     )
 }
 
-private suspend fun <T> Semaphore.withWeightedPermit(
-    permits: Int,
-    maxPermits: Int,
-    block: suspend () -> T,
-): T {
-    val acquiredPermits = permits.coerceIn(1, maxPermits.coercePositiveConcurrency())
-    repeat(acquiredPermits) { acquire() }
-    return try {
-        block()
-    } finally {
-        repeat(acquiredPermits) { release() }
-    }
-}
+private fun List<S3SyncAction>.toRemoteSyncActionTelemetry(): RemoteSyncActionTelemetry =
+    RemoteSyncActionTelemetry(
+        total = size,
+        upload = count { action -> action.direction == S3SyncDirection.UPLOAD },
+        download = count { action -> action.direction == S3SyncDirection.DOWNLOAD },
+        deleteLocal = count { action -> action.direction == S3SyncDirection.DELETE_LOCAL },
+        deleteRemote = count { action -> action.direction == S3SyncDirection.DELETE_REMOTE },
+        conflict = count { action -> action.direction == S3SyncDirection.CONFLICT },
+    )

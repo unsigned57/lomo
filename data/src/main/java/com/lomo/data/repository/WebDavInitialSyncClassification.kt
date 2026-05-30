@@ -152,7 +152,7 @@ private suspend fun resolveDownloadedOverlapDecision(
     if (!isWebDavMemoPath(path, layout)) {
         return WebDavInitialOverlapDecision.CONFLICT
     }
-    val remoteBytes = runNonFatalCatching { client.get(path).bytes }.getOrNull()
+    val remoteBytes = runNonFatalCatching { client.getSmallFile(path).bytes }.getOrNull()
     if (remoteBytes == null) {
         return if (isWebDavMemoPath(path, layout)) {
             WebDavInitialOverlapDecision.CONFLICT

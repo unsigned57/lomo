@@ -246,7 +246,7 @@ private suspend fun resolveMemoContentFallback(
     val remoteBytes =
         remoteBytesCache.getOrPut(path) {
             runNonFatalCatching {
-                val payload = client.getObject(remote.remotePath)
+                val payload = client.getSmallObject(remote.remotePath)
                 encodingSupport.decodeContent(payload.bytes, config)
             }.getOrNull()
         } ?: return InitialOverlapDecision.CONFLICT

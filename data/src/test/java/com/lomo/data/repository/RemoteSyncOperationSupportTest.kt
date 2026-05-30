@@ -21,7 +21,6 @@ package com.lomo.data.repository
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -43,8 +42,8 @@ import io.kotest.matchers.shouldBe
  * - Must-not-happen: invariants are never violated for RemoteSyncOperationSupportTest.
  * - Behavior focus: sync guard short-circuiting and pending-conflict restore/clear helpers should provide one
  *   reusable shell for Git/WebDAV/S3 operation repositories.
- * - Observable outcomes: in-progress short-circuit result, restored pending conflict result, and success-only
- *   conflict-store clearing.
+ * - Observable outcomes: in-progress short-circuit result, restored pending conflict result, failed restore
+ *   result without descriptor clearing, and success-only conflict-store clearing.
  * - TDD proof: Fails before the fix because the shared operation helper layer does not exist yet.
  * - Excludes: executor internals, transport behavior, and UI rendering.
  */
@@ -53,6 +52,14 @@ class RemoteSyncOperationSupportTest : DataFunSpec() {
         test("sync execution gate short-circuits while an operation is already running") { `sync execution gate short-circuits while an operation is already running`() }
 
         test("restorePendingConflict returns mapped result and updates state") { `restorePendingConflict returns mapped result and updates state`() }
+
+        test("restorePendingConflict clears invalidated descriptor and returns rebuild result") {
+            `restorePendingConflict clears invalidated descriptor and returns rebuild result`()
+        }
+
+        test("restorePendingConflict surfaces failed restore without clearing descriptor") {
+            `restorePendingConflict surfaces failed restore without clearing descriptor`()
+        }
 
         test("clearPendingConflictOnSuccess clears only successful results") { `clearPendingConflictOnSuccess clears only successful results`() }
     }
@@ -100,21 +107,96 @@ class RemoteSyncOperationSupportTest : DataFunSpec() {
                             ),
                         ),
                     timestamp = 1L,
-                    sessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
                 )
             var restored: SyncConflictSet? = null
-            coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns pending
+            coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns pending.toPendingDescriptor()
 
             val result =
                 restorePendingConflict(
                     pendingConflictStore = pendingConflictStore,
                     backendType = SyncBackendType.S3,
+                    restorer = { descriptor -> PendingSyncRestoreResult.Restored(pending.copy(timestamp = descriptor.timestamp)) },
                     onRestored = { restored = it },
                     asResult = { S3SyncResult.Conflict("Pending conflicts remain", it) },
+                    asInvalidatedResult = { S3SyncResult.Error("Pending conflicts require rebuild: $it") },
+                    asFailedResult = { S3SyncResult.Error("Pending conflicts restore failed: ${it.category}") },
                 )
 
             restored shouldBe pending
             result shouldBe S3SyncResult.Conflict("Pending conflicts remain", pending)
+        }
+
+    private fun `restorePendingConflict clears invalidated descriptor and returns rebuild result`() =
+        runTest {
+            val pendingConflictStore: PendingSyncConflictStore = mockk(relaxed = true)
+            val descriptor =
+                SyncConflictSet(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "lomo/memo/stale.md",
+                                localContent = "old local",
+                                remoteContent = "old remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 2L,
+                ).toPendingDescriptor()
+            coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns descriptor
+
+            val result =
+                restorePendingConflict(
+                    pendingConflictStore = pendingConflictStore,
+                    backendType = SyncBackendType.S3,
+                    restorer = { PendingSyncRestoreResult.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE) },
+                    onRestored = { error("invalid pending sessions must not be exposed") },
+                    asResult = { S3SyncResult.Conflict("Pending conflicts remain", it) },
+                    asInvalidatedResult = { S3SyncResult.Error("Pending conflicts require rebuild: $it") },
+                    asFailedResult = { S3SyncResult.Error("Pending conflicts restore failed: ${it.category}") },
+                )
+
+            result shouldBe S3SyncResult.Error("Pending conflicts require rebuild: STALE_REMOTE")
+            coVerify(exactly = 1) { pendingConflictStore.clear(SyncBackendType.S3) }
+        }
+
+    private fun `restorePendingConflict surfaces failed restore without clearing descriptor`() =
+        runTest {
+            val pendingConflictStore: PendingSyncConflictStore = mockk(relaxed = true)
+            val descriptor =
+                SyncConflictSet(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "lomo/memo/io.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 3L,
+                ).toPendingDescriptor()
+            val restoreError =
+                PendingSyncRestoreError(
+                    category = PendingSyncRestoreErrorCategory.LOCAL_IO_FAILED,
+                    message = "Cannot read local descriptor",
+                )
+            coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns descriptor
+
+            val result =
+                restorePendingConflict(
+                    pendingConflictStore = pendingConflictStore,
+                    backendType = SyncBackendType.S3,
+                    restorer = { PendingSyncRestoreResult.Failed(restoreError) },
+                    onRestored = { error("failed pending sessions must not be exposed") },
+                    asResult = { S3SyncResult.Conflict("Pending conflicts remain", it) },
+                    asInvalidatedResult = { S3SyncResult.Error("Pending conflicts require rebuild: $it") },
+                    asFailedResult = { S3SyncResult.Error("Pending conflicts restore failed: ${it.category}") },
+                )
+
+            result shouldBe S3SyncResult.Error("Pending conflicts restore failed: LOCAL_IO_FAILED")
+            coVerify(exactly = 0) { pendingConflictStore.clear(SyncBackendType.S3) }
         }
 
     private fun `clearPendingConflictOnSuccess clears only successful results`() =

@@ -6,6 +6,27 @@ import java.util.Locale
 
 internal fun String.matchesLegacyFolder(folder: String): Boolean = this == folder || startsWith("$folder/")
 
+@JvmInline
+internal value class VaultRootPath private constructor(
+    val value: String,
+) {
+    override fun toString(): String = value
+
+    companion object {
+        fun from(path: String): VaultRootPath? {
+            val normalized = path.trim()
+            if (!normalized.hasValidRelativePathShape()) {
+                return null
+            }
+            val segments = normalized.split('/')
+            if (!segments.hasValidRelativePathSegments()) {
+                return null
+            }
+            return VaultRootPath(segments.joinToString("/"))
+        }
+    }
+}
+
 internal fun joinRelativePath(
     base: String?,
     remainder: String,
@@ -16,11 +37,7 @@ internal fun joinRelativePath(
     ).joinToString("/")
 
 internal fun sanitizeRelativePath(path: String): String? =
-    path
-        .replace('\\', '/')
-        .trim()
-        .trim('/')
-        .takeIf(String::isNotBlank)
+    VaultRootPath.from(path)?.value
 
 internal fun isLegacyManagedPath(
     path: String,

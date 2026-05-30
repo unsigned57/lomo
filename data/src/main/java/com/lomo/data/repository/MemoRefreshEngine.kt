@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
-import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.MemoRevisionOrigin
@@ -12,7 +11,7 @@ import timber.log.Timber
 
 class MemoRefreshEngine
 (
-        private val markdownStorageDataSource: MarkdownStorageDataSource,
+        private val workspaceReader: MemoWorkspaceReader,
         private val localFileStateDao: LocalFileStateDao,
         private val refreshPlanner: MemoRefreshPlanner,
         private val refreshParserWorker: MemoRefreshParserWorker,
@@ -45,27 +44,16 @@ class MemoRefreshEngine
                                 mainSyncMetadata.forEach { put(it.filename to false, it) }
                                 trashSyncMetadata.forEach { put(it.filename to true, it) }
                             }
-                        val mainFilesMetadata =
-                            markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
-                        val trashFilesMetadata =
-                            markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH)
-
                         val plan =
                             refreshPlanner.build(
                                 syncMetadataMap = syncMetadataMap,
-                                mainFilesMetadata = mainFilesMetadata,
-                                trashFilesMetadata = trashFilesMetadata,
-                            )
-
-                        val visibleStateResets =
-                            buildVisibleStateResets(
-                                syncMetadataMap = syncMetadataMap,
-                                mainFilesMetadata = mainFilesMetadata,
-                                trashFilesMetadata = trashFilesMetadata,
+                                mainFilesMetadata = workspaceReader.streamShardMetadata(MemoDirectoryType.MAIN),
+                                trashFilesMetadata = workspaceReader.streamShardMetadata(MemoDirectoryType.TRASH),
                                 refreshStartedAt = refreshStartedAt,
                             )
-                        if (visibleStateResets.isNotEmpty()) {
-                            localFileStateDao.upsertAll(visibleStateResets)
+
+                        if (plan.visibleStateResets.isNotEmpty()) {
+                            localFileStateDao.upsertAll(plan.visibleStateResets)
                         }
 
                         val parseResult =
@@ -102,28 +90,6 @@ class MemoRefreshEngine
                     Timber.e(error, "Error during refresh")
                     throw error
                 }
-            }
-        }
-
-        private fun buildVisibleStateResets(
-            syncMetadataMap: Map<Pair<String, Boolean>, LocalFileStateEntity>,
-            mainFilesMetadata: List<com.lomo.data.source.FileMetadataWithId>,
-            trashFilesMetadata: List<com.lomo.data.source.FileMetadataWithId>,
-            refreshStartedAt: Long,
-        ): List<LocalFileStateEntity> {
-            val visibleStates =
-                buildList {
-                    mainFilesMetadata.forEach { add(it to false) }
-                    trashFilesMetadata.forEach { add(it to true) }
-                }
-            return visibleStates.mapNotNull { (metadata, isTrash) ->
-                val existing = syncMetadataMap[metadata.filename to isTrash] ?: return@mapNotNull null
-                existing.copy(
-                    safUri = if (isTrash) existing.safUri else metadata.uriString ?: existing.safUri,
-                    missingSince = null,
-                    missingCount = 0,
-                    lastSeenAt = refreshStartedAt,
-                )
             }
         }
 
@@ -187,13 +153,8 @@ class MemoRefreshEngine
             targetFilename: String,
             origin: MemoRevisionOrigin,
         ) {
-            val metadata =
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
-            val content =
-                metadata?.let {
-                    markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
-                }
-            if (metadata == null || content == null) {
+            val file = workspaceReader.readShardFileContent(MemoDirectoryType.MAIN, targetFilename)
+            if (file == null) {
                 refreshDbApplier.apply(
                     parseResult = emptyParseResult(),
                     filesToDeleteInDb = setOf(targetFilename to false),
@@ -203,12 +164,6 @@ class MemoRefreshEngine
             }
 
             val refreshStartedAt = now()
-            val file =
-                com.lomo.data.source.FileContent(
-                    filename = targetFilename,
-                    content = content,
-                    lastModified = metadata.lastModified,
-                )
             val syncMetadataMap =
                 localFileStateDao.getByFilename(targetFilename, false)?.let { state ->
                     mapOf((targetFilename to false) to state)

@@ -86,7 +86,7 @@ class WebDavSyncOperationRepositoryImplTest : DataFunSpec() {
     private fun setUp() {
         MockKAnnotations.init(this)
         stateHolder = WebDavSyncStateHolder()
-        coEvery { pendingConflictStore.read(SyncBackendType.WEBDAV) } returns null
+        coEvery { pendingConflictStore.readDescriptor(SyncBackendType.WEBDAV) } returns null
         repository =
             WebDavSyncOperationRepositoryImpl(
                 syncExecutor = syncExecutor,
@@ -185,7 +185,8 @@ class WebDavSyncOperationRepositoryImplTest : DataFunSpec() {
                         ),
                     timestamp = 321L,
                 )
-            coEvery { pendingConflictStore.read(SyncBackendType.WEBDAV) } returns pending
+            coEvery { pendingConflictStore.readDescriptor(SyncBackendType.WEBDAV) } returns pending.toPendingDescriptor()
+            coEvery { syncExecutor.restorePendingConflict(any()) } returns PendingSyncRestoreResult.Restored(pending)
 
             val result = repository.sync()
 

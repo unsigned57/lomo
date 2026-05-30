@@ -47,7 +47,7 @@ internal fun parseMarkdownSemanticBlocks(
 ): List<MarkdownSemanticBlock> =
     nodes.flatMap { node -> parseSemanticBlock(node, content, references) }
 
-private fun parseSemanticBlock(
+internal fun parseSemanticBlock(
     node: ASTNode,
     content: String,
     references: Map<String, MarkdownLinkReference>,

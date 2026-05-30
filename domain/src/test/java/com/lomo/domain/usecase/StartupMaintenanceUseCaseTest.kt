@@ -21,13 +21,14 @@ import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.StorageArea
-import com.lomo.domain.model.SyncConflictResolution
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -35,11 +36,10 @@ import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeAppVersionRepository
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeSyncInboxRepository
-import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -59,7 +59,7 @@ import kotlinx.coroutines.test.runTest
  *   - Given slow image cache warmup, when deferred startup runs, then it processes sync inbox changes concurrently without blocking.
  *   - Given failing rebuild or image cache refresh, when deferred startup runs on version change, then it swallows failures best-effort and finishes.
  *   - Given generic sync inbox failures, when deferred startup runs, then it continues executing best-effort.
- *   - Given a sync inbox conflict, when deferred startup runs, then it rethrows the conflict for UI-level resolution.
+ *   - Given a sync inbox review, when deferred startup runs, then it leaves review resolution on the review route.
  * - Observable outcomes: call counts, state changes, version updates, thrown exceptions, and execution concurrency.
  * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: repository implementation internals, filesystem or network integration, and UI rendering.
@@ -79,10 +79,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -116,10 +116,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -168,21 +168,21 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                         return delegateInbox.sync(operation)
                     }
 
-                    override suspend fun resolveConflicts(
-                        resolution: SyncConflictResolution,
-                        conflictSet: SyncConflictSet,
+                    override suspend fun resolveReview(
+                        resolution: SyncReviewResolution,
+                        review: SyncReviewSession,
                     ): UnifiedSyncResult {
-                        return delegateInbox.resolveConflicts(resolution, conflictSet)
+                        return delegateInbox.resolveReview(resolution, review)
                     }
                 }
 
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -218,10 +218,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -276,10 +276,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
 
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -332,7 +332,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     }
                 }
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val delegatePolicy = FakeSyncPolicyRepository()
                 val syncPolicyRepository = object : SyncPolicyRepository {
                     override fun ensureCoreSyncActive() = delegatePolicy.ensureCoreSyncActive()
@@ -344,7 +344,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     }
                 }
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -380,10 +380,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
@@ -391,8 +391,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncInboxRepository = object : SyncInboxRepository {
                     override fun syncState() = delegateInbox.syncState()
                     override suspend fun ensureDirectoryStructure() = delegateInbox.ensureDirectoryStructure()
-                    override suspend fun resolveConflicts(resolution: SyncConflictResolution, conflictSet: SyncConflictSet) =
-                        delegateInbox.resolveConflicts(resolution, conflictSet)
+                    override suspend fun resolveReview(resolution: SyncReviewResolution, review: SyncReviewSession) =
+                        delegateInbox.resolveReview(resolution, review)
 
                     override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult {
                         throw IllegalStateException("inbox failed")
@@ -424,45 +424,42 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("runDeferredStartupTasks rethrows sync inbox conflicts for UI handling") {
+        test("runDeferredStartupTasks treats sync inbox review as user action instead of conflict failure") {
             runTest {
-                val conflicts =
-                    SyncConflictSet(
+                val review =
+                    SyncReviewSession(
                         source = SyncBackendType.INBOX,
-                        files =
+                        items =
                             listOf(
-                                SyncConflictFile(
+                                SyncReviewItem(
                                     relativePath = "inbox/2026_04_13.md",
                                     localContent = "local",
-                                    remoteContent = "remote",
+                                    incomingContent = "incoming",
                                     isBinary = false,
                                 ),
                             ),
                         timestamp = 123L,
+                        kind = SyncReviewSessionKind.SYNC_INBOX_IMPORT_REVIEW,
                     )
-                val exception = SyncConflictException(conflicts)
-
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
                 val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
-                val memoRepository = FakeMemoRepository()
+                val memoRepository = FakeMemoStore()
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
-                    memoRepository = memoRepository,
+                    memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
                     syncProviderRegistry = SyncProviderRegistry(emptyList()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
-                val delegateInbox = FakeSyncInboxRepository()
-                val syncInboxRepository = object : SyncInboxRepository {
-                    override fun syncState() = delegateInbox.syncState()
-                    override suspend fun ensureDirectoryStructure() = delegateInbox.ensureDirectoryStructure()
-                    override suspend fun resolveConflicts(resolution: SyncConflictResolution, conflictSet: SyncConflictSet) =
-                        delegateInbox.resolveConflicts(resolution, conflictSet)
-
-                    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult {
-                        throw exception
+                val syncInboxRepository =
+                    FakeSyncInboxRepository().apply {
+                        nextSyncResult =
+                            UnifiedSyncResult.Review(
+                                provider = SyncBackendType.INBOX,
+                                message = "Sync inbox review required",
+                                review = review,
+                            )
                     }
-                }
                 val preferencesRepository = FakePreferencesRepository().apply {
                     setSyncInboxPreferenceEnabled(true)
                 }
@@ -481,13 +478,13 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     syncInboxRepository = syncInboxRepository,
                 )
 
-                val thrown = shouldThrow<SyncConflictException> {
-                    useCase.runDeferredStartupTasks(rootDir = "/workspace", currentVersion = "0.9.1")
-                }
+                useCase.runDeferredStartupTasks(rootDir = "/workspace", currentVersion = "0.9.1")
 
-                thrown shouldBe exception
+                syncInboxRepository.syncRequests shouldBe listOf(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
                 mediaRepository.refreshImageLocationsCallCount shouldBe 1
+                appVersionRepository.updatedVersions.size shouldBe 0
             }
         }
+
     }
 }

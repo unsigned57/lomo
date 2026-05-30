@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.lomo.ui.R
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,12 +21,27 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: InputSheet long-form mode entry and expanded preview affordance.
- * - Behavior focus: compact mode should expose long-form entry as a toolbar icon, expanded mode should swap to a collapse icon, placeholder text should disappear once the editor is expanded, and expanded mode should offer edit/preview switching for rendered Markdown inspection.
- * - Observable outcomes: expand/collapse content descriptions in the toolbar, placeholder visibility only in compact mode, visible edit/preview labels in expanded mode, and rendered markdown text when preview is selected.
- * - Red phase: Fails before the fix because expanded mode still renders a top-bar "long-form" title even though the product contract now wants only the edit/preview switch plus collapse affordance; the companion source contract test locks that removal.
- * - Excludes: animation curve smoothness, IME behavior, and memo submit persistence.
+ * - Owning layer: ui-components input/editor surface.
+ * - Priority tier: P1.
+ * - Capability: compact mode exposes long-form entry as a toolbar icon, expanded mode swaps to
+ *   collapse, removes placeholder text, and offers edit/preview switching for Markdown inspection.
+ *
+ * Scenarios:
+ * - Given compact input, when expanded, then the toolbar affordance changes and placeholder text is hidden.
+ * - Given expanded input, when preview is selected, then rendered Markdown content is visible.
+ * - Given preview is already selected, when preview is tapped again, then the expanded sheet collapses.
+ *
+ * Observable outcomes:
+ * - Expand/collapse content descriptions, placeholder visibility, edit/preview labels, and rendered Markdown text.
+ *
+ * TDD proof:
+ * - RED: Fails before the long-form UI repair because expanded mode still renders a top-bar
+ *   "long-form" title instead of only the edit/preview switch plus collapse affordance.
+ *
+ * Excludes:
+ * - Animation curve smoothness, IME behavior, and memo submit persistence.
  */
 /*
  * Test Change Justification:
@@ -52,19 +68,18 @@ class InputSheetLongFormModeUiTest {
             MaterialTheme {
                 InputSheet(
                     state =
-                        InputSheetState(
+                        inputSheetTestState(
                             inputValue = inputValue.value,
                             isExpanded = isExpanded.value,
                             hints = persistentListOf(hint),
                         ),
                     callbacks =
-                        InputSheetCallbacks(
+                        inputSheetTestCallbacks(
                             onInputValueChange = { inputValue.value = it },
                             onDismiss = {},
                             onToggleExpanded = { isExpanded.value = !isExpanded.value },
                             onCollapse = { isExpanded.value = false },
                             onSubmit = {},
-                            onImageClick = {},
                         ),
                 )
             }
@@ -97,13 +112,13 @@ class InputSheetLongFormModeUiTest {
             MaterialTheme {
                 InputSheet(
                     state =
-                        InputSheetState(
+                        inputSheetTestState(
                             inputValue = inputValue.value,
                             isExpanded = isExpanded.value,
                             displayMode = displayMode.value,
                         ),
                     callbacks =
-                        InputSheetCallbacks(
+                        inputSheetTestCallbacks(
                             onInputValueChange = { inputValue.value = it },
                             onDismiss = {},
                             onToggleExpanded = { isExpanded.value = !isExpanded.value },
@@ -113,7 +128,6 @@ class InputSheetLongFormModeUiTest {
                             },
                             onDisplayModeChange = { displayMode.value = it },
                             onSubmit = {},
-                            onImageClick = {},
                         ),
                 )
             }
@@ -153,13 +167,13 @@ class InputSheetLongFormModeUiTest {
             MaterialTheme {
                 InputSheet(
                     state =
-                        InputSheetState(
+                        inputSheetTestState(
                             inputValue = inputValue.value,
                             isExpanded = isExpanded.value,
                             displayMode = displayMode.value,
                         ),
                     callbacks =
-                        InputSheetCallbacks(
+                        inputSheetTestCallbacks(
                             onInputValueChange = { inputValue.value = it },
                             onDismiss = {},
                             onToggleExpanded = { isExpanded.value = !isExpanded.value },
@@ -169,7 +183,6 @@ class InputSheetLongFormModeUiTest {
                             },
                             onDisplayModeChange = { displayMode.value = it },
                             onSubmit = {},
-                            onImageClick = {},
                         ),
                 )
             }
@@ -192,3 +205,40 @@ class InputSheetLongFormModeUiTest {
     }
 
 }
+
+private fun inputSheetTestState(
+    inputValue: TextFieldValue,
+    isExpanded: Boolean = false,
+    displayMode: InputEditorDisplayMode = InputEditorDisplayMode.Edit,
+    hints: ImmutableList<String> = persistentListOf(),
+): InputSheetState =
+    InputSheetState(
+        surface =
+            InputEditorSurfaceState(
+                inputValue = inputValue,
+                isExpanded = isExpanded,
+                displayMode = displayMode,
+                hints = hints,
+                capabilities = InputEditorCapabilities(toolbarTools = persistentListOf()),
+            ),
+    )
+
+private fun inputSheetTestCallbacks(
+    onInputValueChange: (TextFieldValue) -> Unit,
+    onDismiss: () -> Unit,
+    onToggleExpanded: () -> Unit,
+    onCollapse: () -> Unit,
+    onDisplayModeChange: (InputEditorDisplayMode) -> Unit = {},
+    onSubmit: (String) -> Unit,
+): InputSheetCallbacks =
+    InputSheetCallbacks(
+        onInputValueChange = onInputValueChange,
+        onDismiss = onDismiss,
+        onToggleExpanded = onToggleExpanded,
+        onCollapse = onCollapse,
+        onDisplayModeChange = onDisplayModeChange,
+        onConsumeBackPress = { false },
+        onSubmit = onSubmit,
+        commands = InputEditorCommandHandler { },
+        onToolbarOrderChanged = {},
+    )

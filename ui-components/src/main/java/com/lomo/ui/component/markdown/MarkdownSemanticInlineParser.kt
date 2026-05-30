@@ -66,7 +66,9 @@ private fun parseSemanticInline(
         -> listOf(node.parseSemanticLink(content, references))
 
         MarkdownElementTypes.IMAGE -> listOf(node.parseSemanticImage(content, references))
-        MarkdownElementTypes.AUTOLINK -> listOf(node.parseSemanticAutolink(content))
+        MarkdownElementTypes.AUTOLINK,
+        GFMTokenTypes.GFM_AUTOLINK,
+        -> listOf(node.parseSemanticAutolink(content))
         MarkdownElementTypes.LINK_TEXT,
         MarkdownElementTypes.LINK_LABEL,
         -> parseSemanticInlines(node.children, content, references)
@@ -192,12 +194,11 @@ private fun ASTNode.parseSemanticImage(
 }
 
 private fun ASTNode.parseSemanticAutolink(content: String): MarkdownSemanticInline.Link {
-    val destination =
-        children
-            .firstOrNull { it.type == MarkdownTokenTypes.AUTOLINK || it.type == GFMTokenTypes.GFM_AUTOLINK }
-            ?.extractNodeText(content)
-            ?.trim()
-            .orEmpty()
+    val rawText = children
+        .firstOrNull { it.type == MarkdownTokenTypes.AUTOLINK || it.type == GFMTokenTypes.GFM_AUTOLINK }
+        ?.extractNodeText(content)
+        ?: extractNodeText(content)
+    val destination = rawText.trim().removeSurrounding("<", ">")
     return MarkdownSemanticInline.Link(
         destination = destination,
         title = null,

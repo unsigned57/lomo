@@ -5,6 +5,9 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import java.io.IOException
 import java.util.ArrayDeque
 
@@ -132,6 +135,28 @@ internal fun safQueryChildDocumentsWithIdsRecursive(
     }
     return results
 }
+
+internal fun safStreamChildDocumentsWithIdsRecursive(
+    context: Context,
+    rootUri: Uri,
+    baseDocId: String,
+): Flow<FileMetadataWithId> =
+    flow {
+        val queue = ArrayDeque<Pair<String, String>>().apply { add(baseDocId to "") }
+        while (queue.isNotEmpty()) {
+            val (parentDocId, prefix) = queue.removeFirst()
+            val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+            context.contentResolver.query(childUri, METADATA_WITH_ID_PROJECTION, null, null, null)?.use { cursor ->
+                val idx = MetadataColumnIndexes.from(cursor)
+                while (cursor.moveToNext()) {
+                    val row = MetadataRow.read(cursor, idx) ?: continue
+                    processMetadataWithIdRow(row, rootUri, prefix, queue)?.let { metadata ->
+                        emit(metadata)
+                    }
+                }
+            }
+        }
+    }.flowOn(SAF_IO_DISPATCHER)
 
 private fun drainMetadataCursor(
     cursor: Cursor,

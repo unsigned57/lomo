@@ -153,11 +153,13 @@ class S3SyncExecutorTest : DataFunSpec() {
                 encodingSupport = S3SyncEncodingSupport(),
                 fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
                 actionApplier = S3SyncActionApplier(runtime, S3SyncEncodingSupport(), S3SyncFileBridge(runtime, S3SyncEncodingSupport())),
+                lifecycleRunner = testRemoteSyncLifecycleRunner(),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                 remoteIndexStore = DisabledS3RemoteIndexStore,
                 remoteShardStateStore = DisabledS3RemoteShardStateStore,
-                pendingConflictStore = DisabledPendingSyncConflictStore,
+                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                pendingReviewStore = InMemoryPendingSyncReviewStore(),
             )
     }
 

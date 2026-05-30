@@ -51,7 +51,11 @@ sealed interface UnifiedSyncState {
     data class ConflictDetected(
         val provider: SyncBackendType,
         val conflicts: SyncConflictSet,
-        val isPreview: Boolean = false,
+    ) : UnifiedSyncState
+
+    data class ReviewRequired(
+        val provider: SyncBackendType,
+        val review: SyncReviewSession,
     ) : UnifiedSyncState
 }
 
@@ -77,5 +81,11 @@ sealed interface UnifiedSyncResult {
         override val provider: SyncBackendType,
         val message: String,
         val conflicts: SyncConflictSet,
+    ) : UnifiedSyncResult
+
+    data class Review(
+        override val provider: SyncBackendType,
+        val message: String,
+        val review: SyncReviewSession,
     ) : UnifiedSyncResult
 }

@@ -21,6 +21,7 @@ internal fun MDText(
     onTapFeedback: (() -> Unit)? = null,
     onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     if (text.isEmpty()) return
 
@@ -43,6 +44,7 @@ internal fun MDText(
         onTapFeedback = onTapFeedback,
         onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
+        onLongClick = onLongClick,
     )
 }
 

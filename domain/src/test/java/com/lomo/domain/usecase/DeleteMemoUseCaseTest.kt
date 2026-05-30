@@ -37,7 +37,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
-import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 
@@ -49,8 +49,8 @@ import kotlinx.coroutines.test.runTest
  * - Excludes: repository deletion internals and trash/file synchronization behavior.
  */
 class DeleteMemoUseCaseTest : DomainFunSpec() {
-    private val repository = FakeMemoRepository()
-    private val useCase = DeleteMemoUseCase(repository)
+    private val repository = FakeMemoStore()
+    private val useCase = DeleteMemoUseCase(com.lomo.domain.testing.fakes.FakeMemoMutationRepository(repository))
     init {
         test("invoke delegates delete to maintenance use case") {
             runTest {

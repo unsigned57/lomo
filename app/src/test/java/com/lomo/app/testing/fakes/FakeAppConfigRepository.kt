@@ -1,5 +1,7 @@
 package com.lomo.app.testing.fakes
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
@@ -30,6 +32,9 @@ open class FakeAppConfigRepository : AppConfigRepository {
     private val dateFormat = MutableStateFlow(PreferenceDefaults.DATE_FORMAT)
     private val timeFormat = MutableStateFlow(PreferenceDefaults.TIME_FORMAT)
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
+    private val colorHistory = MutableStateFlow<List<Int>>(emptyList())
+    private val fontPreference = MutableStateFlow<FontPreference>(FontPreference.default())
     private val storageFilenameFormat = MutableStateFlow(PreferenceDefaults.STORAGE_FILENAME_FORMAT)
     private val storageTimestampFormat = MutableStateFlow(PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT)
 
@@ -87,9 +92,22 @@ open class FakeAppConfigRepository : AppConfigRepository {
         memoActionOrders.value = memoActionOrders.value + (scope to order)
     }
 
+    private val deferredLocations: Map<StorageArea, MutableStateFlow<kotlinx.coroutines.CompletableDeferred<StorageLocation?>?>> =
+        StorageArea.values().associateWith { MutableStateFlow<kotlinx.coroutines.CompletableDeferred<StorageLocation?>?>(null) }
+
+    fun setLocationDeferred(
+        area: StorageArea,
+        deferred: kotlinx.coroutines.CompletableDeferred<StorageLocation?>,
+    ) {
+        deferredLocations.getValue(area).value = deferred
+    }
+
     override fun observeLocation(area: StorageArea): Flow<StorageLocation?> = locations.getValue(area).asStateFlow()
 
-    override suspend fun currentLocation(area: StorageArea): StorageLocation? = locations.getValue(area).value
+    override suspend fun currentLocation(area: StorageArea): StorageLocation? {
+        deferredLocations.getValue(area).value?.let { return it.await() }
+        return locations.getValue(area).value
+    }
 
     override suspend fun applyLocation(update: StorageAreaUpdate) {
         locations.getValue(update.area).value = update.location
@@ -113,6 +131,30 @@ open class FakeAppConfigRepository : AppConfigRepository {
 
     override suspend fun setThemeMode(mode: ThemeMode) {
         themeMode.value = mode
+    }
+
+    override fun getColorSource(): Flow<ColorSource> = colorSource.asStateFlow()
+
+    override suspend fun setColorSource(source: ColorSource) {
+        colorSource.value = source
+        if (source is ColorSource.CustomSeed) {
+            addColorToHistory(source.argb)
+        }
+    }
+
+    override fun getColorHistory(): Flow<List<Int>> = colorHistory.asStateFlow()
+
+    override suspend fun addColorToHistory(argb: Int) {
+        val current = colorHistory.value.toMutableList()
+        current.remove(argb)
+        current.add(0, argb)
+        colorHistory.value = current.take(8)
+    }
+
+    override fun getFontPreference(): Flow<FontPreference> = fontPreference.asStateFlow()
+
+    override suspend fun setFontPreference(preference: FontPreference) {
+        fontPreference.value = preference
     }
 
     override fun getStorageFilenameFormat(): Flow<String> = storageFilenameFormat.asStateFlow()
@@ -194,6 +236,10 @@ open class FakeAppConfigRepository : AppConfigRepository {
     }
 
     override fun isAppLockEnabled(): Flow<Boolean> = appLockEnabled.asStateFlow()
+
+    fun setAppLockEnabledNow(enabled: Boolean) {
+        appLockEnabled.value = enabled
+    }
 
     override suspend fun setAppLockEnabled(enabled: Boolean) {
         appLockEnabled.value = enabled

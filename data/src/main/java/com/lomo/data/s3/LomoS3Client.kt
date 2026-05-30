@@ -20,7 +20,6 @@ import aws.smithy.kotlin.runtime.http.engine.okhttp.OkHttpEngine
 import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.content.ByteStream
 import aws.smithy.kotlin.runtime.content.asByteStream
-import aws.smithy.kotlin.runtime.content.toByteArray
 import aws.smithy.kotlin.runtime.content.toInputStream
 import aws.smithy.kotlin.runtime.net.url.Url
 import aws.smithy.kotlin.runtime.time.epochMilliseconds
@@ -29,7 +28,9 @@ import com.lomo.data.repository.SyncPerformanceProfile
 import com.lomo.data.repository.S3ResolvedConfig
 import com.lomo.data.repository.coercePositiveConcurrency
 import com.lomo.domain.model.S3PathStyle
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -45,7 +46,7 @@ data class S3RemoteObject(
     val metadata: Map<String, String>,
 )
 
-data class S3RemoteObjectPayload(
+data class S3SmallObjectPayload(
     val key: String,
     val eTag: String?,
     val lastModified: Long?,
@@ -65,14 +66,13 @@ data class S3RemoteListPage(
 internal const val S3_MULTIPART_UPLOAD_THRESHOLD_BYTES: Long = 8L * 1024L * 1024L
 internal const val S3_MULTIPART_UPLOAD_PART_SIZE_BYTES: Long = 8L * 1024L * 1024L
 internal const val S3_MULTIPART_PART_CONCURRENCY = 4
+const val S3_SMALL_OBJECT_MAX_BYTES: Long = 256L * 1024L
 
 fun interface LomoS3ClientFactory {
     fun create(config: S3ResolvedConfig): LomoS3Client
 }
 
-interface LomoS3Client : AutoCloseable {
-    suspend fun verifyAccess(prefix: String)
-
+interface LomoS3ObjectReader {
     suspend fun getObjectMetadata(key: String): S3RemoteObject? = null
 
     suspend fun listPage(
@@ -99,25 +99,27 @@ interface LomoS3Client : AutoCloseable {
         maxKeys: Int? = null,
     ): List<S3RemoteObject>
 
-    suspend fun getObject(key: String): S3RemoteObjectPayload
-
     suspend fun getObjectToFile(
         key: String,
         destination: File,
-    ): S3RemoteObject {
-        val payload = getObject(key)
-        destination.parentFile?.mkdirs()
-        destination.writeBytes(payload.bytes)
-        return S3RemoteObject(
-            key = payload.key,
-            eTag = payload.eTag,
-            lastModified = payload.lastModified,
-            size = destination.length(),
-            metadata = payload.metadata,
-        )
-    }
+    ): S3RemoteObject
 
-    suspend fun putObject(
+    /*
+     * Behavior Contract:
+     * Small-object payload helpers are reserved for memo text, metadata probes, and focused tests.
+     * Remote object sync must use getObjectToFile/putObjectFile so large payloads never make
+     * ByteArray the primary transport contract.
+     */
+    suspend fun getSmallObject(key: String): S3SmallObjectPayload
+
+    suspend fun getSmallObject(
+        key: String,
+        maxBytes: Long,
+    ): S3SmallObjectPayload = getSmallObject(key)
+}
+
+interface LomoS3ObjectWriter {
+    suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -129,13 +131,7 @@ interface LomoS3Client : AutoCloseable {
         file: File,
         contentType: String,
         metadata: Map<String, String>,
-    ): S3PutObjectResult =
-        putObject(
-            key = key,
-            bytes = file.readBytes(),
-            contentType = contentType,
-            metadata = metadata,
-        )
+    ): S3PutObjectResult
 
     suspend fun deleteObject(key: String)
 
@@ -144,6 +140,10 @@ interface LomoS3Client : AutoCloseable {
             deleteObject(key)
         }
     }
+}
+
+interface LomoS3Client : LomoS3ObjectReader, LomoS3ObjectWriter, AutoCloseable {
+    suspend fun verifyAccess(prefix: String)
 }
 
 class AwsSdkS3ClientFactory
@@ -216,19 +216,29 @@ internal class AwsSdkS3Client(
         return objects
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+    override suspend fun getSmallObject(key: String): S3SmallObjectPayload =
+        getSmallObject(key, S3_SMALL_OBJECT_MAX_BYTES)
+
+    override suspend fun getSmallObject(
+        key: String,
+        maxBytes: Long,
+    ): S3SmallObjectPayload {
         val request =
             GetObjectRequest {
                 bucket = config.bucket
                 this.key = key
             }
         return client.getObject(request) { response ->
-            S3RemoteObjectPayload(
+            val contentLength = response.contentLength
+            if (contentLength != null && contentLength > maxBytes) {
+                throw IOException("S3 object exceeds small-object limit: key=$key bytes=$contentLength max=$maxBytes")
+            }
+            S3SmallObjectPayload(
                 key = key,
                 eTag = response.eTag,
                 lastModified = response.lastModified?.epochMilliseconds,
                 metadata = response.metadata.orEmpty(),
-                bytes = response.body?.toByteArray() ?: ByteArray(0),
+                bytes = response.body?.toBoundedByteArray(maxBytes) ?: ByteArray(0),
             )
         }
     }
@@ -316,7 +326,7 @@ internal class AwsSdkS3Client(
         )
     }
 
-    override suspend fun putObject(
+    override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
@@ -542,7 +552,29 @@ internal class AwsSdkS3Client(
     }
 }
 
+private fun ByteStream.toBoundedByteArray(maxBytes: Long): ByteArray {
+    val maxSize = maxBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    val output = ByteArrayOutputStream(minOf(maxSize, DEFAULT_SMALL_OBJECT_BUFFER_BYTES))
+    toInputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_SMALL_OBJECT_BUFFER_BYTES)
+        var total = 0
+        while (true) {
+            val read = input.read(buffer)
+            if (read == -1) {
+                break
+            }
+            total += read
+            if (total > maxSize) {
+                throw IOException("S3 object exceeds small-object limit: bytes=$total max=$maxBytes")
+            }
+            output.write(buffer, 0, read)
+        }
+    }
+    return output.toByteArray()
+}
+
 private const val S3_BULK_DELETE_BATCH_SIZE = 1000
+private const val DEFAULT_SMALL_OBJECT_BUFFER_BYTES = 8 * 1024
 
 private fun Throwable.isMissingObjectError(): Boolean {
     val diagnostic =

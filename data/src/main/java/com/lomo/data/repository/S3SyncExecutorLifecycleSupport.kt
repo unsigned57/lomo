@@ -7,8 +7,8 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewSession
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,7 +26,6 @@ internal suspend fun buildS3ConflictSet(
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
     actionConcurrency: Int = S3_ACTION_CONCURRENCY,
-    sessionKind: SyncConflictSessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
     lightweightPreview: Boolean = false,
 ): SyncConflictSet? {
     val concurrencyLimiter = Semaphore(actionConcurrency.coercePositiveConcurrency())
@@ -58,7 +57,7 @@ internal suspend fun buildS3ConflictSet(
                         val remoteContent =
                             runNonFatalCatching {
                                 val remotePath = remoteFiles[action.path]?.remotePath ?: return@withPermit null
-                                val payload = client.getObject(remotePath)
+                                val payload = client.getSmallObject(remotePath)
                                 String(
                                     encodingSupport.decodeContent(payload.bytes, config),
                                     StandardCharsets.UTF_8,
@@ -83,7 +82,6 @@ internal suspend fun buildS3ConflictSet(
                 source = SyncBackendType.S3,
                 files = files,
                 timestamp = System.currentTimeMillis(),
-                sessionKind = sessionKind,
             )
         }
 }
@@ -128,12 +126,13 @@ internal suspend fun commitIncrementalS3StateIfNeeded(
     prepared: PreparedS3Sync,
     execution: S3ActionExecutionResult,
     result: S3SyncResult,
+    hasMaterializedConflict: Boolean = false,
     now: Long,
 ) {
     if (!protocolStateStore.incrementalSyncEnabled || !localChangeJournalStore.incrementalSyncEnabled) {
         return
     }
-    if (prepared.conflictSet != null) {
+    if (hasMaterializedConflict) {
         recordConflictRemoteCandidatesIfNeeded(
             recentActivityTracker = recentActivityTracker,
             remoteIndexStore = remoteIndexStore,
@@ -252,6 +251,8 @@ private suspend fun recordConflictRemoteCandidatesIfNeeded(
 internal fun buildS3SyncResult(
     prepared: PreparedS3Sync,
     execution: S3ActionExecutionResult,
+    conflictSet: SyncConflictSet? = null,
+    reviewSession: SyncReviewSession? = null,
 ): S3SyncResult =
     when {
         execution.failedPaths.isNotEmpty() -> {
@@ -264,10 +265,16 @@ internal fun buildS3SyncResult(
             )
         }
 
-        prepared.conflictSet != null ->
+        reviewSession != null ->
+            S3SyncResult.Review(
+                message = "${reviewSession.items.size} file(s) require import review",
+                review = reviewSession,
+            )
+
+        conflictSet != null ->
             S3SyncResult.Conflict(
-                message = "${prepared.conflictSet.files.size} conflicting file(s) detected",
-                conflicts = prepared.conflictSet,
+                message = "${conflictSet.files.size} conflicting file(s) detected",
+                conflicts = conflictSet,
             )
 
         prepared.plan.actions.isEmpty() ->

@@ -240,7 +240,7 @@ internal class S3SyncFileBridgeScope(
 
             is S3LocalSyncMode.SafVaultRoot ->
                 resolveVaultRootPath(path, layout, mode)?.let { relativePath ->
-                    safTreeAccess.getFile(mode.rootUriString, relativePath)?.let { metadata ->
+                    safTreeAccess.getFile(mode.rootUriString, relativePath.value)?.let { metadata ->
                         LocalS3File(path = path, lastModified = metadata.lastModified, size = metadata.size)
                     }
                 }

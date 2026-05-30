@@ -2,9 +2,11 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -28,15 +30,28 @@ interface GitSyncConfigurationRepository {
     fun getSyncOnRefreshEnabled(): Flow<Boolean>
 }
 
-interface GitSyncConfigurationMutationRepository {
+interface GitSyncConnectionMutationRepository {
     suspend fun setGitSyncEnabled(enabled: Boolean)
 
     suspend fun setRemoteUrl(url: String)
+}
 
+interface GitSyncCredentialMutationRepository {
     suspend fun setToken(token: String)
 
     suspend fun getToken(): String?
 
+    suspend fun getTokenStatus(): StoredCredentialStatus =
+        if (getToken()?.isNotBlank() == true) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun isTokenConfigured(): Boolean = getTokenStatus().isConfigured
+}
+
+interface GitSyncAuthorMutationRepository {
     suspend fun setAuthorInfo(
         name: String,
         email: String,
@@ -45,13 +60,21 @@ interface GitSyncConfigurationMutationRepository {
     fun getAuthorName(): Flow<String>
 
     fun getAuthorEmail(): Flow<String>
+}
 
+interface GitSyncScheduleMutationRepository {
     suspend fun setAutoSyncEnabled(enabled: Boolean)
 
     suspend fun setAutoSyncInterval(interval: String)
 
     suspend fun setSyncOnRefreshEnabled(enabled: Boolean)
 }
+
+interface GitSyncConfigurationMutationRepository :
+    GitSyncConnectionMutationRepository,
+    GitSyncCredentialMutationRepository,
+    GitSyncAuthorMutationRepository,
+    GitSyncScheduleMutationRepository
 
 interface GitSyncOperationRepository {
     suspend fun initOrClone(): GitSyncResult

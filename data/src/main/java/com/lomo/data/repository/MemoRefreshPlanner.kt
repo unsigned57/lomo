@@ -2,65 +2,82 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.source.FileMetadataWithId
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 
 internal data class MemoRefreshPlan(
-    val discoveredMainStates: List<LocalFileStateEntity>,
     val mainFilesToUpdate: List<FileMetadataWithId>,
     val trashFilesToUpdate: List<FileMetadataWithId>,
+    val visibleStateResets: List<LocalFileStateEntity>,
     val filesToDeleteInDb: Set<Pair<String, Boolean>>,
 )
 
 object MemoRefreshPlanner {
-    internal fun build(
+    internal suspend fun build(
         syncMetadataMap: Map<Pair<String, Boolean>, LocalFileStateEntity>,
-        mainFilesMetadata: List<FileMetadataWithId>,
-        trashFilesMetadata: List<FileMetadataWithId>,
+        mainFilesMetadata: Flow<FileMetadataWithId>,
+        trashFilesMetadata: Flow<FileMetadataWithId>,
+        refreshStartedAt: Long,
     ): MemoRefreshPlan {
-        val discoveredMainStates =
-            mainFilesMetadata.mapNotNull { meta ->
-                val key = meta.filename to false
-                val existing = syncMetadataMap[key]
-                val safUri = meta.uriString ?: existing?.safUri
-                if (safUri == null && existing == null) {
-                    null
-                } else {
-                    LocalFileStateEntity(
-                        filename = meta.filename,
-                        isTrash = false,
-                        safUri = safUri,
-                        lastKnownModifiedTime = existing?.lastKnownModifiedTime ?: 0L,
-                    )
-                }
-            }
+        val mainFilesToUpdate = mutableListOf<FileMetadataWithId>()
+        val trashFilesToUpdate = mutableListOf<FileMetadataWithId>()
+        val visibleStateResets = mutableListOf<LocalFileStateEntity>()
+        val currentStateKeys = mutableSetOf<Pair<String, Boolean>>()
 
-        val mainFilesToUpdate =
-            mainFilesMetadata.filter { meta ->
-                val existing = syncMetadataMap[meta.filename to false]
-                existing == null || existing.lastKnownModifiedTime != meta.lastModified
-            }
+        mainFilesMetadata.collectRefreshMetadata(
+            isTrash = false,
+            syncMetadataMap = syncMetadataMap,
+            refreshStartedAt = refreshStartedAt,
+            currentStateKeys = currentStateKeys,
+            filesToUpdate = mainFilesToUpdate,
+            visibleStateResets = visibleStateResets,
+        )
+        trashFilesMetadata.collectRefreshMetadata(
+            isTrash = true,
+            syncMetadataMap = syncMetadataMap,
+            refreshStartedAt = refreshStartedAt,
+            currentStateKeys = currentStateKeys,
+            filesToUpdate = trashFilesToUpdate,
+            visibleStateResets = visibleStateResets,
+        )
 
-        val trashFilesToUpdate =
-            trashFilesMetadata.filter { meta ->
-                val existing = syncMetadataMap[meta.filename to true]
-                existing == null || existing.lastKnownModifiedTime != meta.lastModified
-            }
-
-        val currentMainStateKeys = mainFilesMetadata.map { it.filename to false }.toSet()
-        val currentTrashStateKeys = trashFilesMetadata.map { it.filename to true }.toSet()
         val filesToDeleteInDb =
             syncMetadataMap.keys.filterTo(mutableSetOf()) { key ->
-                if (key.second) {
-                    key !in currentTrashStateKeys
-                } else {
-                    key !in currentMainStateKeys
-                }
+                key !in currentStateKeys
             }
 
         return MemoRefreshPlan(
-            discoveredMainStates = discoveredMainStates,
             mainFilesToUpdate = mainFilesToUpdate,
             trashFilesToUpdate = trashFilesToUpdate,
+            visibleStateResets = visibleStateResets,
             filesToDeleteInDb = filesToDeleteInDb,
         )
+    }
+
+    private suspend fun Flow<FileMetadataWithId>.collectRefreshMetadata(
+        isTrash: Boolean,
+        syncMetadataMap: Map<Pair<String, Boolean>, LocalFileStateEntity>,
+        refreshStartedAt: Long,
+        currentStateKeys: MutableSet<Pair<String, Boolean>>,
+        filesToUpdate: MutableList<FileMetadataWithId>,
+        visibleStateResets: MutableList<LocalFileStateEntity>,
+    ) {
+        collect { metadata ->
+            val key = metadata.filename to isTrash
+            currentStateKeys += key
+            val existing = syncMetadataMap[key]
+            if (existing == null || existing.lastKnownModifiedTime != metadata.lastModified) {
+                filesToUpdate += metadata
+            }
+            if (existing != null) {
+                visibleStateResets +=
+                    existing.copy(
+                        safUri = if (isTrash) existing.safUri else metadata.uriString ?: existing.safUri,
+                        missingSince = null,
+                        missingCount = 0,
+                        lastSeenAt = refreshStartedAt,
+                    )
+            }
+        }
     }
 }

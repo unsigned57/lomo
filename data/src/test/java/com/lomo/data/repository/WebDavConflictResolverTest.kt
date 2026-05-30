@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MarkdownStorageDataSource
@@ -27,12 +9,18 @@ import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.data.webdav.WebDavEndpointResolver
-import com.lomo.data.webdav.WebDavRemoteFile
+import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
@@ -52,10 +40,26 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: WebDavConflictResolver
- * - Behavior focus: per-file conflict choice routing, not-configured short-circuiting, and error/result mapping after legacy capture cleanup.
- * - Observable outcomes: WebDavSyncResult type, state transitions, and local/remote side-effect targets.
- * - TDD proof: Fails before the fix because conflict resolution still depends on retired pre-sync capture work for KEEP_REMOTE memo writes.
- * - Excludes: WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: apply explicit WebDAV conflict-resolution choices while preserving conflicts that cannot be safely resolved.
+ *
+ * Scenarios:
+ * - Given KEEP_LOCAL, when resolution runs, then local content is uploaded.
+ * - Given KEEP_REMOTE for a memo or media file, when resolution runs, then remote content is written to the correct local store.
+ * - Given MERGE_TEXT can merge memo content, when resolution runs, then the merged memo is written locally and uploaded once.
+ * - Given MERGE_TEXT exceeds the text-merge budget, when resolution runs, then the conflict remains pending and no local write or upload occurs.
+ * - Given SKIP_FOR_NOW is chosen for a file, when other files are resolved, then skipped files remain pending for review.
+ * - Given configuration or resolver setup fails, when resolution runs, then the result is a provider-level WebDAV result.
+ *
+ * Observable outcomes:
+ * - WebDavSyncResult subtype, pending conflict store contents, state-holder value, local markdown/media writes, remote put/get calls, and memo refresh side effects.
+ *
+ * TDD proof:
+ * - RED: the MERGE_TEXT budget scenario returned WebDavSyncResult.Error("Unable to merge conflict...") instead of preserving a pending conflict.
+ *
+ * Excludes:
+ * - WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
  */
 class WebDavConflictResolverTest : DataFunSpec() {
     init {
@@ -73,6 +77,8 @@ class WebDavConflictResolverTest : DataFunSpec() {
 
         test("resolveConflicts MERGE_TEXT uploads and writes merged memo content") { `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() }
 
+        test("resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing or uploading") { `resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing or uploading`() }
+
         test("resolveConflicts returns NotConfigured when config is missing") { `resolveConflicts returns NotConfigured when config is missing`() }
 
         test("resolveConflicts keeps Success result when refresh fails") { `resolveConflicts keeps Success result when refresh fails`() }
@@ -80,6 +86,10 @@ class WebDavConflictResolverTest : DataFunSpec() {
         test("resolveConflicts maps resolver exception to WebDavSyncResult Error") { `resolveConflicts maps resolver exception to WebDavSyncResult Error`() }
 
         test("resolveConflicts keeps skipped webdav files pending and returns conflict result") { `resolveConflicts keeps skipped webdav files pending and returns conflict result`() }
+
+        test("resolveReview invalidates pending descriptor before applying choices") {
+            `resolveReview invalidates pending descriptor before applying choices`()
+        }
     }
 
 
@@ -160,7 +170,14 @@ class WebDavConflictResolverTest : DataFunSpec() {
                 stateHolder = stateHolder,
             )
         support = WebDavSyncRepositorySupport(runtime)
-        resolver = WebDavConflictResolver(runtime, support, fileBridge)
+        resolver =
+            WebDavConflictResolver(
+                runtime = runtime,
+                support = support,
+                fileBridge = fileBridge,
+                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                lifecycleRunner = testRemoteSyncLifecycleRunner(),
+            )
     }
 
     private fun `resolveConflicts KEEP_LOCAL uploads local content to remote`() =
@@ -173,7 +190,7 @@ class WebDavConflictResolverTest : DataFunSpec() {
 
             result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             verify(exactly = 1) {
-                client.put(
+                client.putSmallFile(
                     path = path,
                     bytes = "LOCAL".toByteArray(StandardCharsets.UTF_8),
                     contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
@@ -248,22 +265,19 @@ class WebDavConflictResolverTest : DataFunSpec() {
                     localContent = null,
                     remoteContent = null,
                     isBinary = true,
-                )
+            )
             every { fileBridge.isMemoPath(path, any()) } returns false
-            every { client.get(path) } returns WebDavRemoteFile(path, remoteBytes, "etag-2", 222L)
+            every { client.getToFile(path, any()) } answers {
+                secondArg<java.io.File>().writeBytes(remoteBytes)
+                com.lomo.data.webdav.WebDavRemoteResource(path, isDirectory = false, etag = "etag-2", lastModified = 222L)
+            }
             val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_REMOTE))
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
             result shouldBe WebDavSyncResult.Success("Conflicts resolved")
-            verify(exactly = 1) { client.get(path) }
-            coVerify(exactly = 1) {
-                localMediaSyncStore.writeBytes(
-                    relativePath = path,
-                    bytes = remoteBytes,
-                    layout = any<SyncDirectoryLayout>(),
-                )
-            }
+            verify(exactly = 1) { client.getToFile(path, any()) }
+            coVerify(exactly = 1) { localMediaSyncStore.importFromFile(path, any(), any()) }
         }
 
     private fun `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() =
@@ -293,7 +307,7 @@ class WebDavConflictResolverTest : DataFunSpec() {
 
             result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             verify(exactly = 1) {
-                client.put(
+                client.putSmallFile(
                     path = path,
                     bytes = merged.toByteArray(StandardCharsets.UTF_8),
                     contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
@@ -311,6 +325,48 @@ class WebDavConflictResolverTest : DataFunSpec() {
                     uri = null,
                 )
             }
+        }
+
+    private fun `resolveConflicts MERGE_TEXT keeps over-budget memo conflict pending without writing or uploading`() =
+        runTest {
+            val path = "lomo/memo/2026_03_25.md"
+            val file =
+                conflictFile(
+                    path = path,
+                    local = numberedLines(prefix = "local"),
+                    remote = numberedLines(prefix = "remote"),
+                )
+            val pendingStore = InMemoryPendingSyncConflictStore()
+            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore, testRemoteSyncLifecycleRunner())
+            every { fileBridge.isMemoPath(path, any()) } returns true
+            every { fileBridge.extractMemoFilename(path, any()) } returns "2026_03_25.md"
+            val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.MERGE_TEXT))
+
+            val result = resolver.resolveConflicts(resolution, conflictSet(file))
+
+            val expected = conflictSet(file)
+            result shouldBe WebDavSyncResult.Conflict("Pending conflicts remain", expected)
+            verify(exactly = 0) {
+                client.putSmallFile(
+                    path = any(),
+                    bytes = any(),
+                    contentType = any(),
+                    lastModifiedHint = any(),
+                    expectedEtag = any(),
+                    requireAbsent = any(),
+                )
+            }
+            coVerify(exactly = 0) {
+                markdownStorageDataSource.saveFileIn(
+                    directory = com.lomo.data.source.MemoDirectoryType.MAIN,
+                    filename = "2026_03_25.md",
+                    content = any(),
+                    append = false,
+                    uri = null,
+                )
+            }
+            pendingStore.storedConflict(SyncBackendType.WEBDAV) shouldBe expected
+            stateHolder.state.value shouldBe WebDavSyncState.ConflictDetected(expected)
         }
 
     private fun `resolveConflicts returns NotConfigured when config is missing`() =
@@ -357,7 +413,7 @@ class WebDavConflictResolverTest : DataFunSpec() {
             val skippedPath = "lomo/memo/2026_03_25.md"
             val pendingStore = InMemoryPendingSyncConflictStore()
             every { fileBridge.contentTypeForPath(keptPath, any()) } returns "text/plain"
-            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore)
+            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore, testRemoteSyncLifecycleRunner())
             val result =
                 resolver.resolveConflicts(
                     resolution =
@@ -388,11 +444,83 @@ class WebDavConflictResolverTest : DataFunSpec() {
                         timestamp = 1L,
                     ),
                 )
-            pendingStore.read(SyncBackendType.WEBDAV) shouldBe SyncConflictSet(
+            pendingStore.storedConflict(SyncBackendType.WEBDAV) shouldBe SyncConflictSet(
                     source = SyncBackendType.WEBDAV,
                     files = listOf(conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT")),
                     timestamp = 1L,
                 )
+        }
+
+    private fun `resolveReview invalidates pending descriptor before applying choices`() =
+        runTest {
+            val path = "lomo/memo/2026_03_25.md"
+            val review =
+                SyncReviewSession(
+                    source = SyncBackendType.WEBDAV,
+                    items =
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = path,
+                                localContent = "local",
+                                incomingContent = "incoming",
+                                isBinary = false,
+                                localLastModified = 10L,
+                                incomingLastModified = 20L,
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = 99L,
+                    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+                )
+            val pendingStore = WebDavTrackingPendingSyncReviewStore()
+            pendingStore.descriptor =
+                PendingSyncReviewDescriptor(
+                    source = SyncBackendType.WEBDAV,
+                    workspaceGeneration = "test",
+                    kind = review.kind,
+                    items =
+                        listOf(
+                            PendingSyncReviewItemDescriptor(
+                                relativePath = path,
+                                isBinary = false,
+                                local =
+                                    PendingSyncSideMetadata(
+                                        locator = path,
+                                        contentHash = "hash-local",
+                                        lastModified = 10L,
+                                        size = 5L,
+                                        etag = "etag-local",
+                                    ),
+                                incoming =
+                                    PendingSyncSideMetadata(
+                                        locator = path,
+                                        contentHash = "hash-incoming",
+                                        lastModified = 20L,
+                                        size = 8L,
+                                        etag = null,
+                                    ),
+                                state = SyncReviewItemState.READY_TO_IMPORT,
+                            ),
+                        ),
+                    timestamp = review.timestamp,
+                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD,
+                )
+            val resolver =
+                WebDavReviewResolver(
+                    runtime = runtime,
+                    support = support,
+                    fileBridge = fileBridge,
+                    pendingReviewStore = pendingStore,
+                    lifecycleRunner = testRemoteSyncLifecycleRunner(),
+                )
+            val resolution = SyncReviewResolution(perItemChoices = mapOf(path to SyncReviewResolutionChoice.KEEP_INCOMING))
+
+            val result = resolver.resolveReview(resolution, review)
+
+            result shouldBe WebDavSyncResult.Error("Pending WebDAV review session requires rebuild: STALE_LOCAL")
+            pendingStore.clearCalls shouldBe listOf(SyncBackendType.WEBDAV)
+            verify(exactly = 0) { client.getSmallFile(any()) }
+            verify(exactly = 0) { client.putSmallFile(any(), any(), any(), any(), any(), any()) }
         }
 
     private fun conflictSet(file: SyncConflictFile): SyncConflictSet =
@@ -413,4 +541,20 @@ class WebDavConflictResolverTest : DataFunSpec() {
             remoteContent = remote,
             isBinary = false,
         )
+
+    private fun numberedLines(prefix: String): String =
+        (0..1_000).joinToString("\n") { index -> "$prefix-$index" }
+}
+
+private class WebDavTrackingPendingSyncReviewStore : PendingSyncReviewStore {
+    var descriptor: PendingSyncReviewDescriptor? = null
+    val clearCalls = mutableListOf<SyncBackendType>()
+
+    override suspend fun readDescriptor(source: SyncBackendType): PendingSyncReviewDescriptor? = descriptor
+
+    override suspend fun write(review: SyncReviewSession) = Unit
+
+    override suspend fun clear(source: SyncBackendType) {
+        clearCalls += source
+    }
 }

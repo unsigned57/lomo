@@ -92,23 +92,6 @@
                 android:resource="@xml/lomo_widget_info" />
         </receiver>
 
-        <!-- Reminder receivers -->
-        <receiver
-            android:name="com.lomo.data.reminder.ReminderAlarmReceiver"
-            android:exported="false" />
-        <receiver
-            android:name="com.lomo.data.reminder.ReminderActionReceiver"
-            android:exported="false" />
-        <receiver
-            android:name="com.lomo.data.reminder.ReminderBootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
     </application>
 
 </manifest>

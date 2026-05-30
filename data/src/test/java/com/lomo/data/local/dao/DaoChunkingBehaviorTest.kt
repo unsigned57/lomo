@@ -1,41 +1,71 @@
+/*
+ * Behavior Contract:
+ * - Unit under test: MemoDao, MemoImageDao, MemoTagDao default helpers.
+ * - Owning layer: data
+ * - Priority tier: P1
+ * - Capability: keep DAO helpers bounded for large memo collections.
+ *
+ * Scenarios:
+ * - Given more memo ids than SQLite allows in one bind list, when image refs
+ *   are replaced, then delete calls are chunked under the bind limit.
+ * - Given more memo ids than SQLite allows in one bind list, when tag refs are
+ *   replaced, then delete calls are chunked under the bind limit.
+ * - Given a random memo request above the memo count and plausible rowid bounds,
+ *   when random memos are requested, then the helper caps the query limit to
+ *   the memo count, samples an indexed rowid window, and wraps before the floor
+ *   only for the remaining limit.
+ * - Given a non-positive limit or positive limit with empty bounds, when random
+ *   memos are requested, then the helper returns empty without DAO range queries.
+ *
+ * Observable outcomes:
+ * - per-call chunk sizes, random rowid range-query arguments, and returned ids.
+ *
+ * TDD proof:
+ * - RED before the random-query fix because `MemoDao.getRandomMemos` delegated
+ *   to `getRandomMemosDirect`, an `ORDER BY RANDOM()` full-table sort query,
+ *   instead of the rowid bounds/range contract.
+ * - RED in review round 2 before the test-control seam because the tightened
+ *   test could not override `nextRandomMemoRowIdFloor` to prove a plausible
+ *   rowid wrap and cap-to-total contract deterministically.
+ *
+ * Excludes:
+ * - Room SQL generation/runtime integration and randomness distribution quality.
+ */
 package com.lomo.data.local.dao
-
 
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoImageAttachmentEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
+import com.lomo.data.local.projection.ActiveMemoProjection
+import com.lomo.data.local.projection.MemoProjectionProjector
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.Memo
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
 
-/*
- * Test Contract:
- * - Unit under test: MemoDao, MemoImageDao, MemoTagDao default batching helpers.
- * - Behavior focus: guarding SQLite bind-parameter limits by chunking large memo-id collections; and that
- *   getRandomMemos delegates to a single direct SQL query rather than loading all IDs.
- * - Observable outcomes: per-call chunk sizes for DAO delete/fetch methods; direct-query delegation for random memos.
- * - Red phase: Fails before the fix because large id lists are issued as a single IN-clause call and can exceed SQLite limits.
- * - Excludes: Room SQL generation/runtime integration and randomness distribution quality.
- */
 class DaoChunkingBehaviorTest : DataFunSpec() {
     init {
         test("replaceImageRefsForMemos chunks delete ids under sqlite bind limit") { `replaceImageRefsForMemos chunks delete ids under sqlite bind limit`() }
 
         test("replaceTagRefsForMemos chunks delete ids under sqlite bind limit") { `replaceTagRefsForMemos chunks delete ids under sqlite bind limit`() }
 
-        test("getRandomMemos delegates to direct RANDOM query with given limit") { `getRandomMemos delegates to direct RANDOM query with given limit`() }
+        test("getRandomMemos caps to total count and wraps rowid range from sampled floor") {
+            `getRandomMemos caps to total count and wraps rowid range from sampled floor`()
+        }
 
-        test("getRandomMemos returns empty when limit is non-positive without direct query") { `getRandomMemos returns empty when limit is non-positive without direct query`() }
+        test("getRandomMemos returns empty when limit is non-positive or bounds are empty") {
+            `getRandomMemos returns empty when limit is non-positive or bounds are empty`()
+        }
     }
 
 
     private fun `replaceImageRefsForMemos chunks delete ids under sqlite bind limit`() =
         runTest {
             val dao = RecordingMemoImageDao()
-            val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoEntity("memo-image-$index") }
+            val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoProjection("memo-image-$index") }
 
             dao.replaceImageRefsForMemos(memos)
 
@@ -46,7 +76,7 @@ class DaoChunkingBehaviorTest : DataFunSpec() {
     private fun `replaceTagRefsForMemos chunks delete ids under sqlite bind limit`() =
         runTest {
             val dao = RecordingMemoTagDao()
-            val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoEntity("memo-tag-$index") }
+            val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoProjection("memo-tag-$index") }
 
             dao.replaceTagRefsForMemos(memos)
 
@@ -54,24 +84,49 @@ class DaoChunkingBehaviorTest : DataFunSpec() {
             (dao.deletedIdChunks.all { chunk -> chunk.size <= ROOM_MAX_BIND_PARAMETER_COUNT }).shouldBeTrue()
         }
 
-    private fun `getRandomMemos delegates to direct RANDOM query with given limit`() =
+    private fun `getRandomMemos caps to total count and wraps rowid range from sampled floor`() =
         runTest {
-            val dao = RecordingMemoDao()
+            val dao =
+                RecordingMemoDao(
+                    bounds = MemoRowIdBounds(minRowId = 10L, maxRowId = 13L, totalCount = 4),
+                    fixedRowIdFloor = 12L,
+                    fromFloorRows = listOf(memoEntity("row-12"), memoEntity("row-13")),
+                    beforeFloorRows = listOf(memoEntity("row-10"), memoEntity("row-11")),
+                )
 
-            val result = dao.getRandomMemos(limit = 3)
+            val result = dao.getRandomMemos(limit = 6)
 
-            result.map { it.id } shouldBe listOf("direct-0", "direct-1", "direct-2")
-            dao.directQueryLimits shouldBe listOf(3)
+            result.map { it.id } shouldBe listOf("row-12", "row-13", "row-10", "row-11")
+            dao.boundsCallCount shouldBe 1
+            dao.floorCalls shouldBe listOf(RowIdFloorCall(minRowId = 10L, maxRowId = 13L))
+            dao.fromFloorCalls shouldBe listOf(RowIdPageCall(rowIdFloor = 12L, limit = 4))
+            dao.beforeFloorCalls shouldBe listOf(RowIdPageCall(rowIdFloor = 12L, limit = 2))
         }
 
-    private fun `getRandomMemos returns empty when limit is non-positive without direct query`() =
+    private fun `getRandomMemos returns empty when limit is non-positive or bounds are empty`() =
         runTest {
-            val dao = RecordingMemoDao()
+            val invalidLimitDao = RecordingMemoDao()
 
-            val result = dao.getRandomMemos(limit = 0)
+            val invalidLimitResult = invalidLimitDao.getRandomMemos(limit = 0)
 
-            result shouldBe emptyList<MemoEntity>()
-            dao.directQueryLimits shouldBe emptyList<Int>()
+            invalidLimitResult shouldBe emptyList<MemoEntity>()
+            invalidLimitDao.boundsCallCount shouldBe 0
+            invalidLimitDao.floorCalls shouldBe emptyList<RowIdFloorCall>()
+            invalidLimitDao.fromFloorCalls shouldBe emptyList<RowIdPageCall>()
+            invalidLimitDao.beforeFloorCalls shouldBe emptyList<RowIdPageCall>()
+
+            val emptyBoundsDao =
+                RecordingMemoDao(
+                    bounds = MemoRowIdBounds(minRowId = null, maxRowId = null, totalCount = 0),
+                )
+
+            val emptyBoundsResult = emptyBoundsDao.getRandomMemos(limit = 3)
+
+            emptyBoundsResult shouldBe emptyList<MemoEntity>()
+            emptyBoundsDao.boundsCallCount shouldBe 1
+            emptyBoundsDao.floorCalls shouldBe emptyList<RowIdFloorCall>()
+            emptyBoundsDao.fromFloorCalls shouldBe emptyList<RowIdPageCall>()
+            emptyBoundsDao.beforeFloorCalls shouldBe emptyList<RowIdPageCall>()
         }
 
     private class RecordingMemoImageDao : MemoImageDao {
@@ -102,14 +157,46 @@ class DaoChunkingBehaviorTest : DataFunSpec() {
         override suspend fun clearTagRefs() = Unit
     }
 
-    private class RecordingMemoDao : MemoDao {
-        val directQueryLimits = mutableListOf<Int>()
+    private class RecordingMemoDao(
+        private val bounds: MemoRowIdBounds = MemoRowIdBounds(minRowId = null, maxRowId = null, totalCount = 0),
+        private val fixedRowIdFloor: Long? = null,
+        private val fromFloorRows: List<MemoEntity> = emptyList(),
+        private val beforeFloorRows: List<MemoEntity> = emptyList(),
+    ) : MemoDao {
+        var boundsCallCount = 0
+        val floorCalls = mutableListOf<RowIdFloorCall>()
+        val fromFloorCalls = mutableListOf<RowIdPageCall>()
+        val beforeFloorCalls = mutableListOf<RowIdPageCall>()
 
         override fun getAllMemosFlow(): Flow<List<MemoEntity>> = flowOf(emptyList())
 
-        override suspend fun getRandomMemosDirect(limit: Int): List<MemoEntity> {
-            directQueryLimits += limit
-            return (0 until limit).map { index -> memoEntity("direct-$index") }
+        override suspend fun getRandomMemoRowIdBounds(): MemoRowIdBounds {
+            boundsCallCount += 1
+            return bounds
+        }
+
+        override fun nextRandomMemoRowIdFloor(
+            minRowId: Long,
+            maxRowId: Long,
+        ): Long {
+            floorCalls += RowIdFloorCall(minRowId = minRowId, maxRowId = maxRowId)
+            return fixedRowIdFloor ?: minRowId
+        }
+
+        override suspend fun getRandomMemosFromRowIdFloor(
+            rowIdFloor: Long,
+            limit: Int,
+        ): List<MemoEntity> {
+            fromFloorCalls += RowIdPageCall(rowIdFloor = rowIdFloor, limit = limit)
+            return fromFloorRows.take(limit)
+        }
+
+        override suspend fun getRandomMemosBeforeRowIdFloor(
+            rowIdFloor: Long,
+            limit: Int,
+        ): List<MemoEntity> {
+            beforeFloorCalls += RowIdPageCall(rowIdFloor = rowIdFloor, limit = limit)
+            return beforeFloorRows.take(limit)
         }
 
         override suspend fun getRecentMemos(limit: Int): List<MemoEntity> =
@@ -143,8 +230,30 @@ private fun memoEntity(id: String): MemoEntity =
         id = id,
         timestamp = 1_700_000_000_000L,
         content = "content-$id",
+        searchContent = "content-$id",
         rawContent = "- 10:00 content-$id",
         date = "2026_04_27",
         tags = "",
         imageUrls = "",
     )
+
+private fun memoProjection(id: String): ActiveMemoProjection =
+    MemoProjectionProjector.projectActive(
+        Memo(
+            id = id,
+            timestamp = 1_700_000_000_000L,
+            content = "content-$id",
+            rawContent = "- 10:00 content-$id",
+            dateKey = "2026_04_27",
+        ),
+    )
+
+private data class RowIdPageCall(
+    val rowIdFloor: Long,
+    val limit: Int,
+)
+
+private data class RowIdFloorCall(
+    val minRowId: Long,
+    val maxRowId: Long,
+)

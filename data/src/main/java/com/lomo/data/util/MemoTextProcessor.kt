@@ -1,5 +1,6 @@
 package com.lomo.data.util
 
+import com.lomo.domain.usecase.MemoContentAnalyzer
 import javax.inject.Inject
 
 class MemoTextProcessor
@@ -123,27 +124,15 @@ class MemoTextProcessor
         }
 
         fun extractTags(content: String): List<String> {
-            val tags =
-                TAG_PATTERN.findAll(content).mapNotNull { match ->
-                    match.groupValues
-                        .getOrNull(1)
-                        ?.trimEnd('/')
-                        .takeUnless { it.isNullOrEmpty() }
-                }
-            return tags.distinct().toList()
+            return MemoContentAnalyzer.analyze(content).tags
         }
 
         fun extractImages(content: String): List<String> {
-            val markdownImages = MD_IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            val wikiImages = WIKI_IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            return (markdownImages + wikiImages).toList()
+            return MemoContentAnalyzer.analyze(content).imageUrls
         }
 
         fun extractAudioLinks(content: String): List<String> =
-            AUDIO_LINK_PATTERN
-                .findAll(content)
-                .mapNotNull { it.groupValues.getOrNull(1) }
-                .toList()
+            MemoContentAnalyzer.analyze(content).audioUrls
 
         /**
          * Returns every inline attachment target referenced by the memo body — markdown/wiki images
@@ -152,7 +141,9 @@ class MemoTextProcessor
          * locally themselves.
          */
         fun extractInlineAttachments(content: String): List<String> =
-            (extractImages(content) + extractAudioLinks(content)).distinct()
+            MemoContentAnalyzer.analyze(content).let { analysis ->
+                (analysis.imageUrls + analysis.audioUrls).distinct()
+            }
 
         fun extractLocalAttachmentPaths(content: String): List<String> =
             extractInlineAttachments(content)
@@ -219,20 +210,6 @@ class MemoTextProcessor
             NOT_FOUND,
             PATTERN_MISSING,
             REPLACED,
-        }
-
-        companion object {
-            private val TAG_PATTERN =
-                Regex(
-                    """(?:^|\s)#([\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*)(?=$|[\s,])""",
-                )
-            private val MD_IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
-            private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
-            private val AUDIO_LINK_PATTERN =
-                Regex(
-                    """(?<!!)\[[^\]]*]\((.+?\.(?:m4a|mp3|ogg|wav|aac))\)""",
-                    RegexOption.IGNORE_CASE,
-                )
         }
     }
 

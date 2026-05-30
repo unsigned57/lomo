@@ -79,9 +79,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
             val image = lines.single { it.type == ShareBodyLineType.Image }
             (image.imageIndex) shouldBe (0)
         }
-    }
 
-    init {
         test("markdown share body lines preserve quote markers and supported html tags for bitmap rendering") {
             val lines =
                 buildMarkdownShareBodyLines(
@@ -106,6 +104,80 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
             ((quote.inlineStyles.any { it.kind == ShareInlineStyleKind.Italic })) shouldBe true
             ((quote.inlineStyles.any { it.kind == ShareInlineStyleKind.Strikethrough })) shouldBe true
         }
-    }
 
+        test("markdown share body lines preserve ordered list numbering correctly") {
+            val content =
+                """
+                1. first item
+                2. second item
+                3. third item
+                """.trimIndent()
+
+            val lines =
+                buildMarkdownShareBodyLines(
+                    bodyText = content,
+                    imagePlaceholder = "[Image]",
+                )
+
+            lines.size shouldBe 3
+            lines[0].text shouldBe "1. first item"
+            lines[1].text shouldBe "2. second item"
+            lines[2].text shouldBe "3. third item"
+        }
+
+        /*
+         * Behavior Contract:
+         * - Capability: Premium share card URL and Geo link pre-processing.
+         * - Given: A memo content with bare URLs, bare geo coordinates, or GFM autolinks.
+         * - When: `linkifyBareUrlsAndGeoUris` is invoked.
+         * - Then:
+         *   1. Bare URLs (e.g. http://..., https://..., or www....) are linkified into standard Markdown links.
+         *   2. Bare geo coordinates (e.g. geo:...) are linkified.
+         *   3. URLs that are already part of existing markdown links are NOT double-linkified.
+         */
+        test("linkifyBareUrlsAndGeoUris correctly transforms bare URLs and geo coordinates without double linkification") {
+            val content = "Visit https://google.com and www.lomo.app and geo:31.2304,121.4737 or [Google](https://google.com) or [https://google.com](https://google.com)"
+            val result = linkifyBareUrlsAndGeoUris(content)
+            result shouldBe "Visit [https://google.com](https://google.com) and [www.lomo.app](https://www.lomo.app) and [geo:31.2304,121.4737](geo:31.2304,121.4737?z=10) or [Google](https://google.com) or [https://google.com](https://google.com)"
+        }
+
+        test("markdown share body lines preserve url link style and highlight style from text with highlight and url") {
+            val processed = preprocessShareCardContent(
+                content = "Visit https://example.com and ==important==",
+                hasImages = false,
+            )
+            val linkified = linkifyBareUrlsAndGeoUris(processed.contentForProcessing)
+            val lines = buildMarkdownShareBodyLines(
+                bodyText = linkified,
+                imagePlaceholder = "[Image]",
+            )
+
+            val paragraph = lines.single { it.type == ShareBodyLineType.Paragraph }
+            paragraph.text shouldBe "Visit https://example.com and important"
+            (paragraph.inlineStyles.any { it.kind == ShareInlineStyleKind.Link }) shouldBe true
+            (paragraph.inlineStyles.any { it.kind == ShareInlineStyleKind.Highlight }) shouldBe true
+        }
+
+        test("markdown share body lines support nested highlight and link style ranges simultaneously") {
+            val processed = preprocessShareCardContent(
+                content = "==[site](https://example.com)==",
+                hasImages = false,
+            )
+            val lines = buildMarkdownShareBodyLines(
+                bodyText = processed.contentForProcessing,
+                imagePlaceholder = "[Image]",
+            )
+
+            val paragraph = lines.single { it.type == ShareBodyLineType.Paragraph }
+            paragraph.text shouldBe "site"
+
+            val highlightRange = paragraph.inlineStyles.single { it.kind == ShareInlineStyleKind.Highlight }
+            highlightRange.start shouldBe 0
+            highlightRange.end shouldBe 4
+
+            val linkRange = paragraph.inlineStyles.single { it.kind == ShareInlineStyleKind.Link }
+            linkRange.start shouldBe 0
+            linkRange.end shouldBe 4
+        }
+    }
 }

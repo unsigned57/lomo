@@ -1,37 +1,12 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.entity.MemoEntity
+import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.domain.model.Memo
 
 internal class UpdateMemoMutationDelegate(
     private val runtime: MemoMutationRuntime,
     private val storageFormatProvider: MemoStorageFormatProvider,
 ) : MemoUpdateMutationOperations {
-    override suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
-    ) = runtime.mutationGate.withLock {
-        requireUpdatedMemoContent(newContent)
-        when {
-            runtime.daoBundle.memoDao.getMemo(memo.id) == null -> Unit
-
-            flushMemoUpdateToFileLocked(memo, newContent) -> {
-                val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, memo, newContent)
-                persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(finalUpdatedMemo))
-                cleanupAttachmentsRemovedByEdit(runtime, memo, finalUpdatedMemo)
-                runtime.memoVersionRecorder.enqueueLocalRevision(
-                    memo = finalUpdatedMemo,
-                    lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
-                    origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,
-                )
-            }
-
-            else -> {
-                throw UnsafeWorkspaceMutationException("Unable to update memo safely: ${memo.id}")
-            }
-        }
-    }
-
     override suspend fun updateMemoInDb(
         memo: Memo,
         newContent: String,
@@ -46,35 +21,14 @@ internal class UpdateMemoMutationDelegate(
                     val outboxId =
                         persistMemoWithOutbox(
                             daoBundle = runtime.daoBundle,
-                            memo = MemoEntity.fromDomain(finalUpdatedMemo),
+                            memoProjection = MemoProjectionProjector.projectActive(finalUpdatedMemo),
                             outbox = buildUpdateOutbox(sourceMemo, newContent),
-                        )
-                    cleanupAttachmentsRemovedByEdit(runtime, sourceMemo, finalUpdatedMemo)
-                    runtime.memoVersionRecorder.enqueueLocalRevision(
-                        memo = finalUpdatedMemo,
-                        lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
-                        origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,
                     )
+                    cleanupAttachmentsRemovedByEdit(runtime, sourceMemo, finalUpdatedMemo)
                     outboxId
                 }
             }
         }
-
-    override suspend fun flushMemoUpdateToFile(
-        memo: Memo,
-        newContent: String,
-    ): Boolean =
-        runtime.mutationGate.withLock {
-            flushMemoUpdateToFileLocked(memo, newContent)
-        }
-
-    private suspend fun flushMemoUpdateToFileLocked(
-        memo: Memo,
-        newContent: String,
-    ): Boolean {
-        requireUpdatedMemoContent(newContent)
-        return flushMainMemoUpdateToFile(runtime, storageFormatProvider, memo, newContent)
-    }
 }
 
 private suspend fun cleanupAttachmentsRemovedByEdit(
@@ -87,7 +41,7 @@ private suspend fun cleanupAttachmentsRemovedByEdit(
     deleteOrphanAttachments(
         paths = removed.toList(),
         excludeMemoId = updatedMemo.id,
-        memoSearchDao = runtime.memoSearchDao,
+        memoStatisticsDao = runtime.memoStatisticsDao,
         mediaStorageDataSource = runtime.mediaStorageDataSource,
         s3LocalChangeRecorder = runtime.s3LocalChangeRecorder,
         webDavLocalChangeRecorder = runtime.webDavLocalChangeRecorder,

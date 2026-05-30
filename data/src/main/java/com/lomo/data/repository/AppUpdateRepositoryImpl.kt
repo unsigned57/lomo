@@ -1,6 +1,9 @@
 package com.lomo.data.repository
 
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.AppUpdateAssetCandidate
+import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
+import com.lomo.domain.model.AppUpdateAssetVerification
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
 import kotlinx.coroutines.Dispatchers
@@ -60,30 +63,95 @@ class AppUpdateRepositoryImpl
 internal fun parseLatestReleaseResponse(responseBody: String): LatestAppRelease {
     val json = releaseJsonParser.parseToJsonElement(responseBody).jsonObject
     val assets = json["assets"]?.jsonArray.orEmpty()
-    val apkAsset =
+    val tagName = requireJsonString(json, "tag_name")
+    val releaseVersion = tagName.removePrefix("v")
+    val candidates =
         assets
             .asSequence()
             .map { it.jsonObject }
-            .firstOrNull { asset ->
-                asset["name"].jsonContentOrNull().orEmpty().endsWith(".apk", ignoreCase = true)
-            }
-    val apkFileName = apkAsset?.get("name").jsonContentOrNull()?.takeIf { it.isNotBlank() }
-    val apkDownloadUrl =
-        apkAsset
-            ?.get("browser_download_url")
-            .jsonContentOrNull()
-            ?.takeIf { it.isNotBlank() }
-    val apkSizeBytes = apkAsset?.get("size").jsonLongOrNull()?.takeIf { it > 0 }
+            .mapNotNull { asset -> parseAssetCandidate(asset = asset, releaseVersion = releaseVersion) }
+            .toList()
+    val verifiedApk = candidates.firstOrNull { it.verification is AppUpdateAssetVerification.Verified }
 
     return LatestAppRelease(
-        tagName = requireJsonString(json, "tag_name"),
+        tagName = tagName,
         htmlUrl = requireJsonString(json, "html_url"),
         body = json["body"].jsonContentOrNull().orEmpty(),
-        apkDownloadUrl = apkDownloadUrl,
-        apkFileName = apkFileName,
-        apkSizeBytes = apkSizeBytes,
+        apkDownloadUrl = verifiedApk?.downloadUrl,
+        apkFileName = verifiedApk?.fileName,
+        apkSizeBytes = verifiedApk?.sizeBytes,
+        assetCandidates = candidates,
     )
 }
+
+private fun parseAssetCandidate(
+    asset: kotlinx.serialization.json.JsonObject,
+    releaseVersion: String,
+): AppUpdateAssetCandidate? {
+    val fileName = asset["name"].jsonContentOrNull()?.takeIf { it.isNotBlank() } ?: return null
+    if (!fileName.endsWith(".apk", ignoreCase = true)) {
+        return null
+    }
+    val downloadUrl =
+        asset["browser_download_url"]
+            .jsonContentOrNull()
+            ?.takeIf { it.isNotBlank() }
+    return AppUpdateAssetCandidate(
+        fileName = fileName,
+        downloadUrl = downloadUrl,
+        sizeBytes = asset["size"].jsonLongOrNull()?.takeIf { it > 0 },
+        verification = asset.toAppUpdateAssetVerification(downloadUrl = downloadUrl, releaseVersion = releaseVersion),
+    )
+}
+
+private fun kotlinx.serialization.json.JsonObject.toAppUpdateAssetVerification(
+    downloadUrl: String?,
+    releaseVersion: String,
+): AppUpdateAssetVerification {
+    if (downloadUrl == null) {
+        return unsupported(AppUpdateAssetUnsupportedReason.DOWNLOAD_URL_MISSING)
+    }
+
+    val fileName = this["name"].jsonContentOrNull().orEmpty()
+    val metadata = AppUpdateReleaseAssetNamePolicy.parse(fileName)
+    if (metadata == null) {
+        val reason =
+            if (fileName.startsWith(EXPECTED_RELEASE_ASSET_PREFIX, ignoreCase = true)) {
+                AppUpdateAssetUnsupportedReason.METADATA_UNAVAILABLE
+            } else {
+                AppUpdateAssetUnsupportedReason.WRONG_PACKAGE
+            }
+        return unsupported(reason)
+    }
+    if (metadata.versionName.removePrefix("v") != releaseVersion) {
+        return unsupported(AppUpdateAssetUnsupportedReason.VERSION_MISMATCH)
+    }
+    return AppUpdateAssetVerification.Verified(
+        packageName = EXPECTED_RELEASE_PACKAGE_NAME,
+        versionName = metadata.versionName,
+        versionCode = metadata.versionCode,
+    )
+}
+
+private data class ReleaseAssetNameMetadata(
+    val versionName: String,
+    val versionCode: Long?,
+)
+
+private object AppUpdateReleaseAssetNamePolicy {
+    private val assetNamePattern =
+        Regex("""^lomo-v(?<versionName>[0-9][A-Za-z0-9._-]*?)(?:-vc(?<versionCode>[1-9][0-9]*))?\.apk$""")
+
+    fun parse(fileName: String): ReleaseAssetNameMetadata? {
+        val match = assetNamePattern.matchEntire(fileName) ?: return null
+        val versionName = match.groups["versionName"]?.value?.takeIf { it.isNotBlank() } ?: return null
+        val versionCode = match.groups["versionCode"]?.value?.toLongOrNull()
+        return ReleaseAssetNameMetadata(versionName = versionName, versionCode = versionCode)
+    }
+}
+
+private fun unsupported(reason: AppUpdateAssetUnsupportedReason): AppUpdateAssetVerification =
+    AppUpdateAssetVerification.Unsupported(reason)
 
 private fun requireJsonString(
     json: kotlinx.serialization.json.JsonObject,
@@ -104,3 +172,6 @@ private val releaseJsonParser =
         ignoreUnknownKeys = true
         isLenient = true
     }
+
+private const val EXPECTED_RELEASE_PACKAGE_NAME = "com.lomo.app"
+private const val EXPECTED_RELEASE_ASSET_PREFIX = "lomo-v"

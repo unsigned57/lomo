@@ -23,8 +23,8 @@ class WebDavSyncFileBridge
     @Inject
     constructor(
         private val runtime: WebDavSyncRepositoryContext,
-        private val localFingerprintCache: WebDavLocalFingerprintCache = InMemoryWebDavLocalFingerprintCache(),
-        private val remoteListingCache: WebDavRemoteListingCache = WebDavRemoteListingCache(),
+        private val localFingerprintCache: WebDavLocalFingerprintCache,
+        private val remoteListingCache: WebDavRemoteListingCache,
     ) {
         fun ensureRemoteDirectories(
             client: WebDavClient,

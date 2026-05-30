@@ -164,6 +164,7 @@ internal class S3RemoteShardScanner {
         val observedEntries = linkedMapOf<String, S3RemoteIndexEntry>()
         listPage.objects.forEach { remoteObject ->
             val decoded =
+                // behavior-contract: silent-result-ok: malformed remote key skipped via return@forEach below
                 runCatching {
                     encodingSupport.decodeRelativePath(remoteObject.key, config)
                 }.getOrNull() ?: return@forEach

@@ -12,22 +12,3 @@ data class MemoImageAttachmentEntity(
     val memoId: String,
     val imagePath: String,
 )
-
-fun MemoEntity.toImageAttachmentRefs(): List<MemoImageAttachmentEntity> =
-    imageUrls.toMemoImageAttachmentRefs(id)
-
-fun TrashMemoEntity.toImageAttachmentRefs(): List<MemoImageAttachmentEntity> =
-    imageUrls.toMemoImageAttachmentRefs(id)
-
-private fun String.toMemoImageAttachmentRefs(memoId: String): List<MemoImageAttachmentEntity> =
-    split(',')
-        .asSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .distinct()
-        .map { imagePath ->
-            MemoImageAttachmentEntity(
-                memoId = memoId,
-                imagePath = imagePath,
-            )
-        }.toList()

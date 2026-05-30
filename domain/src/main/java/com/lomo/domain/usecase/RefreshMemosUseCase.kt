@@ -2,13 +2,9 @@ package com.lomo.domain.usecase
 
 class RefreshMemosUseCase
 (
-        private val memoMaintenanceUseCase: MemoMaintenanceUseCase,
+        private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
     ) {
-        constructor(syncAndRebuildUseCase: SyncAndRebuildUseCase) : this(
-            MemoMaintenanceUseCase(syncAndRebuildUseCase),
-        )
-
         suspend operator fun invoke() {
-            memoMaintenanceUseCase.refreshMemos()
+            syncAndRebuildUseCase(forceSync = false)
         }
     }

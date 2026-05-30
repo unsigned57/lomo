@@ -6,7 +6,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.ui.util.AppHapticFeedback
-import kotlinx.collections.immutable.ImmutableList
 
 @Composable
 internal fun InputSheetContent(
@@ -29,6 +28,16 @@ internal fun InputSheetContent(
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
 ) {
+    val surface = state.surface
+    fun dispatchEditorCommand(command: InputEditorCommand) {
+        when (command) {
+            InputEditorCommand.ToggleTagSelector -> sessionState.showTagSelector = !sessionState.showTagSelector
+            InputEditorCommand.InsertTodo -> callbacks.onInputValueChange(buildTodoInsertionValue(inputValue))
+            InputEditorCommand.InsertUnderline -> callbacks.onInputValueChange(buildUnderlineInsertionValue(inputValue))
+            else -> callbacks.commands.dispatch(command)
+        }
+    }
+
     InputSheetBody(
         isSheetVisible = sessionState.isSheetVisible,
         onRequestDismiss = requestDismiss,
@@ -38,14 +47,11 @@ internal fun InputSheetContent(
             sessionState.showDiscardDialog = false
             dismissSheet()
         },
-        isRecording = state.isRecording,
-        recordingDuration = state.recordingDuration,
-        recordingAmplitude = state.recordingAmplitude,
+        surface = surface,
         presentationState = presentationState,
         inputValue = inputValue,
         previewContent = previewContent,
         hintText = hintText,
-        availableTags = state.availableTags,
         showTagSelector = sessionState.showTagSelector,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
@@ -57,25 +63,8 @@ internal fun InputSheetContent(
         },
         onToggleExpanded = callbacks.onToggleExpanded,
         onDisplayModeChange = callbacks.onDisplayModeChange,
-        onUndo = callbacks.onUndo,
-        onRedo = callbacks.onRedo,
-        canUndo = callbacks.canUndo,
-        canRedo = callbacks.canRedo,
-        onToggleTagSelector = { sessionState.showTagSelector = !sessionState.showTagSelector },
-        onCameraClick = callbacks.onCameraClick,
-        onImageClick = callbacks.onImageClick,
-        onStartRecording = callbacks.onStartRecording,
-        onLocationClick = callbacks.onLocationClick,
-        hasAttachedLocation = state.attachedGeoLocation != null,
-        onBackfillClick = callbacks.onBackfillClick,
-        isBackfillEnabled = state.isBackfillEnabled,
-        backfillBadgeText = state.backfillBadgeText,
-        onBackfillBadgeClick = callbacks.onBackfillBadgeClick,
-        onInsertTodo = { callbacks.onInputValueChange(buildTodoInsertionValue(inputValue)) },
-        onInsertUnderline = { callbacks.onInputValueChange(buildUnderlineInsertionValue(inputValue)) },
-        onInsertReminder = callbacks.onInsertReminder,
-        inputToolbarToolOrder = state.inputToolbarToolOrder,
-        onInputToolbarToolOrderChanged = callbacks.onInputToolbarToolOrderChanged,
+        onEditorCommand = ::dispatchEditorCommand,
+        onToolbarOrderChanged = callbacks.onToolbarOrderChanged,
         onSubmit = {
             if (inputValue.text.isNotBlank()) {
                 submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
@@ -84,8 +73,6 @@ internal fun InputSheetContent(
         benchmarkRootTag = benchmarkRootTag,
         benchmarkEditorTag = benchmarkEditorTag,
         benchmarkSubmitTag = benchmarkSubmitTag,
-        onCancelRecording = callbacks.onCancelRecording,
-        onStopRecording = callbacks.onStopRecording,
         slots = slots,
         haptic = haptic,
     )
@@ -98,14 +85,11 @@ private fun InputSheetBody(
     showDiscardDialog: Boolean,
     onDismissDiscardDialog: () -> Unit,
     onConfirmDiscard: () -> Unit,
-    isRecording: Boolean,
-    recordingDuration: Long,
-    recordingAmplitude: Int,
+    surface: InputEditorSurfaceState,
     presentationState: InputSheetPresentationState,
     inputValue: TextFieldValue,
     previewContent: String?,
     hintText: String,
-    availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
@@ -113,31 +97,12 @@ private fun InputSheetBody(
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
     onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onToggleTagSelector: () -> Unit,
-    onCameraClick: () -> Unit,
-    onImageClick: () -> Unit,
-    onStartRecording: () -> Unit,
-    onLocationClick: () -> Unit,
-    hasAttachedLocation: Boolean,
-    onBackfillClick: () -> Unit,
-    isBackfillEnabled: Boolean,
-    backfillBadgeText: String?,
-    onBackfillBadgeClick: () -> Unit,
-    onInsertTodo: () -> Unit,
-    onInsertUnderline: () -> Unit,
-    onInsertReminder: () -> Unit,
-    inputToolbarToolOrder: ImmutableList<String>,
-    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
+    onEditorCommand: (InputEditorCommand) -> Unit,
+    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     onSubmit: () -> Unit,
     benchmarkRootTag: String?,
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
-    onCancelRecording: () -> Unit,
-    onStopRecording: () -> Unit,
     slots: InputSheetSlots,
     haptic: AppHapticFeedback,
 ) {
@@ -163,24 +128,24 @@ private fun InputSheetBody(
     ) { motionStage, contentModifier ->
         AnimatedContent(
             modifier = contentModifier,
-            targetState = isRecording,
+            targetState = surface.recordingState.isRecording,
             transitionSpec = { fadeScaleContentTransition() },
             label = "RecordingStateTransition",
         ) { recording ->
             if (recording) {
                 slots.voiceRecordingPanel(
                     VoiceRecordingPanelState(
-                        recordingDuration = recordingDuration,
-                        recordingAmplitude = recordingAmplitude,
+                        recordingDuration = surface.recordingState.durationMillis,
+                        recordingAmplitude = surface.recordingState.amplitude,
                     ),
                     VoiceRecordingPanelCallbacks(
                         onCancel = {
                             haptic.medium()
-                            onCancelRecording()
+                            onEditorCommand(InputEditorCommand.CancelRecording)
                         },
                         onStop = {
                             haptic.heavy()
-                            onStopRecording()
+                            onEditorCommand(InputEditorCommand.StopRecording)
                         },
                     ),
                 )
@@ -190,32 +155,16 @@ private fun InputSheetBody(
                     inputValue = inputValue,
                     previewContent = previewContent,
                     hintText = hintText,
-                    availableTags = availableTags,
+                    availableTags = surface.availableTags,
                     showTagSelector = showTagSelector,
                     focusRequester = focusRequester,
                     onTextChange = onTextChange,
                     onTagSelected = onTagSelected,
                     onToggleExpanded = onToggleExpanded,
                     onDisplayModeChange = onDisplayModeChange,
-                    onUndo = onUndo,
-                    onRedo = onRedo,
-                    canUndo = canUndo,
-                    canRedo = canRedo,
-                    onToggleTagSelector = onToggleTagSelector,
-                    onCameraClick = onCameraClick,
-                    onImageClick = onImageClick,
-                    onStartRecording = onStartRecording,
-                    onLocationClick = onLocationClick,
-                    hasAttachedLocation = hasAttachedLocation,
-                    onBackfillClick = onBackfillClick,
-                    isBackfillEnabled = isBackfillEnabled,
-                    backfillBadgeText = backfillBadgeText,
-                    onBackfillBadgeClick = onBackfillBadgeClick,
-                    onInsertTodo = onInsertTodo,
-                    onInsertUnderline = onInsertUnderline,
-                    onInsertReminder = onInsertReminder,
-                    inputToolbarToolOrder = inputToolbarToolOrder,
-                    onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+                    surface = surface,
+                    onEditorCommand = onEditorCommand,
+                    onToolbarOrderChanged = onToolbarOrderChanged,
                     onSubmit = onSubmit,
                     benchmarkEditorTag = benchmarkEditorTag,
                     benchmarkSubmitTag = benchmarkSubmitTag,

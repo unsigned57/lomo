@@ -1,5 +1,7 @@
 package com.lomo.domain.testing.fakes
 
+import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
@@ -11,6 +13,9 @@ class FakePreferencesRepository : PreferencesRepository {
     private val dateFormat = MutableStateFlow("yyyy_MM_dd")
     private val timeFormat = MutableStateFlow("HH:mm:ss")
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
+    private val colorHistory = MutableStateFlow<List<Int>>(emptyList())
+    private val fontPreference = MutableStateFlow<FontPreference>(FontPreference.default())
     private val storageFilenameFormat = MutableStateFlow("yyyy_MM_dd")
     private val storageTimestampFormat = MutableStateFlow("HH:mm:ss")
     private val hapticFeedbackEnabled = MutableStateFlow(true)
@@ -59,6 +64,30 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setThemeMode(mode: ThemeMode) {
         themeMode.value = mode
+    }
+
+    override fun getColorSource(): Flow<ColorSource> = colorSource.asStateFlow()
+
+    override suspend fun setColorSource(source: ColorSource) {
+        colorSource.value = source
+        if (source is ColorSource.CustomSeed) {
+            addColorToHistory(source.argb)
+        }
+    }
+
+    override fun getColorHistory(): Flow<List<Int>> = colorHistory.asStateFlow()
+
+    override suspend fun addColorToHistory(argb: Int) {
+        val updatedHistory = colorHistory.value.toMutableList()
+        updatedHistory.remove(argb)
+        updatedHistory.add(0, argb)
+        colorHistory.value = updatedHistory.take(COLOR_HISTORY_LIMIT)
+    }
+
+    override fun getFontPreference(): Flow<FontPreference> = fontPreference.asStateFlow()
+
+    override suspend fun setFontPreference(preference: FontPreference) {
+        fontPreference.value = preference
     }
 
     override fun getStorageFilenameFormat(): Flow<String> = storageFilenameFormat.asStateFlow()
@@ -207,5 +236,9 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setParagraphSpacingScale(scale: Float) {
         paragraphSpacingScale.value = scale
+    }
+
+    private companion object {
+        const val COLOR_HISTORY_LIMIT = 8
     }
 }

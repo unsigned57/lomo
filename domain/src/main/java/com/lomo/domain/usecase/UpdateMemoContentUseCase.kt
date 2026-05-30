@@ -1,11 +1,11 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 
 open class UpdateMemoContentUseCase
 (
-        private val repository: MemoRepository,
+        private val repository: MemoMutationRepository,
         private val validator: ValidateMemoContentUseCase,
         private val resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
         private val deleteMemoUseCase: DeleteMemoUseCase,

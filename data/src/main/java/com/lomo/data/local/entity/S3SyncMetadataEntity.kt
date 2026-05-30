@@ -2,11 +2,13 @@ package com.lomo.data.local.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
-import androidx.room3.PrimaryKey
 
-@Entity(tableName = "s3_sync_metadata")
+@Entity(
+    tableName = "s3_sync_metadata",
+    primaryKeys = ["workspace_generation", "relative_path"],
+)
 data class S3SyncMetadataEntity(
-    @PrimaryKey
+    @ColumnInfo(name = "workspace_generation") val workspaceGeneration: String = TRANSIENT_WORKSPACE_GENERATION,
     @ColumnInfo(name = "relative_path") val relativePath: String,
     @ColumnInfo(name = "remote_path") val remotePath: String,
     @ColumnInfo(name = "etag") val etag: String?,
@@ -19,6 +21,10 @@ data class S3SyncMetadataEntity(
     @ColumnInfo(name = "last_resolved_direction") val lastResolvedDirection: String,
     @ColumnInfo(name = "last_resolved_reason") val lastResolvedReason: String,
 ) {
+    init {
+        require(workspaceGeneration.isNotBlank()) { "S3 sync metadata must be scoped to a workspace generation" }
+    }
+
     companion object {
         const val NONE = "NONE"
         const val UNCHANGED = "UNCHANGED"

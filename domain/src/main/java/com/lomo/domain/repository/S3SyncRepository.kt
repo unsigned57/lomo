@@ -1,16 +1,22 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialFieldState
+import com.lomo.domain.model.CredentialProvider
+import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import com.lomo.domain.model.S3RemoteIndexState
-import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -80,7 +86,7 @@ interface S3SyncConnectionMutationRepository {
     suspend fun setPathStyle(pathStyle: S3PathStyle)
 }
 
-interface S3SyncCredentialMutationRepository {
+interface S3SyncCredentialWriteRepository {
     suspend fun setAccessKeyId(accessKeyId: String)
 
     suspend fun setSecretAccessKey(secretAccessKey: String)
@@ -90,7 +96,60 @@ interface S3SyncCredentialMutationRepository {
     suspend fun setEncryptionPassword(password: String)
 
     suspend fun setEncryptionPassword2(password: String)
+}
 
+interface S3SyncCredentialStatusRepository : S3SyncCredentialConfiguredRepository {
+    suspend fun getAccessKeyStatus(): StoredCredentialStatus =
+        if (isAccessKeyConfigured()) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
+        if (isSecretAccessKeyConfigured()) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun getSessionTokenStatus(): StoredCredentialStatus =
+        if (isSessionTokenConfigured()) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
+        if (isEncryptionPasswordConfigured()) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
+        if (isEncryptionPassword2Configured()) {
+            StoredCredentialStatus.Present
+        } else {
+            StoredCredentialStatus.Missing
+        }
+
+    suspend fun getCredentialState(): CredentialState =
+        CredentialState(
+            provider = CredentialProvider.S3,
+            fields =
+                listOf(
+                    CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, getAccessKeyStatus()),
+                    CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, getSecretAccessKeyStatus()),
+                    CredentialFieldState(CredentialField.S3_SESSION_TOKEN, getSessionTokenStatus()),
+                    CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD, getEncryptionPasswordStatus()),
+                    CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD2, getEncryptionPassword2Status()),
+                ),
+        )
+
+}
+
+interface S3SyncCredentialConfiguredRepository {
     suspend fun isAccessKeyConfigured(): Boolean
 
     suspend fun isSecretAccessKeyConfigured(): Boolean
@@ -101,6 +160,11 @@ interface S3SyncCredentialMutationRepository {
 
     suspend fun isEncryptionPassword2Configured(): Boolean
 }
+
+interface S3SyncCredentialMutationRepository :
+    S3SyncCredentialWriteRepository,
+    S3SyncCredentialStatusRepository,
+    S3SyncCredentialConfiguredRepository
 
 interface S3SyncBehaviorMutationRepository {
     suspend fun setEncryptionMode(mode: S3EncryptionMode)
@@ -128,15 +192,11 @@ interface S3SyncConfigurationMutationRepository :
     S3SyncBehaviorMutationRepository
 
 interface S3SyncOperationRepository {
-    suspend fun sync(
-        policy: S3SyncScanPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
-    ): S3SyncResult
+    suspend fun sync(): S3SyncResult
 
-    suspend fun syncForRefresh(): S3SyncResult = sync(S3SyncScanPolicy.FAST_ONLY)
+    suspend fun syncForRefresh(): S3SyncResult = sync()
 
     suspend fun getStatus(): S3SyncStatus
-
-    suspend fun getRemoteIndexState(): S3RemoteIndexState? = null
 
     suspend fun testConnection(): S3SyncResult
 }
@@ -145,6 +205,13 @@ interface S3SyncConflictRepository {
     suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
+    ): S3SyncResult
+}
+
+interface S3SyncReviewRepository {
+    suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
     ): S3SyncResult
 }
 
@@ -157,4 +224,5 @@ interface S3SyncRepository :
     S3SyncConfigurationMutationRepository,
     S3SyncOperationRepository,
     S3SyncConflictRepository,
+    S3SyncReviewRepository,
     S3SyncStateRepository

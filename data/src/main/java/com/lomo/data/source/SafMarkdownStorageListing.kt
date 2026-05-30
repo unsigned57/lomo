@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.util.runNonFatalCatching
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
@@ -13,6 +15,7 @@ internal suspend fun safListMetadata(
     documentAccess: SafDocumentAccess,
 ): List<FileMetadata> =
     withContext(SAF_IO_DISPATCHER) {
+        // behavior-contract: silent-result-ok: fast recursive query may fail; falls to safListMetadataSlow
         runCatching { safQueryMainMarkdownMetadataRecursive(context, rootUri) }
             .getOrNull()
             ?.takeIf(List<FileMetadata>::isNotEmpty)
@@ -52,41 +55,34 @@ internal suspend fun safListMetadataWithIds(
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): List<FileMetadataWithId> =
-    withContext(SAF_IO_DISPATCHER) {
-        runNonFatalCatching {
-            val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
-            val results = safQueryChildDocumentsWithIdsRecursive(context, rootUri, rootDocId)
-            if (results.isNotEmpty()) {
-                results
-            } else {
-                safListMetadata(context, rootUri, documentAccess).map(::safFallbackMetadataWithId)
-            }
-        }.getOrElse { error ->
-            Timber.e(error, "listMetadataWithIds failed, falling back")
-            safListMetadata(context, rootUri, documentAccess).map(::safFallbackMetadataWithId)
-        }
-    }
+    safStreamMetadataWithIds(context, rootUri, documentAccess).toList()
 
 internal suspend fun safListTrashMetadataWithIds(
     context: Context,
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): List<FileMetadataWithId> =
-    withContext(SAF_IO_DISPATCHER) {
-        runNonFatalCatching {
-            val trashDir = documentAccess.trashDir() ?: return@withContext emptyList()
-            val trashDocId = DocumentsContract.getDocumentId(trashDir.uri)
-            val results = safQueryChildDocumentsWithIds(context, rootUri, trashDocId)
-            if (results.isNotEmpty()) {
-                results
-            } else {
-                safListTrashMetadata(documentAccess).map(::safFallbackMetadataWithId)
-            }
-        }.getOrElse { error ->
-            Timber.e(error, "listTrashMetadataWithIds failed, falling back")
-            safListTrashMetadata(documentAccess).map(::safFallbackMetadataWithId)
-        }
-    }
+    safStreamTrashMetadataWithIds(context, rootUri, documentAccess).toList()
+
+internal fun safStreamMetadataWithIds(
+    context: Context,
+    rootUri: Uri,
+    documentAccess: SafDocumentAccess,
+): Flow<FileMetadataWithId> {
+    documentAccess.root() ?: return kotlinx.coroutines.flow.emptyFlow()
+    val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
+    return safStreamChildDocumentsWithIdsRecursive(context, rootUri, rootDocId)
+}
+
+internal fun safStreamTrashMetadataWithIds(
+    context: Context,
+    rootUri: Uri,
+    documentAccess: SafDocumentAccess,
+): Flow<FileMetadataWithId> {
+    val trashDir = documentAccess.trashDir() ?: return kotlinx.coroutines.flow.emptyFlow()
+    val trashDocId = DocumentsContract.getDocumentId(trashDir.uri)
+    return safStreamChildDocumentsWithIds(context, rootUri, trashDocId)
+}
 
 internal suspend fun safGetFileMetadata(
     documentAccess: SafDocumentAccess,
@@ -107,10 +103,3 @@ internal suspend fun safGetTrashFileMetadata(
             FileMetadata(filename = filename, lastModified = file.lastModified(), size = file.length())
         }
     }
-
-private fun safFallbackMetadataWithId(metadata: FileMetadata): FileMetadataWithId =
-    FileMetadataWithId(
-        filename = metadata.filename,
-        lastModified = metadata.lastModified,
-        documentId = metadata.filename,
-    )

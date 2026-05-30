@@ -22,7 +22,8 @@ import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
-import com.lomo.data.webdav.WebDavRemoteFile
+import com.lomo.data.webdav.WebDavRemoteResource
+import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
 import com.lomo.domain.model.WebDavSyncState
@@ -112,7 +113,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             result shouldBe ActionExecutionState.Applied(localChanged = false, remoteChanged = true)
             stateHolder.state.value shouldBe WebDavSyncState.Uploading
             verify(exactly = 1) {
-                client.put(
+                client.putSmallFile(
                     path = path,
                     bytes = "memo body".toByteArray(Charsets.UTF_8),
                     contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
@@ -160,7 +161,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             result shouldBe ActionExecutionState.Skipped
-            verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { client.putSmallFile(any(), any(), any(), any(), any(), any()) }
         }
 
     private fun `download memo saves markdown content to memo directory`() =
@@ -169,7 +170,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             val action = action(path, WebDavSyncDirection.DOWNLOAD)
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "download.md"
-            every { client.get(path) } returns WebDavRemoteFile(path, "remote memo".toByteArray(), "etag", 200L)
+            every { client.getSmallFile(path) } returns WebDavSmallRemoteFile(path, "remote memo".toByteArray(), "etag", 200L)
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
@@ -184,7 +185,13 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             val path = "lomo/images/download.png"
             val action = action(path, WebDavSyncDirection.DOWNLOAD)
             every { fileBridge.isMemoPath(path, layout) } returns false
-            every { client.getToFile(path, any()) } returns Unit
+            every { client.getToFile(path, any()) } returns
+                WebDavRemoteResource(
+                    path = path,
+                    isDirectory = false,
+                    etag = "etag-download",
+                    lastModified = 200L,
+                )
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
@@ -248,8 +255,8 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
 
             noneResult shouldBe ActionExecutionState.Skipped
             conflictResult shouldBe ActionExecutionState.Skipped
-            verify(exactly = 0) { client.get(any()) }
-            verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { client.getSmallFile(any()) }
+            verify(exactly = 0) { client.putSmallFile(any(), any(), any(), any(), any(), any()) }
             verify(exactly = 0) { client.delete(any(), any()) }
             markdownStorageDataSource.files.isEmpty() shouldBe true
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(any(), any(), any()) }

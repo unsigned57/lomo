@@ -18,9 +18,12 @@ package com.lomo.data.repository
 
 
 
-import com.lomo.data.worker.S3RefreshSignal
-import com.lomo.data.worker.S3RefreshSyncPlan
-import com.lomo.domain.model.S3SyncScanPolicy
+import com.lomo.data.sync.SyncForegroundWork
+import com.lomo.data.sync.SyncRefreshSignal
+import com.lomo.data.sync.SyncWorkDecision
+import com.lomo.data.sync.SyncWorkPayload
+import com.lomo.data.sync.SyncWorkTrigger
+import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
 import io.mockk.MockKAnnotations
@@ -63,10 +66,10 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
     private lateinit var statusTester: S3SyncStatusTester
 
     @MockK(relaxed = true)
-    private lateinit var refreshPlanner: S3RefreshSyncPlanner
+    private lateinit var refreshPolicyPlanner: S3RefreshSyncPolicyPlanner
 
     @MockK(relaxed = true)
-    private lateinit var refreshScheduler: S3RefreshCatchUpScheduler
+    private lateinit var scheduledWorkEnqueuer: S3ScheduledSyncWorkEnqueuer
 
     @MockK(relaxed = true)
     private lateinit var pendingConflictStore: PendingSyncConflictStore
@@ -80,13 +83,13 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
     private fun setUp() {
         MockKAnnotations.init(this)
         stateHolder = S3SyncStateHolder()
-        coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns null
+        coEvery { pendingConflictStore.readDescriptor(SyncBackendType.S3) } returns null
         repository =
             S3SyncOperationRepositoryImpl(
                 syncExecutor = syncExecutor,
                 statusTester = statusTester,
-                refreshPlanner = refreshPlanner,
-                refreshScheduler = refreshScheduler,
+                refreshPolicyPlanner = refreshPolicyPlanner,
+                scheduledWorkEnqueuer = scheduledWorkEnqueuer,
                 pendingConflictStore = pendingConflictStore,
                 stateHolder = stateHolder,
                 nowProvider = { nowMillis },
@@ -96,21 +99,15 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
     private fun `overlapping rapid refresh upgrades single follow-up run to strong foreground signal`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
-            coEvery { refreshPlanner.planRefreshSync() } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                    catchUpPolicy = null,
-                )
-            coEvery { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
-                    catchUpPolicy = null,
-                )
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) } coAnswers {
+            coEvery { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.NORMAL) } returns
+                refreshDecision(S3SyncWorkIntent.FAST_ONLY)
+            coEvery { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.STRONG_REMOTE_HINT) } returns
+                refreshDecision(S3SyncWorkIntent.FAST_THEN_RECONCILE)
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) } coAnswers {
                 gate.await()
                 S3SyncResult.Success("initial refresh")
             }
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } returns
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) } returns
                 S3SyncResult.Success("strong refresh")
 
             val firstCall = async { repository.syncForRefresh() }
@@ -123,33 +120,27 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
             gate.complete(Unit)
             firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
             coVerifyOrder {
-                refreshPlanner.planRefreshSync()
-                syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY)
-                refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT)
-                syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+                refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.NORMAL)
+                syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY)
+                refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.STRONG_REMOTE_HINT)
+                syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE)
             }
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) }
-            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) }
         }
 
     private fun `multiple overlapping refresh requests still collapse into one follow-up run`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
-            coEvery { refreshPlanner.planRefreshSync() } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                    catchUpPolicy = null,
-                )
-            coEvery { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
-                    catchUpPolicy = null,
-                )
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) } coAnswers {
+            coEvery { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.NORMAL) } returns
+                refreshDecision(S3SyncWorkIntent.FAST_ONLY)
+            coEvery { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.STRONG_REMOTE_HINT) } returns
+                refreshDecision(S3SyncWorkIntent.FAST_THEN_RECONCILE)
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) } coAnswers {
                 gate.await()
                 S3SyncResult.Success("initial refresh")
             }
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } returns
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_THEN_RECONCILE) } returns
                 S3SyncResult.Success("strong refresh")
 
             val firstCall = async { repository.syncForRefresh() }
@@ -161,19 +152,16 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
 
             gate.complete(Unit)
             firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
-            coVerify(exactly = 1) { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) }
+            coVerify(exactly = 1) { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.STRONG_REMOTE_HINT) }
             coVerify(exactly = 2) { syncExecutor.performSync(any()) }
         }
 
     private fun `overlapping slow refresh keeps follow-up on normal foreground signal`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
-            coEvery { refreshPlanner.planRefreshSync() } returns
-                S3RefreshSyncPlan(
-                    foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                    catchUpPolicy = null,
-                )
-            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) } coAnswers {
+            coEvery { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.NORMAL) } returns
+                refreshDecision(S3SyncWorkIntent.FAST_ONLY)
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) } coAnswers {
                 if (!gate.isCompleted) {
                     gate.await()
                     S3SyncResult.Success("initial refresh")
@@ -191,8 +179,18 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
             secondCall shouldBe S3SyncResult.Success("S3 refresh sync already in progress")
             gate.complete(Unit)
             firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
-            coVerify(exactly = 2) { refreshPlanner.planRefreshSync() }
-            coVerify(exactly = 0) { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) }
-            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) }
+            coVerify(exactly = 2) { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.NORMAL) }
+            coVerify(exactly = 0) { refreshPolicyPlanner.planRefreshSync(SyncRefreshSignal.STRONG_REMOTE_HINT) }
+            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) }
         }
+
+    private fun refreshDecision(policy: S3SyncWorkIntent): SyncWorkDecision =
+        SyncWorkDecision(
+            foregroundWork =
+                SyncForegroundWork(
+                    backend = SyncBackendType.S3,
+                    trigger = SyncWorkTrigger.REFRESH,
+                    payload = SyncWorkPayload.ProviderParameters(mapOf(S3_SYNC_WORK_INTENT_PARAMETER to policy.name)),
+                ),
+        )
 }

@@ -57,6 +57,7 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.markdown.MarkdownRenderer
+import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
@@ -79,25 +80,9 @@ internal fun InputEditorPanel(
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
     onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onToggleTagSelector: () -> Unit,
-    onCameraClick: () -> Unit,
-    onImageClick: () -> Unit,
-    onStartRecording: () -> Unit,
-    onLocationClick: () -> Unit,
-    hasAttachedLocation: Boolean,
-    onBackfillClick: () -> Unit,
-    isBackfillEnabled: Boolean,
-    backfillBadgeText: String?,
-    onBackfillBadgeClick: () -> Unit,
-    onInsertTodo: () -> Unit,
-    onInsertUnderline: () -> Unit,
-    onInsertReminder: () -> Unit,
-    inputToolbarToolOrder: ImmutableList<String>,
-    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
+    surface: InputEditorSurfaceState,
+    onEditorCommand: (InputEditorCommand) -> Unit,
+    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     onSubmit: () -> Unit,
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
@@ -108,8 +93,16 @@ internal fun InputEditorPanel(
     val isExpanded = motionStage != InputSheetMotionStage.Compact
     val displayMode = presentationState.effectiveDisplayMode()
     val typography = MaterialTheme.typography
-    val inputTextStyle = typography.memoEditorTextStyle()
-    val hintTextStyle = typography.memoHintTextStyle()
+    val baseInputTextStyle = typography.memoEditorTextStyle()
+    val baseHintTextStyle = typography.memoHintTextStyle()
+    val inputTextStyle =
+        remember(baseInputTextStyle, inputValue.text) {
+            baseInputTextStyle.scriptAwareFor(inputValue.text)
+        }
+    val hintTextStyle =
+        remember(baseHintTextStyle, hintText) {
+            baseHintTextStyle.scriptAwareFor(hintText)
+        }
     val chromeState =
         remember(presentationState, inputValue.text, hintText) {
             resolveInputEditorChromeState(
@@ -145,7 +138,15 @@ internal fun InputEditorPanel(
                 modifier = chromeModifier,
             )
         }
-        InputEditorBackfillBadge(backfillBadgeText = backfillBadgeText, onClick = onBackfillBadgeClick)
+        val actionBadge = surface.actionBadge
+        InputEditorActionBadgeContent(
+            badge = actionBadge,
+            onClick = {
+                if (actionBadge != null) {
+                    onEditorCommand(actionBadge.command)
+                }
+            },
+        )
         InputEditorBodyContent(
             isExpanded = isExpanded,
             chromeState = chromeState,
@@ -172,23 +173,9 @@ internal fun InputEditorPanel(
             isExpanded = isExpanded,
             isSubmitEnabled = inputValue.text.isNotBlank(),
             onToggleExpanded = onToggleExpanded,
-            onUndo = onUndo,
-            onRedo = onRedo,
-            canUndo = canUndo,
-            canRedo = canRedo,
-            onCameraClick = onCameraClick,
-            onImageClick = onImageClick,
-            onStartRecording = onStartRecording,
-            onLocationClick = onLocationClick,
-            hasAttachedLocation = hasAttachedLocation,
-            onBackfillClick = onBackfillClick,
-            isBackfillEnabled = isBackfillEnabled,
-            onToggleTagSelector = onToggleTagSelector,
-            onInsertTodo = onInsertTodo,
-            onInsertUnderline = onInsertUnderline,
-            onInsertReminder = onInsertReminder,
-            inputToolbarToolOrder = inputToolbarToolOrder,
-            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+            surface = surface,
+            onEditorCommand = onEditorCommand,
+            onToolbarOrderChanged = onToolbarOrderChanged,
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,
@@ -255,54 +242,51 @@ private fun InputEditorToolbarSection(
     isExpanded: Boolean,
     isSubmitEnabled: Boolean,
     onToggleExpanded: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onCameraClick: () -> Unit,
-    onImageClick: () -> Unit,
-    onStartRecording: () -> Unit,
-    onLocationClick: () -> Unit,
-    hasAttachedLocation: Boolean,
-    onBackfillClick: () -> Unit,
-    isBackfillEnabled: Boolean,
-    onToggleTagSelector: () -> Unit,
-    onInsertTodo: () -> Unit,
-    onInsertUnderline: () -> Unit,
-    onInsertReminder: () -> Unit,
-    inputToolbarToolOrder: ImmutableList<String>,
-    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
+    surface: InputEditorSurfaceState,
+    onEditorCommand: (InputEditorCommand) -> Unit,
+    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     onSubmit: () -> Unit,
     benchmarkSubmitTag: String?,
     haptic: AppHapticFeedback,
 ) {
+    val toolbarRegistry =
+        remember(
+            surface.capabilities.toolbarTools,
+            showTagSelector,
+        ) {
+            val highlightedCommands =
+                if (showTagSelector) {
+                    setOf(InputEditorCommand.ToggleTagSelector)
+                } else {
+                    emptySet()
+                }
+            InputToolbarRegistry.create(
+                InputToolbarRegistryState(
+                    tools = surface.capabilities.toolbarTools,
+                    highlightedCommands = highlightedCommands,
+                ),
+            )
+        }
+    val persistedOrder =
+        remember(surface.toolbarOrder) {
+            surface.toolbarOrder.map(InputToolbarActionId::persistedId)
+        }
+    val toolbarTools =
+        remember(toolbarRegistry, persistedOrder) {
+            toolbarRegistry.resolveTools(persistedOrder)
+        }
     InputEditorChromeTransitionHost(
         transitionState = chromeState.formattingToolbar,
     ) { chromeModifier ->
         InputEditorToolbar(
             toggleIcon = chromeState.toggleIcon,
-            showTagSelector = showTagSelector,
             isExpanded = isExpanded,
             isSubmitEnabled = isSubmitEnabled,
             enabled = chromeState.formattingToolbar.isInteractive,
             onToggleExpanded = onToggleExpanded,
-            onUndo = onUndo,
-            onRedo = onRedo,
-            canUndo = canUndo,
-            canRedo = canRedo,
-            onCameraClick = onCameraClick,
-            onImageClick = onImageClick,
-            onStartRecording = onStartRecording,
-            onLocationClick = onLocationClick,
-            hasAttachedLocation = hasAttachedLocation,
-            onBackfillClick = onBackfillClick,
-            isBackfillEnabled = isBackfillEnabled,
-            onToggleTagSelector = onToggleTagSelector,
-            onInsertTodo = onInsertTodo,
-            onInsertUnderline = onInsertUnderline,
-            onInsertReminder = onInsertReminder,
-            inputToolbarToolOrder = inputToolbarToolOrder,
-            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+            tools = toolbarTools,
+            onEditorCommand = onEditorCommand,
+            onToolbarOrderChanged = onToolbarOrderChanged,
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,

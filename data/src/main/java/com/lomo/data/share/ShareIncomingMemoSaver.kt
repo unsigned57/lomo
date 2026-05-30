@@ -25,10 +25,7 @@ class ShareIncomingMemoSaver
         private fun remapAttachmentReferences(
             content: String,
             attachmentMappings: Map<String, String>,
-        ): String =
-            attachmentMappings.entries.fold(content) { acc, (originalName, newName) ->
-                acc.replace(originalName, newName)
-            }
+        ): String = ShareAttachmentReferenceRemapper.remapMarkdownTargets(content, attachmentMappings)
 
         private companion object {
             private const val TAG = "ShareIncomingMemoSaver"

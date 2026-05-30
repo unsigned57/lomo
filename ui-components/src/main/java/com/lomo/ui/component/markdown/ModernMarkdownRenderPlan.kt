@@ -21,6 +21,7 @@ data class ModernMarkdownRenderPlan(
 sealed interface ModernMarkdownRenderItem {
     data class Block(
         val node: ASTNode,
+        val semanticBlock: MarkdownSemanticBlock? = null,
     ) : ModernMarkdownRenderItem
 
     data class Gallery(
@@ -47,12 +48,38 @@ internal data class SanitizedModernMarkdownContent(
 internal fun parseModernMarkdownDocument(content: String): ASTNode =
     modernMarkdownParser.buildMarkdownTreeFromString(content)
 
+private val REMINDER_TOKEN_REGEX = Regex(
+    "(^|\\s)@\\d{4}-\\d{2}-\\d{2}-\\d{2}:\\d{2}(?:x\\d+)?(?:i\\d+)?(?:r[dw])?(?:\\.(?:done|\\d+))?" +
+        "(?=\\s|$|[.,!?;:，。！？；：、)\\]}】）])"
+)
+private val HORIZONTAL_WHITESPACE_REGEX = Regex("[ \\t]{2,}")
+private val SPACE_BEFORE_PUNCTUATION_REGEX = Regex("[ \\t]+(?=[.,!?;:，。！？；：、)\\]}】）])")
+private val SPACE_BEFORE_NEWLINE_REGEX = Regex("[ \\t]+(?=\\n)")
+private val LEADING_EMPTY_LINES_REGEX = Regex("^(?:[ \\t]*\\n)+")
+
+internal fun stripReminderTokens(input: String): String {
+    if (!input.contains('@')) return input
+    var changed = false
+    val stripped = REMINDER_TOKEN_REGEX.replace(input) { match ->
+        changed = true
+        match.groupValues[1]
+    }
+    return if (changed) {
+        stripped
+            .replace(HORIZONTAL_WHITESPACE_REGEX, " ")
+            .replace(SPACE_BEFORE_PUNCTUATION_REGEX, "")
+            .replace(SPACE_BEFORE_NEWLINE_REGEX, "\n")
+    } else {
+        input
+    }
+}
+
 internal fun sanitizeModernMarkdownKnownTags(
     content: String,
     tags: Iterable<String>,
 ): SanitizedModernMarkdownContent {
     val sanitizedTags = tags.toList()
-    if (sanitizedTags.isEmpty()) {
+    if (sanitizedTags.isEmpty() && !content.contains('@')) {
         return SanitizedModernMarkdownContent(content = content, reusableRoot = null)
     }
 
@@ -70,12 +97,17 @@ internal fun sanitizeModernMarkdownKnownTags(
         val start = range.first
         val endExclusive = range.last + 1
         output.append(content, cursor, start)
-        output.append(
+        val textSegment = content.substring(start, endExclusive)
+        val tagsStripped = if (sanitizedTags.isNotEmpty()) {
             MarkdownKnownTagFilter.stripInlineTags(
-                input = content.substring(start, endExclusive),
+                input = textSegment,
                 tags = sanitizedTags,
-            ),
-        )
+            )
+        } else {
+            textSegment
+        }
+        val remindersStripped = stripReminderTokens(tagsStripped)
+        output.append(remindersStripped)
         cursor = endExclusive
     }
     output.append(content, cursor, content.length)
@@ -90,10 +122,12 @@ fun createModernMarkdownRenderPlan(
     content: String,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     knownTagsToStrip: Iterable<String>,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): ModernMarkdownRenderPlan {
     val sanitized = sanitizeModernMarkdownKnownTags(content, knownTagsToStrip)
     val sanitizedContent = sanitized.content
     val root = sanitized.reusableRoot ?: parseModernMarkdownDocument(sanitizedContent)
+    val references = parseMarkdownLinkReferences(root, sanitizedContent)
     val renderableBlocks =
         root.children.filter { node ->
             isModernRenderableTopLevelBlock(node, sanitizedContent)
@@ -103,7 +137,13 @@ fun createModernMarkdownRenderPlan(
         content = sanitizedContent,
         root = root,
         totalBlocks = renderableBlocks.size,
-        items = buildModernMarkdownRenderItems(renderableBlocks, sanitizedContent, maxVisibleBlocks),
+        items = buildModernMarkdownRenderItems(
+            renderableBlocks = renderableBlocks,
+            content = sanitizedContent,
+            references = references,
+            maxVisibleBlocks = maxVisibleBlocks,
+            mediaPresentationResolver = mediaPresentationResolver,
+        ),
     )
 }
 
@@ -132,7 +172,7 @@ private fun collectModernTagSanitizableLeafRanges(
     ranges: MutableList<IntRange>,
 ) {
     if (shouldSkipModernTagSanitizing(node)) return
-    if (node.type == MarkdownTokenTypes.TEXT || node.type == MarkdownTokenTypes.WHITE_SPACE) {
+    if (node.children.isEmpty()) {
         if (node.startOffset < node.endOffset) {
             ranges += node.startOffset until node.endOffset
         }
@@ -144,7 +184,12 @@ private fun collectModernTagSanitizableLeafRanges(
 }
 
 private fun shouldSkipModernTagSanitizing(node: ASTNode): Boolean =
-    node.type == MarkdownElementTypes.ATX_1 ||
+    // The GFM task-list checkbox is a structural token, not prose. Sanitizing it would run the
+    // space-before-punctuation cleanup over "[ ]" and collapse it to "[]", which the parser no longer
+    // recognizes as a task. Preserve it verbatim so toggling a todo that carries a reminder/tag keeps
+    // its checkbox instead of degrading into a literal "[ ]" bullet.
+    node.type == GFMTokenTypes.CHECK_BOX ||
+        node.type == MarkdownElementTypes.ATX_1 ||
         node.type == MarkdownElementTypes.ATX_2 ||
         node.type == MarkdownElementTypes.ATX_3 ||
         node.type == MarkdownElementTypes.ATX_4 ||
@@ -184,14 +229,22 @@ internal fun consumeModernImageGallery(
     nodes: List<ASTNode>,
     startIndex: Int,
     content: String,
+    mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
 ): ModernImageGallerySequence? {
     val firstImage = nodes[startIndex].toImageOnlyParagraphOrNull(content) ?: return null
+    if (mediaPresentationResolver?.invoke(firstImage) != null) return null
     val images = mutableListOf(firstImage)
     var cursor = startIndex + 1
-    while (cursor < nodes.size) {
-        val image = nodes[cursor].toImageOnlyParagraphOrNull(content) ?: break
-        images += image
-        cursor++
+    var shouldContinue = cursor < nodes.size
+    while (shouldContinue) {
+        val image = nodes[cursor].toImageOnlyParagraphOrNull(content)
+        if (image == null || mediaPresentationResolver?.invoke(image) != null) {
+            shouldContinue = false
+        } else {
+            images += image
+            cursor++
+            shouldContinue = cursor < nodes.size
+        }
     }
     return if (images.size > 1) {
         ModernImageGallerySequence(

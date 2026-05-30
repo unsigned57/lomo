@@ -5,6 +5,7 @@ import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncConflictRepository
 import com.lomo.domain.repository.S3SyncOperationRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.S3SyncReviewRepository
 import com.lomo.domain.repository.S3SyncStateRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,10 +18,12 @@ class S3SyncRepositoryImpl
         configurationMutationRepository: S3SyncConfigurationMutationRepositoryImpl,
         operationRepository: S3SyncOperationRepositoryImpl,
         conflictRepository: S3SyncConflictRepositoryImpl,
+        reviewRepository: S3SyncReviewRepositoryImpl,
         stateRepository: S3SyncStateRepositoryImpl,
     ) : S3SyncRepository,
         S3SyncConfigurationRepository by configurationRepository,
         S3SyncConfigurationMutationRepository by configurationMutationRepository,
         S3SyncOperationRepository by operationRepository,
         S3SyncConflictRepository by conflictRepository,
+        S3SyncReviewRepository by reviewRepository,
         S3SyncStateRepository by stateRepository

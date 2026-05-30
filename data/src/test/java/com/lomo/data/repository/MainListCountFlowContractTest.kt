@@ -22,6 +22,7 @@ import com.lomo.data.testing.fakes.FakeMemoBrowseDao
 import com.lomo.data.testing.fakes.FakeMemoDao
 import com.lomo.data.testing.fakes.FakeMemoPinDao
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.MemoSortOption
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
@@ -69,16 +70,19 @@ class MainListCountFlowContractTest : DataFunSpec() {
             val count =
                 repository
                     .getMainListCountFlow(
-                        query = "alpha",
-                        filter =
-                            MemoListFilter(
-                                sortOption = MemoSortOption.UPDATED_TIME,
-                                sortAscending = true,
-                                hasTodo = null,
-                                hasAttachment = null,
-                                hasUrl = null,
-                                startDate = LocalDate.of(2026, 1, 4),
-                                endDate = LocalDate.of(2026, 1, 2),
+                        spec =
+                            MemoQuerySpec.fromFilter(
+                                queryText = "alpha",
+                                filter =
+                                    MemoListFilter(
+                                        sortOption = MemoSortOption.UPDATED_TIME,
+                                        sortAscending = true,
+                                        hasTodo = null,
+                                        hasAttachment = null,
+                                        hasUrl = null,
+                                        startDate = LocalDate.of(2026, 1, 4),
+                                        endDate = LocalDate.of(2026, 1, 2),
+                                    ),
                             ),
                     ).first()
 
