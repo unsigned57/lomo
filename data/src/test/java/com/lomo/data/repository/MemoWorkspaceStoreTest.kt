@@ -57,6 +57,10 @@ import kotlinx.coroutines.test.runTest
  */
 class MemoWorkspaceStoreTest : DataFunSpec() {
     init {
+        beforeTest {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("GMT+8"))
+        }
+
         test("given main shard when projected then stable ids and metadata are owned by workspace store") {
             runTest {
                 val storage = InMemoryWorkspaceMarkdownStorage()

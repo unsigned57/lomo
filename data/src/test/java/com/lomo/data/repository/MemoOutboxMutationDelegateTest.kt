@@ -80,6 +80,7 @@ class MemoOutboxMutationDelegateTest : DataFunSpec() {
     init {
         beforeTest {
             MockKAnnotations.init(this@MemoOutboxMutationDelegateTest)
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("GMT+8"))
             every { dataStore.storageFilenameFormat } returns flowOf("yyyy_MM_dd")
             every { dataStore.storageTimestampFormat } returns flowOf("HH:mm")
         }

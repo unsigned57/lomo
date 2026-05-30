@@ -250,8 +250,6 @@ class MainScreenNewMemoAnimationDeviceTest {
                         isInsertedTopMemoReadyForSpaceStage(
                             state = currentState,
                             currentListTopMemoId = currentListTopMemoId,
-                            isListPinnedAtTop = listState.firstVisibleItemIndex == 0 &&
-                                listState.firstVisibleItemScrollOffset == 0,
                         )
                     ) {
                         animationSession.markInsertedTopMemoReady(insertedTopMemoId = currentListTopMemoId)
