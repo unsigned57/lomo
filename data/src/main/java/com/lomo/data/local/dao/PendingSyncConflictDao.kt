@@ -8,12 +8,24 @@ import com.lomo.data.local.entity.PendingSyncConflictEntity
 
 @Dao
 interface PendingSyncConflictDao {
-    @Query("SELECT * FROM pending_sync_conflict WHERE backend = :backend LIMIT 1")
-    suspend fun getByBackend(backend: String): PendingSyncConflictEntity?
+    @Query(
+        """
+        SELECT * FROM pending_sync_conflict
+        WHERE workspace_generation = :workspaceGeneration AND backend = :backend
+        LIMIT 1
+        """,
+    )
+    suspend fun getByBackend(
+        backend: String,
+        workspaceGeneration: String,
+    ): PendingSyncConflictEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PendingSyncConflictEntity)
 
-    @Query("DELETE FROM pending_sync_conflict WHERE backend = :backend")
-    suspend fun deleteByBackend(backend: String)
+    @Query("DELETE FROM pending_sync_conflict WHERE workspace_generation = :workspaceGeneration AND backend = :backend")
+    suspend fun deleteByBackend(
+        backend: String,
+        workspaceGeneration: String,
+    )
 }

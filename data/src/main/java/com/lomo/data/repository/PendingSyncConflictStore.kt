@@ -4,9 +4,8 @@ import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.entity.PendingSyncConflictEntity
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictFileReviewState
-import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
@@ -15,18 +14,48 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 interface PendingSyncConflictStore {
-    suspend fun read(source: SyncBackendType): SyncConflictSet?
+    suspend fun readDescriptor(source: SyncBackendType): PendingSyncConflictDescriptor?
 
     suspend fun write(conflictSet: SyncConflictSet)
 
     suspend fun clear(source: SyncBackendType)
 }
 
+data class PendingSyncConflictDescriptor(
+    val source: SyncBackendType,
+    val workspaceGeneration: String,
+    val files: List<PendingSyncConflictFileDescriptor>,
+    val timestamp: Long,
+    val validationStatus: PendingSyncValidationStatus,
+)
+
+enum class PendingSyncValidationStatus {
+    PENDING_RELOAD,
+    VALIDATED,
+    INVALIDATED,
+}
+
+data class PendingSyncConflictFileDescriptor(
+    val relativePath: String,
+    val isBinary: Boolean,
+    val local: PendingSyncSideMetadata,
+    val remote: PendingSyncSideMetadata,
+)
+
+data class PendingSyncSideMetadata(
+    val locator: String,
+    val contentHash: String?,
+    val lastModified: Long?,
+    val size: Long? = null,
+    val etag: String? = null,
+)
+
 @Singleton
 class RoomPendingSyncConflictStore
     @Inject
     constructor(
         private val dao: PendingSyncConflictDao,
+        private val generationProvider: WorkspaceSyncGenerationProvider,
     ) : PendingSyncConflictStore {
         private val json =
             Json {
@@ -34,109 +63,126 @@ class RoomPendingSyncConflictStore
                 encodeDefaults = true
             }
 
-        override suspend fun read(source: SyncBackendType): SyncConflictSet? {
+        override suspend fun readDescriptor(source: SyncBackendType): PendingSyncConflictDescriptor? {
             if (source == SyncBackendType.NONE) return null
-            return dao.getByBackend(source.name)?.toConflictSet(json)
+            val generation = activeGeneration()
+            val entity =
+                dao.getByBackend(
+                    backend = source.name,
+                    workspaceGeneration = generation,
+                ) ?: return null
+            return entity.toConflictDescriptor(json = json, workspaceGeneration = generation)
         }
 
         override suspend fun write(conflictSet: SyncConflictSet) {
             if (conflictSet.source == SyncBackendType.NONE) return
-            dao.upsert(conflictSet.toEntity(json))
+            dao.upsert(conflictSet.toEntity(json = json, workspaceGeneration = activeGeneration()))
         }
 
         override suspend fun clear(source: SyncBackendType) {
             if (source == SyncBackendType.NONE) return
-            dao.deleteByBackend(source.name)
+            dao.deleteByBackend(
+                backend = source.name,
+                workspaceGeneration = activeGeneration(),
+            )
         }
+
+        private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-object DisabledPendingSyncConflictStore : PendingSyncConflictStore {
-    override suspend fun read(source: SyncBackendType): SyncConflictSet? = null
-
-    override suspend fun write(conflictSet: SyncConflictSet) = Unit
-
-    override suspend fun clear(source: SyncBackendType) = Unit
-}
-
-class InMemoryPendingSyncConflictStore : PendingSyncConflictStore {
-    private val entries = linkedMapOf<SyncBackendType, SyncConflictSet>()
-
-    override suspend fun read(source: SyncBackendType): SyncConflictSet? = entries[source]
-
-    override suspend fun write(conflictSet: SyncConflictSet) {
-        entries[conflictSet.source] = conflictSet
-    }
-
-    override suspend fun clear(source: SyncBackendType) {
-        entries.remove(source)
-    }
-}
-
-private fun SyncConflictSet.toEntity(json: Json): PendingSyncConflictEntity =
+private fun SyncConflictSet.toEntity(
+    json: Json,
+    workspaceGeneration: String,
+): PendingSyncConflictEntity =
     PendingSyncConflictEntity(
+        workspaceGeneration = workspaceGeneration,
         backend = source.name,
-        sessionKind = sessionKind.name,
         timestamp = timestamp,
         payloadJson =
             json.encodeToString(
                 PendingSyncConflictPayload(
+                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
                     files =
                         files.map { file ->
                             PendingSyncConflictFilePayload(
                                 relativePath = file.relativePath,
-                                localContent = file.localContent,
-                                remoteContent = file.remoteContent,
                                 isBinary = file.isBinary,
-                                localLastModified = file.localLastModified,
-                                remoteLastModified = file.remoteLastModified,
-                                reviewState = file.reviewState.name,
-                                reviewMessage = file.reviewMessage,
+                                local =
+                                    PendingSyncSideMetadataPayload(
+                                        locator = file.relativePath,
+                                        contentHash = file.localContent?.pendingContentHash(),
+                                        lastModified = file.localLastModified,
+                                        size = file.localContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                                        etag = file.localContent?.pendingContentHash(),
+                                    ),
+                                remote =
+                                    PendingSyncSideMetadataPayload(
+                                        locator = file.relativePath,
+                                        contentHash = file.remoteContent?.pendingContentHash(),
+                                        lastModified = file.remoteLastModified,
+                                        size = file.remoteContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                                        etag = file.remoteContent?.pendingContentHash(),
+                                    ),
                             )
                         },
                 ),
             ),
     )
 
-private fun PendingSyncConflictEntity.toConflictSet(json: Json): SyncConflictSet {
+private fun PendingSyncConflictEntity.toConflictDescriptor(
+    json: Json,
+    workspaceGeneration: String,
+): PendingSyncConflictDescriptor {
     val payload = json.decodeFromString<PendingSyncConflictPayload>(payloadJson)
-    return SyncConflictSet(
+    return PendingSyncConflictDescriptor(
         source = SyncBackendType.valueOf(backend),
         files =
             payload.files.map { file ->
-                SyncConflictFile(
+                PendingSyncConflictFileDescriptor(
                     relativePath = file.relativePath,
-                    localContent = file.localContent,
-                    remoteContent = file.remoteContent,
                     isBinary = file.isBinary,
-                    localLastModified = file.localLastModified,
-                    remoteLastModified = file.remoteLastModified,
-                    reviewState = syncConflictFileReviewStateOrDefault(file.reviewState),
-                    reviewMessage = file.reviewMessage,
+                    local = file.local.toModel(),
+                    remote = file.remote.toModel(),
                 )
             },
         timestamp = timestamp,
-        sessionKind = SyncConflictSessionKind.valueOf(sessionKind),
+        workspaceGeneration = workspaceGeneration,
+        validationStatus = PendingSyncValidationStatus.valueOf(payload.validationStatus),
     )
 }
 
-private fun syncConflictFileReviewStateOrDefault(raw: String?): SyncConflictFileReviewState =
-    raw
-        ?.let { value -> runCatching { SyncConflictFileReviewState.valueOf(value) }.getOrNull() }
-        ?: SyncConflictFileReviewState.CONTENT_DIFFERENCE
-
 @Serializable
 private data class PendingSyncConflictPayload(
+    val schemaVersion: Int = 2,
+    val validationStatus: String = PendingSyncValidationStatus.PENDING_RELOAD.name,
     val files: List<PendingSyncConflictFilePayload>,
 )
 
 @Serializable
 private data class PendingSyncConflictFilePayload(
     val relativePath: String,
-    val localContent: String?,
-    val remoteContent: String?,
     val isBinary: Boolean,
-    val localLastModified: Long? = null,
-    val remoteLastModified: Long? = null,
-    val reviewState: String? = null,
-    val reviewMessage: String? = null,
+    val local: PendingSyncSideMetadataPayload,
+    val remote: PendingSyncSideMetadataPayload,
 )
+
+@Serializable
+private data class PendingSyncSideMetadataPayload(
+    val locator: String,
+    val contentHash: String? = null,
+    val lastModified: Long? = null,
+    val size: Long? = null,
+    val etag: String? = null,
+)
+
+private fun PendingSyncSideMetadataPayload.toModel(): PendingSyncSideMetadata =
+    PendingSyncSideMetadata(
+        locator = locator,
+        contentHash = contentHash,
+        lastModified = lastModified,
+        size = size,
+        etag = etag,
+    )
+
+private fun String.pendingContentHash(): String =
+    toByteArray(Charsets.UTF_8).md5Hex()
