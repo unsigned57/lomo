@@ -7,13 +7,12 @@ import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.usecase.ParseRemindersUseCase
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class ReminderAlarmReceiver : BroadcastReceiver() {
+    @Inject lateinit var asyncRunner: ReminderAsyncRunner
+
     @Inject lateinit var reminderCoordinator: ReminderCoordinator
 
     @Inject lateinit var reminderNotifier: ReminderNotifier
@@ -31,24 +30,19 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val tokenRaw = intent.getStringExtra(ReminderIntents.EXTRA_TOKEN_RAW) ?: return
         val pendingResult = goAsync()
 
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                val memo = memoQueryRepository.getMemoById(memoId) ?: return@launch
-                val marker =
-                    parseReminders(memo.content)
-                        .firstOrNull { it.raw == tokenRaw }
-                        ?: return@launch
-                if (marker.isExhausted) return@launch
-                val title = memo.content.lineSequence().firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
-                val launchIntent =
-                    context.packageManager.getLaunchIntentForPackage(context.packageName)
-                        ?: Intent()
-                reminderNotifier.showFor(memoId, marker, title, launchIntent)
-                reminderCoordinator.recordFired(memoId, tokenRaw)
-                reminderCoordinator.syncForMemo(memoId, memoQueryRepository.getMemoById(memoId)?.content.orEmpty())
-            } finally {
-                pendingResult.finish()
-            }
+        asyncRunner.launch(pendingResult) {
+            val memo = memoQueryRepository.getMemoById(memoId) ?: return@launch
+            val marker =
+                parseReminders(memo.content)
+                    .firstOrNull { it.raw == tokenRaw }
+                    ?: return@launch
+            if (marker.isExhausted) return@launch
+            val title = memo.content.lineSequence().firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
+            val launchIntent =
+                context.packageManager.getLaunchIntentForPackage(context.packageName)
+                    ?: Intent()
+            reminderNotifier.showFor(memoId, marker, title, launchIntent)
+            reminderCoordinator.recordFired(memoId, tokenRaw)
         }
     }
 }

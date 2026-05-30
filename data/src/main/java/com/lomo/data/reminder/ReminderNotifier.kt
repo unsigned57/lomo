@@ -42,7 +42,7 @@ class ReminderNotifier
             mainActivityIntent: Intent,
         ) {
             ensureChannel()
-            val notificationId = AlarmManagerReminderCoordinator.requestCodeFor(memoId, marker.raw)
+            val notificationId = ReminderRequestCodePolicy.notificationId(memoId, marker.raw)
 
             val openIntent =
                 mainActivityIntent.apply {
@@ -59,8 +59,8 @@ class ReminderNotifier
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
-            val snoozePending = actionBroadcast(notificationId, ReminderIntents.ACTION_SNOOZE, memoId, marker.raw)
-            val donePending = actionBroadcast(notificationId, ReminderIntents.ACTION_DONE, memoId, marker.raw)
+            val snoozePending = actionBroadcast(ReminderIntents.ACTION_SNOOZE, memoId, marker.raw)
+            val donePending = actionBroadcast(ReminderIntents.ACTION_DONE, memoId, marker.raw)
 
             val contentBody =
                 memoTitle.ifBlank { context.getString(R.string.reminder_notification_default_body) }
@@ -87,7 +87,6 @@ class ReminderNotifier
         }
 
         private fun actionBroadcast(
-            notificationId: Int,
             action: String,
             memoId: String,
             tokenRaw: String,
@@ -98,10 +97,9 @@ class ReminderNotifier
                     putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
                     putExtra(ReminderIntents.EXTRA_TOKEN_RAW, tokenRaw)
                 }
-            val requestCode = (notificationId.toString() + action).hashCode()
             return PendingIntent.getBroadcast(
                 context,
-                requestCode,
+                ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )

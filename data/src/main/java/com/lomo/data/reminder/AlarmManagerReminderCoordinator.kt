@@ -14,6 +14,7 @@ import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.usecase.ParseRemindersUseCase
 import com.lomo.domain.usecase.RewriteReminderTokenUseCase
 import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.model.Recurrence
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -99,12 +100,30 @@ class AlarmManagerReminderCoordinator
             tokenRaw: String,
         ) {
             mutateMemoMarker(memoId, tokenRaw) { marker ->
-                ReminderMarker.canonicalToken(
-                    dueAt = marker.dueAt,
-                    repeatCount = marker.repeatCount,
-                    firedCount = marker.firedCount,
-                    done = true,
-                )
+                if (marker.recurrence != Recurrence.NONE) {
+                    val nextDueAt = when (marker.recurrence) {
+                        Recurrence.DAILY -> marker.dueAt.plusDays(1)
+                        Recurrence.WEEKLY -> marker.dueAt.plusWeeks(1)
+                        else -> marker.dueAt
+                    }
+                    ReminderMarker.canonicalToken(
+                        dueAt = nextDueAt,
+                        repeatCount = marker.repeatCount,
+                        firedCount = 0,
+                        done = false,
+                        intervalMinutes = marker.intervalMinutes,
+                        recurrence = marker.recurrence,
+                    )
+                } else {
+                    ReminderMarker.canonicalToken(
+                        dueAt = marker.dueAt,
+                        repeatCount = marker.repeatCount,
+                        firedCount = marker.firedCount,
+                        done = true,
+                        intervalMinutes = marker.intervalMinutes,
+                        recurrence = marker.recurrence,
+                    )
+                }
             }
             alarmManager.cancel(alarmPendingIntent(memoId, tokenRaw))
         }
@@ -116,12 +135,30 @@ class AlarmManagerReminderCoordinator
             mutateMemoMarker(memoId, tokenRaw) { marker ->
                 val newFired = (marker.firedCount + 1).coerceAtMost(marker.repeatCount)
                 val isExhausted = newFired >= marker.repeatCount
-                ReminderMarker.canonicalToken(
-                    dueAt = marker.dueAt,
-                    repeatCount = marker.repeatCount,
-                    firedCount = newFired,
-                    done = isExhausted,
-                )
+                if (isExhausted && marker.recurrence != Recurrence.NONE) {
+                    val nextDueAt = when (marker.recurrence) {
+                        Recurrence.DAILY -> marker.dueAt.plusDays(1)
+                        Recurrence.WEEKLY -> marker.dueAt.plusWeeks(1)
+                        else -> marker.dueAt
+                    }
+                    ReminderMarker.canonicalToken(
+                        dueAt = nextDueAt,
+                        repeatCount = marker.repeatCount,
+                        firedCount = 0,
+                        done = false,
+                        intervalMinutes = marker.intervalMinutes,
+                        recurrence = marker.recurrence,
+                    )
+                } else {
+                    ReminderMarker.canonicalToken(
+                        dueAt = marker.dueAt,
+                        repeatCount = marker.repeatCount,
+                        firedCount = newFired,
+                        done = isExhausted,
+                        intervalMinutes = marker.intervalMinutes,
+                        recurrence = marker.recurrence,
+                    )
+                }
             }
         }
 
@@ -146,11 +183,16 @@ class AlarmManagerReminderCoordinator
             val pendingIntent = alarmPendingIntent(memoId, marker.raw)
             alarmManager.cancel(pendingIntent)
             if (marker.isExhausted) return
-            val triggerAt =
+            val baseTriggerAt =
                 marker.dueAt
                     .atZone(ZoneId.systemDefault())
                     .toInstant()
                     .toEpochMilli()
+            val triggerAt = if (marker.repeatCount > 1 && marker.firedCount > 0) {
+                baseTriggerAt + (marker.firedCount * marker.intervalMinutes * 60 * 1000L)
+            } else {
+                baseTriggerAt
+            }
             val whenToFire = if (triggerAt <= nowMillis) nowMillis + 500L else triggerAt
             setAlarmClock(whenToFire, pendingIntent)
         }
@@ -194,18 +236,13 @@ class AlarmManagerReminderCoordinator
                 }
             return PendingIntent.getBroadcast(
                 context,
-                requestCodeFor(memoId, tokenRaw),
+                ReminderRequestCodePolicy.alarmRequestCode(memoId, tokenRaw),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         }
 
         companion object {
-            internal fun requestCodeFor(
-                memoId: String,
-                tokenRaw: String,
-            ): Int = ("$memoId|$tokenRaw").hashCode()
-
             internal fun nowLocal(): LocalDateTime = LocalDateTime.now()
         }
     }
