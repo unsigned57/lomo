@@ -1,48 +1,47 @@
-package com.lomo.data.share
-
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
-import com.lomo.domain.model.DiscoveredDevice
-import io.mockk.mockk
-import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.booleans.shouldBeTrue
-import io.kotest.matchers.nulls.shouldBeNull
-
 /*
  * Behavior Contract:
  * - Unit under test: LAN share active-discovery client.
+ * - Owning layer: data
+ * - Priority tier: P1
+ * - Capability: probe active LAN share targets within a bounded per-scan
+ *   budget while preserving stable response mapping, de-duplication, network
+ *   binding, and rotating coverage across a discovery session.
  *
  * Scenarios:
- * - Happy: standard happy path for LanShareActiveDiscoveryClientTest.
- * - Boundary: boundary and edge cases for LanShareActiveDiscoveryClientTest.
- * - Failure: failure and error scenarios for LanShareActiveDiscoveryClientTest.
- * - Must-not-happen: invariants are never violated for LanShareActiveDiscoveryClientTest.
- * - Behavior focus: active discovery must map the stable /share/ping response into discovered
- *   devices and deduplicate probe results from same-Wi-Fi or hotspot subnet scans.
- * - Observable outcomes: parsed DiscoveredDevice values and scan result list.
- * - TDD proof: Fails before the fix because ping-response mapping is private to the HTTP probe,
- *   active discovery has no focused contract for merging probe results, and hotspot scans do not
- *   bind probes to the local-only Android Network.
- * - Excludes: live HTTP sockets, Android NSD callbacks, timeout tuning, and ConnectivityManager.
+ * - Given a stable ping response, when it is mapped, then a discovered device
+ *   on the stable share port is returned.
+ * - Given invalid ping responses, when they are mapped, then they are ignored.
+ * - Given duplicate active probe results, when a scan completes, then devices
+ *   are deduplicated by endpoint.
+ * - Given a hotspot network snapshot, when probes run, then targets keep the
+ *   Android Network binding.
+ * - Given repeated scans in one client session, when a subnet is larger than
+ *   the per-scan budget, then priority hosts are retained and the non-priority
+ *   budget window advances.
+ *
+ * Observable outcomes:
+ * - parsed DiscoveredDevice values, scan result list, probe network identity,
+ *   and recorded target hosts per scan.
+ *
+ * TDD proof:
+ * - RED before the rotation fix because repeated scans reuse the same first
+ *   budgeted target list and never reach the next non-priority window.
+ *
+ * Excludes:
+ * - live HTTP sockets, Android NSD callbacks, timeout tuning, and
+ *   ConnectivityManager.
  */
+package com.lomo.data.share
+
+import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import java.util.concurrent.ConcurrentLinkedQueue
+
 class LanShareActiveDiscoveryClientTest : DataFunSpec() {
     init {
         test("ping response maps to discovered device on stable share port") { `ping response maps to discovered device on stable share port`() }
@@ -52,6 +51,10 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
         test("scan deduplicates devices returned by active probes") { `scan deduplicates devices returned by active probes`() }
 
         test("scan binds hotspot probes to local network when available") { `scan binds hotspot probes to local network when available`() }
+
+        test("repeated scans keep priority hosts and rotate non priority budget window") {
+            `repeated scans keep priority hosts and rotate non priority budget window`()
+        }
     }
 
 
@@ -133,4 +136,32 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             devices shouldBe listOf(DiscoveredDevice("Hotspot peer", "192.168.43.2", LAN_SHARE_DISCOVERY_PORT))
             (probeNetworks.single() === hotspotNetwork).shouldBeTrue()
         }
+
+    private fun `repeated scans keep priority hosts and rotate non priority budget window`() =
+        runTest {
+            val probedHosts = ConcurrentLinkedQueue<String>()
+            val client =
+                LanShareActiveDiscoveryClient(
+                    probeDevice = { target ->
+                        probedHosts += target.host
+                        null
+                    },
+                )
+            val snapshot = LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.37")
+
+            client.scan(snapshot)
+            val firstScanHosts = probedHosts.toSet()
+            probedHosts.clear()
+            client.scan(snapshot)
+            val secondScanHosts = probedHosts.toSet()
+
+            firstScanHosts.size shouldBe EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET
+            secondScanHosts.size shouldBe EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET
+            firstScanHosts.containsAll(setOf("192.168.1.1", "192.168.1.38", "192.168.1.254")) shouldBe true
+            secondScanHosts.containsAll(setOf("192.168.1.1", "192.168.1.38", "192.168.1.254")) shouldBe true
+            firstScanHosts.contains("192.168.1.65") shouldBe false
+            secondScanHosts.contains("192.168.1.65") shouldBe true
+        }
 }
+
+private const val EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET = 64
