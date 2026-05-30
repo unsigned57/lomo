@@ -10,8 +10,14 @@ object SearchTokenizer {
         val length = text.length
         var i = 0
         while (i < length) {
+            val codePoint = text.codePointAt(i)
+            val charCount = Character.charCount(codePoint)
             val c = text[i]
-            if (isCJK(c)) {
+
+            if (isEmoji(codePoint)) {
+                sb.append(text.substring(i, i + charCount)).append(" ")
+                i += charCount
+            } else if (isCJK(c)) {
                 // Emit Unigram for partial matching (e.g. searching "你" in "你好")
                 sb.append(c).append(" ")
 
@@ -22,20 +28,26 @@ object SearchTokenizer {
                         sb.append(c).append(next).append(" ")
                     }
                 }
+                i++
             } else if (Character.isLetterOrDigit(c)) {
                 // ASCII/Other
                 sb.append(c)
                 // Continue until non-letter
                 var j = i + 1
-                while (j < length && Character.isLetterOrDigit(text[j]) && !isCJK(text[j])) {
+                while (j < length &&
+                    Character.isLetterOrDigit(text[j]) &&
+                    !isCJK(text[j]) &&
+                    !isEmoji(text.codePointAt(j))
+                ) {
                     sb.append(text[j])
                     j++
                 }
                 sb.append(" ")
-                i = j - 1 // Advance
+                i = j // Advance
+            } else {
+                // Skip other symbols
+                i++
             }
-            // Skip other symbols
-            i++
         }
         return sb.toString().trim()
     }
@@ -49,8 +61,14 @@ object SearchTokenizer {
         var i = 0
 
         while (i < text.length) {
+            val codePoint = text.codePointAt(i)
+            val charCount = Character.charCount(codePoint)
             i =
                 when {
+                    isEmoji(codePoint) -> {
+                        tokens.add(text.substring(i, i + charCount))
+                        i + charCount
+                    }
                     isCJK(text[i]) -> collectCjkQueryTerms(text, i, tokens)
                     Character.isLetterOrDigit(text[i]) -> collectWordQueryTerm(text, i, tokens)
                     else -> i + 1
@@ -58,6 +76,20 @@ object SearchTokenizer {
         }
 
         return tokens.distinct()
+    }
+
+    private const val EMOJI_SMP_START = 0x1F000
+    private const val EMOJI_SMP_END = 0x1FFFF
+    private const val EMOJI_DINGBATS_START = 0x2600
+    private const val EMOJI_DINGBATS_END = 0x27BF
+    private const val EMOJI_TECHNICAL_START = 0x2300
+    private const val EMOJI_TECHNICAL_END = 0x23FF
+
+    fun isEmoji(codePoint: Int): Boolean {
+        return codePoint in EMOJI_SMP_START..EMOJI_SMP_END || // All SMP Emojis/Symbols
+            codePoint in EMOJI_DINGBATS_START..EMOJI_DINGBATS_END || // Dingbats & Miscellaneous Symbols
+            codePoint in EMOJI_TECHNICAL_START..EMOJI_TECHNICAL_END || // Miscellaneous Technical
+            Character.getType(codePoint) == Character.OTHER_SYMBOL.toInt()
     }
 
     fun containsCjk(text: String): Boolean = text.any(::isCJK)
