@@ -16,10 +16,13 @@ import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtConstantExpression
 import org.jetbrains.kotlin.psi.KtContinueExpression
 import org.jetbrains.kotlin.psi.KtDoWhileExpression
+import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtIfExpression
 import org.jetbrains.kotlin.psi.KtIsExpression
+import org.jetbrains.kotlin.psi.KtLambdaArgument
+import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -28,12 +31,16 @@ import org.jetbrains.kotlin.psi.KtPackageDirective
 import org.jetbrains.kotlin.psi.KtPrefixExpression
 import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
+import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
+import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
 import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
 import org.jetbrains.kotlin.lexer.KtTokens
+import java.nio.file.Files
+import java.nio.file.Path
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
@@ -63,6 +70,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
                 RuleName("NoCrossFileDuplicateTopLevel") to ::NoCrossFileDuplicateTopLevelRule,
                 RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
+                RuleName("NoSwallowedResult") to ::NoSwallowedResultRule,
+                RuleName("NoDeprecatedKept") to ::NoDeprecatedKeptRule,
                 RuleName("ShouldBeInstanceOfAssertion") to ::ShouldBeInstanceOfAssertionRule,
             ),
         )
@@ -96,26 +105,93 @@ private class AppSourceBoundaryRule(
 
 private class AppBuildDependencyBoundaryRule(
     config: Config,
-) : LomoBaseRule(config, "app/build.gradle.kts must not expose :data outside implementation.") {
-    private val forbiddenPatterns =
-        listOf(
-            Regex("""(?s)\b(?:api|compileOnly|ksp)\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)"""),
-            Regex("""(?s)\b(?:api|compileOnly|ksp)\s*\(\s*projects\.data\s*\)"""),
-            Regex("""(?s)\badd\s*\(\s*['"](?:api|compileOnly|ksp)['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)"""),
-            Regex("""(?s)\badd\s*\(\s*['"](?:api|compileOnly|ksp)['"]\s*,\s*projects\.data\s*\)"""),
+) : LomoBaseRule(config, "app build and manifest must not declare direct data-layer edges.") {
+    private val allowedDataProjectDependencies =
+        config.valueOrDefault("allowedDataProjectDependencies", emptyList<String>())
+            .map(::normalizeDependencyText)
+            .toSet()
+    private val allowedManifestDataComponents =
+        config.valueOrDefault("allowedManifestDataComponents", emptyList<String>())
+            .toSet()
+    private val dependencyConfigurationNamePattern =
+        """
+        (?:
+            api|implementation|compileOnly|runtimeOnly|ksp|
+            annotationProcessor|kapt|lintChecks|coreLibraryDesugaring|
+            [A-Za-z_]\w*(?:Implementation|Api|CompileOnly|RuntimeOnly|Ksp)
         )
+        """.trimIndent().replace(Regex("""\s+"""), "")
+    private val forbiddenDependencyPatterns =
+        listOf(
+            Regex(
+                """(?s)\b$dependencyConfigurationNamePattern\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"]\s*\)\s*\)""",
+            ),
+            Regex(
+                """(?s)\b$dependencyConfigurationNamePattern\s*\(\s*projects\.data\s*\)""",
+            ),
+            Regex(
+                """(?s)\badd\s*\(\s*['"]$dependencyConfigurationNamePattern['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"]\s*\)\s*\)""",
+            ),
+            Regex(
+                """(?s)\badd\s*\(\s*['"]$dependencyConfigurationNamePattern['"]\s*,\s*projects\.data\s*\)""",
+            ),
+        )
+    private val manifestDataComponentPattern =
+        Regex("""android:name\s*=\s*["'](com\.lomo\.data\.[^"']+)["']""")
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
         if (!path.endsWith("/app/build.gradle.kts")) return
 
-        val offender = forbiddenPatterns.firstOrNull { it.containsMatchIn(file.text) }
-        if (offender != null) {
-            reportFile(file, "app/build.gradle.kts must not expose :data outside implementation.")
-        }
+        forbiddenDependencyPatterns
+            .flatMap { pattern -> pattern.findAll(file.text).map { match -> match.value } }
+            .filterNot { dependency -> normalizeDependencyText(dependency) in allowedDataProjectDependencies }
+            .forEach { dependency ->
+                reportFile(
+                    file,
+                    "app/build.gradle.kts must not declare a direct data project dependency: ${dependency.compact()}",
+                )
+            }
+
+        appManifestDataComponents(path)
+            .filterNot { component -> component in allowedManifestDataComponents }
+            .forEach { component ->
+                reportFile(
+                    file,
+                    "app AndroidManifest.xml must not directly name data-layer component: $component",
+                )
+            }
     }
-}
+
+    private fun appManifestDataComponents(buildFilePath: String): List<String> {
+        val appRoot = buildFilePath.substringBeforeLast("/build.gradle.kts", missingDelimiterValue = "")
+        if (appRoot.isBlank()) return emptyList()
+        val manifestPath = Path.of(appRoot, "src", "main", "AndroidManifest.xml")
+        if (!Files.isRegularFile(manifestPath)) return emptyList()
+        return manifestDataComponentPattern
+            .findAll(Files.readString(manifestPath))
+            .map { match -> match.groupValues[1] }
+            .toList()
+    }
+
+    private fun normalizeDependencyText(value: String): String = value.compact().replace('\'', '"')
+
+    private fun String.compact(): String =
+        lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(separator = " ")
+            .replace(Regex("""\s+"""), "")
+            .replace(",", ", ")
+            .replace("( ", "(")
+            .replace(" )", ")")
+            .replace("project( ", "project(")
+            .replace(" )", ")")
+            .replace("add( ", "add(")
+            .replace(", ", ", ")
+            .trim()
+    }
 
 private class DomainLayerIsolationRule(
     config: Config,
@@ -699,6 +775,144 @@ private class ShouldBeInstanceOfAssertionRule(
             expression,
             "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`.",
         )
+    }
+}
+
+private class NoSwallowedResultRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "kotlin.Result from runCatching must not be silently discarded by getOrNull / getOrDefault(<zero/empty>) / getOrElse { <zero/empty> } without onFailure/recover.",
+) {
+    private val silentTerminals = setOf("getOrNull", "getOrDefault", "getOrElse")
+    private val observabilityCalls = setOf("onFailure", "recover", "recoverCatching")
+    private val optOutMarker = Regex("""behavior-contract:\s*silent-result-ok""")
+
+    override fun visitCallExpression(expression: KtCallExpression) {
+        super.visitCallExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+
+        val calleeName = expression.calleeExpression?.text ?: return
+        if (calleeName !in silentTerminals) return
+
+        val qualified = expression.parent as? KtDotQualifiedExpression ?: return
+        if (qualified.selectorExpression !== expression) return
+
+        val chainNames = collectChainCalleeNames(qualified.receiverExpression)
+        if (!chainNames.contains("runCatching")) return
+        if (chainNames.any { it in observabilityCalls }) return
+
+        if (!isSilentTerminal(expression, calleeName)) return
+
+        if (hasOptOutComment(qualified)) return
+
+        reportElement(
+            qualified,
+            "Swallowed Result: runCatching{} ends in $calleeName without onFailure/recover. " +
+                "Handle the failure explicitly, or add `// behavior-contract: silent-result-ok: <reason>` " +
+                "on the line above if the silent fallback is intentional.",
+        )
+    }
+
+    private fun collectChainCalleeNames(start: KtExpression?): List<String> {
+        val names = mutableListOf<String>()
+        var current: KtExpression? = start
+        while (current != null) {
+            current =
+                when (val node = current) {
+                    is KtDotQualifiedExpression -> {
+                        (node.selectorExpression as? KtCallExpression)
+                            ?.calleeExpression
+                            ?.text
+                            ?.let(names::add)
+                        node.receiverExpression
+                    }
+                    is KtCallExpression -> {
+                        node.calleeExpression?.text?.let(names::add)
+                        null
+                    }
+                    else -> null
+                }
+        }
+        return names
+    }
+
+    private fun isSilentTerminal(call: KtCallExpression, name: String): Boolean =
+        when (name) {
+            "getOrNull" -> true
+            "getOrDefault" ->
+                isLiteralOrEmptyExpression(call.valueArguments.firstOrNull()?.getArgumentExpression())
+            "getOrElse" -> isLambdaBodyConstant(call.lambdaArguments.firstOrNull())
+            else -> false
+        }
+
+    private fun isLambdaBodyConstant(lambdaArg: KtLambdaArgument?): Boolean {
+        val lambda = lambdaArg?.getLambdaExpression() ?: return false
+        val body = lambda.functionLiteral.bodyBlockExpression ?: return false
+        val singleStatement = body.statements.singleOrNull() ?: return false
+        return isLiteralOrEmptyExpression(singleStatement)
+    }
+
+    private fun isLiteralOrEmptyExpression(expr: KtExpression?): Boolean {
+        if (expr == null) return false
+        if (expr is KtConstantExpression) {
+            val text = expr.text.trim()
+            return text == "null" ||
+                text == "0" || text == "0L" || text == "0f" || text == "0F" ||
+                text == "0.0" || text == "0.0f" || text == "0.0F" ||
+                text == "false"
+        }
+        if (expr is KtStringTemplateExpression) {
+            return expr.entries.isEmpty()
+        }
+        return isEmptyCollectionCall(expr)
+    }
+
+    private fun isEmptyCollectionCall(expr: KtExpression): Boolean {
+        val call = expr as? KtCallExpression ?: return false
+        val name = call.calleeExpression?.text ?: return false
+        val isEmptyFactory = name in setOf("emptyList", "emptyMap", "emptySet")
+        val isLiteralFactory = name in setOf("listOf", "mapOf", "setOf") && call.valueArguments.isEmpty()
+        return isEmptyFactory || isLiteralFactory
+    }
+
+    private fun hasOptOutComment(qualified: KtDotQualifiedExpression): Boolean {
+        val text = qualified.containingKtFile.text
+        val startOffset = qualified.textRange.startOffset
+
+        val currentLineStart = text.lastIndexOf('\n', startOffset - 1) + 1
+        val currentLineEnd = text.indexOf('\n', startOffset).let { if (it < 0) text.length else it }
+        val currentLine = text.substring(currentLineStart, currentLineEnd)
+        if (optOutMarker.containsMatchIn(currentLine)) return true
+
+        if (currentLineStart <= 1) return false
+        val prevLineEnd = currentLineStart - 1
+        val prevLineStart = text.lastIndexOf('\n', prevLineEnd - 1) + 1
+        val prevLine = text.substring(prevLineStart, prevLineEnd).trim()
+        return prevLine.startsWith("//") && optOutMarker.containsMatchIn(prevLine)
+    }
+}
+
+private class NoDeprecatedKeptRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "Production source must not use @Deprecated. Migrate every caller and delete the old API in the same change; @Deprecated as a soft-migration landing pad is forbidden.",
+) {
+    override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
+        super.visitAnnotationEntry(annotationEntry)
+        val file = annotationEntry.containingKtFile
+        if (!file.isProductionSource()) return
+        if (file.isPathExcluded()) return
+
+        if (annotationEntry.shortName?.asString() == "Deprecated") {
+            report(
+                Finding(
+                    Entity.from(annotationEntry),
+                    "Do not use @Deprecated in production source. Migrate every caller and delete the old API in the same change; @Deprecated as a soft-migration landing pad is forbidden.",
+                ),
+            )
+        }
     }
 }
 

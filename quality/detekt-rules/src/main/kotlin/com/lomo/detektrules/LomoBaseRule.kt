@@ -105,4 +105,34 @@ internal abstract class LomoBaseRule(
     ) {
         report(Finding(Entity.from(declaration), message))
     }
+
+    protected fun org.jetbrains.kotlin.psi.KtCallExpression.getMockedTypeText(): String? {
+        // 1. Explicit type argument: mockk<MyRepo>()
+        val typeArgText = typeArguments.singleOrNull()?.typeReference?.text?.trim()
+        if (typeArgText != null) return typeArgText
+
+        // 2. Property initialization: val repo: MyRepo = mockk()
+        val property = parent as? org.jetbrains.kotlin.psi.KtProperty
+        val propertyTypeText = property?.typeReference?.text?.trim()
+        if (propertyTypeText != null) return propertyTypeText
+
+        // 3. Assignment to a property (common for lateinit var): repo = mockk()
+        val binaryExpr = parent as? org.jetbrains.kotlin.psi.KtBinaryExpression
+        if (binaryExpr?.operationReference?.text == "=") {
+            val leftSide = binaryExpr.left?.text?.trim()
+            if (leftSide != null) {
+                // Heuristic: look for the declaration of this property in the same class
+                var current = parent
+                while (current != null && current !is org.jetbrains.kotlin.psi.KtClass) {
+                    current = current.parent
+                }
+                val klass = if (current is org.jetbrains.kotlin.psi.KtClass) current else null
+                val declarations = klass?.body?.declarations
+                val declaration = declarations?.filterIsInstance<org.jetbrains.kotlin.psi.KtProperty>()
+                    ?.firstOrNull { it.name == leftSide }
+                return declaration?.typeReference?.text?.trim()
+            }
+        }
+        return null
+    }
 }

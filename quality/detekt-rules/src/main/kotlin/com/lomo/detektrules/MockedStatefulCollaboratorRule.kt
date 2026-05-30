@@ -16,8 +16,7 @@ internal class MockedStatefulCollaboratorRule(
         if (!expression.containingKtFile.isTestFile()) return
         if (expression.calleeExpression?.text != "mockk") return
 
-        val typeArgText = expression.typeArguments.singleOrNull()?.typeReference?.text?.trim()
-        val typeText = typeArgText ?: (expression.parent as? KtProperty)?.typeReference?.text?.trim()
+        val typeText = expression.getMockedTypeText()
         if (typeText == null) return
 
         val simpleName = typeText.substringAfterLast('.').trimEnd('?').takeWhile { it != '<' }
