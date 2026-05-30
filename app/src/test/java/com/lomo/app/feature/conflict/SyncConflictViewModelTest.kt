@@ -1,71 +1,79 @@
 package com.lomo.app.feature.conflict
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictFileReviewState
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.SyncReviewResolution
+import com.lomo.domain.model.SyncReviewResolutionChoice
+import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncResult
+import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.repository.SyncConflictBackupRepository
+import com.lomo.domain.repository.UnifiedSyncProvider
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
-import com.lomo.domain.usecase.SyncConflictResolutionResult
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
+import com.lomo.domain.usecase.SyncProviderRegistry
+import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import io.kotest.matchers.shouldBe
-import io.mockk.clearMocks
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.coVerifyOrder
-import io.mockk.mockk
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Capability: Conflict dialog state transitions, default conflict choice preselection, and resolution application.
+ * - Capability: Conflict and review dialog state transitions, typed default choice preselection, and resolution application.
  * - Scenarios:
  *   - Given a conflict set, dialog displays correct initial showing state.
  *   - Given backend type and content heuristics (strict superset, disjoint insertions, identical content with newer metadata), suggest optimal default resolution choices.
- *   - Given inbox blocked items, leave their choices unselected.
+ *   - Given inbox blocked review items, expose typed review state and leave their choices unselected.
  *   - Given user choice overrides or bulk selection, apply choices appropriately.
  *   - Given apply resolution trigger, verify backup and resolve use cases are invoked in correct order.
  * - Observable outcomes:
- *   - ViewModel state (Hidden, Showing) and per-file resolution choices.
- * - TDD proof: Verifies resolution heuristics and ensures that backup/resolve operations succeed and transition the state correctly.
+ *   - ViewModel state (Hidden, Showing, ReviewShowing), per-file conflict choices, and per-item review choices.
+ * - TDD proof: RED observed with unresolved ReviewShowing/setReviewItemChoice references before the typed review state fix.
  * - Excludes: Compose UI dialog representation and sync engine transport operations.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncConflictViewModelTest : AppFunSpec() {
     private val dispatcher = StandardTestDispatcher()
 
-    private val syncConflictResolutionUseCase: SyncConflictResolutionUseCase = mockk()
-    private val backupSyncConflictFilesUseCase: BackupSyncConflictFilesUseCase = mockk()
+    private lateinit var operationLog: MutableList<ConflictOperation>
+    private lateinit var backupRepository: RecordingConflictBackupRepository
+    private lateinit var memoRepository: FakeMemoStore
+    private lateinit var syncProviders: Map<SyncBackendType, RecordingUnifiedSyncProvider>
 
     init {
         extension(MainDispatcherExtension(dispatcher))
 
         beforeTest {
-            clearMocks(syncConflictResolutionUseCase, backupSyncConflictFilesUseCase)
+            operationLog = mutableListOf()
+            backupRepository = RecordingConflictBackupRepository(operationLog)
+            memoRepository = FakeMemoStore()
+            syncProviders =
+                listOf(
+                    SyncBackendType.GIT,
+                    SyncBackendType.S3,
+                    SyncBackendType.INBOX,
+                ).associateWith { backendType ->
+                    RecordingUnifiedSyncProvider(
+                        backendType = backendType,
+                        operationLog = operationLog,
+                    )
+                }
         }
 
         test("showConflictDialog exposes showing state with empty choices") {
@@ -162,27 +170,29 @@ class SyncConflictViewModelTest : AppFunSpec() {
             )
         }
 
-        test("showConflictDialog leaves blocked inbox review item unselected") {
+        test("showReviewDialog exposes typed review state and leaves blocked inbox review item unselected") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
+            val review =
+                reviewSession(
                 source = SyncBackendType.INBOX,
-                files = listOf(
-                    SyncConflictFile(
+                    items = listOf(
+                        SyncReviewItem(
                         relativePath = "inbox/2026_04_16.md",
                         localContent = null,
-                        remoteContent = "memo with image ![cover](cover.png)",
+                            incomingContent = "memo with image ![cover](cover.png)",
                         isBinary = false,
-                        reviewState = SyncConflictFileReviewState.BLOCKED,
-                        reviewMessage = "Missing attachments: cover.png",
+                            state = SyncReviewItemState.BLOCKED,
+                            message = "Missing attachments: cover.png",
+                        ),
                     ),
-                ),
-            )
+                )
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showReviewDialog(review)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = emptyMap<String, SyncConflictResolutionChoice>().toImmutableMap(),
+            viewModel.state.value shouldBe SyncConflictDialogState.ReviewShowing(
+                reviewSession = review,
+                perItemChoices = emptyMap<String, SyncReviewResolutionChoice>().toImmutableMap(),
+                blockedPaths = setOf("inbox/2026_04_16.md").toImmutableSet(),
                 expandedFilePath = null,
                 isResolving = false,
             )
@@ -256,42 +266,45 @@ class SyncConflictViewModelTest : AppFunSpec() {
             ).toImmutableMap()
         }
 
-        test("acceptSuggestedChoices applies initial sync preview defaults without touching unsupported files") {
+        test("acceptSuggestedChoices applies initial import review defaults without touching unsupported files") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
+            val review =
+                reviewSession(
                 source = SyncBackendType.S3,
-                files = listOf(
-                    SyncConflictFile(
+                    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+                    items = listOf(
+                        SyncReviewItem(
                         relativePath = "memos/2026_03_24.md",
                         localContent = "alpha\n\nbeta",
-                        remoteContent = "alpha\n\nbeta\n\ngamma",
+                            incomingContent = "alpha\n\nbeta\n\ngamma",
                         isBinary = false,
                     ),
-                    SyncConflictFile(
+                        SyncReviewItem(
                         relativePath = "memos/2026_03_25.md",
                         localContent = "start\nlocal\nmiddle\nend",
-                        remoteContent = "start\nmiddle\nremote\nend",
+                            incomingContent = "start\nmiddle\nremote\nend",
                         isBinary = false,
                     ),
-                    SyncConflictFile(
+                        SyncReviewItem(
                         relativePath = "images/photo.jpg",
                         localContent = null,
-                        remoteContent = null,
+                            incomingContent = null,
                         isBinary = true,
                     ),
                 ),
-                sessionKind = com.lomo.domain.model.SyncConflictSessionKind.INITIAL_SYNC_PREVIEW,
             )
-            viewModel.showConflictDialog(conflictSet)
-            viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.SKIP_FOR_NOW)
+            viewModel.showReviewDialog(review)
+            viewModel.setReviewItemChoice("images/photo.jpg", SyncReviewResolutionChoice.SKIP_FOR_NOW)
 
             viewModel.acceptSuggestedChoices()
 
-            val state = viewModel.state.value as SyncConflictDialogState.Showing
-            state.perFileChoices shouldBe mapOf(
-                "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                "memos/2026_03_25.md" to SyncConflictResolutionChoice.MERGE_TEXT,
-                "images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
+            val state = viewModel.state.value as SyncConflictDialogState.ReviewShowing
+            state.reviewSession shouldBe review
+            state.isInitialImportPreview shouldBe true
+            state.perItemChoices shouldBe mapOf(
+                "memos/2026_03_24.md" to SyncReviewResolutionChoice.KEEP_INCOMING,
+                "memos/2026_03_25.md" to SyncReviewResolutionChoice.MERGE_TEXT,
+                "images/photo.jpg" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
             ).toImmutableMap()
         }
 
@@ -314,25 +327,25 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 viewModel.showConflictDialog(conflictSet)
                 viewModel.setFileChoice("memos/2026_03_24.md", SyncConflictResolutionChoice.KEEP_LOCAL)
                 viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.KEEP_REMOTE)
-                coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } returns Unit
-                coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Resolved
 
                 viewModel.applyResolution()
                 dispatcher.scheduler.advanceUntilIdle()
 
                 viewModel.state.value shouldBe SyncConflictDialogState.Hidden
-                coVerifyOrder {
-                    backupSyncConflictFilesUseCase.invoke(conflictSet.files, any())
-                    syncConflictResolutionUseCase.resolve(
-                        conflictSet = conflictSet,
-                        resolution = SyncConflictResolution(
-                            mapOf(
-                                "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                                "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                            ).toImmutableMap(),
+                operationLog shouldBe
+                    listOf(
+                        ConflictOperation.Backup(conflictSet.files),
+                        ConflictOperation.Resolve(
+                            conflictSet = conflictSet,
+                            resolution =
+                                SyncConflictResolution(
+                                    mapOf(
+                                        "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
+                                        "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                                    ).toImmutableMap(),
+                                ),
                         ),
                     )
-                }
             }
         }
 
@@ -342,7 +355,7 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 val conflictSet = conflictSet()
                 viewModel.showConflictDialog(conflictSet)
                 viewModel.setAllChoices(SyncConflictResolutionChoice.KEEP_LOCAL)
-                coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } throws IllegalStateException("backup failed")
+                backupRepository.failure = IllegalStateException("backup failed")
 
                 viewModel.applyResolution()
 
@@ -358,7 +371,7 @@ class SyncConflictViewModelTest : AppFunSpec() {
                     "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
                     "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_LOCAL,
                 ).toImmutableMap()
-                coVerify(exactly = 0) { syncConflictResolutionUseCase.resolve(any(), any()) }
+                operationLog shouldBe emptyList()
             }
         }
 
@@ -384,24 +397,30 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 )
                 val pending = conflictSet.copy(files = listOf(conflictSet.files[1]))
                 viewModel.showConflictDialog(conflictSet)
-                coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } returns Unit
-                coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Pending(pending)
+                syncProviders.getValue(SyncBackendType.S3).resolveResult =
+                    UnifiedSyncResult.Conflict(
+                        provider = SyncBackendType.S3,
+                        message = "pending",
+                        conflicts = pending,
+                    )
 
                 viewModel.autoResolveSafeConflicts()
                 dispatcher.scheduler.advanceUntilIdle()
 
-                coVerifyOrder {
-                    backupSyncConflictFilesUseCase.invoke(listOf(conflictSet.files.first()), any())
-                    syncConflictResolutionUseCase.resolve(
-                        conflictSet = conflictSet,
-                        resolution = SyncConflictResolution(
-                            mapOf(
-                                "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                "memos/2026_03_25.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-                            ).toImmutableMap(),
+                operationLog shouldBe
+                    listOf(
+                        ConflictOperation.Backup(listOf(conflictSet.files.first())),
+                        ConflictOperation.Resolve(
+                            conflictSet = conflictSet,
+                            resolution =
+                                SyncConflictResolution(
+                                    mapOf(
+                                        "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                                        "memos/2026_03_25.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
+                                    ).toImmutableMap(),
+                                ),
                         ),
                     )
-                }
                 viewModel.state.value shouldBe SyncConflictDialogState.Showing(
                     conflictSet = pending,
                     perFileChoices = mapOf(
@@ -413,50 +432,56 @@ class SyncConflictViewModelTest : AppFunSpec() {
             }
         }
 
-        test("autoResolveSafeConflicts applies safe choices and defers unresolved inbox files") {
+        test("autoResolveSafeConflicts applies safe choices and defers unresolved inbox review files") {
             runTest {
                 val viewModel = createViewModel()
-                val conflictSet = conflictSet(
+                val review =
+                    reviewSession(
                     source = SyncBackendType.INBOX,
-                    files = listOf(
-                        SyncConflictFile(
+                        items = listOf(
+                            SyncReviewItem(
                             relativePath = "inbox/2026_04_15.md",
                             localContent = "alpha\nbeta",
-                            remoteContent = "alpha\nbeta\ngamma",
+                                incomingContent = "alpha\nbeta\ngamma",
                             isBinary = false,
                         ),
-                        SyncConflictFile(
+                            SyncReviewItem(
                             relativePath = "inbox/2026_04_16.md",
                             localContent = "start\nlocal only\nend",
-                            remoteContent = "start\nremote only\nend",
+                                incomingContent = "start\nremote only\nend",
                             isBinary = false,
                         ),
                     ),
                 )
-                val pending = conflictSet.copy(files = listOf(conflictSet.files[1]))
-                viewModel.showConflictDialog(conflictSet)
-                coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } returns Unit
-                coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Pending(pending)
+                val pendingReview = review.copy(items = listOf(review.items[1]))
+                viewModel.showReviewDialog(review)
+                syncProviders.getValue(SyncBackendType.INBOX).resolveResult =
+                    UnifiedSyncResult.Review(
+                        provider = SyncBackendType.INBOX,
+                        message = "pending",
+                        review = pendingReview,
+                    )
 
                 viewModel.autoResolveSafeConflicts()
                 dispatcher.scheduler.advanceUntilIdle()
 
-                coVerifyOrder {
-                    backupSyncConflictFilesUseCase.invoke(listOf(conflictSet.files.first()), any())
-                    syncConflictResolutionUseCase.resolve(
-                        conflictSet = conflictSet,
-                        resolution = SyncConflictResolution(
-                            mapOf(
-                                "inbox/2026_04_15.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                "inbox/2026_04_16.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-                            ).toImmutableMap(),
+                operationLog shouldBe
+                    listOf(
+                        ConflictOperation.ResolveReview(
+                            review = review,
+                            resolution =
+                                SyncReviewResolution(
+                                    mapOf(
+                                        "inbox/2026_04_15.md" to SyncReviewResolutionChoice.KEEP_INCOMING,
+                                        "inbox/2026_04_16.md" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
+                                    ).toImmutableMap(),
+                                ),
                         ),
                     )
-                }
-                viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                    conflictSet = pending,
-                    perFileChoices = mapOf(
-                        "inbox/2026_04_16.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
+                viewModel.state.value shouldBe SyncConflictDialogState.ReviewShowing(
+                    reviewSession = pendingReview,
+                    perItemChoices = mapOf(
+                        "inbox/2026_04_16.md" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
                     ).toImmutableMap(),
                     expandedFilePath = null,
                     isResolving = false,
@@ -472,8 +497,7 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 viewModel.state.value shouldBe SyncConflictDialogState.Hidden
-                coVerify(exactly = 0) { backupSyncConflictFilesUseCase.invoke(any(), any()) }
-                coVerify(exactly = 0) { syncConflictResolutionUseCase.resolve(any(), any()) }
+                operationLog shouldBe emptyList()
             }
         }
 
@@ -501,8 +525,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 viewModel.showConflictDialog(conflictSet)
                 viewModel.setFileChoice("memos/2026_03_24.md", SyncConflictResolutionChoice.KEEP_REMOTE)
                 viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.SKIP_FOR_NOW)
-                coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } returns Unit
-                coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Pending(pending)
+                syncProviders.getValue(SyncBackendType.S3).resolveResult =
+                    UnifiedSyncResult.Conflict(
+                        provider = SyncBackendType.S3,
+                        message = "pending",
+                        conflicts = pending,
+                    )
 
                 viewModel.applyResolution()
                 dispatcher.scheduler.advanceUntilIdle()
@@ -519,8 +547,16 @@ class SyncConflictViewModelTest : AppFunSpec() {
 
     private fun createViewModel(): SyncConflictViewModel =
         SyncConflictViewModel(
-            syncConflictResolutionUseCase = syncConflictResolutionUseCase,
-            backupSyncConflictFilesUseCase = backupSyncConflictFilesUseCase,
+            syncConflictResolutionUseCase =
+                SyncConflictResolutionUseCase(
+                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toList()),
+                    memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+                ),
+            syncReviewResolutionUseCase =
+                SyncReviewResolutionUseCase(
+                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toList()),
+                ),
+            backupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(backupRepository),
         )
 
     private fun conflictSet(
@@ -540,13 +576,99 @@ class SyncConflictViewModelTest : AppFunSpec() {
                     isBinary = true,
                 ),
             ),
-        sessionKind: com.lomo.domain.model.SyncConflictSessionKind =
-            com.lomo.domain.model.SyncConflictSessionKind.STANDARD_CONFLICT,
     ): SyncConflictSet =
         SyncConflictSet(
             source = source,
             files = files,
             timestamp = 123L,
-            sessionKind = sessionKind,
         )
+
+    private fun reviewSession(
+        source: SyncBackendType = SyncBackendType.INBOX,
+        items: List<SyncReviewItem>,
+        kind: SyncReviewSessionKind = SyncReviewSessionKind.SYNC_INBOX_IMPORT_REVIEW,
+    ): SyncReviewSession =
+        SyncReviewSession(
+            source = source,
+            items = items,
+            timestamp = 123L,
+            kind = kind,
+        )
+
+    private sealed interface ConflictOperation {
+        data class Backup(
+            val files: List<SyncConflictFile>,
+        ) : ConflictOperation
+
+        data class Resolve(
+            val conflictSet: SyncConflictSet,
+            val resolution: SyncConflictResolution,
+        ) : ConflictOperation
+
+        data class ResolveReview(
+            val review: SyncReviewSession,
+            val resolution: SyncReviewResolution,
+        ) : ConflictOperation
+    }
+
+    private class RecordingConflictBackupRepository(
+        private val operationLog: MutableList<ConflictOperation>,
+    ) : SyncConflictBackupRepository {
+        var failure: Throwable? = null
+
+        override suspend fun backupFiles(
+            files: List<SyncConflictFile>,
+            localFileReader: suspend (String) -> ByteArray?,
+        ) {
+            failure?.let { throw it }
+            operationLog += ConflictOperation.Backup(files)
+        }
+    }
+
+    private class RecordingUnifiedSyncProvider(
+        override val backendType: SyncBackendType,
+        private val operationLog: MutableList<ConflictOperation>,
+    ) : UnifiedSyncProvider {
+        var resolveResult: UnifiedSyncResult =
+            UnifiedSyncResult.Success(
+                provider = backendType,
+                message = "resolved",
+            )
+
+        override fun isEnabled(): Flow<Boolean> = flowOf(false)
+
+        override fun isSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
+
+        override fun syncState(): Flow<UnifiedSyncState> = flowOf(UnifiedSyncState.Idle)
+
+        override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
+            UnifiedSyncResult.Success(
+                provider = backendType,
+                message = "synced",
+            )
+
+        override suspend fun resolveConflicts(
+            resolution: SyncConflictResolution,
+            conflictSet: SyncConflictSet,
+        ): UnifiedSyncResult {
+            operationLog +=
+                ConflictOperation.Resolve(
+                    conflictSet = conflictSet,
+                    resolution = resolution,
+                )
+            return resolveResult
+        }
+
+        override suspend fun resolveReview(
+            resolution: SyncReviewResolution,
+            review: SyncReviewSession,
+        ): UnifiedSyncResult {
+            operationLog +=
+                ConflictOperation.ResolveReview(
+                    review = review,
+                    resolution = resolution,
+                )
+            return resolveResult
+        }
+    }
 }

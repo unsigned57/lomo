@@ -1,21 +1,81 @@
 package com.lomo.domain.model
 
 object SyncConflictTextMerge {
+    private const val DEFAULT_MAX_LINE_COUNT = 1_000
+    private const val DEFAULT_MAX_COMPARISON_CELLS = 250_000L
+
+    data class Policy(
+        val maxLineCount: Int = DEFAULT_MAX_LINE_COUNT,
+        val maxComparisonCells: Long = DEFAULT_MAX_COMPARISON_CELLS,
+    ) {
+        init {
+            require(maxLineCount >= 0) { "maxLineCount must be non-negative" }
+            require(maxComparisonCells >= 0L) { "maxComparisonCells must be non-negative" }
+        }
+    }
+
     fun merge(
         localText: String?,
         remoteText: String?,
         localLastModified: Long? = null,
         remoteLastModified: Long? = null,
-    ): String? {
-        if (localText.isNullOrEmpty()) return remoteText
-        if (remoteText.isNullOrEmpty()) return localText
-        if (localText == remoteText) return localText
+        policy: Policy = Policy(),
+    ): String? =
+        when {
+            localText.isNullOrEmpty() -> remoteText
+            remoteText.isNullOrEmpty() -> localText
+            localText == remoteText -> localText
+            else ->
+                mergeNonEmptyDistinctText(
+                    localText = localText,
+                    remoteText = remoteText,
+                    localLastModified = localLastModified,
+                    remoteLastModified = remoteLastModified,
+                    policy = policy,
+                )
+        }
 
+    private fun mergeNonEmptyDistinctText(
+        localText: String,
+        remoteText: String,
+        localLastModified: Long?,
+        remoteLastModified: Long?,
+        policy: Policy,
+    ): String? {
         val localLines = localText.toMergeLines()
         val remoteLines = remoteText.toMergeLines()
+        if (!policy.allowsLcs(localLines.size, remoteLines.size)) return null
+
         val anchors =
             computeAnchors(localLines, remoteLines)
                 .filter { (localAnchor, _) -> localLines[localAnchor].isNotBlank() }
+        val anchoredMerge = mergeAnchoredSegments(localLines, remoteLines, anchors) ?: return null
+
+        val tail =
+            mergeSegment(
+                localLines = localLines.subList(anchoredMerge.localCursor, localLines.size),
+                remoteLines = remoteLines.subList(anchoredMerge.remoteCursor, remoteLines.size),
+            )
+        return when {
+            tail != null -> (anchoredMerge.lines + tail).joinToString("\n")
+            anchors.isNotEmpty() -> null
+            else ->
+                mergeDisjointMemoContent(
+                    localText = localText,
+                    remoteText = remoteText,
+                    localLines = localLines,
+                    remoteLines = remoteLines,
+                    localLastModified = localLastModified,
+                    remoteLastModified = remoteLastModified,
+                )
+        }
+    }
+
+    private fun mergeAnchoredSegments(
+        localLines: List<String>,
+        remoteLines: List<String>,
+        anchors: List<Pair<Int, Int>>,
+    ): AnchoredMerge? {
         val mergedLines = mutableListOf<String>()
         var localCursor = 0
         var remoteCursor = 0
@@ -32,25 +92,18 @@ object SyncConflictTextMerge {
             remoteCursor = remoteAnchor + 1
         }
 
-        val tail =
-            mergeSegment(
-                localLines = localLines.subList(localCursor, localLines.size),
-                remoteLines = remoteLines.subList(remoteCursor, remoteLines.size),
-            )
-        if (tail == null) {
-            if (anchors.isNotEmpty()) return null
-            return mergeDisjointMemoContent(
-                localText = localText,
-                remoteText = remoteText,
-                localLines = localLines,
-                remoteLines = remoteLines,
-                localLastModified = localLastModified,
-                remoteLastModified = remoteLastModified,
-            )
-        }
-        mergedLines += tail
-        return mergedLines.joinToString("\n")
+        return AnchoredMerge(
+            lines = mergedLines,
+            localCursor = localCursor,
+            remoteCursor = remoteCursor,
+        )
     }
+
+    private data class AnchoredMerge(
+        val lines: List<String>,
+        val localCursor: Int,
+        val remoteCursor: Int,
+    )
 
     private fun computeAnchors(
         localLines: List<String>,
@@ -158,5 +211,14 @@ object SyncConflictTextMerge {
             else -> false
         }
 
-    private fun String.toMergeLines(): List<String> = if (isEmpty()) emptyList() else split('\n')
+    private fun Policy.allowsLcs(
+        localLineCount: Int,
+        remoteLineCount: Int,
+    ): Boolean {
+        if (localLineCount > maxLineCount || remoteLineCount > maxLineCount) return false
+        return (localLineCount.toLong() + 1L) * (remoteLineCount.toLong() + 1L) <= maxComparisonCells
+    }
+
 }
+
+private fun String.toMergeLines(): List<String> = if (isEmpty()) emptyList() else split('\n')

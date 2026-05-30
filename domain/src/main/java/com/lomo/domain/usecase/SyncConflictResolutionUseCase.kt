@@ -3,11 +3,11 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoMutationRepository
 
 class SyncConflictResolutionUseCase(
     private val syncProviderRegistry: SyncProviderRegistry,
-    private val memoRepository: MemoRepository,
+    private val memoRepository: MemoMutationRepository,
 ) {
     suspend fun resolve(
         conflictSet: SyncConflictSet,

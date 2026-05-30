@@ -1,32 +1,32 @@
 package com.lomo.domain.model
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
  * - Unit under test: SyncConflictTextMerge
- * - Behavior focus: conservative text merge for non-overlapping sync conflicts.
- * - Observable outcomes: merged text result for safe insertions and null for overlapping edits.
- * - TDD proof: Fails before the fix because no shared merge helper exists, so mergeable S3/WebDAV conflicts cannot produce a stable merged text result.
- * - Excludes: repository I/O, UI rendering, and binary file handling.
+ * - Owning layer: domain
+ * - Priority tier: P0
+ * - Capability: conservatively merge text sync conflicts only when the merge is bounded and deterministic.
+ *
+ * Scenarios:
+ * - Given one side is empty, when merge runs, then the non-empty side is returned.
+ * - Given equal text, non-overlapping anchor insertions, a superset segment, or short disjoint memo content,
+ *   when merge runs, then the safe merged text is returned.
+ * - Given overlapping edits, uncertain segments, or an input that exceeds the configured merge budget,
+ *   when merge runs, then null is returned so conflict review handles the file.
+ * - Given the configured budget is smaller than the actual LCS matrix including sentinel row/column,
+ *   when merge runs, then null is returned before allocating the matrix.
+ *
+ * Observable outcomes:
+ * - Returned merged text, or null to decline automatic write-back.
+ *
+ * TDD proof:
+ * - Fails before the fix because merge has no injectable policy/budget and always attempts the LCS path.
+ *
+ * Excludes:
+ * - Repository write-back, UI rendering, binary conflict handling, and large heap stress tests.
  */
 class SyncConflictTextMergeTest : DomainFunSpec() {
     init {
@@ -85,6 +85,11 @@ class SyncConflictTextMergeTest : DomainFunSpec() {
         }
 
         test("merge ignores shared blank lines when disjoint memo content is otherwise independent") {
+            val expectedMergedText =
+                "\n- 21:02:55 long standalone paragraph" +
+                    "\n\n- 20:13:50\nitem one" +
+                    "\n\n- 07:26:18 item two\n![image](img_sample.png)"
+
             val merged =
                 SyncConflictTextMerge.merge(
                     localText = "- 20:13:50\nitem one\n\n- 07:26:18 item two\n![image](img_sample.png)",
@@ -93,7 +98,7 @@ class SyncConflictTextMergeTest : DomainFunSpec() {
                     remoteLastModified = 10L,
                 )
 
-            merged shouldBe "\n- 21:02:55 long standalone paragraph\n\n- 20:13:50\nitem one\n\n- 07:26:18 item two\n![image](img_sample.png)"
+            merged shouldBe expectedMergedText
         }
 
         test("merge returns null for overlapping edits in the same slot") {
@@ -101,6 +106,28 @@ class SyncConflictTextMergeTest : DomainFunSpec() {
                 SyncConflictTextMerge.merge(
                     localText = "start\nlocal\nend",
                     remoteText = "start\nremote\nend",
+                )
+
+            merged shouldBe null
+        }
+
+        test("merge returns null before LCS when the configured comparison budget is exceeded") {
+            val merged =
+                SyncConflictTextMerge.merge(
+                    localText = "a\nb\nc",
+                    remoteText = "x\ny\nz",
+                    policy = SyncConflictTextMerge.Policy(maxLineCount = 10, maxComparisonCells = 8),
+                )
+
+            merged shouldBe null
+        }
+
+        test("merge counts LCS sentinel row and column when enforcing comparison budget") {
+            val merged =
+                SyncConflictTextMerge.merge(
+                    localText = "a\nb\nc",
+                    remoteText = "x\ny\nz",
+                    policy = SyncConflictTextMerge.Policy(maxLineCount = 10, maxComparisonCells = 15),
                 )
 
             merged shouldBe null

@@ -24,7 +24,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolutionChoice
+import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.supportsDeferredConflictResolution
+import com.lomo.domain.model.supportsDeferredReviewResolution
 import com.lomo.ui.R
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
@@ -141,6 +143,18 @@ internal fun choiceLabel(
     }
 
 @Composable
+internal fun reviewChoiceLabel(
+    choice: SyncReviewResolutionChoice,
+    source: SyncBackendType = SyncBackendType.NONE,
+): String =
+    when (choice) {
+        SyncReviewResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
+        SyncReviewResolutionChoice.KEEP_INCOMING -> remoteChoiceLabel(source)
+        SyncReviewResolutionChoice.MERGE_TEXT -> stringResource(R.string.sync_conflict_choice_merge)
+        SyncReviewResolutionChoice.SKIP_FOR_NOW -> stringResource(R.string.sync_conflict_choice_skip)
+    }
+
+@Composable
 internal fun localChoiceLabel(source: SyncBackendType): String =
     stringResource(
         if (source == SyncBackendType.INBOX) {
@@ -162,3 +176,6 @@ internal fun remoteChoiceLabel(source: SyncBackendType): String =
 
 internal fun SyncBackendType.supportsDeferredConflictResolutionUi(): Boolean =
     supportsDeferredConflictResolution()
+
+internal fun SyncBackendType.supportsDeferredReviewResolutionUi(): Boolean =
+    supportsDeferredReviewResolution()
