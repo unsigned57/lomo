@@ -145,7 +145,9 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         bytes: ByteArray,
                         contentType: String,
                         metadata: Map<String, String>,
-                    ) = error("putObject should not be used in getStatus test")
+                        ifMatch: String?,
+                        ifNoneMatch: String?,
+                    ): S3PutObjectResult = error("putObject should not be used in getStatus test")
 
                     override suspend fun getObjectToFile(
                         key: String,
@@ -157,6 +159,8 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         file: java.io.File,
                         contentType: String,
                         metadata: Map<String, String>,
+                        ifMatch: String?,
+                        ifNoneMatch: String?,
                     ): S3PutObjectResult = error("putObjectFile should not be used in getStatus test")
 
                     override suspend fun deleteObject(key: String) = Unit
@@ -230,7 +234,9 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         bytes: ByteArray,
                         contentType: String,
                         metadata: Map<String, String>,
-                    ) = error("putObject should not be used in getStatus test")
+                        ifMatch: String?,
+                        ifNoneMatch: String?,
+                    ): S3PutObjectResult = error("putObject should not be used in getStatus test")
 
                     override suspend fun getObjectToFile(
                         key: String,
@@ -242,6 +248,8 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
                         file: java.io.File,
                         contentType: String,
                         metadata: Map<String, String>,
+                        ifMatch: String?,
+                        ifNoneMatch: String?,
                     ): S3PutObjectResult = error("putObjectFile should not be used in getStatus test")
 
                     override suspend fun deleteObject(key: String) = Unit

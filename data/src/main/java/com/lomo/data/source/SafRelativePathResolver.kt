@@ -8,52 +8,7 @@ import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import java.io.IOException
 import java.util.ArrayDeque
-
-/**
- * Walks a relative path (segments separated by `/`) from [root], returning the leaf DocumentFile
- * when every intermediate directory exists. Returns `null` if any segment is missing. The caller
- * is responsible for excluding the trash subdirectory if that matters to the use case.
- */
-internal fun safResolveRelative(
-    root: DocumentFile?,
-    relativePath: String,
-): DocumentFile? {
-    if (root == null) return null
-    if (relativePath.isBlank()) return root
-    var current = root
-    for (segment in relativePath.split('/')) {
-        if (segment.isEmpty()) continue
-        current = current?.findFile(segment) ?: return null
-    }
-    return current
-}
-
-/**
- * Walks a relative path (segments separated by `/`), creating any missing directories on the way
- * and creating the leaf file with [leafMimeType] if it does not exist. Returns the existing or
- * freshly-created leaf DocumentFile, or throws if creation fails at any step.
- */
-internal fun safResolveOrCreateRelative(
-    root: DocumentFile,
-    relativePath: String,
-    leafMimeType: String,
-): DocumentFile {
-    val segments = relativePath.split('/').filter(String::isNotEmpty)
-    require(segments.isNotEmpty()) { "relativePath must not be empty" }
-    var current = root
-    for (index in 0 until segments.size - 1) {
-        val segment = segments[index]
-        current = current.findFile(segment)
-            ?: current.createDirectory(segment)
-            ?: throw IOException("Failed to create SAF directory segment '$segment' for $relativePath")
-    }
-    val leafName = segments.last()
-    return current.findFile(leafName)
-        ?: current.createFile(leafMimeType, leafName)
-        ?: throw IOException("Failed to create SAF leaf '$leafName' for $relativePath")
-}
 
 /**
  * Walks the main markdown root (excluding the trash subdirectory) and emits a flat list of
@@ -123,6 +78,37 @@ internal fun safQueryChildDocumentsWithIdsRecursive(
     context: Context,
     rootUri: Uri,
     baseDocId: String,
+): List<FileMetadataWithId> =
+    safQueryChildDocumentsWithIdsRecursiveCommon(
+        context = context,
+        rootUri = rootUri,
+        baseDocId = baseDocId,
+        excludeTrash = true,
+        shouldSkip = { _, _ -> false },
+        fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) }
+    )
+
+internal fun safStreamChildDocumentsWithIdsRecursive(
+    context: Context,
+    rootUri: Uri,
+    baseDocId: String,
+): Flow<FileMetadataWithId> =
+    safStreamChildDocumentsWithIdsRecursiveCommon(
+        context = context,
+        rootUri = rootUri,
+        baseDocId = baseDocId,
+        excludeTrash = true,
+        shouldSkip = { _, _ -> false },
+        fileFilter = { it.endsWith(SAF_MARKDOWN_SUFFIX) }
+    )
+
+internal fun safQueryChildDocumentsWithIdsRecursiveCommon(
+    context: Context,
+    rootUri: Uri,
+    baseDocId: String,
+    excludeTrash: Boolean,
+    shouldSkip: (name: String, isDirectory: Boolean) -> Boolean,
+    fileFilter: (name: String) -> Boolean,
 ): List<FileMetadataWithId> {
     val results = mutableListOf<FileMetadataWithId>()
     val queue = ArrayDeque<Pair<String, String>>().apply { add(baseDocId to "") }
@@ -130,16 +116,28 @@ internal fun safQueryChildDocumentsWithIdsRecursive(
         val (parentDocId, prefix) = queue.removeFirst()
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
         context.contentResolver.query(childUri, METADATA_WITH_ID_PROJECTION, null, null, null)?.use { cursor ->
-            drainMetadataWithIdCursor(cursor, rootUri, prefix, queue, results)
+            processChildDocumentsCursor(
+                cursor = cursor,
+                rootUri = rootUri,
+                prefix = prefix,
+                excludeTrash = excludeTrash,
+                shouldSkip = shouldSkip,
+                fileFilter = fileFilter,
+                queue = queue,
+                results = results
+            )
         }
     }
     return results
 }
 
-internal fun safStreamChildDocumentsWithIdsRecursive(
+internal fun safStreamChildDocumentsWithIdsRecursiveCommon(
     context: Context,
     rootUri: Uri,
     baseDocId: String,
+    excludeTrash: Boolean,
+    shouldSkip: (name: String, isDirectory: Boolean) -> Boolean,
+    fileFilter: (name: String) -> Boolean,
 ): Flow<FileMetadataWithId> =
     flow {
         val queue = ArrayDeque<Pair<String, String>>().apply { add(baseDocId to "") }
@@ -147,16 +145,89 @@ internal fun safStreamChildDocumentsWithIdsRecursive(
             val (parentDocId, prefix) = queue.removeFirst()
             val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
             context.contentResolver.query(childUri, METADATA_WITH_ID_PROJECTION, null, null, null)?.use { cursor ->
-                val idx = MetadataColumnIndexes.from(cursor)
-                while (cursor.moveToNext()) {
-                    val row = MetadataRow.read(cursor, idx) ?: continue
-                    processMetadataWithIdRow(row, rootUri, prefix, queue)?.let { metadata ->
-                        emit(metadata)
-                    }
-                }
+                processStreamChildDocumentsCursor(
+                    cursor = cursor,
+                    rootUri = rootUri,
+                    prefix = prefix,
+                    excludeTrash = excludeTrash,
+                    shouldSkip = shouldSkip,
+                    fileFilter = fileFilter,
+                    queue = queue
+                )
             }
         }
     }.flowOn(SAF_IO_DISPATCHER)
+
+private fun processChildDocumentsCursor(
+    cursor: Cursor,
+    rootUri: Uri,
+    prefix: String,
+    excludeTrash: Boolean,
+    shouldSkip: (name: String, isDirectory: Boolean) -> Boolean,
+    fileFilter: (name: String) -> Boolean,
+    queue: ArrayDeque<Pair<String, String>>,
+    results: MutableList<FileMetadataWithId>
+) {
+    val idx = MetadataColumnIndexes.from(cursor)
+    while (cursor.moveToNext()) {
+        val row = MetadataRow.read(cursor, idx)
+        if (row != null && !shouldSkip(row.name, row.isDirectory)) {
+            val relativePath = if (prefix.isEmpty()) row.name else "$prefix/${row.name}"
+            if (row.isDirectory) {
+                val isTrash = excludeTrash && prefix.isEmpty() && row.name == SAF_TRASH_DIR_NAME
+                if (!isTrash) {
+                    queue.add(row.docId to relativePath)
+                }
+            } else if (fileFilter(row.name)) {
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, row.docId)
+                results.add(
+                    FileMetadataWithId(
+                        filename = relativePath,
+                        lastModified = row.lastModified,
+                        documentId = row.docId,
+                        uriString = docUri.toString(),
+                        size = row.size,
+                    )
+                )
+            }
+        }
+    }
+}
+
+private suspend fun kotlinx.coroutines.flow.FlowCollector<FileMetadataWithId>.processStreamChildDocumentsCursor(
+    cursor: Cursor,
+    rootUri: Uri,
+    prefix: String,
+    excludeTrash: Boolean,
+    shouldSkip: (name: String, isDirectory: Boolean) -> Boolean,
+    fileFilter: (name: String) -> Boolean,
+    queue: ArrayDeque<Pair<String, String>>
+) {
+    val idx = MetadataColumnIndexes.from(cursor)
+    while (cursor.moveToNext()) {
+        val row = MetadataRow.read(cursor, idx)
+        if (row != null && !shouldSkip(row.name, row.isDirectory)) {
+            val relativePath = if (prefix.isEmpty()) row.name else "$prefix/${row.name}"
+            if (row.isDirectory) {
+                val isTrash = excludeTrash && prefix.isEmpty() && row.name == SAF_TRASH_DIR_NAME
+                if (!isTrash) {
+                    queue.add(row.docId to relativePath)
+                }
+            } else if (fileFilter(row.name)) {
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, row.docId)
+                emit(
+                    FileMetadataWithId(
+                        filename = relativePath,
+                        lastModified = row.lastModified,
+                        documentId = row.docId,
+                        uriString = docUri.toString(),
+                        size = row.size,
+                    )
+                )
+            }
+        }
+    }
+}
 
 private fun drainMetadataCursor(
     cursor: Cursor,
@@ -166,22 +237,10 @@ private fun drainMetadataCursor(
 ) {
     val idx = MetadataColumnIndexes.from(cursor)
     while (cursor.moveToNext()) {
-        val row = MetadataRow.read(cursor, idx) ?: continue
-        processMetadataRow(row, prefix, queue)?.let(results::add)
-    }
-}
-
-private fun drainMetadataWithIdCursor(
-    cursor: Cursor,
-    rootUri: Uri,
-    prefix: String,
-    queue: ArrayDeque<Pair<String, String>>,
-    results: MutableList<FileMetadataWithId>,
-) {
-    val idx = MetadataColumnIndexes.from(cursor)
-    while (cursor.moveToNext()) {
-        val row = MetadataRow.read(cursor, idx) ?: continue
-        processMetadataWithIdRow(row, rootUri, prefix, queue)?.let(results::add)
+        val row = MetadataRow.read(cursor, idx)
+        if (row != null) {
+            processMetadataRow(row, prefix, queue)?.let(results::add)
+        }
     }
 }
 
@@ -203,30 +262,6 @@ private fun processMetadataRow(
     }
 }
 
-private fun processMetadataWithIdRow(
-    row: MetadataRow,
-    rootUri: Uri,
-    prefix: String,
-    queue: ArrayDeque<Pair<String, String>>,
-): FileMetadataWithId? {
-    val relativePath = if (prefix.isEmpty()) row.name else "$prefix/${row.name}"
-    return when {
-        row.isDirectory && prefix.isEmpty() && row.name == SAF_TRASH_DIR_NAME -> null
-        row.isDirectory -> {
-            queue.add(row.docId to relativePath)
-            null
-        }
-        row.name.endsWith(SAF_MARKDOWN_SUFFIX) ->
-            FileMetadataWithId(
-                filename = relativePath,
-                lastModified = row.lastModified,
-                documentId = row.docId,
-                uriString = DocumentsContract.buildDocumentUriUsingTree(rootUri, row.docId).toString(),
-            )
-        else -> null
-    }
-}
-
 private val METADATA_PROJECTION =
     arrayOf(
         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -242,6 +277,7 @@ private val METADATA_WITH_ID_PROJECTION =
         DocumentsContract.Document.COLUMN_DISPLAY_NAME,
         DocumentsContract.Document.COLUMN_MIME_TYPE,
         DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        DocumentsContract.Document.COLUMN_SIZE,
     )
 
 private data class MetadataColumnIndexes(

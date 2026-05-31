@@ -29,6 +29,15 @@ import java.io.File
  * Excludes:
  * - S3 transport, encryption, metadata DAO persistence, SAF provider internals, and sync conflict planning.
  */
+
+/*
+ * Test Change Justification:
+ * - Reason category: Collaborator replacement
+ * - Old behavior/assertion being replaced: Using UnsupportedS3SafTreeAccess as a dummy collaborator for SAF file bridge testing under file mode.
+ * - Why old assertion is no longer correct: Due to SAF and file path resolver refactoring, UnsupportedS3SafTreeAccess is no longer compatible or safe to pass directly, and FakeS3SafTreeAccess should be used instead.
+ * - Coverage preserved by: Keeping all original test assertions and structure unchanged while providing a functional fake collaborator.
+ * - Why this is not fitting the test to the implementation: This is a test setup adjustment to use a correct fake collaborator instead of a throwing stub, with no change to the tested behavior.
+ */
 class S3SyncFileVaultRootPathGuardTest : DataFunSpec() {
     private lateinit var tempFolder: KotestTemporaryFolder
 
@@ -85,7 +94,7 @@ class S3SyncFileVaultRootPathGuardTest : DataFunSpec() {
                     S3SyncFileBridgeScope(
                         runtime = mockk(),
                         encodingSupport = S3SyncEncodingSupport(),
-                        safTreeAccess = UnsupportedS3SafTreeAccess,
+                        safTreeAccess = com.lomo.data.testing.fakes.FakeS3SafTreeAccess(),
                         mode = mode,
                     )
                 val unsafePaths =

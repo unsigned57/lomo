@@ -45,9 +45,9 @@ import io.kotest.matchers.shouldBe
 /*
  * Behavior Contract:
  * - Unit under test: AwsSdkS3Client
- * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, object metadata reads should use HEAD without downloading bodies, and deletions must hit the SDK synchronously so the sync state machine cannot record success before the network call confirms.
- * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, and multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns.
- * - TDD proof: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
+ * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, conditional write guards should reach both single-request and multipart upload paths, object metadata reads should use HEAD without downloading bodies, and deletions must hit the SDK synchronously so the sync state machine cannot record success before the network call confirms.
+ * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, conditional request headers, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, and multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns.
+ * - TDD proof: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, multipart upload drops conditional headers before CompleteMultipartUpload, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
  * - Excludes: live AWS transport behavior, sync planner logic, and repository orchestration.
  */
 /*
@@ -76,6 +76,10 @@ class AwsSdkS3ClientTest : DataFunSpec() {
         test("putObjectFile keeps small files on the single request path") { `putObjectFile keeps small files on the single request path`() }
 
         test("putObjectFile uses multipart upload for large files") { `putObjectFile uses multipart upload for large files`() }
+
+        test("putObjectFile applies conditional headers to multipart completion") {
+            `putObjectFile applies conditional headers to multipart completion`()
+        }
 
         test("putObjectFile respects tuned multipart part concurrency") { `putObjectFile respects tuned multipart part concurrency`() }
 
@@ -261,6 +265,49 @@ class AwsSdkS3ClientTest : DataFunSpec() {
                                 1 to "etag-part-1",
                                 2 to "etag-part-2",
                             )
+                    },
+                )
+            }
+        }
+
+    private fun `putObjectFile applies conditional headers to multipart completion`() =
+        runTest {
+            val file = tempFile("large-conditional.bin", S3_MULTIPART_UPLOAD_THRESHOLD_BYTES + 1)
+            coEvery { sdkClient.putObject(any()) } throws
+                AssertionError("Large files must not use the single-request putObject path")
+            coEvery { sdkClient.createMultipartUpload(any()) } returns
+                CreateMultipartUploadResponse {
+                    uploadId = "upload-conditional"
+                }
+            coEvery { sdkClient.uploadPart(any()) } answers {
+                val request = firstArg<aws.sdk.kotlin.services.s3.model.UploadPartRequest>()
+                UploadPartResponse {
+                    eTag = "etag-part-${request.partNumber}"
+                }
+            }
+            coEvery { sdkClient.completeMultipartUpload(any()) } returns
+                CompleteMultipartUploadResponse {
+                    eTag = "etag-complete"
+                }
+
+            val client = AwsSdkS3Client(config = config, client = sdkClient)
+
+            client.putObjectFile(
+                key = "vault/large-conditional.bin",
+                file = file,
+                contentType = "application/octet-stream",
+                metadata = emptyMap(),
+                ifMatch = "etag-old",
+                ifNoneMatch = null,
+            )
+
+            coVerify(exactly = 1) {
+                sdkClient.completeMultipartUpload(
+                    match {
+                        it.key == "vault/large-conditional.bin" &&
+                            it.uploadId == "upload-conditional" &&
+                            it.ifMatch == "etag-old" &&
+                            it.ifNoneMatch == null
                     },
                 )
             }

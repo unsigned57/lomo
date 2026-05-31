@@ -621,6 +621,8 @@ private class ParallelUploadProbeClient : LomoS3Client {
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         val concurrent = inFlightUploads.incrementAndGet()
         maxConcurrentUploadsValue.updateAndGet { previous -> max(previous, concurrent) }
@@ -660,8 +662,10 @@ private class ParallelUploadProbeClient : LomoS3Client {
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -697,6 +701,8 @@ private class ParallelListingProbeClient(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         error("putObject should not be used in parallel listing test")
     }
@@ -722,8 +728,10 @@ private class ParallelListingProbeClient(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -776,6 +784,8 @@ private class ParallelPagedListingProbeClient(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         error("putObject should not be used in paged listing test")
     }
@@ -801,8 +811,10 @@ private class ParallelPagedListingProbeClient(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -827,6 +839,8 @@ private class DownloadOnlyClient(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         error("putObject should not be used in download-only test")
     }
@@ -852,8 +866,10 @@ private class DownloadOnlyClient(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) = Unit
 
@@ -880,6 +896,8 @@ private class StaticListingClient(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult = S3PutObjectResult(eTag = requireNotNull(uploadedEtags[key]))
 
     override suspend fun getObjectToFile(
@@ -903,8 +921,10 @@ private class StaticListingClient(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) = Unit
 

@@ -204,11 +204,25 @@ class S3SyncExecutor
                 applied: S3ActionExecutionResult,
                 session: RemoteSyncLifecycleSession,
             ): S3CommittedSync {
+                val executionConflictSet =
+                    materializeExecutionConflicts(
+                        verified = conflicts.verified,
+                        execution = applied,
+                        client = requireClient(),
+                        layout = layout,
+                        config = config,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                    )
+                executionConflictSet?.let { conflictSet ->
+                    pendingConflictStore.write(conflictSet)
+                    runtime.stateHolder.state.value = S3SyncState.ConflictDetected(conflictSet)
+                }
                 val result =
                     buildS3SyncResult(
                         prepared = conflicts.verified.prepared,
                         execution = applied,
-                        conflictSet = conflicts.conflictSet,
+                        conflictSet = conflicts.conflictSet ?: executionConflictSet,
                         reviewSession = conflicts.reviewSession,
                     )
                 runtime.transactionRunner.runInTransaction {
@@ -225,7 +239,10 @@ class S3SyncExecutor
                         prepared = conflicts.verified.prepared,
                         execution = applied,
                         result = result,
-                        hasMaterializedConflict = conflicts.conflictSet != null || conflicts.reviewSession != null,
+                        hasMaterializedConflict =
+                            conflicts.conflictSet != null ||
+                                executionConflictSet != null ||
+                                conflicts.reviewSession != null,
                         now = System.currentTimeMillis(),
                     )
                 }
@@ -388,6 +405,7 @@ class S3SyncExecutor
             val localOnlyIncremental =
                 enrichLocalOnlyIncrementalWithRemoteVerification(
                     initial = snapshot.initialPreparation,
+                    protocolState = snapshot.protocolState,
                     client = client,
                     config = config,
                     fileBridgeScope = fileBridgeScope,
@@ -411,6 +429,7 @@ class S3SyncExecutor
 
         private suspend fun enrichLocalOnlyIncrementalWithRemoteVerification(
             initial: S3IncrementalPreparation,
+            protocolState: S3SyncProtocolState,
             client: com.lomo.data.s3.LomoS3Client,
             config: S3ResolvedConfig,
             fileBridgeScope: S3SyncFileBridgeScope,
@@ -426,14 +445,25 @@ class S3SyncExecutor
                     remoteIndexStore.readByRelativePaths(candidatePaths).associateBy(S3RemoteIndexEntry::relativePath)
                 } else {
                     emptyMap()
-                }
+            }
             val verifiedRemoteFiles = initial.remoteFiles.toMutableMap()
             val missingRemoteVerificationByPath = mutableMapOf<String, S3RemoteVerificationLevel>()
+            val actionsByPath = initial.plan.actions.associateBy(S3SyncAction::path)
+            val pathsToVerify =
+                candidatePaths.filterTo(linkedSetOf()) { path ->
+                    S3RemoteVerificationPolicy.shouldHeadLocalOnlyIncrementalPath(
+                        action = actionsByPath[path],
+                        path = path,
+                        initial = initial,
+                        protocolState = protocolState,
+                        remoteIndexEntry = indexedEntriesByPath[path],
+                        config = config,
+                    )
+                }
 
             data class VerificationResult(
                 val path: String,
                 val remoteObject: com.lomo.data.s3.S3RemoteObject?,
-                val skipped: Boolean,
             )
 
             val verificationLimiter =
@@ -441,25 +471,21 @@ class S3SyncExecutor
                     runtime.performanceTuner.currentProfile().s3VerificationConcurrency.coercePositiveConcurrency(),
                 )
             val results = coroutineScope {
-                candidatePaths.map { path ->
+                pathsToVerify.map { path ->
                     async {
                         val remotePath =
                             initial.remoteFiles[path]?.remotePath
                                 ?: indexedEntriesByPath[path]?.remotePath
                                 ?: initial.metadataByPath[path]?.remotePath
-                        if (remotePath == null) {
-                            VerificationResult(path = path, remoteObject = null, skipped = true)
-                        } else {
-                            verificationLimiter.withPermit {
-                                val remoteObject = client.getObjectMetadata(remotePath)
-                                VerificationResult(path = path, remoteObject = remoteObject, skipped = false)
-                            }
+                                ?: return@async null
+                        verificationLimiter.withPermit {
+                            val remoteObject = client.getObjectMetadata(remotePath)
+                            VerificationResult(path = path, remoteObject = remoteObject)
                         }
                     }
-                }.awaitAll()
+                }.awaitAll().filterNotNull()
             }
             for (result in results) {
-                if (result.skipped) continue
                 if (result.remoteObject == null) {
                     verifiedRemoteFiles.remove(result.path)
                     missingRemoteVerificationByPath[result.path] = S3RemoteVerificationLevel.VERIFIED_REMOTE
@@ -596,6 +622,41 @@ class S3SyncExecutor
                 verified = verified,
                 conflictSet = conflictSet.takeIf { reviewSession == null },
                 reviewSession = reviewSession,
+            )
+        }
+
+        private suspend fun materializeExecutionConflicts(
+            verified: VerifiedPreparedS3Sync,
+            execution: S3ActionExecutionResult,
+            client: com.lomo.data.s3.LomoS3Client,
+            layout: com.lomo.data.sync.SyncDirectoryLayout,
+            config: S3ResolvedConfig,
+            fileBridgeScope: S3SyncFileBridgeScope,
+            mode: S3LocalSyncMode,
+        ): com.lomo.domain.model.SyncConflictSet? {
+            if (execution.conflictPaths.isEmpty()) {
+                return null
+            }
+            val conflictActions =
+                verified.prepared.normalActions
+                    .filter { action -> action.path in execution.conflictPaths }
+                    .map { action ->
+                        action.copy(
+                            direction = S3SyncDirection.CONFLICT,
+                            reason = S3SyncReason.CONFLICT,
+                        )
+                    }
+            return buildS3ConflictSet(
+                actions = conflictActions,
+                client = client,
+                layout = layout,
+                config = config,
+                remoteFiles = verified.prepared.remoteFiles,
+                fileBridgeScope = fileBridgeScope,
+                mode = mode,
+                encodingSupport = encodingSupport,
+                actionConcurrency = runtime.performanceTuner.currentProfile().s3ActionConcurrency,
+                lightweightPreview = true,
             )
         }
 
@@ -982,6 +1043,7 @@ private suspend fun applyPreparedActions(
         val syncedContentFingerprints = mutableMapOf<String, String>()
         val failedPaths = mutableListOf<String>()
         val unresolvedPaths = mutableSetOf<String>()
+        val conflictPaths = mutableSetOf<String>()
         val localFilesAfterSync = verified.prepared.localFiles.toMutableMap()
         val remoteFilesAfterSync = verified.prepared.remoteFiles.toMutableMap()
         var localChanged = false
@@ -991,6 +1053,13 @@ private suspend fun applyPreparedActions(
             when (val result = execution.state) {
                 S3ActionExecutionState.Skipped -> {
                     unresolvedPaths += execution.action.path
+                }
+
+                is S3ActionExecutionState.Conflict -> {
+                    unresolvedPaths += execution.action.path
+                    conflictPaths += execution.action.path
+                    actionOutcomes[execution.action.path] =
+                        S3SyncDirection.CONFLICT to S3SyncReason.CONFLICT
                 }
 
                 is S3ActionExecutionState.Applied -> {
@@ -1023,6 +1092,7 @@ private suspend fun applyPreparedActions(
             syncedContentFingerprints = syncedContentFingerprints,
             failedPaths = failedPaths,
             unresolvedPaths = unresolvedPaths,
+            conflictPaths = conflictPaths,
             localChanged = localChanged,
             localFilesAfterSync = localFilesAfterSync,
             remoteFilesAfterSync = remoteFilesAfterSync,

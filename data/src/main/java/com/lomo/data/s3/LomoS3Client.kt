@@ -56,6 +56,7 @@ data class S3SmallObjectPayload(
 
 data class S3PutObjectResult(
     val eTag: String?,
+    val conditionalWriteFailed: Boolean = false,
 )
 
 data class S3RemoteListPage(
@@ -124,6 +125,8 @@ interface LomoS3ObjectWriter {
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String? = null,
+        ifNoneMatch: String? = null,
     ): S3PutObjectResult
 
     suspend fun putObjectFile(
@@ -131,6 +134,8 @@ interface LomoS3ObjectWriter {
         file: File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String? = null,
+        ifNoneMatch: String? = null,
     ): S3PutObjectResult
 
     suspend fun deleteObject(key: String)
@@ -331,27 +336,10 @@ internal class AwsSdkS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
-        val response =
-            client.putObject(
-                PutObjectRequest {
-                    bucket = config.bucket
-                    this.key = key
-                    this.contentType = contentType
-                    this.metadata = metadata
-                    body = ByteStream.fromBytes(bytes)
-                },
-        )
-        return S3PutObjectResult(eTag = response.eTag)
-    }
-
-    override suspend fun putObjectFile(
-        key: String,
-        file: File,
-        contentType: String,
-        metadata: Map<String, String>,
-    ): S3PutObjectResult {
-        if (file.length() < S3_MULTIPART_UPLOAD_THRESHOLD_BYTES) {
+        return try {
             val response =
                 client.putObject(
                     PutObjectRequest {
@@ -359,16 +347,59 @@ internal class AwsSdkS3Client(
                         this.key = key
                         this.contentType = contentType
                         this.metadata = metadata
-                        body = file.asByteStream()
+                        this.ifMatch = ifMatch
+                        this.ifNoneMatch = ifNoneMatch
+                        body = ByteStream.fromBytes(bytes)
                     },
                 )
-            return S3PutObjectResult(eTag = response.eTag)
+            S3PutObjectResult(eTag = response.eTag)
+        } catch (e: Exception) {
+            if (e.isConditionalWriteFailedError()) {
+                S3PutObjectResult(eTag = null, conditionalWriteFailed = true)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: File,
+        contentType: String,
+        metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
+    ): S3PutObjectResult {
+        if (file.length() < S3_MULTIPART_UPLOAD_THRESHOLD_BYTES) {
+            return try {
+                val response =
+                    client.putObject(
+                        PutObjectRequest {
+                            bucket = config.bucket
+                            this.key = key
+                            this.contentType = contentType
+                            this.metadata = metadata
+                            this.ifMatch = ifMatch
+                            this.ifNoneMatch = ifNoneMatch
+                            body = file.asByteStream()
+                        },
+                    )
+                S3PutObjectResult(eTag = response.eTag)
+            } catch (e: Exception) {
+                if (e.isConditionalWriteFailedError()) {
+                    S3PutObjectResult(eTag = null, conditionalWriteFailed = true)
+                } else {
+                    throw e
+                }
+            }
         }
         return putMultipartObject(
             key = key,
             file = file,
             contentType = contentType,
             metadata = metadata,
+            ifMatch = ifMatch,
+            ifNoneMatch = ifNoneMatch,
         )
     }
 
@@ -377,6 +408,8 @@ internal class AwsSdkS3Client(
         file: File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         val uploadId =
             client.createMultipartUpload(
@@ -399,6 +432,8 @@ internal class AwsSdkS3Client(
                             CompletedMultipartUpload {
                                 parts = completedParts
                             }
+                        this.ifMatch = ifMatch
+                        this.ifNoneMatch = ifNoneMatch
                     },
                 )
             return S3PutObjectResult(eTag = response.eTag)
@@ -412,7 +447,11 @@ internal class AwsSdkS3Client(
                     },
                 )
             }
-            throw error
+            if (error.isConditionalWriteFailedError()) {
+                return S3PutObjectResult(eTag = null, conditionalWriteFailed = true)
+            } else {
+                throw error
+            }
         }
     }
 
@@ -575,6 +614,20 @@ private fun ByteStream.toBoundedByteArray(maxBytes: Long): ByteArray {
 
 private const val S3_BULK_DELETE_BATCH_SIZE = 1000
 private const val DEFAULT_SMALL_OBJECT_BUFFER_BYTES = 8 * 1024
+
+private fun Throwable.isConditionalWriteFailedError(): Boolean {
+    val diagnostic =
+        buildString {
+            message?.let(::appendLine)
+            (this@isConditionalWriteFailedError as? ServiceException)?.sdkErrorMetadata?.let { metadata ->
+                metadata.errorCode?.let(::appendLine)
+                metadata.errorMessage?.let(::appendLine)
+                appendLine(metadata.protocolResponse.summary)
+            }
+        }
+    return diagnostic.contains("412") ||
+        diagnostic.contains("PreconditionFailed", ignoreCase = true)
+}
 
 private fun Throwable.isMissingObjectError(): Boolean {
     val diagnostic =

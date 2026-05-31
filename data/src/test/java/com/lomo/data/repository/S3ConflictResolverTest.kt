@@ -71,6 +71,15 @@ import io.kotest.matchers.booleans.shouldBeTrue
  * Excludes:
  * - AWS SDK transport details, planner internals, metadata persistence internals, and UI rendering.
  */
+
+/*
+ * Test Change Justification:
+ * - Reason category: Signature update
+ * - Old behavior/assertion being replaced: Fake S3 client collaborator putObjectFile and putSmallObject signatures without ifMatch and ifNoneMatch parameters.
+ * - Why old assertion is no longer correct: The production S3 client interface has been upgraded with conditional write parameters for performance optimization.
+ * - Coverage preserved by: All original test assertions are unchanged; the fake client is updated to compile against the new interface signature.
+ * - Why this is not fitting the test to the implementation: This is a mechanical signature update to satisfy compile safety, not a change to the tested behavior.
+ */
 class S3ConflictResolverTest : DataFunSpec() {
     init {
         beforeTest {
@@ -1013,6 +1022,8 @@ private class ConflictProbeS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         putKeys += key
         return onPutObject(key, bytes)
@@ -1039,8 +1050,10 @@ private class ConflictProbeS3Client(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) =
         throw AssertionError("Conflict resolution should not delete remote objects")

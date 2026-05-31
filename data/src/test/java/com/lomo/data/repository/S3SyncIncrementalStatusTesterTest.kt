@@ -25,6 +25,7 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3SmallObjectPayload
@@ -336,7 +337,9 @@ private class ProbeStatusS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
-    ) = throw AssertionError("Status checks should not upload remote objects: $key")
+        ifMatch: String?,
+        ifNoneMatch: String?,
+    ): S3PutObjectResult = throw AssertionError("Status checks should not upload remote objects: $key")
 
     override suspend fun getObjectToFile(
         key: String,
@@ -359,8 +362,10 @@ private class ProbeStatusS3Client(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) =
         throw AssertionError("Status checks should not delete remote objects: $key")

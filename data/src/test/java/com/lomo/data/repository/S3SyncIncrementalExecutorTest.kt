@@ -57,9 +57,9 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncExecutor
- * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, verify destructive local-delete candidates without scanning the whole bucket, and use content fingerprints to resolve tracked memo drift when etags are unreliable.
- * - Observable outcomes: returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys, metadata fingerprint persistence, and local journal drain behavior.
- * - TDD proof: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, and treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints.
+ * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, verify destructive local-delete candidates without scanning the whole bucket, use content fingerprints to resolve tracked memo drift when etags are unreliable, and rely on conditional writes instead of HEAD-before-PUT when a fresh index makes the cached remote version trustworthy.
+ * - Observable outcomes: returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys, conditional write headers, metadata fingerprint persistence, conflict materialization, and local journal drain behavior.
+ * - TDD proof: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints, heads fresh-index local-only upload candidates before writing, and reports conditional-write precondition failures as a successful sync instead of a materialized conflict.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
 class S3SyncIncrementalExecutorTest : DataFunSpec() {
@@ -71,6 +71,14 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
         test("performSync skips remote probing when cached index is fresh and journal is empty") { `performSync skips remote probing when cached index is fresh and journal is empty`() }
 
         test("performSync uploads local journal change from cached index without full remote scan") { `performSync uploads local journal change from cached index without full remote scan`() }
+
+        test("performSync uploads cached remote change from fresh index without head when conditional writes are supported") {
+            `performSync uploads cached remote change from fresh index without head when conditional writes are supported`()
+        }
+
+        test("performSync materializes conflict when conditional upload precondition fails") {
+            `performSync materializes conflict when conditional upload precondition fails`()
+        }
 
         test("performSync rolls back metadata, remote index, and journal when final protocol commit fails") { `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() }
 
@@ -236,6 +244,163 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             client.headCalls shouldBe 0
             withClue("journal should be drained after successful upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
             metadataDao.paths() shouldBe listOf("lomo/memo/note.md")
+        }
+
+    private fun `performSync uploads cached remote change from fresh index without head when conditional writes are supported`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            every { dataStore.s3EndpointUrl } returns flowOf("https://s3.amazonaws.com")
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                    scanEpoch = 31L,
+                ),
+            )
+            remoteIndexStore.upsert(
+                listOf(
+                    S3RemoteIndexEntry(
+                        relativePath = path,
+                        remotePath = path,
+                        etag = "etag-old",
+                        remoteLastModified = 10L,
+                        size = 1L,
+                        lastSeenAt = 10L,
+                        lastVerifiedAt = 10L,
+                        scanBucket = S3_SCAN_BUCKET_MEMO,
+                        scanEpoch = 31L,
+                    ),
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# local"
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(path = path, eTag = "etag-old", lastModified = 10L),
+                        ),
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("fresh local-only incremental upload should not list remote objects") },
+                    onGetObjectMetadata = { key ->
+                        throw AssertionError("fresh local-only incremental upload should use If-Match instead of HEAD for $key")
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val success = result as S3SyncResult.Success
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            client.headKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe listOf(path)
+            client.putIfMatchByKey[path] shouldBe "etag-old"
+            client.putIfNoneMatchByKey[path] shouldBe null
+            withClue("journal should be drained after successful conditional upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
+        }
+
+    private fun `performSync materializes conflict when conditional upload precondition fails`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            every { dataStore.s3EndpointUrl } returns flowOf("https://s3.amazonaws.com")
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                    scanEpoch = 32L,
+                ),
+            )
+            remoteIndexStore.upsert(
+                listOf(
+                    S3RemoteIndexEntry(
+                        relativePath = path,
+                        remotePath = path,
+                        etag = "etag-old",
+                        remoteLastModified = 10L,
+                        size = 1L,
+                        lastSeenAt = 10L,
+                        lastVerifiedAt = 10L,
+                        scanBucket = S3_SCAN_BUCKET_MEMO,
+                        scanEpoch = 32L,
+                    ),
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# local"
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(path = path, eTag = "etag-old", lastModified = 10L),
+                        ),
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("conditional conflict path should not list remote objects") },
+                    onGetObjectMetadata = { key ->
+                        throw AssertionError("conditional conflict path should use If-Match instead of HEAD for $key")
+                    },
+                    onGetObject = { key ->
+                        key shouldBe path
+                        S3SmallObjectPayload(
+                            key = key,
+                            eTag = "etag-new",
+                            lastModified = 70L,
+                            metadata = emptyMap(),
+                            bytes = "# remote".toByteArray(StandardCharsets.UTF_8),
+                        )
+                    },
+                    onPutObject = { _, _, ifMatch, ifNoneMatch ->
+                        ifMatch shouldBe "etag-old"
+                        ifNoneMatch shouldBe null
+                        S3PutObjectResult(eTag = null, conditionalWriteFailed = true)
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val conflict = result as S3SyncResult.Conflict
+            conflict.conflicts.files.single().relativePath shouldBe path
+            client.headKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe listOf(path)
+            withClue("journal should be retained while conditional conflict is unresolved") { (journalStore.read().isNotEmpty()).shouldBeTrue() }
         }
 
     private fun `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() =
@@ -1345,7 +1510,7 @@ private class ProbeS3Client(
     private val onGetObject: suspend (String) -> S3SmallObjectPayload = {
         throw AssertionError("Unexpected getObject for $it")
     },
-    private val onPutObject: suspend (String, ByteArray) -> S3PutObjectResult = { _, _ ->
+    private val onPutObject: suspend (String, ByteArray, String?, String?) -> S3PutObjectResult = { _, _, _, _ ->
         S3PutObjectResult(eTag = "etag-uploaded")
     },
     private val onDeleteObject: suspend (String) -> Unit = {},
@@ -1358,6 +1523,8 @@ private class ProbeS3Client(
     val getKeys = mutableListOf<String>()
     val putKeys = mutableListOf<String>()
     val deletedKeys = mutableListOf<String>()
+    val putIfMatchByKey = linkedMapOf<String, String?>()
+    val putIfNoneMatchByKey = linkedMapOf<String, String?>()
 
     val listCalls: Int
         get() = listCallsValue.get()
@@ -1413,9 +1580,13 @@ private class ProbeS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         putKeys += key
-        return onPutObject(key, bytes)
+        putIfMatchByKey[key] = ifMatch
+        putIfNoneMatchByKey[key] = ifNoneMatch
+        return onPutObject(key, bytes, ifMatch, ifNoneMatch)
     }
 
     override suspend fun getObjectToFile(
@@ -1439,8 +1610,10 @@ private class ProbeS3Client(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) {
         deletedKeys += key
