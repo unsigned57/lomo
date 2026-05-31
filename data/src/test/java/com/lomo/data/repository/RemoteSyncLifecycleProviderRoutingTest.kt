@@ -72,6 +72,15 @@ import java.nio.file.Files
  * Excludes:
  * - WebDAV/S3 transport behavior, planner correctness, metadata persistence details, and conflict contents.
  */
+
+/*
+ * Test Change Justification:
+ * - Reason category: Signature update
+ * - Old behavior/assertion being replaced: Fake S3 client collaborator putObjectFile and putSmallObject signatures without ifMatch and ifNoneMatch parameters.
+ * - Why old assertion is no longer correct: The production S3 client interface has been upgraded with conditional write parameters for performance optimization.
+ * - Coverage preserved by: All original test assertions are unchanged; the fake client is updated to compile against the new interface signature.
+ * - Why this is not fitting the test to the implementation: This is a mechanical signature update to satisfy compile safety, not a change to the tested behavior.
+ */
 class RemoteSyncLifecycleProviderRoutingTest : DataFunSpec() {
     init {
         test("given configured webdav sync when executor runs then injected lifecycle runner owns the path") {
@@ -513,6 +522,8 @@ private class DescriptorRestoreS3Client : LomoS3Client {
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult = S3PutObjectResult(eTag = bytes.md5Hex())
 
     override suspend fun putObjectFile(
@@ -520,6 +531,8 @@ private class DescriptorRestoreS3Client : LomoS3Client {
         file: File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult = S3PutObjectResult(eTag = file.readBytes().md5Hex())
 
     override suspend fun deleteObject(key: String) = Unit

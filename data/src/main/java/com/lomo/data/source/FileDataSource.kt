@@ -113,6 +113,7 @@ data class FileMetadataWithId(
     val lastModified: Long,
     val documentId: String,
     val uriString: String? = null,
+    val size: Long? = null,
 )
 
 class FileDataSourceImpl

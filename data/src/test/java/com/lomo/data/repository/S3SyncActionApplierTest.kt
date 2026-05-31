@@ -50,9 +50,9 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncActionApplier
- * - Behavior focus: (1) large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs; (2) every object upload — including non-memo media — should record a content md5 in the S3 object metadata and report the same fingerprint on downloads so classifiers can skip full GETs when ETags are multipart; (3) when the verification gate has already observed that a remote object is missing (observedMissingRemotePaths), upload / delete-remote / delete-local actions must trust that observation and not re-issue HEAD requests for the same key.
- * - Observable outcomes: Applied results, uploaded bytes/metadata captured at the S3 client boundary, downloaded file contents, absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads, syncedContentFingerprint presence for media downloads, and HEAD call count on the S3 client for gate-observed-missing paths.
- * - TDD proof: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; and (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing.
+ * - Behavior focus: (1) large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs; (2) every object upload — including non-memo media — should record a content md5 in the S3 object metadata and report the same fingerprint on downloads so classifiers can skip full GETs when ETags are multipart; (3) when the verification gate has already observed that a remote object is missing (observedMissingRemotePaths), upload / delete-remote / delete-local actions must trust that observation and not re-issue HEAD requests for the same key; (4) conditional-write-capable endpoints should receive If-None-Match / If-Match guards, while generic endpoints keep the HEAD-before-write compatibility path.
+ * - Observable outcomes: Applied or Conflict results, uploaded bytes/metadata/conditional headers captured at the S3 client boundary, downloaded file contents, absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads, syncedContentFingerprint presence for media downloads, and HEAD call count on the S3 client for gate-observed-missing paths.
+ * - TDD proof: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing; and (4) conditional-write headers / precondition failures are not locked by behavior tests.
  * - Excludes: AWS SDK transport internals, planner action selection, metadata persistence, and reconcile behavior.
  */
 class S3SyncActionApplierTest : DataFunSpec() {
@@ -79,6 +79,16 @@ class S3SyncActionApplierTest : DataFunSpec() {
         test("delete remote skips HEAD when path is in observedMissingRemotePaths") { `delete remote skips HEAD when path is in observedMissingRemotePaths`() }
 
         test("delete local skips HEAD when path is in observedMissingRemotePaths") { `delete local skips HEAD when path is in observedMissingRemotePaths`() }
+
+        test("upload sends If-None-Match for create on conditional endpoint") { `upload sends If-None-Match for create on conditional endpoint`() }
+
+        test("upload sends If-Match for overwrite on conditional endpoint") { `upload sends If-Match for overwrite on conditional endpoint`() }
+
+        test("upload returns conflict when conditional write fails") { `upload returns conflict when conditional write fails`() }
+
+        test("upload omits conditional headers for generic endpoint compatibility path") {
+            `upload omits conditional headers for generic endpoint compatibility path`()
+        }
     }
 
 
@@ -170,7 +180,20 @@ class S3SyncActionApplierTest : DataFunSpec() {
             val path = "lomo/images/poster.png"
             val bytes = largePayload(seed = 7)
             val localFile = File(imageRoot, "poster.png").apply { writeBytes(bytes) }
-            val client = RecordingS3Client()
+            val client =
+                RecordingS3Client(
+                    metadataByKey =
+                        mapOf(
+                            path to
+                                S3RemoteObject(
+                                    key = path,
+                                    eTag = "etag-old",
+                                    lastModified = 10L,
+                                    size = localFile.length(),
+                                    metadata = emptyMap(),
+                                ),
+                        ),
+                )
             val action =
                 S3SyncAction(
                     path = path,
@@ -270,7 +293,20 @@ class S3SyncActionApplierTest : DataFunSpec() {
             val path = "lomo/images/pic.png"
             val bytes = byteArrayOf(1, 2, 3, 4, 5)
             val localFile = File(imageRoot, "pic.png").apply { writeBytes(bytes) }
-            val client = RecordingS3Client()
+            val client =
+                RecordingS3Client(
+                    metadataByKey =
+                        mapOf(
+                            path to
+                                S3RemoteObject(
+                                    key = path,
+                                    eTag = "etag-old",
+                                    lastModified = 10L,
+                                    size = localFile.length(),
+                                    metadata = emptyMap(),
+                                ),
+                        ),
+                )
             val action =
                 S3SyncAction(
                     path = path,
@@ -483,6 +519,167 @@ class S3SyncActionApplierTest : DataFunSpec() {
             withClue("expected no HEAD call when delete-local knows remote is missing; saw ${client.headCalls}") { (client.headCalls[path] == null).shouldBeTrue() }
         }
 
+    private fun `upload sends If-None-Match for create on conditional endpoint`() =
+        runTest {
+            val path = "lomo/images/new.png"
+            val localFile = File(imageRoot, "new.png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            val client =
+                RecordingS3Client(
+                    metadataByKey =
+                        mapOf(
+                            path to
+                                S3RemoteObject(
+                                    key = path,
+                                    eTag = "etag-old",
+                                    lastModified = 10L,
+                                    metadata = emptyMap(),
+                                ),
+                        ),
+                )
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_ONLY),
+                    client = client,
+                    layout = layout,
+                    config = config.copy(endpointProfile = S3EndpointProfile.AWS_S3),
+                    localFiles = mapOf(path to LocalS3File(path, localFile.lastModified(), localFile.length())),
+                    remoteFiles = emptyMap(),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            client.uploadedIfMatch[path] shouldBe null
+            client.uploadedIfNoneMatch[path] shouldBe "*"
+        }
+
+    private fun `upload sends If-Match for overwrite on conditional endpoint`() =
+        runTest {
+            val path = "lomo/images/existing.png"
+            val localFile = File(imageRoot, "existing.png").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+            val client = RecordingS3Client()
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER),
+                    client = client,
+                    layout = layout,
+                    config = config.copy(endpointProfile = S3EndpointProfile.AWS_S3),
+                    localFiles = mapOf(path to LocalS3File(path, localFile.lastModified(), localFile.length())),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    size = localFile.length(),
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            client.uploadedIfMatch[path] shouldBe "etag-old"
+            client.uploadedIfNoneMatch[path] shouldBe null
+        }
+
+    private fun `upload returns conflict when conditional write fails`() =
+        runTest {
+            val path = "lomo/images/existing.png"
+            val localFile = File(imageRoot, "existing.png").apply { writeBytes(byteArrayOf(7, 8, 9)) }
+            val client = RecordingS3Client().apply { failWithConditionalWriteFailed = true }
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER),
+                    client = client,
+                    layout = layout,
+                    config = config.copy(endpointProfile = S3EndpointProfile.AWS_S3),
+                    localFiles = mapOf(path to LocalS3File(path, localFile.lastModified(), localFile.length())),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    size = localFile.length(),
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            result shouldBe S3ActionExecutionState.Conflict(path)
+        }
+
+    private fun `upload omits conditional headers for generic endpoint compatibility path`() =
+        runTest {
+            val path = "lomo/images/existing.png"
+            val localFile = File(imageRoot, "existing.png").apply { writeBytes(byteArrayOf(10, 11, 12)) }
+            val client =
+                RecordingS3Client(
+                    metadataByKey =
+                        mapOf(
+                            path to
+                                S3RemoteObject(
+                                    key = path,
+                                    eTag = "etag-old",
+                                    lastModified = 10L,
+                                    size = localFile.length(),
+                                    metadata = emptyMap(),
+                                ),
+                        ),
+                )
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER),
+                    client = client,
+                    layout = layout,
+                    config = config.copy(endpointProfile = S3EndpointProfile.GENERIC_S3),
+                    localFiles = mapOf(path to LocalS3File(path, localFile.lastModified(), localFile.length())),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    size = localFile.length(),
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            client.headCalls[path] shouldBe 1
+            client.uploadedIfMatch[path] shouldBe null
+            client.uploadedIfNoneMatch[path] shouldBe null
+        }
+
     private fun largePayload(seed: Int): ByteArray =
         ByteArray(S3_LARGE_TRANSFER_BYTES.toInt() + 1) { index ->
             ((index + seed) % 251).toByte()
@@ -512,14 +709,25 @@ private class RecordingS3Client(
         return metadataByKey[key]
     }
 
+    val uploadedIfMatch = mutableMapOf<String, String?>()
+    val uploadedIfNoneMatch = mutableMapOf<String, String?>()
+    var failWithConditionalWriteFailed = false
+
     override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
+        if (failWithConditionalWriteFailed) {
+            return S3PutObjectResult(eTag = null, conditionalWriteFailed = true)
+        }
         uploadedBytes[key] = bytes
         uploadedMetadata[key] = metadata
+        uploadedIfMatch[key] = ifMatch
+        uploadedIfNoneMatch[key] = ifNoneMatch
         return S3PutObjectResult(eTag = "etag-uploaded")
     }
 
@@ -544,8 +752,10 @@ private class RecordingS3Client(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) {
         deletedKeys += key

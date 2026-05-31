@@ -130,6 +130,10 @@ class S3SyncActionApplier
                         }
                 val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
                 val syncedContentFingerprint = uploadContentFingerprint(source.file)
+                val ifNoneMatch = if (config.endpointProfile.conditionalWritesSupported &&
+                    uploadTarget.remoteFile == null) "*" else null
+                val ifMatch = if (config.endpointProfile.conditionalWritesSupported &&
+                    uploadTarget.remoteFile != null) uploadTarget.remoteFile.etag else null
                 val uploaded =
                     client.putObjectFile(
                         key = uploadTarget.remotePath,
@@ -140,7 +144,12 @@ class S3SyncActionApplier
                                 lastModified = localFiles[action.path]?.lastModified,
                                 contentMd5 = syncedContentFingerprint,
                             ),
+                        ifMatch = ifMatch,
+                        ifNoneMatch = ifNoneMatch,
                     )
+                if (uploaded.conditionalWriteFailed) {
+                    return@withSession S3ActionExecutionState.Conflict(action.path)
+                }
                 S3ActionExecutionState.Applied(
                     localChanged = false,
                     remoteChanged = true,
@@ -283,6 +292,18 @@ class S3SyncActionApplier
                 cachedRemote?.verified == true ->
                     RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
 
+                config.endpointProfile.conditionalWritesSupported &&
+                    cachedRemote != null ->
+                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+
+                config.endpointProfile.conditionalWritesSupported &&
+                    cachedRemote == null &&
+                    metadataSnapshot != null ->
+                    RemoteVerificationSuccess(
+                        remotePath = remotePath,
+                        remoteFile = metadataSnapshot.toConditionalWriteRemoteFile(action.path),
+                    )
+
                 cachedRemote == null && metadataSnapshot == null ->
                     RemoteVerificationSuccess(remotePath = remotePath, remoteFile = null)
 
@@ -347,6 +368,10 @@ class S3SyncActionApplier
 
 internal sealed interface S3ActionExecutionState {
     data object Skipped : S3ActionExecutionState
+
+    data class Conflict(
+        val path: String,
+    ) : S3ActionExecutionState
 
     data class Applied(
         val localChanged: Boolean,
@@ -420,6 +445,18 @@ private fun RemoteS3File.matchesMetadataSnapshot(
     remotePath == metadata.remotePath &&
         etag == metadata.etag &&
         lastModified == metadata.remoteLastModified
+
+private fun com.lomo.data.local.entity.S3SyncMetadataEntity.toConditionalWriteRemoteFile(
+    path: String,
+): RemoteS3File =
+    RemoteS3File(
+        path = path,
+        etag = etag,
+        lastModified = remoteLastModified,
+        size = remoteSize,
+        remotePath = remotePath,
+        verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+    )
 
 private suspend fun verifyUploadTargetAgainstRemote(
     action: S3SyncAction,

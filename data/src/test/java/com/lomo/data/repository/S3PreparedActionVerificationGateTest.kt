@@ -49,6 +49,14 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
         test("verify skips delete-local head request when missing evidence is already stable") { `verify skips delete-local head request when missing evidence is already stable`() }
 
         test("verify checks multiple candidates concurrently") { `verify checks multiple candidates concurrently`() }
+
+        test("verify skips upload head request when remote index is fresh and scanEpoch matches") {
+            `verify skips upload head request when remote index is fresh and scanEpoch matches`()
+        }
+
+        test("verify performs head request when remote index is expired or scanEpoch mismatches") {
+            `verify performs head request when remote index is expired or scanEpoch mismatches`()
+        }
     }
 
 
@@ -378,6 +386,173 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
             client.headKeys.sorted() shouldBe paths
             withClue("Verification should overlap HeadObject requests for independent paths instead of serializing them one by one.") { (peakConcurrency.get() > 1).shouldBeTrue() }
         }
+
+    private fun `verify skips upload head request when remote index is fresh and scanEpoch matches`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = path,
+                    etag = "etag-old",
+                    remoteLastModified = 10L,
+                    localLastModified = 10L,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout = com.lomo.data.sync.SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false),
+                    localFiles = emptyMap(),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                    completeSnapshot = false,
+                    protocolState = S3SyncProtocolState(
+                        scanEpoch = 7L,
+                        lastFullRemoteScanAt = System.currentTimeMillis()
+                    ),
+                    remoteFileCountHint = 1,
+                )
+
+            val remoteIndexStore = InMemoryS3RemoteIndexStore().apply {
+                upsert(
+                    listOf(
+                        S3RemoteIndexEntry(
+                            relativePath = path,
+                            remotePath = path,
+                            etag = "etag-old",
+                            remoteLastModified = 10L,
+                            size = 100L,
+                            lastSeenAt = System.currentTimeMillis(),
+                            lastVerifiedAt = System.currentTimeMillis(),
+                            scanBucket = S3_SCAN_BUCKET_MEMO,
+                            scanEpoch = 7L,
+                            missingOnLastScan = false,
+                        )
+                    )
+                )
+            }
+
+            val verifier =
+                S3PreparedActionVerificationGate(
+                    planner = planner,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                )
+
+            val client = VerificationProbeS3Client(onHead = { error("Should not send HEAD") })
+
+            val verified = verifier.verify(prepared = prepared, client = client, config = config)
+
+            verified.prepared.plan.actions shouldBe listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER))
+            verified.prepared.remoteFiles[path]?.verificationLevel shouldBe S3RemoteVerificationLevel.INDEX_CACHED_REMOTE
+            client.headKeys shouldBe emptyList()
+        }
+
+    private fun `verify performs head request when remote index is expired or scanEpoch mismatches`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = path,
+                    etag = "etag-old",
+                    remoteLastModified = 10L,
+                    localLastModified = 10L,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout = com.lomo.data.sync.SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false),
+                    localFiles = emptyMap(),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                    completeSnapshot = false,
+                    protocolState = S3SyncProtocolState(
+                        scanEpoch = 7L,
+                        lastFullRemoteScanAt = System.currentTimeMillis() - 2 * S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS
+                    ),
+                    remoteFileCountHint = 1,
+                )
+
+            val remoteIndexStore = InMemoryS3RemoteIndexStore().apply {
+                upsert(
+                    listOf(
+                        S3RemoteIndexEntry(
+                            relativePath = path,
+                            remotePath = path,
+                            etag = "etag-old",
+                            remoteLastModified = 10L,
+                            size = 100L,
+                            lastSeenAt = System.currentTimeMillis() - 2 * S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS,
+                            lastVerifiedAt = System.currentTimeMillis() - 2 * S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS,
+                            scanBucket = S3_SCAN_BUCKET_MEMO,
+                            scanEpoch = 7L,
+                            missingOnLastScan = false,
+                        )
+                    )
+                )
+            }
+
+            val verifier =
+                S3PreparedActionVerificationGate(
+                    planner = planner,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                )
+
+            val client =
+                VerificationProbeS3Client(
+                    onHead = { key ->
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "etag-new",
+                            lastModified = 20L,
+                            size = 1L,
+                            metadata = emptyMap(),
+                        )
+                    },
+                )
+
+            val verified = verifier.verify(prepared = prepared, client = client, config = config)
+
+            client.headKeys shouldBe listOf(path)
+        }
 }
 
 private class VerificationProbeS3Client(
@@ -413,6 +588,8 @@ private class VerificationProbeS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult {
         error("verification gate test should not upload objects")
     }
@@ -438,8 +615,10 @@ private class VerificationProbeS3Client(
         file: java.io.File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): com.lomo.data.s3.S3PutObjectResult =
-        putSmallObject(key, file.readBytes(), contentType, metadata)
+        putSmallObject(key, file.readBytes(), contentType, metadata, ifMatch, ifNoneMatch)
 
     override suspend fun deleteObject(key: String) {
         error("verification gate test should not delete objects")

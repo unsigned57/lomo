@@ -24,7 +24,7 @@ internal class S3PreparedActionVerificationGate(
         val candidatePaths =
             prepared.normalActions
                 .asSequence()
-                .filter(::requiresVerification)
+                .filter(S3RemoteVerificationPolicy::requiresPreparedVerification)
                 .map(S3SyncAction::path)
                 .toSortedSet()
         if (candidatePaths.isEmpty()) {
@@ -38,6 +38,7 @@ internal class S3PreparedActionVerificationGate(
                 actionsByPath = actionsByPath,
                 prepared = prepared,
                 existingRemoteIndexByPath = existingRemoteIndexByPath,
+                config = config,
             )
         val verifiedMissingRemotePaths = pathSelection.verifiedMissingRemotePaths
         val pathsToVerify = pathSelection.pathsToVerify
@@ -125,77 +126,34 @@ internal class S3PreparedActionVerificationGate(
         actionsByPath: Map<String, S3SyncAction>,
         prepared: PreparedS3Sync,
         existingRemoteIndexByPath: Map<String, S3RemoteIndexEntry>,
+        config: S3ResolvedConfig,
     ): S3VerificationPathSelection {
         val verifiedMissingRemotePaths = linkedSetOf<String>()
         val pathsToVerify =
             candidatePaths.filterTo(linkedSetOf()) { path ->
                 val action = actionsByPath[path] ?: return@filterTo false
-                if (!shouldVerifyPath(action = action, prepared = prepared)) {
-                    return@filterTo false
-                }
-                if (canTrustStableMissingEvidence(action, prepared, existingRemoteIndexByPath[path])) {
+                if (
+                    S3RemoteVerificationPolicy.stableMissingEvidenceVerified(
+                        action = action,
+                        prepared = prepared,
+                        remoteIndexEntry = existingRemoteIndexByPath[path],
+                    )
+                ) {
                     verifiedMissingRemotePaths += path
                     return@filterTo false
                 }
-                true
+                S3RemoteVerificationPolicy.shouldHeadPreparedPath(
+                    action = action,
+                    prepared = prepared,
+                    remoteIndexEntry = existingRemoteIndexByPath[path],
+                    config = config,
+                )
             }
         return S3VerificationPathSelection(
             pathsToVerify = pathsToVerify,
             verifiedMissingRemotePaths = verifiedMissingRemotePaths,
         )
     }
-
-    private fun requiresVerification(action: S3SyncAction): Boolean =
-        action.direction == S3SyncDirection.UPLOAD ||
-            action.direction == S3SyncDirection.DELETE_LOCAL ||
-            action.direction == S3SyncDirection.DELETE_REMOTE
-
-    private fun shouldVerifyPath(
-        action: S3SyncAction,
-        prepared: PreparedS3Sync,
-    ): Boolean {
-        val remote = prepared.remoteFiles[action.path]
-        val metadata = prepared.metadataByPath[action.path]
-        return when (action.direction) {
-            S3SyncDirection.UPLOAD ->
-                remote?.verified != true &&
-                    (remote != null || metadata != null)
-
-            S3SyncDirection.DELETE_REMOTE -> remote?.verified != true
-
-            S3SyncDirection.DELETE_LOCAL -> remote == null && metadata != null
-
-            S3SyncDirection.NONE,
-            S3SyncDirection.DOWNLOAD,
-            S3SyncDirection.CONFLICT,
-            -> false
-        }
-    }
-
-    private fun canTrustStableMissingEvidence(
-        action: S3SyncAction,
-        prepared: PreparedS3Sync,
-        existingRemoteIndex: S3RemoteIndexEntry?,
-    ): Boolean =
-        action.direction == S3SyncDirection.DELETE_LOCAL &&
-            hasStableMissingEvidence(
-                action = action,
-                prepared = prepared,
-                existingRemoteIndex = existingRemoteIndex,
-            )
-
-    private fun hasStableMissingEvidence(
-        action: S3SyncAction,
-        prepared: PreparedS3Sync,
-        existingRemoteIndex: S3RemoteIndexEntry?,
-    ): Boolean =
-        when {
-            action.direction != S3SyncDirection.DELETE_LOCAL -> true
-            prepared.completeSnapshot -> true
-            action.path in prepared.remoteReconcileState?.missingRemotePaths.orEmpty() -> true
-            existingRemoteIndex?.missingOnLastScan == true && existingRemoteIndex.lastVerifiedAt != null -> true
-            else -> false
-        }
 
     private suspend fun loadVerificationResults(
         pathsToVerify: Set<String>,
@@ -237,7 +195,13 @@ internal class S3PreparedActionVerificationGate(
         if (result.verifiedRemote == null) {
             verifiedRemoteFiles.remove(result.path)
             observedMissingRemotePaths += result.path
-            if (hasStableMissingEvidence(result.action, prepared, existingRemoteIndexByPath[result.path])) {
+            if (
+                S3RemoteVerificationPolicy.stableMissingEvidenceVerified(
+                    action = result.action,
+                    prepared = prepared,
+                    remoteIndexEntry = existingRemoteIndexByPath[result.path],
+                )
+            ) {
                 verifiedMissingRemotePaths += result.path
             }
             return

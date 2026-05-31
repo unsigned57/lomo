@@ -321,9 +321,11 @@ private class MeteredS3Client(
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
-        return delegate.putSmallObject(key, bytes, contentType, metadata)
+        return delegate.putSmallObject(key, bytes, contentType, metadata, ifMatch, ifNoneMatch)
     }
 
     override suspend fun putObjectFile(
@@ -331,9 +333,11 @@ private class MeteredS3Client(
         file: File,
         contentType: String,
         metadata: Map<String, String>,
+        ifMatch: String?,
+        ifNoneMatch: String?,
     ): S3PutObjectResult {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
-        return delegate.putObjectFile(key, file, contentType, metadata)
+        return delegate.putObjectFile(key, file, contentType, metadata, ifMatch, ifNoneMatch)
     }
 
     override suspend fun deleteObject(key: String) {

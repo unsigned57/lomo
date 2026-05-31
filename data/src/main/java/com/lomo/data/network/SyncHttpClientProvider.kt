@@ -71,6 +71,6 @@ class SyncHttpClientProvider
 
 private const val CONNECT_TIMEOUT_SECONDS = 30L
 private const val IO_TIMEOUT_SECONDS = 60L
-private const val MAX_IDLE_CONNECTIONS = 8
+private const val MAX_IDLE_CONNECTIONS = 32
 private const val KEEP_ALIVE_MINUTES = 5L
 private const val DEFAULT_MAX_REQUESTS = 8

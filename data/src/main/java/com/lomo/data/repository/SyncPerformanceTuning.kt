@@ -148,12 +148,12 @@ private fun Context.activeTransportClass(): TransportClass {
 
 private const val DEFAULT_MEMORY_CLASS_MB = 192
 private const val LOW_MEMORY_CLASS_MB = 192
-private const val WIFI_S3_ACTION_CONCURRENCY = 12
+private const val WIFI_S3_ACTION_CONCURRENCY = 32
 private const val WIFI_S3_LARGE_TRANSFER_PERMITS = 3
 private const val WIFI_S3_LARGE_TRANSFER_CONCURRENCY = 3
 private const val WIFI_S3_MULTIPART_PART_CONCURRENCY = 6
-private const val WIFI_S3_MAX_CONNECTIONS = 16
-private const val WIFI_S3_MAX_CONNECTIONS_PER_HOST = 12
+private const val WIFI_S3_MAX_CONNECTIONS = 48
+private const val WIFI_S3_MAX_CONNECTIONS_PER_HOST = 32
 private const val WIFI_WEBDAV_CONCURRENCY = 10
 private const val CELLULAR_S3_ACTION_CONCURRENCY = 6
 private const val CELLULAR_S3_LARGE_TRANSFER_PERMITS = 2

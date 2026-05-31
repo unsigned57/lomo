@@ -14,6 +14,7 @@ enum class S3EndpointProfile(
     val reconcileHeadLimit: Int,
     val reconcileHeadConcurrency: Int,
     val cursorPageBonus: Int,
+    val conditionalWritesSupported: Boolean,
 ) {
     AWS_S3(
         remoteIndexFreshnessIntervalMs = 20 * 60_000L,
@@ -27,6 +28,7 @@ enum class S3EndpointProfile(
         reconcileHeadLimit = 18,
         reconcileHeadConcurrency = 5,
         cursorPageBonus = 96,
+        conditionalWritesSupported = true,
     ),
     CLOUDFLARE_R2(
         remoteIndexFreshnessIntervalMs = 12 * 60_000L,
@@ -40,6 +42,7 @@ enum class S3EndpointProfile(
         reconcileHeadLimit = 14,
         reconcileHeadConcurrency = 4,
         cursorPageBonus = 64,
+        conditionalWritesSupported = true,
     ),
     MINIO_COMPAT(
         remoteIndexFreshnessIntervalMs = 5 * 60_000L,
@@ -53,6 +56,7 @@ enum class S3EndpointProfile(
         reconcileHeadLimit = 10,
         reconcileHeadConcurrency = 2,
         cursorPageBonus = 32,
+        conditionalWritesSupported = true,
     ),
     GENERIC_S3(
         remoteIndexFreshnessIntervalMs = S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS,
@@ -66,6 +70,7 @@ enum class S3EndpointProfile(
         reconcileHeadLimit = 16,
         reconcileHeadConcurrency = 4,
         cursorPageBonus = 64,
+        conditionalWritesSupported = false,
     ),
 }
 

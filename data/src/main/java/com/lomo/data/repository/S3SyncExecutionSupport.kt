@@ -42,6 +42,7 @@ internal data class S3ActionExecutionResult(
     val localFilesAfterSync: Map<String, LocalS3File>,
     val remoteFilesAfterSync: Map<String, RemoteS3File>,
     val memoRefreshPlan: S3MemoRefreshPlan,
+    val conflictPaths: Set<String> = emptySet(),
 )
 
 internal data class IndexedS3ActionExecutionResult(
