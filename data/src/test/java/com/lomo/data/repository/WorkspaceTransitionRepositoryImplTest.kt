@@ -224,11 +224,15 @@ private class FakeWorkspaceTransitionMemoDao(
         claimToken: String,
         claimedAt: Long,
         staleBefore: Long,
+        maxRetries: Int,
     ): Int {
         val claimable =
             outbox.values
                 .sortedBy(MemoFileOutboxEntity::id)
-                .firstOrNull { item -> item.claimToken == null || item.claimUpdatedAt.orMax() <= staleBefore }
+                .firstOrNull { item ->
+                    item.retryCount < maxRetries &&
+                        (item.claimToken == null || item.claimUpdatedAt.orMax() <= staleBefore)
+                }
                 ?: return 0
         outbox[claimable.id] =
             claimable.copy(
@@ -267,7 +271,8 @@ private class FakeWorkspaceTransitionMemoDao(
             )
     }
 
-    override suspend fun getMemoFileOutboxCount(): Int = outbox.size
+    override suspend fun getPendingMemoFileOutboxCount(maxRetries: Int): Int =
+        outbox.values.count { item -> item.retryCount < maxRetries }
 
     override suspend fun insertTagRefs(refs: List<MemoTagCrossRefEntity>) {
         tagRefs += refs

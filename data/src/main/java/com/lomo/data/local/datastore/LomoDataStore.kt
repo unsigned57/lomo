@@ -14,6 +14,10 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.model.SettingDescriptor
+import com.lomo.domain.model.SettingValue
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -145,7 +149,6 @@ interface LomoAppSecurityStore {
 
 interface LomoLanSharePreferencesStore {
     val lanShareEnabled: Flow<Boolean>
-    val lanSharePairingKeyHex: Flow<String?>
     val lanShareE2eEnabled: Flow<Boolean>
     val lanShareDeviceName: Flow<String?>
     val shareCardShowTime: Flow<Boolean>
@@ -154,8 +157,6 @@ interface LomoLanSharePreferencesStore {
     val syncInboxEnabled: Flow<Boolean>
 
     suspend fun updateLanShareEnabled(enabled: Boolean)
-
-    suspend fun updateLanSharePairingKeyHex(keyHex: String?)
 
     suspend fun updateLanShareE2eEnabled(enabled: Boolean)
 
@@ -168,6 +169,10 @@ interface LomoLanSharePreferencesStore {
     suspend fun updateShareCardSignatureText(text: String)
 
     suspend fun updateSyncInboxEnabled(enabled: Boolean)
+}
+
+internal interface LomoLegacyCredentialDrainStore {
+    suspend fun drainLegacyLanSharePairingKeyHex(): String?
 }
 
 interface LomoDailyReviewSessionStore {
@@ -365,12 +370,20 @@ interface LomoTypographyPreferencesStore {
     suspend fun updateParagraphSpacingScale(scale: Float)
 }
 
+internal data class LomoOrdinarySettingsRestoreTransaction(
+    val catalogValues: Map<SettingDescriptor, SettingValue>,
+    val stringValues: Map<Preferences.Key<String>, String>,
+    val nullableStringValues: Map<Preferences.Key<String>, String?>,
+    val booleanValues: Map<Preferences.Key<Boolean>, Boolean>,
+    val intValues: Map<Preferences.Key<Int>, Int>,
+)
+
 /**
  * DataStore-backed settings shell. The API remains stable while implementation is split by concern.
  */
 @Singleton
 class LomoDataStore private constructor(
-    dataStore: DataStore<Preferences>,
+    private val dataStore: DataStore<Preferences>,
 ) : LomoRootLocationStore by RootLocationStoreImpl(dataStore),
     LomoMediaLocationStore by MediaLocationStoreImpl(dataStore),
     LomoStorageFormatStore by StorageFormatStoreImpl(dataStore),
@@ -379,6 +392,7 @@ class LomoDataStore private constructor(
     LomoSidebarTagOrderStore by SidebarTagOrderStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
+    LomoLegacyCredentialDrainStore by LegacyCredentialDrainStoreImpl(dataStore),
     LomoDailyReviewSessionStore by DailyReviewSessionStoreImpl(dataStore),
     LomoSnapshotPreferencesStore by SnapshotPreferencesStoreImpl(dataStore),
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
@@ -395,6 +409,109 @@ class LomoDataStore private constructor(
     constructor(
         @ApplicationContext context: Context,
     ) : this(context.dataStore)
+
+    fun settingValueFlow(descriptor: SettingDescriptor): Flow<SettingValue> =
+        when (val defaultValue = descriptor.defaultValue) {
+            is SettingValue.Bool ->
+                dataStore
+                    .booleanFlow(
+                        key = booleanPreferencesKey(descriptor.storageKey),
+                        flowName = descriptor.id,
+                        default = defaultValue.value,
+                    ).map(SettingValue::Bool)
+            is SettingValue.Decimal ->
+                dataStore
+                    .floatFlow(
+                        key = floatPreferencesKey(descriptor.storageKey),
+                        flowName = descriptor.id,
+                        default = defaultValue.value,
+                    ).map(SettingValue::Decimal)
+            is SettingValue.Text ->
+                dataStore
+                    .stringFlow(
+                        key = stringPreferencesKey(descriptor.storageKey),
+                        flowName = descriptor.id,
+                        default = defaultValue.value,
+                    ).map(SettingValue::Text)
+        }
+
+    suspend fun updateSettingValues(valuesByDescriptor: Map<SettingDescriptor, SettingValue>) {
+        dataStore.editPreferences {
+            putCatalogSettings(valuesByDescriptor)
+        }
+    }
+
+    internal suspend fun restoreOrdinarySettings(transaction: LomoOrdinarySettingsRestoreTransaction) {
+        dataStore.editPreferences {
+            putCatalogSettings(transaction.catalogValues)
+            putStringSettings(transaction.stringValues)
+            putNullableStringSettings(transaction.nullableStringValues)
+            putBooleanSettings(transaction.booleanValues)
+            putIntSettings(transaction.intValues)
+        }
+    }
+
+    private fun MutablePreferences.putCatalogSettings(valuesByDescriptor: Map<SettingDescriptor, SettingValue>) {
+        valuesByDescriptor.forEach { (descriptor, value) ->
+            when (val defaultValue = descriptor.defaultValue) {
+                is SettingValue.Bool ->
+                    this[booleanPreferencesKey(descriptor.storageKey)] =
+                        descriptor.requireValueType<SettingValue.Bool>(value, defaultValue).value
+                is SettingValue.Decimal ->
+                    this[floatPreferencesKey(descriptor.storageKey)] =
+                        descriptor.requireValueType<SettingValue.Decimal>(value, defaultValue).value
+                is SettingValue.Text ->
+                    this[stringPreferencesKey(descriptor.storageKey)] =
+                        descriptor.requireValueType<SettingValue.Text>(value, defaultValue).value
+            }
+        }
+    }
+
+    private fun MutablePreferences.putStringSettings(values: Map<Preferences.Key<String>, String>) {
+        values.forEach { (key, value) ->
+            this[key] =
+                when (key) {
+                    LomoDataStoreKeys.STORAGE_FILENAME_FORMAT -> StorageFilenameFormats.normalize(value)
+                    LomoDataStoreKeys.STORAGE_TIMESTAMP_FORMAT -> StorageTimestampFormats.normalize(value)
+                    else -> value
+                }
+        }
+    }
+
+    private fun MutablePreferences.putNullableStringSettings(values: Map<Preferences.Key<String>, String?>) {
+        values.forEach { (key, value) ->
+            if (value.isNullOrBlank()) {
+                remove(key)
+            } else {
+                this[key] = value
+            }
+        }
+    }
+
+    private fun MutablePreferences.putBooleanSettings(values: Map<Preferences.Key<Boolean>, Boolean>) {
+        values.forEach { (key, value) -> this[key] = value }
+    }
+
+    private fun MutablePreferences.putIntSettings(values: Map<Preferences.Key<Int>, Int>) {
+        values.forEach { (key, value) ->
+            this[key] =
+                when (key) {
+                    LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_COUNT -> normalizeMemoSnapshotMaxCount(value)
+                    LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS -> normalizeMemoSnapshotMaxAgeDays(value)
+                    else -> value
+                }
+        }
+    }
+
+    private inline fun <reified T : SettingValue> SettingDescriptor.requireValueType(
+        value: SettingValue,
+        defaultValue: SettingValue,
+    ): T {
+        require(value is T) {
+            "Setting ${id} expects ${defaultValue::class.simpleName} but received ${value::class.simpleName}"
+        }
+        return value
+    }
 }
 
 internal object LomoDataStoreKeys {
@@ -429,7 +546,6 @@ internal object LomoDataStoreKeys {
     val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
-    val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
     val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)

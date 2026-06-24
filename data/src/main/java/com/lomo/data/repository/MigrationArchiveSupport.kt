@@ -59,7 +59,7 @@ data class MigrationArchiveImportBudgets(
 }
 
 internal interface MigrationSettingsRestoreValidator {
-    suspend fun validateRestore(snapshot: MigrationSettingsSnapshot)
+    suspend fun validateRestore(snapshot: MigrationSettingsSnapshot): MigrationSettingsValidationReport
 }
 
 internal fun ZipOutputStream.writeTextEntry(

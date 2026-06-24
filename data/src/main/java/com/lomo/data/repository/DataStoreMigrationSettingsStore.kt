@@ -1,11 +1,16 @@
 package com.lomo.data.repository
 
-import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.s3.S3CredentialStore
-import com.lomo.data.security.SensitiveCredentialPreferencePolicy
-import com.lomo.data.util.PreferenceKeys
-import com.lomo.data.webdav.WebDavCredentialStore
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.model.SettingDescriptor
+import com.lomo.domain.model.SettingsCatalog
+import com.lomo.domain.model.SettingsExportPolicy
+import com.lomo.domain.model.SettingsReadModel
+import com.lomo.domain.model.SettingsSensitivity
+import com.lomo.domain.model.SettingValue
+import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -16,9 +21,8 @@ class DataStoreMigrationSettingsStore
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
-        private val gitCredentialStore: GitCredentialStore,
-        private val webDavCredentialStore: WebDavCredentialStore,
-        private val s3CredentialStore: S3CredentialStore,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) : MigrationSettingsStore,
         MigrationSettingsRestoreValidator {
         override suspend fun snapshot(): MigrationSettingsSnapshot =
@@ -27,53 +31,39 @@ class DataStoreMigrationSettingsStore
                 sensitive = buildSensitiveSnapshot(),
             )
 
-        override suspend fun validateRestore(snapshot: MigrationSettingsSnapshot) {
-            validateKnownKeys(
-                label = "preferences",
-                keys = snapshot.preferences.keys,
-                supportedKeys = supportedPreferenceKeys,
-            )
-            validateKnownKeys(
-                label = "sensitive settings",
-                keys = snapshot.sensitive.keys,
-                supportedKeys = supportedSensitiveKeys,
-            )
-            snapshot.preferences.forEach { (key, value) ->
-                when (key) {
-                    in booleanPreferenceKeys -> require(value.toBooleanStrictOrNull() != null) {
-                        "Migration setting $key must be a boolean"
-                    }
-                    in intPreferenceKeys -> require(value.toIntOrNull() != null) {
-                        "Migration setting $key must be an integer"
-                    }
-                    in floatPreferenceKeys -> require(value.toFloatOrNull() != null) {
-                        "Migration setting $key must be a float"
-                    }
-                }
+        override suspend fun validateRestore(snapshot: MigrationSettingsSnapshot): MigrationSettingsValidationReport {
+            val report = snapshot.toValidationReport()
+            val ordinaryPlan = snapshot.preferences.toOrdinaryRestorePlan(report.ordinary)
+            if (report.hasUnsupportedKeys() ||
+                ordinaryPlan is OrdinarySettingsRestorePlan.Restore && report.hasMissingRequiredCoverage()
+            ) {
+                throw MigrationSettingsCoverageException(report)
             }
+            return report
         }
 
         override suspend fun restore(snapshot: MigrationSettingsSnapshot) {
-            validateRestore(snapshot)
+            val report = validateRestore(snapshot)
+            val ordinaryPlan = snapshot.preferences.toOrdinaryRestorePlan(report.ordinary)
             val rollbackSnapshot = snapshot()
+            val sensitiveSettings = snapshot.sensitive.withLegacyWebDavUsername(snapshot.preferences)
+            var ordinaryRestoreAttempted = false
             try {
-                restorePreferences(
-                    preferences = snapshot.preferences,
-                    clearMissing = true,
-                )
-                restoreSensitive(
-                    sensitive = snapshot.sensitive,
-                    clearMissing = true,
-                )
+                importSensitive(sensitiveSettings)
+                ordinaryRestoreAttempted = true
+                restorePreferences(ordinaryPlan)
+                clearMissingSensitive(sensitiveSettings)
             } catch (exception: CancellationException) {
                 rollbackRestore(
                     rollbackSnapshot = rollbackSnapshot,
+                    restoreOrdinary = ordinaryRestoreAttempted,
                     originalFailure = exception,
                 )
                 throw exception
             } catch (exception: Exception) {
                 rollbackRestore(
                     rollbackSnapshot = rollbackSnapshot,
+                    restoreOrdinary = ordinaryRestoreAttempted,
                     originalFailure = exception,
                 )
                 throw exception
@@ -82,14 +72,17 @@ class DataStoreMigrationSettingsStore
 
         private suspend fun rollbackRestore(
             rollbackSnapshot: MigrationSettingsSnapshot,
+            restoreOrdinary: Boolean = true,
             originalFailure: Throwable,
         ) {
-            runCatching {
-                restorePreferences(
-                    preferences = rollbackSnapshot.preferences,
-                    clearMissing = true,
-                )
-            }.onFailure(originalFailure::addSuppressed)
+            if (restoreOrdinary) {
+                // behavior-contract: silent-result-ok:
+                // rollback failures are suppressed on the original restore failure.
+                runCatching {
+                    restorePreferences(rollbackSnapshot.toOrdinaryRestorePlan())
+                }.onFailure(originalFailure::addSuppressed)
+            }
+            // behavior-contract: silent-result-ok: rollback failures are suppressed on the original restore failure.
             runCatching {
                 restoreSensitive(
                     sensitive = rollbackSnapshot.sensitive,
@@ -100,33 +93,13 @@ class DataStoreMigrationSettingsStore
 
         private suspend fun buildPreferenceSnapshot(): Map<String, String> =
             buildMap {
-                putString(SettingsKey.DATE_FORMAT, dataStore.dateFormat.first())
-                putString(SettingsKey.TIME_FORMAT, dataStore.timeFormat.first())
-                putString(SettingsKey.THEME_MODE, dataStore.themeMode.first())
-                putString(SettingsKey.COLOR_SOURCE, dataStore.colorSource.first())
-                putString(SettingsKey.FONT_PREFERENCE, dataStore.fontPreference.first())
-                putBoolean(SettingsKey.HAPTIC_FEEDBACK_ENABLED, dataStore.hapticFeedbackEnabled.first())
+                putCatalogAppPreferenceSettings(dataStore)
                 putBoolean(SettingsKey.CHECK_UPDATES_ON_STARTUP, dataStore.checkUpdatesOnStartup.first())
-                putBoolean(SettingsKey.SHOW_INPUT_HINTS, dataStore.showInputHints.first())
-                putBoolean(SettingsKey.DOUBLE_TAP_EDIT_ENABLED, dataStore.doubleTapEditEnabled.first())
-                putBoolean(SettingsKey.FREE_TEXT_COPY_ENABLED, dataStore.freeTextCopyEnabled.first())
-                putBoolean(
-                    SettingsKey.MEMO_ACTION_AUTO_REORDER_ENABLED,
-                    dataStore.memoActionAutoReorderEnabled.first(),
-                )
-                putString(SettingsKey.MEMO_ACTION_ORDER, dataStore.memoActionOrder.first())
-                putString(SettingsKey.MEMO_ACTION_ORDERS_BY_SCOPE, dataStore.memoActionOrdersByScope.first())
-                putString(SettingsKey.INPUT_TOOLBAR_TOOL_ORDER, dataStore.inputToolbarToolOrder.first())
                 putString(SettingsKey.SIDEBAR_TAG_ORDER, dataStore.sidebarTagOrder.first())
-                putBoolean(SettingsKey.QUICK_SAVE_ON_BACK_ENABLED, dataStore.quickSaveOnBackEnabled.first())
-                putBoolean(SettingsKey.SCROLLBAR_ENABLED, dataStore.scrollbarEnabled.first())
                 putBoolean(SettingsKey.APP_LOCK_ENABLED, dataStore.appLockEnabled.first())
                 putBoolean(SettingsKey.LAN_SHARE_ENABLED, dataStore.lanShareEnabled.first())
                 putBoolean(SettingsKey.LAN_SHARE_E2E_ENABLED, dataStore.lanShareE2eEnabled.first())
                 putStringIfPresent(SettingsKey.LAN_SHARE_DEVICE_NAME, dataStore.lanShareDeviceName.first())
-                putBoolean(SettingsKey.SHARE_CARD_SHOW_TIME, dataStore.shareCardShowTime.first())
-                putBoolean(SettingsKey.SHARE_CARD_SHOW_BRAND, dataStore.shareCardShowBrand.first())
-                putString(SettingsKey.SHARE_CARD_SIGNATURE_TEXT, dataStore.shareCardSignatureText.first())
                 putBoolean(SettingsKey.SYNC_INBOX_ENABLED, dataStore.syncInboxEnabled.first())
                 putBoolean(SettingsKey.MEMO_SNAPSHOTS_ENABLED, dataStore.memoSnapshotsEnabled.first())
                 putInt(SettingsKey.MEMO_SNAPSHOT_MAX_COUNT, dataStore.memoSnapshotMaxCount.first())
@@ -145,7 +118,6 @@ class DataStoreMigrationSettingsStore
                 putString(SettingsKey.WEBDAV_PROVIDER, dataStore.webDavProvider.first())
                 putStringIfPresent(SettingsKey.WEBDAV_BASE_URL, dataStore.webDavBaseUrl.first())
                 putStringIfPresent(SettingsKey.WEBDAV_ENDPOINT_URL, dataStore.webDavEndpointUrl.first())
-                putStringIfPresent(SettingsKey.WEBDAV_USERNAME, dataStore.webDavUsername.first())
                 putBoolean(SettingsKey.WEBDAV_AUTO_SYNC_ENABLED, dataStore.webDavAutoSyncEnabled.first())
                 putString(SettingsKey.WEBDAV_AUTO_SYNC_INTERVAL, dataStore.webDavAutoSyncInterval.first())
                 putBoolean(SettingsKey.WEBDAV_SYNC_ON_REFRESH, dataStore.webDavSyncOnRefresh.first())
@@ -154,6 +126,7 @@ class DataStoreMigrationSettingsStore
                 putStringIfPresent(SettingsKey.S3_REGION, dataStore.s3Region.first())
                 putStringIfPresent(SettingsKey.S3_BUCKET, dataStore.s3Bucket.first())
                 putStringIfPresent(SettingsKey.S3_PREFIX, dataStore.s3Prefix.first())
+                putStringIfPresent(SettingsKey.S3_LOCAL_SYNC_DIRECTORY, dataStore.s3LocalSyncDirectory.first())
                 putString(SettingsKey.S3_PATH_STYLE, dataStore.s3PathStyle.first())
                 putString(SettingsKey.S3_ENCRYPTION_MODE, dataStore.s3EncryptionMode.first())
                 putString(SettingsKey.S3_RCLONE_FILENAME_ENCRYPTION, dataStore.s3RcloneFilenameEncryption.first())
@@ -170,108 +143,51 @@ class DataStoreMigrationSettingsStore
                 putBoolean(SettingsKey.S3_AUTO_SYNC_ENABLED, dataStore.s3AutoSyncEnabled.first())
                 putString(SettingsKey.S3_AUTO_SYNC_INTERVAL, dataStore.s3AutoSyncInterval.first())
                 putBoolean(SettingsKey.S3_SYNC_ON_REFRESH, dataStore.s3SyncOnRefresh.first())
-                putFloat(SettingsKey.TYPOGRAPHY_FONT_SIZE_SCALE, dataStore.fontSizeScale.first())
-                putFloat(SettingsKey.TYPOGRAPHY_LINE_HEIGHT_SCALE, dataStore.lineHeightScale.first())
-                putFloat(SettingsKey.TYPOGRAPHY_LETTER_SPACING_SCALE, dataStore.letterSpacingScale.first())
-                putFloat(SettingsKey.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE, dataStore.paragraphSpacingScale.first())
             }
 
-        private suspend fun buildSensitiveSnapshot(): Map<String, String> =
-            buildMap {
-                putStringIfPresent(lanSharePairingMigrationKey, dataStore.lanSharePairingKeyHex.first())
-                putStringIfPresent(SettingsKey.GIT_TOKEN, gitCredentialStore.getToken())
-                putStringIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, webDavCredentialStore.getUsername())
-                putStringIfPresent(SettingsKey.WEBDAV_PASSWORD, webDavCredentialStore.getPassword())
-                putStringIfPresent(SettingsKey.S3_ACCESS_KEY_ID, s3CredentialStore.getAccessKeyId())
-                putStringIfPresent(SettingsKey.S3_SECRET_ACCESS_KEY, s3CredentialStore.getSecretAccessKey())
-                putStringIfPresent(SettingsKey.S3_SESSION_TOKEN, s3CredentialStore.getSessionToken())
-                putStringIfPresent(SettingsKey.S3_ENCRYPTION_PASSWORD, s3CredentialStore.getEncryptionPassword())
-                putStringIfPresent(SettingsKey.S3_ENCRYPTION_PASSWORD2, s3CredentialStore.getEncryptionPassword2())
+        private suspend fun buildSensitiveSnapshot(): Map<String, String> {
+            val sensitive = mutableMapOf<String, String>()
+            drainLegacyWebDavUsername()?.let { username ->
+                sensitive.putStringIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, username)
             }
+            sensitive.putCredentialIfPresent(
+                SettingsKey.LAN_SHARE_PAIRING_KEY_HEX,
+                CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
+            )
+            sensitive.putCredentialIfPresent(SettingsKey.GIT_TOKEN, CredentialField.GIT_TOKEN)
+            sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, CredentialField.WEBDAV_USERNAME)
+            sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_PASSWORD, CredentialField.WEBDAV_PASSWORD)
+            sensitive.putCredentialIfPresent(SettingsKey.S3_ACCESS_KEY_ID, CredentialField.S3_ACCESS_KEY_ID)
+            sensitive.putCredentialIfPresent(SettingsKey.S3_SECRET_ACCESS_KEY, CredentialField.S3_SECRET_ACCESS_KEY)
+            sensitive.putCredentialIfPresent(SettingsKey.S3_SESSION_TOKEN, CredentialField.S3_SESSION_TOKEN)
+            sensitive.putCredentialIfPresent(
+                SettingsKey.S3_ENCRYPTION_PASSWORD,
+                CredentialField.S3_ENCRYPTION_PASSWORD,
+            )
+            sensitive.putCredentialIfPresent(
+                SettingsKey.S3_ENCRYPTION_PASSWORD2,
+                CredentialField.S3_ENCRYPTION_PASSWORD2,
+            )
+            return sensitive
+        }
 
-        private suspend fun restorePreferences(
+        private fun Map<String, String>.withLegacyWebDavUsername(
             preferences: Map<String, String>,
-            clearMissing: Boolean = false,
-        ) {
-            preferences.apply {
-                get(SettingsKey.DATE_FORMAT)?.let { dataStore.updateDateFormat(it) }
-                get(SettingsKey.TIME_FORMAT)?.let { dataStore.updateTimeFormat(it) }
-                get(SettingsKey.THEME_MODE)?.let { dataStore.updateThemeMode(it) }
-                getBoolean(SettingsKey.HAPTIC_FEEDBACK_ENABLED)?.let { dataStore.updateHapticFeedbackEnabled(it) }
-                getBoolean(SettingsKey.CHECK_UPDATES_ON_STARTUP)?.let { dataStore.updateCheckUpdatesOnStartup(it) }
-                getBoolean(SettingsKey.SHOW_INPUT_HINTS)?.let { dataStore.updateShowInputHints(it) }
-                getBoolean(SettingsKey.DOUBLE_TAP_EDIT_ENABLED)?.let { dataStore.updateDoubleTapEditEnabled(it) }
-                getBoolean(SettingsKey.FREE_TEXT_COPY_ENABLED)?.let { dataStore.updateFreeTextCopyEnabled(it) }
-                getBoolean(SettingsKey.MEMO_ACTION_AUTO_REORDER_ENABLED)?.let {
-                    dataStore.updateMemoActionAutoReorderEnabled(it)
-                }
-                get(SettingsKey.MEMO_ACTION_ORDER)?.let { dataStore.updateMemoActionOrder(it) }
-                get(SettingsKey.MEMO_ACTION_ORDERS_BY_SCOPE)?.let { dataStore.updateMemoActionOrdersByScope(it) }
-                get(SettingsKey.INPUT_TOOLBAR_TOOL_ORDER)?.let { dataStore.updateInputToolbarToolOrder(it) }
-                get(SettingsKey.SIDEBAR_TAG_ORDER)?.let { dataStore.updateSidebarTagOrder(it) }
-                getBoolean(SettingsKey.QUICK_SAVE_ON_BACK_ENABLED)?.let { dataStore.updateQuickSaveOnBackEnabled(it) }
-                getBoolean(SettingsKey.SCROLLBAR_ENABLED)?.let { dataStore.updateScrollbarEnabled(it) }
-                getBoolean(SettingsKey.APP_LOCK_ENABLED)?.let { dataStore.updateAppLockEnabled(it) }
-                getBoolean(SettingsKey.LAN_SHARE_ENABLED)?.let { dataStore.updateLanShareEnabled(it) }
-                getBoolean(SettingsKey.LAN_SHARE_E2E_ENABLED)?.let { dataStore.updateLanShareE2eEnabled(it) }
-                get(SettingsKey.LAN_SHARE_DEVICE_NAME)?.let { dataStore.updateLanShareDeviceName(it) }
-                getBoolean(SettingsKey.SHARE_CARD_SHOW_TIME)?.let { dataStore.updateShareCardShowTime(it) }
-                getBoolean(SettingsKey.SHARE_CARD_SHOW_BRAND)?.let { dataStore.updateShareCardShowBrand(it) }
-                get(SettingsKey.SHARE_CARD_SIGNATURE_TEXT)?.let { dataStore.updateShareCardSignatureText(it) }
-                getBoolean(SettingsKey.SYNC_INBOX_ENABLED)?.let { dataStore.updateSyncInboxEnabled(it) }
-                getBoolean(SettingsKey.MEMO_SNAPSHOTS_ENABLED)?.let { dataStore.updateMemoSnapshotsEnabled(it) }
-                getInt(SettingsKey.MEMO_SNAPSHOT_MAX_COUNT)?.let { dataStore.updateMemoSnapshotMaxCount(it) }
-                getInt(SettingsKey.MEMO_SNAPSHOT_MAX_AGE_DAYS)?.let { dataStore.updateMemoSnapshotMaxAgeDays(it) }
-                get(SettingsKey.STORAGE_FILENAME_FORMAT)?.let { dataStore.updateStorageFilenameFormat(it) }
-                get(SettingsKey.STORAGE_TIMESTAMP_FORMAT)?.let { dataStore.updateStorageTimestampFormat(it) }
-                getBoolean(SettingsKey.GIT_SYNC_ENABLED)?.let { dataStore.updateGitSyncEnabled(it) }
-                get(SettingsKey.GIT_REMOTE_URL)?.let { dataStore.updateGitRemoteUrl(it) }
-                get(SettingsKey.GIT_AUTHOR_NAME)?.let { dataStore.updateGitAuthorName(it) }
-                get(SettingsKey.GIT_AUTHOR_EMAIL)?.let { dataStore.updateGitAuthorEmail(it) }
-                getBoolean(SettingsKey.GIT_AUTO_SYNC_ENABLED)?.let { dataStore.updateGitAutoSyncEnabled(it) }
-                get(SettingsKey.GIT_AUTO_SYNC_INTERVAL)?.let { dataStore.updateGitAutoSyncInterval(it) }
-                getBoolean(SettingsKey.GIT_SYNC_ON_REFRESH)?.let { dataStore.updateGitSyncOnRefresh(it) }
-                get(SettingsKey.SYNC_BACKEND_TYPE)?.let { dataStore.updateSyncBackendType(it) }
-                getBoolean(SettingsKey.WEBDAV_SYNC_ENABLED)?.let { dataStore.updateWebDavSyncEnabled(it) }
-                get(SettingsKey.WEBDAV_PROVIDER)?.let { dataStore.updateWebDavProvider(it) }
-                get(SettingsKey.WEBDAV_BASE_URL)?.let { dataStore.updateWebDavBaseUrl(it) }
-                get(SettingsKey.WEBDAV_ENDPOINT_URL)?.let { dataStore.updateWebDavEndpointUrl(it) }
-                get(SettingsKey.WEBDAV_USERNAME)?.let { dataStore.updateWebDavUsername(it) }
-                getBoolean(SettingsKey.WEBDAV_AUTO_SYNC_ENABLED)?.let { dataStore.updateWebDavAutoSyncEnabled(it) }
-                get(SettingsKey.WEBDAV_AUTO_SYNC_INTERVAL)?.let { dataStore.updateWebDavAutoSyncInterval(it) }
-                getBoolean(SettingsKey.WEBDAV_SYNC_ON_REFRESH)?.let { dataStore.updateWebDavSyncOnRefresh(it) }
-                getBoolean(SettingsKey.S3_SYNC_ENABLED)?.let { dataStore.updateS3SyncEnabled(it) }
-                get(SettingsKey.S3_ENDPOINT_URL)?.let { dataStore.updateS3EndpointUrl(it) }
-                get(SettingsKey.S3_REGION)?.let { dataStore.updateS3Region(it) }
-                get(SettingsKey.S3_BUCKET)?.let { dataStore.updateS3Bucket(it) }
-                get(SettingsKey.S3_PREFIX)?.let { dataStore.updateS3Prefix(it) }
-                get(SettingsKey.S3_PATH_STYLE)?.let { dataStore.updateS3PathStyle(it) }
-                get(SettingsKey.S3_ENCRYPTION_MODE)?.let { dataStore.updateS3EncryptionMode(it) }
-                get(SettingsKey.S3_RCLONE_FILENAME_ENCRYPTION)?.let {
-                    dataStore.updateS3RcloneFilenameEncryption(it)
-                }
-                get(SettingsKey.S3_RCLONE_FILENAME_ENCODING)?.let { dataStore.updateS3RcloneFilenameEncoding(it) }
-                getBoolean(SettingsKey.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)?.let {
-                    dataStore.updateS3RcloneDirectoryNameEncryption(it)
-                }
-                getBoolean(SettingsKey.S3_RCLONE_DATA_ENCRYPTION_ENABLED)?.let {
-                    dataStore.updateS3RcloneDataEncryptionEnabled(it)
-                }
-                get(SettingsKey.S3_RCLONE_ENCRYPTED_SUFFIX)?.let { dataStore.updateS3RcloneEncryptedSuffix(it) }
-                getBoolean(SettingsKey.S3_AUTO_SYNC_ENABLED)?.let { dataStore.updateS3AutoSyncEnabled(it) }
-                get(SettingsKey.S3_AUTO_SYNC_INTERVAL)?.let { dataStore.updateS3AutoSyncInterval(it) }
-                getBoolean(SettingsKey.S3_SYNC_ON_REFRESH)?.let { dataStore.updateS3SyncOnRefresh(it) }
-                getFloat(SettingsKey.TYPOGRAPHY_FONT_SIZE_SCALE)?.let { dataStore.updateFontSizeScale(it) }
-                getFloat(SettingsKey.TYPOGRAPHY_LINE_HEIGHT_SCALE)?.let { dataStore.updateLineHeightScale(it) }
-                getFloat(SettingsKey.TYPOGRAPHY_LETTER_SPACING_SCALE)?.let {
-                    dataStore.updateLetterSpacingScale(it)
-                }
-                getFloat(SettingsKey.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)?.let {
-                    dataStore.updateParagraphSpacingScale(it)
-                }
+        ): Map<String, String> {
+            val legacyUsername = preferences.legacyWebDavUsernameCredentialValue()
+            if (legacyUsername == null || SettingsKey.WEBDAV_STORED_USERNAME in this) {
+                return this
             }
-            if (clearMissing) {
-                clearMissingNullablePreferences(preferences)
+            return this + (SettingsKey.WEBDAV_STORED_USERNAME to legacyUsername)
+        }
+
+        private suspend fun restorePreferences(plan: OrdinarySettingsRestorePlan) {
+            when (plan) {
+                is OrdinarySettingsRestorePlan.Restore -> dataStore.restoreOrdinarySettings(plan.transaction)
+                is OrdinarySettingsRestorePlan.Skip ->
+                    if (plan.clearsLegacyWebDavUsername && dataStore.webDavUsername.first() != null) {
+                        dataStore.updateWebDavUsername(null)
+                    }
             }
         }
 
@@ -279,93 +195,97 @@ class DataStoreMigrationSettingsStore
             sensitive: Map<String, String>,
             clearMissing: Boolean = false,
         ) {
-            sensitive.apply {
-                get(lanSharePairingMigrationKey)?.let { dataStore.updateLanSharePairingKeyHex(it) }
-                get(SettingsKey.GIT_TOKEN)?.let { gitCredentialStore.setToken(it) }
-                get(SettingsKey.WEBDAV_STORED_USERNAME)?.let { webDavCredentialStore.setUsername(it) }
-                get(SettingsKey.WEBDAV_PASSWORD)?.let { webDavCredentialStore.setPassword(it) }
-                get(SettingsKey.S3_ACCESS_KEY_ID)?.let { s3CredentialStore.setAccessKeyId(it) }
-                get(SettingsKey.S3_SECRET_ACCESS_KEY)?.let { s3CredentialStore.setSecretAccessKey(it) }
-                get(SettingsKey.S3_SESSION_TOKEN)?.let { s3CredentialStore.setSessionToken(it) }
-                get(SettingsKey.S3_ENCRYPTION_PASSWORD)?.let { s3CredentialStore.setEncryptionPassword(it) }
-                get(SettingsKey.S3_ENCRYPTION_PASSWORD2)?.let { s3CredentialStore.setEncryptionPassword2(it) }
-            }
+            importSensitive(sensitive)
             if (clearMissing) {
-                clearMissingSensitiveSettings(sensitive)
+                clearMissingSensitive(sensitive)
             }
         }
 
-        private suspend fun clearMissingNullablePreferences(preferences: Map<String, String>) {
-            if (SettingsKey.LAN_SHARE_DEVICE_NAME !in preferences) dataStore.updateLanShareDeviceName(null)
-            if (SettingsKey.GIT_REMOTE_URL !in preferences) dataStore.updateGitRemoteUrl(null)
-            if (SettingsKey.WEBDAV_BASE_URL !in preferences) dataStore.updateWebDavBaseUrl(null)
-            if (SettingsKey.WEBDAV_ENDPOINT_URL !in preferences) dataStore.updateWebDavEndpointUrl(null)
-            if (SettingsKey.WEBDAV_USERNAME !in preferences) dataStore.updateWebDavUsername(null)
-            if (SettingsKey.S3_ENDPOINT_URL !in preferences) dataStore.updateS3EndpointUrl(null)
-            if (SettingsKey.S3_REGION !in preferences) dataStore.updateS3Region(null)
-            if (SettingsKey.S3_BUCKET !in preferences) dataStore.updateS3Bucket(null)
-            if (SettingsKey.S3_PREFIX !in preferences) dataStore.updateS3Prefix(null)
+        private suspend fun importSensitive(sensitive: Map<String, String>) {
+            sensitiveCredentialFields.forEach { field ->
+                val key = field.migrationSensitiveKey()
+                if (key in sensitive) {
+                    credentialRepository.writeSecret(field, sensitive.getValue(key))
+                }
+            }
         }
 
-        private suspend fun clearMissingSensitiveSettings(sensitive: Map<String, String>) {
-            if (lanSharePairingMigrationKey !in sensitive) dataStore.updateLanSharePairingKeyHex(null)
-            if (SettingsKey.GIT_TOKEN !in sensitive) gitCredentialStore.setToken(null)
-            if (SettingsKey.WEBDAV_STORED_USERNAME !in sensitive) webDavCredentialStore.setUsername(null)
-            if (SettingsKey.WEBDAV_PASSWORD !in sensitive) webDavCredentialStore.setPassword(null)
-            if (SettingsKey.S3_ACCESS_KEY_ID !in sensitive) s3CredentialStore.setAccessKeyId(null)
-            if (SettingsKey.S3_SECRET_ACCESS_KEY !in sensitive) s3CredentialStore.setSecretAccessKey(null)
-            if (SettingsKey.S3_SESSION_TOKEN !in sensitive) s3CredentialStore.setSessionToken(null)
-            if (SettingsKey.S3_ENCRYPTION_PASSWORD !in sensitive) s3CredentialStore.setEncryptionPassword(null)
-            if (SettingsKey.S3_ENCRYPTION_PASSWORD2 !in sensitive) s3CredentialStore.setEncryptionPassword2(null)
+        private suspend fun clearMissingSensitive(sensitive: Map<String, String>) {
+            sensitiveCredentialFields.forEach { field ->
+                if (field.migrationSensitiveKey() !in sensitive) {
+                    credentialRepository.writeSecret(field, null)
+                }
+            }
         }
 
-        private fun validateKnownKeys(
-            label: String,
-            keys: Set<String>,
-            supportedKeys: Set<String>,
+        private suspend fun MutableMap<String, String>.putCredentialIfPresent(
+            key: String,
+            field: CredentialField,
         ) {
-            val unknownKeys = keys - supportedKeys
-            require(unknownKeys.isEmpty()) {
-                "Unsupported migration $label: ${unknownKeys.sorted().joinToString()}"
+            when (
+                val result =
+                    credentialRepository.readSecret(
+                        field = field,
+                        authorization = securitySessionPolicy.authorizeCredentialRead(),
+                    )
+            ) {
+                CredentialSecretReadResult.Missing -> Unit
+                is CredentialSecretReadResult.Present -> putStringIfPresent(key, result.value)
+                CredentialSecretReadResult.Unreadable ->
+                    error("Migration credential $key is unreadable")
+                is CredentialSecretReadResult.Unauthorized ->
+                    error("Migration credential $key read denied: ${result.reason}")
             }
+        }
+
+        private suspend fun drainLegacyWebDavUsername(): String? {
+            val legacyUsername = dataStore.webDavUsername.first()?.trim()?.takeIf(String::isNotBlank)
+            if (legacyUsername != null) {
+                credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, legacyUsername)
+                dataStore.updateWebDavUsername(null)
+            }
+            return legacyUsername
         }
 
         internal companion object {
-            private val dataStoreResidentSensitiveMigrationKeyByPreferenceKey =
-                mapOf(
-                    PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX to SettingsKey.LAN_SHARE_PAIRING_KEY_HEX,
-                )
+            const val migrationSettingsSchemaVersion = 1
 
-            val dataStoreResidentSensitivePreferenceKeys: Set<String> =
-                dataStoreResidentSensitiveMigrationKeyByPreferenceKey.keys
-
-            val dataStoreResidentSensitiveKeys: Set<String> =
-                SensitiveCredentialPreferencePolicy
-                    .dataStoreResidentSensitivePreferenceKeys
-                    .mapTo(mutableSetOf()) { preferenceKey ->
-                        requireNotNull(dataStoreResidentSensitiveMigrationKeyByPreferenceKey[preferenceKey]) {
-                            "No migration sensitive key for DataStore credential preference=$preferenceKey"
-                        }
+            val catalogAppPreferenceDescriptors =
+                SettingsCatalog
+                    .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
+                    .filter { descriptor ->
+                        descriptor.sensitivity == SettingsSensitivity.NON_SENSITIVE &&
+                            descriptor.exportPolicy == SettingsExportPolicy.PLAIN_TEXT
                     }
 
-            val lanSharePairingMigrationKey: String =
-                dataStoreResidentSensitiveMigrationKeyByPreferenceKey.getValue(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
+            val appPreferenceDescriptorsByStorageKey =
+                catalogAppPreferenceDescriptors.associateBy { descriptor -> descriptor.storageKey }
+
+            val catalogAppPreferenceKeys =
+                appPreferenceDescriptorsByStorageKey.keys
+
+            val credentialSensitiveKeys =
+                setOf(SettingsKey.LAN_SHARE_PAIRING_KEY_HEX)
+
+            val sensitiveCredentialFields =
+                listOf(
+                    CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
+                    CredentialField.GIT_TOKEN,
+                    CredentialField.WEBDAV_USERNAME,
+                    CredentialField.WEBDAV_PASSWORD,
+                    CredentialField.S3_ACCESS_KEY_ID,
+                    CredentialField.S3_SECRET_ACCESS_KEY,
+                    CredentialField.S3_SESSION_TOKEN,
+                    CredentialField.S3_ENCRYPTION_PASSWORD,
+                    CredentialField.S3_ENCRYPTION_PASSWORD2,
+                )
 
             val booleanPreferenceKeys =
                 setOf(
-                    SettingsKey.HAPTIC_FEEDBACK_ENABLED,
                     SettingsKey.CHECK_UPDATES_ON_STARTUP,
-                    SettingsKey.SHOW_INPUT_HINTS,
-                    SettingsKey.DOUBLE_TAP_EDIT_ENABLED,
-                    SettingsKey.FREE_TEXT_COPY_ENABLED,
-                    SettingsKey.MEMO_ACTION_AUTO_REORDER_ENABLED,
-                    SettingsKey.QUICK_SAVE_ON_BACK_ENABLED,
-                    SettingsKey.SCROLLBAR_ENABLED,
                     SettingsKey.APP_LOCK_ENABLED,
                     SettingsKey.LAN_SHARE_ENABLED,
                     SettingsKey.LAN_SHARE_E2E_ENABLED,
-                    SettingsKey.SHARE_CARD_SHOW_TIME,
-                    SettingsKey.SHARE_CARD_SHOW_BRAND,
                     SettingsKey.SYNC_INBOX_ENABLED,
                     SettingsKey.MEMO_SNAPSHOTS_ENABLED,
                     SettingsKey.GIT_SYNC_ENABLED,
@@ -388,24 +308,12 @@ class DataStoreMigrationSettingsStore
                 )
 
             val floatPreferenceKeys =
-                setOf(
-                    SettingsKey.TYPOGRAPHY_FONT_SIZE_SCALE,
-                    SettingsKey.TYPOGRAPHY_LINE_HEIGHT_SCALE,
-                    SettingsKey.TYPOGRAPHY_LETTER_SPACING_SCALE,
-                    SettingsKey.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
-                )
+                emptySet<String>()
 
             val stringPreferenceKeys =
                 setOf(
-                    SettingsKey.DATE_FORMAT,
-                    SettingsKey.TIME_FORMAT,
-                    SettingsKey.THEME_MODE,
-                    SettingsKey.MEMO_ACTION_ORDER,
-                    SettingsKey.MEMO_ACTION_ORDERS_BY_SCOPE,
-                    SettingsKey.INPUT_TOOLBAR_TOOL_ORDER,
                     SettingsKey.SIDEBAR_TAG_ORDER,
                     SettingsKey.LAN_SHARE_DEVICE_NAME,
-                    SettingsKey.SHARE_CARD_SIGNATURE_TEXT,
                     SettingsKey.STORAGE_FILENAME_FORMAT,
                     SettingsKey.STORAGE_TIMESTAMP_FORMAT,
                     SettingsKey.GIT_REMOTE_URL,
@@ -416,12 +324,12 @@ class DataStoreMigrationSettingsStore
                     SettingsKey.WEBDAV_PROVIDER,
                     SettingsKey.WEBDAV_BASE_URL,
                     SettingsKey.WEBDAV_ENDPOINT_URL,
-                    SettingsKey.WEBDAV_USERNAME,
                     SettingsKey.WEBDAV_AUTO_SYNC_INTERVAL,
                     SettingsKey.S3_ENDPOINT_URL,
                     SettingsKey.S3_REGION,
                     SettingsKey.S3_BUCKET,
                     SettingsKey.S3_PREFIX,
+                    SettingsKey.S3_LOCAL_SYNC_DIRECTORY,
                     SettingsKey.S3_PATH_STYLE,
                     SettingsKey.S3_ENCRYPTION_MODE,
                     SettingsKey.S3_RCLONE_FILENAME_ENCRYPTION,
@@ -430,20 +338,58 @@ class DataStoreMigrationSettingsStore
                     SettingsKey.S3_AUTO_SYNC_INTERVAL,
                 )
 
+            val legacyDrainPreferenceKeys =
+                setOf(SettingsKey.WEBDAV_USERNAME)
+
+            val nullablePreferenceKeys =
+                setOf(
+                    SettingsKey.LAN_SHARE_DEVICE_NAME,
+                    SettingsKey.GIT_REMOTE_URL,
+                    SettingsKey.WEBDAV_BASE_URL,
+                    SettingsKey.WEBDAV_ENDPOINT_URL,
+                    SettingsKey.S3_ENDPOINT_URL,
+                    SettingsKey.S3_REGION,
+                    SettingsKey.S3_BUCKET,
+                    SettingsKey.S3_PREFIX,
+                    SettingsKey.S3_LOCAL_SYNC_DIRECTORY,
+                )
+
+            val requiredStringPreferenceKeys =
+                stringPreferenceKeys - nullablePreferenceKeys
+
+            val requiredOrdinaryPreferenceKeys =
+                catalogAppPreferenceKeys + requiredStringPreferenceKeys + booleanPreferenceKeys + intPreferenceKeys
+
             val supportedPreferenceKeys =
-                stringPreferenceKeys + booleanPreferenceKeys + intPreferenceKeys + floatPreferenceKeys
+                catalogAppPreferenceKeys + stringPreferenceKeys + booleanPreferenceKeys + intPreferenceKeys +
+                    legacyDrainPreferenceKeys
 
             val supportedSensitiveKeys =
-                dataStoreResidentSensitiveKeys +
-                    setOf(
-                        SettingsKey.GIT_TOKEN,
-                        SettingsKey.WEBDAV_STORED_USERNAME,
-                        SettingsKey.WEBDAV_PASSWORD,
-                        SettingsKey.S3_ACCESS_KEY_ID,
-                        SettingsKey.S3_SECRET_ACCESS_KEY,
-                        SettingsKey.S3_SESSION_TOKEN,
-                        SettingsKey.S3_ENCRYPTION_PASSWORD,
-                        SettingsKey.S3_ENCRYPTION_PASSWORD2,
-                    )
+                sensitiveCredentialFields.mapTo(mutableSetOf()) { field -> field.migrationSensitiveKey() }
         }
+    }
+
+private fun MigrationSettingsValidationReport.hasUnsupportedKeys(): Boolean =
+    manifest.unsupportedPreferenceKeys.isNotEmpty() ||
+        manifest.unsupportedSensitiveKeys.isNotEmpty()
+
+private fun MigrationSettingsValidationReport.hasMissingRequiredCoverage(): Boolean =
+    ordinary.missingRequiredKeys.isNotEmpty() ||
+        sensitive.missingRequiredKeys.isNotEmpty() ||
+        sensitive.invalidRequiredKeys.isNotEmpty()
+
+private suspend fun MutableMap<String, String>.putCatalogAppPreferenceSettings(dataStore: LomoDataStore) {
+    DataStoreMigrationSettingsStore.catalogAppPreferenceDescriptors.forEach { descriptor ->
+        putString(
+            key = descriptor.storageKey,
+            value = dataStore.settingValueFlow(descriptor).first().serializeMigrationValue(),
+        )
+    }
+}
+
+private fun SettingValue.serializeMigrationValue(): String =
+    when (this) {
+        is SettingValue.Bool -> value.toString()
+        is SettingValue.Decimal -> value.toString()
+        is SettingValue.Text -> value
     }

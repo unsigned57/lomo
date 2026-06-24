@@ -9,7 +9,6 @@ import com.lomo.domain.usecase.MigrationPasswordException
 import com.lomo.domain.usecase.MigrationSettingsSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -27,6 +26,7 @@ class MigrationArchiveRepositoryImpl
         private val workspaceMediaAccess: WorkspaceMediaAccess,
         private val settingsStore: MigrationSettingsStore,
         private val importBudgets: MigrationArchiveImportBudgets,
+        private val stagingWorkspaceFactory: MigrationArchiveStagingWorkspaceFactory,
     ) : MigrationArchiveRepository {
         private val dryRunPlanner = MigrationArchiveDryRunPlanner(importBudgets)
 
@@ -112,7 +112,15 @@ class MigrationArchiveRepositoryImpl
                             compressedArchiveBytes = archiveFile.length(),
                         )
                     }
-                archiveFile.inputStream().use { commitAllNotesArchive(input = it, summary = plan.summary) }
+                val stagingWorkspace = stagingWorkspaceFactory.create()
+                try {
+                    archiveFile.inputStream().use { archiveInput ->
+                        stageAllNotesArchive(input = archiveInput, stagingWorkspace = stagingWorkspace)
+                    }
+                    commitStagedArchive(stagingWorkspace = stagingWorkspace, summary = plan.summary)
+                } finally {
+                    stagingWorkspace.cleanup()
+                }
             } finally {
                 archiveFile.delete()
             }
@@ -144,23 +152,78 @@ class MigrationArchiveRepositoryImpl
             }
         }
 
-        private suspend fun commitAllNotesArchive(
+        private suspend fun stageAllNotesArchive(
             input: InputStream,
+            stagingWorkspace: MigrationArchiveStagingWorkspace,
+        ) {
+            ZipInputStream(input).use { zip ->
+                generateSequence { zip.nextEntry }.forEach { entry ->
+                    if (!entry.isDirectory) {
+                        stageArchiveEntry(
+                            entry = entry,
+                            zip = zip,
+                            stagingWorkspace = stagingWorkspace,
+                        )
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+
+        private suspend fun stageArchiveEntry(
+            entry: ZipEntry,
+            zip: ZipInputStream,
+            stagingWorkspace: MigrationArchiveStagingWorkspace,
+        ) {
+            when {
+                entry.name == MANIFEST_ENTRY -> Unit
+                entry.name.startsWith(MAIN_NOTES_PREFIX) ->
+                    stagingWorkspace.stageMarkdown(
+                        directory = MemoDirectoryType.MAIN,
+                        filename = entry.requireArchiveFilename(MAIN_NOTES_PREFIX),
+                        source = zip,
+                    )
+                entry.name.startsWith(TRASH_NOTES_PREFIX) ->
+                    stagingWorkspace.stageMarkdown(
+                        directory = MemoDirectoryType.TRASH,
+                        filename = entry.requireArchiveFilename(TRASH_NOTES_PREFIX),
+                        source = zip,
+                    )
+                entry.name.startsWith(IMAGE_MEDIA_PREFIX) ->
+                    stagingWorkspace.stageMedia(
+                        category = WorkspaceMediaCategory.IMAGE,
+                        filename =
+                            entry.requireArchiveMediaFilename(
+                                prefix = IMAGE_MEDIA_PREFIX,
+                                category = WorkspaceMediaCategory.IMAGE,
+                            ),
+                        source = zip,
+                    )
+                entry.name.startsWith(VOICE_MEDIA_PREFIX) ->
+                    stagingWorkspace.stageMedia(
+                        category = WorkspaceMediaCategory.VOICE,
+                        filename =
+                            entry.requireArchiveMediaFilename(
+                                prefix = VOICE_MEDIA_PREFIX,
+                                category = WorkspaceMediaCategory.VOICE,
+                            ),
+                        source = zip,
+                    )
+                else -> throw IllegalArgumentException("Unsupported migration archive entry: ${entry.name}")
+            }
+        }
+
+        private suspend fun commitStagedArchive(
+            stagingWorkspace: MigrationArchiveStagingWorkspace,
             summary: MigrationArchiveSummary,
         ): MigrationArchiveSummary {
             val rollbackActions = mutableListOf<MigrationArchiveRollbackAction>()
             try {
-                ZipInputStream(input).use { zip ->
-                    generateSequence { zip.nextEntry }.forEach { entry ->
-                        if (!entry.isDirectory) {
-                            commitArchiveEntry(
-                                entry = entry,
-                                zip = zip,
-                                rollbackActions = rollbackActions,
-                            )
-                        }
-                        zip.closeEntry()
-                    }
+                stagingWorkspace.entries.forEach { entry ->
+                    commitStagedEntry(
+                        entry = entry,
+                        rollbackActions = rollbackActions,
+                    )
                 }
             } catch (exception: CancellationException) {
                 rollbackCommittedArchiveEntries(rollbackActions, exception)
@@ -174,80 +237,29 @@ class MigrationArchiveRepositoryImpl
             return summary
         }
 
-        private suspend fun commitArchiveEntry(
-            entry: ZipEntry,
-            zip: ZipInputStream,
+        private suspend fun commitStagedEntry(
+            entry: StagedMigrationArchiveEntry,
             rollbackActions: MutableList<MigrationArchiveRollbackAction>,
         ) {
-            when {
-                entry.name == MANIFEST_ENTRY -> Unit
-                entry.name.startsWith(MAIN_NOTES_PREFIX) ->
-                    commitMarkdownArchiveEntry(
-                        directory = MemoDirectoryType.MAIN,
-                        prefix = MAIN_NOTES_PREFIX,
-                        entry = entry,
-                        zip = zip,
+            when (entry) {
+                is StagedMigrationArchiveEntry.Markdown ->
+                    commitMarkdownEntry(
+                        directory = entry.directory,
+                        filename = entry.filename,
+                        content = entry.file.readText(Charsets.UTF_8),
                         rollbackActions = rollbackActions,
                     )
-                entry.name.startsWith(TRASH_NOTES_PREFIX) ->
-                    commitMarkdownArchiveEntry(
-                        directory = MemoDirectoryType.TRASH,
-                        prefix = TRASH_NOTES_PREFIX,
-                        entry = entry,
-                        zip = zip,
+                is StagedMigrationArchiveEntry.Media ->
+                    commitMediaEntry(
+                        category = entry.category,
+                        filename = entry.filename,
                         rollbackActions = rollbackActions,
-                    )
-                entry.name.startsWith(IMAGE_MEDIA_PREFIX) ->
-                    commitMediaArchiveEntry(
-                        category = WorkspaceMediaCategory.IMAGE,
-                        prefix = IMAGE_MEDIA_PREFIX,
-                        entry = entry,
-                        zip = zip,
-                        rollbackActions = rollbackActions,
-                    )
-                entry.name.startsWith(VOICE_MEDIA_PREFIX) ->
-                    commitMediaArchiveEntry(
-                        category = WorkspaceMediaCategory.VOICE,
-                        prefix = VOICE_MEDIA_PREFIX,
-                        entry = entry,
-                        zip = zip,
-                        rollbackActions = rollbackActions,
-                    )
-                else -> throw IllegalArgumentException("Unsupported migration archive entry: ${entry.name}")
+                    ) { output ->
+                        entry.file.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
             }
-        }
-
-        private suspend fun commitMarkdownArchiveEntry(
-            directory: MemoDirectoryType,
-            prefix: String,
-            entry: ZipEntry,
-            zip: ZipInputStream,
-            rollbackActions: MutableList<MigrationArchiveRollbackAction>,
-        ) {
-            commitMarkdownEntry(
-                directory = directory,
-                filename = entry.requireArchiveFilename(prefix),
-                content = zip.readBytes().toString(Charsets.UTF_8),
-                rollbackActions = rollbackActions,
-            )
-        }
-
-        private suspend fun commitMediaArchiveEntry(
-            category: WorkspaceMediaCategory,
-            prefix: String,
-            entry: ZipEntry,
-            zip: ZipInputStream,
-            rollbackActions: MutableList<MigrationArchiveRollbackAction>,
-        ) {
-            commitMediaEntry(
-                category = category,
-                filename =
-                    entry.requireArchiveMediaFilename(
-                        prefix = prefix,
-                        category = category,
-                    ),
-                rollbackActions = rollbackActions,
-            ) { output -> zip.copyTo(output) }
         }
 
         private suspend fun commitMarkdownEntry(

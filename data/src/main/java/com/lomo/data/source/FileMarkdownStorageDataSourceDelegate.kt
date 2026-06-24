@@ -45,6 +45,11 @@ class FileMarkdownStorageDataSourceDelegate
             filename: String,
         ): String? = backendResolver.markdownBackend()?.readFileIn(directory, filename)
 
+        override suspend fun fingerprintFileIn(
+            directory: MemoDirectoryType,
+            filename: String,
+        ): String? = backendResolver.markdownBackend()?.fingerprintFileIn(directory, filename)
+
         override suspend fun readFile(uri: Uri): String? = backendResolver.markdownBackend()?.readFile(uri)
 
         override suspend fun saveFileIn(
@@ -53,18 +58,30 @@ class FileMarkdownStorageDataSourceDelegate
             content: String,
             append: Boolean,
             uri: Uri?,
-        ): String? = backendResolver.markdownBackend()?.saveFileIn(directory, filename, content, append, uri)
+        ): String? =
+            requireMarkdownBackend("saveFileIn($filename)")
+                .saveFileIn(directory, filename, content, append, uri)
 
         override suspend fun deleteFileIn(
             directory: MemoDirectoryType,
             filename: String,
             uri: Uri?,
         ) {
-            backendResolver.markdownBackend()?.deleteFileIn(directory, filename, uri)
+            requireMarkdownBackend("deleteFileIn($filename)").deleteFileIn(directory, filename, uri)
         }
 
         override suspend fun getFileMetadataIn(
             directory: MemoDirectoryType,
             filename: String,
         ): FileMetadata? = backendResolver.markdownBackend()?.getFileMetadataIn(directory, filename)
+
+        /**
+         * Writes must never silently no-op: a missing backend means the workspace root is not
+         * configured/accessible, which is an invalid state for a mutation, not a successful empty
+         * write. Surfacing it lets the outbox treat the flush as a retryable failure instead of
+         * acknowledging a write that never reached the source files.
+         */
+        private suspend fun requireMarkdownBackend(operation: String): MarkdownStorageBackend =
+            backendResolver.markdownBackend()
+                ?: error("Workspace storage backend is not configured; cannot $operation")
     }

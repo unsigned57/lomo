@@ -187,7 +187,8 @@ private class WebDavPendingConflictValidator(
             )[file.relativePath]
         return when {
             remote == null -> WebDavPendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
-            !file.remote.matchesRemote(remote.etag, remote.lastModified, remote.size) ->
+            !fileBridge.isMemoPath(file.relativePath, layout) &&
+                !file.remote.matchesRemote(remote.etag, remote.lastModified, remote.size) ->
                 WebDavPendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
             else -> restoreContents(file, local, remote.lastModified)
         }

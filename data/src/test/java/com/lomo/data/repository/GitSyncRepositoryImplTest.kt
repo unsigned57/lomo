@@ -96,12 +96,14 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     private lateinit var repository: GitSyncRepositoryImpl
+    private lateinit var credentialRepository: TestCredentialRepository
 
     private fun setUp() {
         MockKAnnotations.init(this)
         val tempFilesDir = Files.createTempDirectory("lomo-context-files").toFile()
         every { context.filesDir } returns tempFilesDir
         everyCommonConfig()
+        credentialRepository = testGitCredentialRepository()
         val runtime =
             GitSyncRepositoryContext(
                 context = context,
@@ -115,7 +117,11 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                 markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
-        val support = GitSyncRepositorySupport(runtime)
+        val support = GitSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = credentialRepository,
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            )
         val memoMirror = GitSyncMemoMirror(runtime)
         repository =
             GitSyncRepositoryImpl(
@@ -123,7 +129,7 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                 configurationMutationRepository =
                     GitSyncConfigurationMutationRepositoryImpl(
                         dataStore = dataStore,
-                        credentialStore = credentialStore,
+                        credentialRepository = credentialRepository,
                     ),
                 operationRepository =
                     GitSyncOperationRepositoryImpl(
@@ -161,7 +167,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
         runTest {
             val rootDir = createRepoRootWithGitDir()
             stubSameDirectoryLayout(rootDir)
-            coEvery { credentialStore.getToken() } returns "token"
             coEvery {
                 gitSyncEngine.sync(any(), REMOTE_URL)
             } returns GitSyncResult.Success("git sync done")
@@ -181,7 +186,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
             (markedErrorSlot.captured.contains("memo refresh failed")).shouldBeTrue()
             (markedErrorSlot.captured.contains("refresh failed")).shouldBeTrue()
             coVerifyOrder {
-                credentialStore.getToken()
                 gitSyncEngine.sync(any(), REMOTE_URL)
                 memoSynchronizer.refresh()
             }
@@ -192,7 +196,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
             val rootDir = createRepoRootWithGitDir()
             stubSameDirectoryLayout(rootDir)
             val cancellation = CancellationException("cancelled")
-            coEvery { credentialStore.getToken() } returns "token"
             coEvery {
                 gitSyncEngine.sync(any(), REMOTE_URL)
             } returns GitSyncResult.Success("git sync done")
@@ -206,7 +209,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
             }
 
             coVerifyOrder {
-                credentialStore.getToken()
                 gitSyncEngine.sync(any(), REMOTE_URL)
                 memoSynchronizer.refresh()
             }

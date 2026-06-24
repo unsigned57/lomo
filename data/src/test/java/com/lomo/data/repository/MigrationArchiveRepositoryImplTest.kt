@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+// architectural-boundary-check
+
 import android.net.Uri
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.FileMetadataWithId
@@ -11,6 +13,7 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.usecase.MigrationPasswordException
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.maps.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -26,6 +29,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.util.zip.CRC32
 import java.nio.file.Files
@@ -34,6 +38,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /*
+// architectural-boundary-check
  * Behavior Contract:
  * - Unit under test: MigrationArchiveRepositoryImpl
  * - Owning layer: data
@@ -51,6 +56,9 @@ import java.util.zip.ZipOutputStream
  * - Given a migration zip is missing a manifest or has manifest counts that do not match payload entries, when importing all notes, then restore fails before workspace files are written.
  * - Given dry-run manifest validation receives unsupported versions, duplicate entries, unsafe names, unsupported prefixes, or media type mismatches, when inspection or import runs, then validation fails before workspace writes.
  * - Given a migration zip exceeds manifest, entry-count, archive-size, uncompressed-size, markdown-text, or compression-ratio budgets, when inspection or import runs, then validation fails before workspace writes.
+ * - Given archive payloads are valid, when import extracts entries, then notes and media are staged before the live workspace is changed.
+ * - Given archive payload staging fails, when import aborts before commit, then staging is cleaned and live workspace/settings remain unchanged.
+ * - Given a markdown archive entry is imported, when payload extraction runs, then markdown bytes are streamed to staging instead of materialized through a whole-entry byte array.
  * - Given archive commit fails after staging notes or media, when import aborts, then previously staged files are rolled back from the live workspace.
  * - Given settings with sensitive values, when exporting and importing with a password, then bytes are encrypted and the same snapshot is restored.
  * - Given encrypted settings and a wrong password, when importing, then the password failure is observable and no settings are restored.
@@ -66,11 +74,20 @@ import java.util.zip.ZipOutputStream
  * - RED: manifest validation tests fail before archive import parses the manifest and validates payload counts before writes.
  * - RED: media payload mismatch dry-run fails before archive validation rejects image entries without image extensions and voice entries without audio extensions.
  * - RED: ZIP budget tests fail before archive import has an injectable resource budget and bounded manifest/markdown readers.
+ * - RED: archive staging tests fail while import writes validated entries directly to live markdown/media stores before all payloads are staged.
+ * - RED: archive staging cleanup test fails while a staging failure can occur after an earlier live markdown write.
  * - RED: import rollback test fails before archive commit stages all note/media writes and removes staged writes after a later commit failure.
  * - RED: settings dry-run test fails before MigrationSettingsStore exposes pre-commit validation and import calls it before restore.
  *
  * Excludes:
  * - Android document picker UI, SAF permission persistence, database rebuild orchestration, and cryptographic algorithm conformance beyond round-trip/password failure.
+ *
+ * Test Change Justification:
+ * - Reason category: Data layer module gained app update install persistence, migration archive staging workspace, settings preference repos, and strengthened sync conflict store contracts.
+ * - Old behavior/assertion being replaced: previous data layer tests relied on older repository contracts and store implementations before these modules were restructured.
+ * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
+ * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
+ * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
  */
 class MigrationArchiveRepositoryImplTest : DataFunSpec() {
     init {
@@ -88,6 +105,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val output = ByteArrayOutputStream()
 
@@ -126,6 +144,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val output = ByteArrayOutputStream()
 
@@ -157,6 +176,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -308,6 +328,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -332,6 +353,144 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
             }
         }
 
+        test("given migration archive when later payload is still staging then target workspace is unchanged") {
+            runTest {
+                val markdownStorage = FakeMarkdownStorageDataSource()
+                markdownStorage.files.getValue(MemoDirectoryType.MAIN)["existing.md"] = "existing note"
+                val mediaAccess = FakeWorkspaceMediaAccess()
+                mediaAccess.files.getValue(WorkspaceMediaCategory.IMAGE)["existing.png"] =
+                    "existing image".toByteArray()
+                val stagingWorkspaceFactory =
+                    ObservingMigrationArchiveStagingWorkspaceFactory(
+                        markdownStorage = markdownStorage,
+                        mediaAccess = mediaAccess,
+                        observedCategory = WorkspaceMediaCategory.IMAGE,
+                        observedFilename = "imported.png",
+                    )
+                val repository =
+                    MigrationArchiveRepositoryImpl(
+                        markdownStorageDataSource = markdownStorage,
+                        workspaceMediaAccess = mediaAccess,
+                        settingsStore = FakeMigrationSettingsStore(),
+                        importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = stagingWorkspaceFactory,
+                    )
+                val archive =
+                    buildZip(
+                        "manifest.json" to
+                            """
+                            {"version":1,"noteCount":1,"trashCount":0,"imageCount":1,"voiceCount":0}
+                            """.trimIndent().toByteArray(),
+                        "notes/main/imported.md" to "imported note".toByteArray(),
+                        "media/images/imported.png" to "image".toByteArray(),
+                    )
+
+                repository.importAllNotesArchive(ByteArrayInputStream(archive))
+
+                stagingWorkspaceFactory.observedWorkspace.liveMarkdownDuringObservedStage shouldContainExactly
+                    mapOf("existing.md" to "existing note")
+                stagingWorkspaceFactory.observedWorkspace.liveMediaDuringObservedStage shouldContainExactly
+                    mapOf("existing.png" to "existing image")
+                markdownStorage.files.getValue(MemoDirectoryType.MAIN) shouldContainExactly
+                    mapOf(
+                        "existing.md" to "existing note",
+                        "imported.md" to "imported note",
+                    )
+                mediaAccess.files.getValue(WorkspaceMediaCategory.IMAGE).stringValues() shouldContainExactly
+                    mapOf(
+                        "existing.png" to "existing image",
+                        "imported.png" to "image",
+                    )
+            }
+        }
+
+        test("given archive staging fails before commit then staging is cleaned and target state is unchanged") {
+            runTest {
+                val markdownStorage = FakeMarkdownStorageDataSource()
+                markdownStorage.files.getValue(MemoDirectoryType.MAIN)["existing.md"] = "existing note"
+                val mediaAccess = FakeWorkspaceMediaAccess()
+                mediaAccess.files.getValue(WorkspaceMediaCategory.IMAGE)["existing.png"] =
+                    "existing image".toByteArray()
+                val settingsStore =
+                    FakeMigrationSettingsStore(
+                        snapshot =
+                            MigrationSettingsSnapshot(
+                                preferences = mapOf("theme_mode" to "dark"),
+                            ),
+                    )
+                val stagingWorkspaceFactory =
+                    FailingMigrationArchiveStagingWorkspaceFactory(
+                        failingCategory = WorkspaceMediaCategory.IMAGE,
+                        failingFilename = "broken.png",
+                    )
+                val repository =
+                    MigrationArchiveRepositoryImpl(
+                        markdownStorageDataSource = markdownStorage,
+                        workspaceMediaAccess = mediaAccess,
+                        settingsStore = settingsStore,
+                        importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = stagingWorkspaceFactory,
+                    )
+                val archive =
+                    buildZip(
+                        "manifest.json" to
+                            """
+                            {"version":1,"noteCount":1,"trashCount":0,"imageCount":1,"voiceCount":0}
+                            """.trimIndent().toByteArray(),
+                        "notes/main/imported.md" to "imported note".toByteArray(),
+                        "media/images/broken.png" to "partial image".toByteArray(),
+                    )
+
+                shouldThrow<IOException> {
+                    repository.importAllNotesArchive(ByteArrayInputStream(archive))
+                }
+
+                markdownStorage.files.getValue(MemoDirectoryType.MAIN) shouldContainExactly
+                    mapOf("existing.md" to "existing note")
+                mediaAccess.files.getValue(WorkspaceMediaCategory.IMAGE).stringValues() shouldContainExactly
+                    mapOf("existing.png" to "existing image")
+                stagingWorkspaceFactory.createdWorkspaces.size shouldBe 1
+                val failedWorkspace = stagingWorkspaceFactory.createdWorkspaces.single()
+                failedWorkspace.cleanupCallCount shouldBe 1
+                failedWorkspace.stagedPayloads.shouldBeEmpty()
+                settingsStore.restoreCallCount shouldBe 0
+                settingsStore.restoredSnapshot shouldBe null
+            }
+        }
+
+        test("given large markdown archive entry when imported then markdown payload is streamed through staging") {
+            runTest {
+                val markdownStorage = FakeMarkdownStorageDataSource()
+                val mediaAccess = FakeWorkspaceMediaAccess()
+                val repository =
+                    MigrationArchiveRepositoryImpl(
+                        markdownStorageDataSource = markdownStorage,
+                        workspaceMediaAccess = mediaAccess,
+                        settingsStore = FakeMigrationSettingsStore(),
+                        importBudgets =
+                            testArchiveBudgets(
+                                maxUncompressedBytes = 512 * 1024,
+                                maxMarkdownEntryBytes = 512 * 1024,
+                            ),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
+                    )
+                val archive =
+                    buildZip(
+                        "manifest.json" to
+                            """
+                            {"version":1,"noteCount":1,"trashCount":0,"imageCount":0,"voiceCount":0}
+                            """.trimIndent().toByteArray(),
+                        "notes/main/large.md" to "chunk\n".repeat(24 * 1024).toByteArray(),
+                    )
+
+                repository.importAllNotesArchive(ByteArrayInputStream(archive))
+
+                markdownStorage.savedContentFor(MemoDirectoryType.MAIN, "large.md") shouldBe
+                    "chunk\n".repeat(24 * 1024)
+                markdownStorage.savedFiles shouldBe listOf(MemoDirectoryType.MAIN to "large.md")
+            }
+        }
+
         test("given migration zip without manifest when imported then workspace files remain unchanged") {
             runTest {
                 val markdownStorage = FakeMarkdownStorageDataSource()
@@ -344,6 +503,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -374,6 +534,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -404,6 +565,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -610,6 +772,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZipWithLocalEntries(
@@ -640,6 +803,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -667,6 +831,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -695,6 +860,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -722,6 +888,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -755,6 +922,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = mediaAccess,
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val archive =
                     buildZip(
@@ -801,6 +969,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val output = ByteArrayOutputStream()
 
@@ -820,6 +989,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val importSummary =
                     importRepository.importEncryptedSettings(
@@ -848,6 +1018,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val output = ByteArrayOutputStream()
                 sourceRepository.exportEncryptedSettings(output, "correct-password")
@@ -861,6 +1032,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
 
                 shouldThrow<IllegalArgumentException> {
@@ -892,6 +1064,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
                 val output = ByteArrayOutputStream()
                 sourceRepository.exportEncryptedSettings(output, "correct-password")
@@ -902,6 +1075,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         workspaceMediaAccess = FakeWorkspaceMediaAccess(),
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
+                        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
                     )
 
                 shouldThrow<MigrationPasswordException> {
@@ -920,6 +1094,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
 private class FakeMarkdownStorageDataSource : MarkdownStorageDataSource {
     val files: Map<MemoDirectoryType, LinkedHashMap<String, String>> =
         MemoDirectoryType.entries.associateWith { linkedMapOf<String, String>() }
+    val savedFiles = mutableListOf<Pair<MemoDirectoryType, String>>()
 
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
         files.getValue(directory).keys.map { filename ->
@@ -946,6 +1121,11 @@ private class FakeMarkdownStorageDataSource : MarkdownStorageDataSource {
         filename: String,
     ): String? = files.getValue(directory)[filename]
 
+    override suspend fun fingerprintFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? = readFileIn(directory, filename)?.toByteArray(Charsets.UTF_8)?.md5Hex()
+
     override suspend fun readFile(uri: Uri): String? = null
 
     override suspend fun saveFileIn(
@@ -955,6 +1135,7 @@ private class FakeMarkdownStorageDataSource : MarkdownStorageDataSource {
         append: Boolean,
         uri: Uri?,
     ): String? {
+        savedFiles += directory to filename
         files.getValue(directory)[filename] =
             if (append) {
                 files.getValue(directory)[filename].orEmpty() + content
@@ -979,6 +1160,11 @@ private class FakeMarkdownStorageDataSource : MarkdownStorageDataSource {
         files.getValue(directory)[filename]?.let { content ->
             FileMetadata(filename = filename, lastModified = 1L, size = content.length.toLong())
         }
+
+    fun savedContentFor(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? = files.getValue(directory)[filename]
 }
 
 private open class FakeWorkspaceMediaAccess : WorkspaceMediaAccess {
@@ -1054,6 +1240,149 @@ private class StreamReadableWorkspaceMediaAccess : FakeWorkspaceMediaAccess() {
     }
 }
 
+private class ObservingMigrationArchiveStagingWorkspaceFactory(
+    private val markdownStorage: FakeMarkdownStorageDataSource,
+    private val mediaAccess: FakeWorkspaceMediaAccess,
+    private val observedCategory: WorkspaceMediaCategory,
+    private val observedFilename: String,
+) : MigrationArchiveStagingWorkspaceFactory {
+    val observedWorkspace =
+        ObservingMigrationArchiveStagingWorkspace(
+            markdownStorage = markdownStorage,
+            mediaAccess = mediaAccess,
+            observedCategory = observedCategory,
+            observedFilename = observedFilename,
+        )
+
+    override fun create(): MigrationArchiveStagingWorkspace = observedWorkspace
+}
+
+private class ObservingMigrationArchiveStagingWorkspace(
+    private val markdownStorage: FakeMarkdownStorageDataSource,
+    private val mediaAccess: FakeWorkspaceMediaAccess,
+    private val observedCategory: WorkspaceMediaCategory,
+    private val observedFilename: String,
+) : MigrationArchiveStagingWorkspace {
+    private val stagedEntries = mutableListOf<StagedMigrationArchiveEntry>()
+    var liveMarkdownDuringObservedStage: Map<String, String> = emptyMap()
+        private set
+    var liveMediaDuringObservedStage: Map<String, String> = emptyMap()
+        private set
+
+    override val entries: List<StagedMigrationArchiveEntry>
+        get() = stagedEntries.toList()
+
+    override suspend fun stageMarkdown(
+        directory: MemoDirectoryType,
+        filename: String,
+        source: InputStream,
+    ) {
+        val file = File.createTempFile("lomo-test-migration-observed-markdown-", ".md")
+        file.outputStream().use { output -> source.copyTo(output) }
+        stagedEntries +=
+            StagedMigrationArchiveEntry.Markdown(
+                directory = directory,
+                filename = filename,
+                file = file,
+            )
+    }
+
+    override suspend fun stageMedia(
+        category: WorkspaceMediaCategory,
+        filename: String,
+        source: InputStream,
+    ) {
+        if (category == observedCategory && filename == observedFilename) {
+            liveMarkdownDuringObservedStage = markdownStorage.files.getValue(MemoDirectoryType.MAIN).toMap()
+            liveMediaDuringObservedStage = mediaAccess.files.getValue(category).stringValues()
+        }
+        val file = File.createTempFile("lomo-test-migration-observed-media-", ".bin")
+        file.outputStream().use { output -> source.copyTo(output) }
+        stagedEntries +=
+            StagedMigrationArchiveEntry.Media(
+                category = category,
+                filename = filename,
+                file = file,
+            )
+    }
+
+    override suspend fun cleanup() {
+        stagedEntries.forEach { entry -> entry.file.delete() }
+        stagedEntries.clear()
+    }
+}
+
+private class FailingMigrationArchiveStagingWorkspaceFactory(
+    private val failingCategory: WorkspaceMediaCategory,
+    private val failingFilename: String,
+) : MigrationArchiveStagingWorkspaceFactory {
+    val createdWorkspaces = mutableListOf<FailingMigrationArchiveStagingWorkspace>()
+
+    override fun create(): MigrationArchiveStagingWorkspace {
+        val workspace =
+            FailingMigrationArchiveStagingWorkspace(
+                failingCategory = failingCategory,
+                failingFilename = failingFilename,
+            )
+        createdWorkspaces += workspace
+        return workspace
+    }
+}
+
+private class FailingMigrationArchiveStagingWorkspace(
+    private val failingCategory: WorkspaceMediaCategory,
+    private val failingFilename: String,
+) : MigrationArchiveStagingWorkspace {
+    private val stagedEntries = mutableListOf<StagedMigrationArchiveEntry>()
+    val stagedPayloads = mutableListOf<String>()
+    var cleanupCallCount = 0
+
+    override val entries: List<StagedMigrationArchiveEntry>
+        get() = stagedEntries.toList()
+
+    override suspend fun stageMarkdown(
+        directory: MemoDirectoryType,
+        filename: String,
+        source: InputStream,
+    ) {
+        val file = File.createTempFile("lomo-test-migration-markdown-", ".md")
+        file.outputStream().use { output -> source.copyTo(output) }
+        stagedPayloads += "markdown:${directory.name}:$filename"
+        stagedEntries +=
+            StagedMigrationArchiveEntry.Markdown(
+                directory = directory,
+                filename = filename,
+                file = file,
+            )
+    }
+
+    override suspend fun stageMedia(
+        category: WorkspaceMediaCategory,
+        filename: String,
+        source: InputStream,
+    ) {
+        if (category == failingCategory && filename == failingFilename) {
+            throw IOException("simulated staging failure")
+        }
+        val file = File.createTempFile("lomo-test-migration-media-", ".bin")
+        file.outputStream().use { output -> source.copyTo(output) }
+        stagedPayloads += "media:${category.name}:$filename"
+        stagedEntries +=
+            StagedMigrationArchiveEntry.Media(
+                category = category,
+                filename = filename,
+                file = file,
+            )
+    }
+
+    override suspend fun cleanup() {
+        cleanupCallCount += 1
+        stagedEntries.forEach { entry -> entry.file.delete() }
+        stagedEntries.clear()
+        stagedPayloads.clear()
+    }
+}
+
 private class FailingAfterWriteWorkspaceMediaAccess(
     private val failingCategory: WorkspaceMediaCategory,
     private val failingFilename: String,
@@ -1102,9 +1431,40 @@ private class FakeMigrationSettingsStore(
 
     override suspend fun snapshot(): MigrationSettingsSnapshot = snapshot
 
-    override suspend fun validateRestore(snapshot: MigrationSettingsSnapshot) {
+    override suspend fun validateRestore(snapshot: MigrationSettingsSnapshot): MigrationSettingsValidationReport {
         validatedSnapshots += snapshot
         validationFailure?.let { throw it }
+        return MigrationSettingsValidationReport(
+            manifest =
+                MigrationSettingsManifest(
+                    schemaVersion = DataStoreMigrationSettingsStore.migrationSettingsSchemaVersion,
+                    destructiveActions = emptySet(),
+                    restartRequiredActions = emptySet(),
+                    reAuthRequiredActions = emptySet(),
+                    unsupportedPreferenceKeys = emptySet(),
+                    unsupportedSensitiveKeys = emptySet(),
+                ),
+            ordinary =
+                MigrationOrdinarySettingsCoverage(
+                    expectedCatalogKeys = emptySet(),
+                    providedCatalogKeys = emptySet(),
+                    missingCatalogKeys = emptySet(),
+                    expectedOrdinaryKeys = snapshot.preferences.keys,
+                    providedOrdinaryKeys = snapshot.preferences.keys,
+                    missingOrdinaryKeys = emptySet(),
+                    missingRequiredKeys = emptySet(),
+                ),
+            sensitive =
+                MigrationSensitiveSettingsCoverage(
+                    expectedSensitiveKeys = snapshot.sensitive.keys,
+                    providedSensitiveKeys = snapshot.sensitive.keys,
+                    missingSensitiveKeys = emptySet(),
+                    requiredSensitiveKeys = emptySet(),
+                    providedRequiredKeys = emptySet(),
+                    missingRequiredKeys = emptySet(),
+                    invalidRequiredKeys = emptySet(),
+                ),
+        )
     }
 
     override suspend fun restore(snapshot: MigrationSettingsSnapshot) {
@@ -1123,6 +1483,7 @@ private fun migrationRepositoryWithBudgets(
         workspaceMediaAccess = mediaAccess,
         settingsStore = FakeMigrationSettingsStore(),
         importBudgets = budgets,
+        stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
     )
 
 private fun testArchiveBudgets(
@@ -1154,6 +1515,9 @@ private fun readZipEntries(bytes: ByteArray): Map<String, ByteArray> {
     }
     return entries
 }
+
+private fun Map<String, ByteArray>.stringValues(): Map<String, String> =
+    mapValues { (_, bytes) -> bytes.toString(Charsets.UTF_8) }
 
 private fun buildZip(vararg entries: Pair<String, ByteArray>): ByteArray {
     val output = ByteArrayOutputStream()

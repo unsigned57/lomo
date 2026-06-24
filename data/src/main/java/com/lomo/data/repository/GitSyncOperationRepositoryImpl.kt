@@ -366,7 +366,6 @@ class GitSyncInitAndSyncExecutor
         private suspend fun loadReadyContext(requireEnabled: Boolean): GitSyncReadyState {
             val enabled = runtime.dataStore.gitSyncEnabled.first()
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
-            val tokenMissing = runtime.credentialStore.getToken().isNullOrBlank()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val directRootDir = support.resolveRootDir()
             val safRootUri = support.resolveSafRootUri()
@@ -382,17 +381,18 @@ class GitSyncInitAndSyncExecutor
                         GitSyncResult.NotConfigured
                     }
 
-                    tokenMissing -> {
-                        runtime.gitSyncEngine.markError(GitSyncErrorMessages.PAT_REQUIRED)
-                        GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-                    }
-
                     directRootDir == null && safRootUri.isNullOrBlank() -> {
                         runtime.gitSyncEngine.markError(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
                         GitSyncResult.DirectPathRequired
                     }
 
-                    else -> null
+                    else -> {
+                        val tokenPreconditionError = support.gitTokenPreconditionError()
+                        if (tokenPreconditionError != null) {
+                            runtime.gitSyncEngine.markError(tokenPreconditionError.message)
+                        }
+                        tokenPreconditionError
+                    }
                 }
             return failureResult?.let(GitSyncReadyState::Failure)
                 ?: GitSyncReadyState.Ready(
@@ -555,14 +555,15 @@ class GitSyncStatusExecutor
 
         suspend fun testConnection(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
-            val token = runtime.credentialStore.getToken()
             return when {
                 remoteUrl.isNullOrBlank() -> GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-                token.isNullOrBlank() -> GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-                else ->
+                else -> {
+                    val tokenPreconditionError = support.gitTokenPreconditionError()
+                    tokenPreconditionError ?:
                     support.runGitIo {
                         runtime.gitSyncQueryCoordinator.testConnection(remoteUrl)
                     }
+                }
             }
         }
 
@@ -635,12 +636,10 @@ class GitSyncMaintenanceExecutor
 
         suspend fun resetLocalBranchToRemote(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
-            val token = runtime.credentialStore.getToken()
             val preconditionError =
                 when {
                     remoteUrl.isNullOrBlank() -> GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-                    token.isNullOrBlank() -> GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-                    else -> null
+                    else -> support.gitTokenPreconditionError()
                 }
             if (preconditionError != null) {
                 return preconditionError
@@ -695,12 +694,10 @@ class GitSyncMaintenanceExecutor
 
         suspend fun forcePushLocalToRemote(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
-            val token = runtime.credentialStore.getToken()
             val preconditionError =
                 when {
                     remoteUrl.isNullOrBlank() -> GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-                    token.isNullOrBlank() -> GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-                    else -> null
+                    else -> support.gitTokenPreconditionError()
                 }
             if (preconditionError != null) {
                 return preconditionError

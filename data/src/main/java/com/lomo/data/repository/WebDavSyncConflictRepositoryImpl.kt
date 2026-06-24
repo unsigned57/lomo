@@ -132,10 +132,9 @@ class WebDavConflictResolver
                             forceRefresh = true,
                         )[file.relativePath]
                         ?: return PendingSyncInvalidationReason.MISSING_REMOTE
-                if (!file.remote.matchesRemote(remote.etag, remote.lastModified, remote.size)) {
-                    return PendingSyncInvalidationReason.STALE_REMOTE
-                }
                 if (fileBridge.isMemoPath(file.relativePath, layout)) {
+                    // Memo/text staleness is validated by content equality; etag/lastModified can drift on
+                    // an unchanged note and would otherwise force a redundant rebuild + second apply.
                     val localContent =
                         runtime.markdownStorageDataSource.readFileIn(
                             MemoDirectoryType.MAIN,
@@ -144,6 +143,8 @@ class WebDavConflictResolver
                     val remoteContent = String(client.getSmallFile(file.relativePath).bytes, StandardCharsets.UTF_8)
                     if (!file.local.matchesContent(localContent)) return PendingSyncInvalidationReason.STALE_LOCAL
                     if (!file.remote.matchesContent(remoteContent)) return PendingSyncInvalidationReason.STALE_REMOTE
+                } else if (!file.remote.matchesRemote(remote.etag, remote.lastModified, remote.size)) {
+                    return PendingSyncInvalidationReason.STALE_REMOTE
                 }
             }
             return null
@@ -665,7 +666,11 @@ private class WebDavPendingReviewRestorer(
                     forceRefresh = true,
                 )[item.relativePath]
                 ?: return WebDavPendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
-        if (!item.incoming.matchesRemote(remote.etag, remote.lastModified, remote.size)) {
+        // Memo/text incoming staleness is validated by content equality in restoreContents; only binary
+        // items rely on the etag/lastModified/size comparison that can drift on an unchanged memo.
+        if (!fileBridge.isMemoPath(item.relativePath, layout) &&
+            !item.incoming.matchesRemote(remote.etag, remote.lastModified, remote.size)
+        ) {
             return WebDavPendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
         }
         return restoreContents(item, local, remote.lastModified)

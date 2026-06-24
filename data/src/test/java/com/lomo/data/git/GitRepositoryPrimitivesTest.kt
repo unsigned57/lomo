@@ -275,7 +275,7 @@ class GitRepositoryPrimitivesTest : DataFunSpec() {
         return repoDir
     }
 
-    private fun credentialStrategy(): GitCredentialStrategy = GitCredentialStrategy(mockk(relaxed = true))
+    private fun credentialStrategy(): GitCredentialStrategy = gitCredentialStrategy("token")
 
     private fun commit(
         git: Git,

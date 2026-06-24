@@ -56,15 +56,13 @@ internal fun PendingSyncSideMetadata.matchesLocal(local: LocalS3File): Boolean =
     matchesMtimeAndSize(
         actualLastModified = local.lastModified,
         actualSize = local.size,
-    )
+    ) && matchesAvailableFingerprint(local.localFingerprint)
 
 internal fun PendingSyncSideMetadata.matchesLocal(local: LocalWebDavFile): Boolean =
     matchesMtimeAndSize(
         actualLastModified = local.lastModified,
         actualSize = local.size,
-    ) &&
-        contentHash != null &&
-        contentHash == local.localFingerprint
+    ) && matchesAvailableFingerprint(local.localFingerprint)
 
 internal fun PendingSyncSideMetadata.matchesRemote(
     actualEtag: String?,
@@ -76,8 +74,11 @@ internal fun PendingSyncSideMetadata.matchesRemote(
     } else {
         etag == actualEtag &&
             lastModified == actualLastModified &&
-            size == actualSize
+        size == actualSize
     }
+
+internal fun PendingSyncSideMetadata.hasCompleteRemoteMetadata(): Boolean =
+    etag != null && lastModified != null && size != null
 
 internal fun PendingSyncSideMetadata.matchesContent(content: String?): Boolean =
     if (contentHash == null) {
@@ -95,6 +96,9 @@ private fun PendingSyncSideMetadata.matchesMtimeAndSize(
     } else {
         lastModified == actualLastModified && size == actualSize
     }
+
+private fun PendingSyncSideMetadata.matchesAvailableFingerprint(actualFingerprint: String?): Boolean =
+    actualFingerprint.isNullOrBlank() || contentHash == null || contentHash == actualFingerprint
 
 internal fun PendingSyncConflictDescriptor.invalidatedConflictSet(): SyncConflictSet =
     SyncConflictSet(

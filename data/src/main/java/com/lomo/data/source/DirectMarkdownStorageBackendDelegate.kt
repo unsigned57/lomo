@@ -48,6 +48,16 @@ internal class DirectMarkdownStorageBackendDelegate(
             onTrash = { directReadTrashFile(rootDir, filename) },
         )
 
+    override suspend fun fingerprintFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directFingerprintFile(rootDir, filename) },
+            onTrash = { directFingerprintTrashFile(rootDir, filename) },
+        )
+
     override suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,

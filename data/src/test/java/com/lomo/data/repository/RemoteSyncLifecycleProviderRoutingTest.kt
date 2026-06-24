@@ -14,6 +14,7 @@ import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
+import com.lomo.data.s3.S3DeleteObjectsResult
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3SmallObjectPayload
@@ -29,6 +30,7 @@ import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.data.webdav.WebDavSmallRemoteFile
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.S3SyncResult
@@ -104,7 +106,7 @@ class RemoteSyncLifecycleProviderRoutingTest : DataFunSpec() {
                 val result = executor.performSync()
 
                 val error = result.shouldBeInstanceOf<S3SyncResult.Error>()
-                error.message shouldBe "s3 lifecycle runner invoked"
+                error.message shouldBe "S3 sync failed. Check endpoint, credentials, bucket access, and encryption settings."
                 runner.runCalls shouldBe 1
             }
         }
@@ -311,7 +313,11 @@ private fun createWebDavExecutor(
         )
     return WebDavSyncExecutor(
         runtime = runtime,
-        support = WebDavSyncRepositorySupport(runtime),
+        support = WebDavSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testWebDavCredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
         fileBridge = fileBridge,
         actionApplier = WebDavSyncActionApplier(runtime, fileBridge),
         lifecycleRunner = lifecycleRunner,
@@ -342,11 +348,11 @@ private fun createS3Executor(
     every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
 
     val credentialStore = mockk<S3CredentialStore>()
-    every { credentialStore.getAccessKeyId() } returns "access"
-    every { credentialStore.getSecretAccessKey() } returns "secret"
-    every { credentialStore.getSessionToken() } returns null
-    every { credentialStore.getEncryptionPassword() } returns null
-    every { credentialStore.getEncryptionPassword2() } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+    every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+    every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
 
     val runtime =
         S3SyncRepositoryContext(
@@ -366,10 +372,22 @@ private fun createS3Executor(
     val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
     return S3SyncExecutor(
         runtime = runtime,
-        support = S3SyncRepositorySupport(runtime),
+        support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
         encodingSupport = encodingSupport,
+        objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
         fileBridge = fileBridge,
-        actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+        actionApplier =
+            S3SyncActionApplier(
+                runtime = runtime,
+                encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                fileBridge = fileBridge,
+                transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+            ),
         lifecycleRunner = lifecycleRunner,
         protocolStateStore = DisabledS3SyncProtocolStateStore,
         localChangeJournalStore = DisabledS3LocalChangeJournalStore,
@@ -439,7 +457,11 @@ private fun createGitExecutor(
     coEvery { memoMirror.mirrorMemoFromRepo(any(), any()) } returns Unit
     return GitSyncInitAndSyncExecutor(
         runtime = runtime,
-        support = GitSyncRepositorySupport(runtime),
+        support = GitSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testGitCredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
         memoMirror = memoMirror,
         lifecycleRunner = lifecycleRunner,
     )
@@ -537,7 +559,7 @@ private class DescriptorRestoreS3Client : LomoS3Client {
 
     override suspend fun deleteObject(key: String) = Unit
 
-    override suspend fun deleteObjects(keys: List<String>) = Unit
+    override suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult = S3DeleteObjectsResult()
 
     override fun close() = Unit
 }

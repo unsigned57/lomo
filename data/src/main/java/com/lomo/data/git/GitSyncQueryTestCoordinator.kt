@@ -1,6 +1,7 @@
 package com.lomo.data.git
 
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import org.eclipse.jgit.api.Git
@@ -64,10 +65,13 @@ class GitSyncQueryTestCoordinator
             }
         }
 
-        fun testConnection(remoteUrl: String): GitSyncResult {
+        suspend fun testConnection(remoteUrl: String): GitSyncResult {
             val credentials =
-                credentialStrategy.credentialProviders()
-                    ?: return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                try {
+                    credentialStrategy.credentialProviders()
+                } catch (error: GitSyncFailureException) {
+                    return error.toGitSyncError()
+                }
             return runNonFatalCatching {
                 credentialStrategy.runWithCredentialFallback(credentials, "ls-remote") { provider ->
                     Git

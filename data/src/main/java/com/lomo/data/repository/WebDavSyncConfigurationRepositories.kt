@@ -11,12 +11,16 @@ import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.model.isConfigured
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
 import com.lomo.domain.repository.WebDavSyncConfigurationRepository
 import com.lomo.domain.repository.WebDavSyncStateRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transform
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +29,8 @@ class WebDavSyncConfigurationRepositoryImpl
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) : WebDavSyncConfigurationRepository {
         override fun isWebDavSyncEnabled(): Flow<Boolean> = dataStore.webDavSyncEnabled
 
@@ -34,7 +40,12 @@ class WebDavSyncConfigurationRepositoryImpl
 
         override fun getEndpointUrl(): Flow<String?> = dataStore.webDavEndpointUrl
 
-        override fun getUsername(): Flow<String?> = dataStore.webDavUsername
+        override fun getUsername(): Flow<String?> =
+            credentialRepository
+                .observeCredentialState(CredentialProvider.WEBDAV)
+                .transform {
+                    emit(credentialRepository.readWebDavUsernameForDisplay(securitySessionPolicy))
+                }
 
         override fun getAutoSyncEnabled(): Flow<Boolean> = dataStore.webDavAutoSyncEnabled
 
@@ -52,6 +63,8 @@ class WebDavSyncConfigurationMutationRepositoryImpl
     constructor(
         private val dataStore: LomoDataStore,
         private val credentialStore: WebDavCredentialStore,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
         private val clientFactory: Dav4jvmWebDavClientFactory,
     ) : WebDavSyncConfigurationMutationRepository {
         override suspend fun setWebDavSyncEnabled(enabled: Boolean) {
@@ -72,14 +85,13 @@ class WebDavSyncConfigurationMutationRepositoryImpl
 
         override suspend fun setUsername(username: String) {
             val normalized = username.trim()
-            dataStore.updateWebDavUsername(normalized)
-            credentialStore.setUsername(normalized)
+            credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, normalized)
         }
 
         override suspend fun setPassword(password: String) {
-            credentialStore.setPassword(password.trim())
+            credentialRepository.writeSecret(CredentialField.WEBDAV_PASSWORD, password.trim())
             val endpointUrl = dataStore.webDavEndpointUrl.first()
-            val username = dataStore.webDavUsername.first()
+            val username = credentialRepository.readWebDavUsernameForDisplay(securitySessionPolicy)
             if (!endpointUrl.isNullOrBlank() && !username.isNullOrBlank()) {
                 clientFactory.invalidate(endpointUrl, username)
             }
@@ -112,12 +124,11 @@ class WebDavSyncConfigurationMutationRepositoryImpl
         }
 
         private suspend fun effectiveUsernameStatus(): StoredCredentialStatus {
-            val dataStoreUsername = dataStore.webDavUsername.first()
-            return if (dataStoreUsername.isNullOrBlank()) {
-                credentialStore.usernameStatus
-            } else {
-                StoredCredentialStatus.Present
+            dataStore.webDavUsername.first()?.takeIf(String::isNotBlank)?.let { legacyUsername ->
+                credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, legacyUsername)
+                dataStore.updateWebDavUsername(null)
             }
+            return credentialStore.usernameStatus
         }
     }
 
@@ -136,3 +147,19 @@ internal val WebDavProvider.preferenceValue: String
 internal fun webDavProviderFromPreference(value: String): WebDavProvider =
     WebDavProvider.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
         ?: WebDavProvider.NUTSTORE
+
+private suspend fun CredentialRepository.readWebDavUsernameForDisplay(
+    securitySessionPolicy: SecuritySessionPolicy,
+): String? =
+    when (
+        val result =
+            readSecret(
+                field = CredentialField.WEBDAV_USERNAME,
+                authorization = securitySessionPolicy.authorizeCredentialRead(),
+            )
+    ) {
+        CredentialSecretReadResult.Missing -> null
+        is CredentialSecretReadResult.Present -> result.value
+        CredentialSecretReadResult.Unreadable -> null
+        is CredentialSecretReadResult.Unauthorized -> null
+    }

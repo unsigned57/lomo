@@ -29,17 +29,18 @@ import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.CredentialSecretReadResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
-import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import java.io.File
@@ -109,13 +110,12 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
-    private lateinit var support: GitSyncRepositorySupport
-
-    @MockK(relaxed = true)
     private lateinit var memoMirror: GitSyncMemoMirror
 
     private lateinit var memoSynchronizer: MemoSynchronizer
     private lateinit var runtime: GitSyncRepositoryContext
+    private lateinit var realSupport: GitSyncRepositorySupport
+    private lateinit var credentialRepository: TestCredentialRepository
     private lateinit var repository: GitSyncConflictRepositoryImpl
 
     private val remoteUrl = "https://example.com/org/repo.git"
@@ -170,17 +170,17 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
         every { dataStore.voiceDirectory } returns flowOf("/voice")
         every { dataStore.voiceUri } returns flowOf(null)
         every { credentialStore.getToken() } returns "token"
+        credentialRepository = testGitCredentialRepository()
         coEvery { mutationHandler.nextMemoFileOutbox() } returns null
         coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
 
-        coEvery { support.runGitIo<GitSyncResult>(any()) } coAnswers {
-            firstArg<suspend () -> GitSyncResult>().invoke()
-        }
-        coEvery { support.runGitIo<File>(any()) } coAnswers {
-            firstArg<suspend () -> File>().invoke()
-        }
-
-        repository = GitSyncConflictRepositoryImpl(runtime, support, memoMirror)
+        realSupport =
+            GitSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = credentialRepository,
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            )
+        repository = GitSyncConflictRepositoryImpl(runtime, realSupport, memoMirror)
     }
 
     private fun `resolveConflicts returns repository-url error when remote is blank`() =
@@ -197,7 +197,9 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
 
     private fun `resolveConflicts returns pat-required error when token is blank`() =
         runTest {
-            every { credentialStore.getToken() } returns ""
+            val directRoot = Files.createTempDirectory("lomo-direct-root").toFile()
+            every { dataStore.rootDirectory } returns flowOf(directRoot.absolutePath)
+            credentialRepository.setRead(CredentialField.GIT_TOKEN, CredentialSecretReadResult.Present(""))
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
@@ -208,8 +210,8 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
 
     private fun `resolveConflicts returns memo-directory error when no repo root can be resolved`() =
         runTest {
-            coEvery { support.resolveRootDir() } returns null
-            coEvery { support.resolveSafRootUri() } returns null
+            every { dataStore.rootDirectory } returns flowOf(null)
+            every { dataStore.rootUri } returns flowOf(null)
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
@@ -221,10 +223,11 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
 
     private fun `resolveConflicts mirrors memo and refreshes after successful direct-root resolution`() =
         runTest {
-            val directRoot = File("/tmp/lomo-direct-root")
-            val repoDir = File("/tmp/lomo-direct-repo")
-            coEvery { support.resolveRootDir() } returns directRoot
-            every { support.resolveGitRepoDir(directRoot, any()) } returns repoDir
+            val directRoot = Files.createTempDirectory("lomo-direct-root").toFile()
+            val repoDir = directRoot
+            every { dataStore.rootDirectory } returns flowOf(directRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(directRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(directRoot.absolutePath)
             coEvery {
                 gitSyncEngine.resolveConflicts(repoDir, remoteUrl, resolution, conflictSet)
             } returns GitSyncResult.Success("Conflicts resolved")
@@ -236,7 +239,7 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
             coVerify(exactly = 1) {
                 memoMirror.mirrorMemoFromRepo(
                     repoDir,
-                    match { layout -> layout.memoFolder == "memo" && !layout.allSameDirectory },
+                    match { layout -> layout.allSameDirectory },
                 )
             }
             coVerify(exactly = 1) { refreshEngine.refresh(null) }
@@ -244,10 +247,11 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
 
     private fun `resolveConflicts skips mirror and refresh when engine returns error`() =
         runTest {
-            val directRoot = File("/tmp/lomo-direct-root")
-            val repoDir = File("/tmp/lomo-direct-repo")
-            coEvery { support.resolveRootDir() } returns directRoot
-            every { support.resolveGitRepoDir(directRoot, any()) } returns repoDir
+            val directRoot = Files.createTempDirectory("lomo-direct-root").toFile()
+            val repoDir = directRoot
+            every { dataStore.rootDirectory } returns flowOf(directRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(directRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(directRoot.absolutePath)
             coEvery {
                 gitSyncEngine.resolveConflicts(repoDir, remoteUrl, resolution, conflictSet)
             } returns GitSyncResult.Error("boom")
@@ -269,8 +273,6 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
             every { dataStore.imageUri } returns flowOf(safRootUri)
             every { dataStore.voiceDirectory } returns flowOf(null)
             every { dataStore.voiceUri } returns flowOf(safRootUri)
-            coEvery { support.resolveRootDir() } returns null
-            coEvery { support.resolveSafRootUri() } returns safRootUri
             coEvery { safGitMirrorBridge.mirrorDirectoryFor(safRootUri) } returns repoDir
             coEvery {
                 gitSyncEngine.resolveConflicts(repoDir, remoteUrl, resolution, conflictSet)
@@ -280,7 +282,6 @@ class GitSyncConflictRepositoryImplTest : DataFunSpec() {
 
             result shouldBe GitSyncResult.Success("Resolved from SAF")
             coVerify(exactly = 1) { safGitMirrorBridge.mirrorDirectoryFor(safRootUri) }
-            verify(exactly = 0) { support.resolveGitRepoDirForUri(any()) }
             coVerify(exactly = 1) { memoMirror.mirrorMemoFromRepo(repoDir, match { it.allSameDirectory }) }
         }
 }

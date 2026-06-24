@@ -2,6 +2,7 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
@@ -39,8 +40,11 @@ class GitSyncWorkflow
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val credentials =
-                    credentialStrategy.credentialProviders()
-                        ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                    try {
+                        credentialStrategy.credentialProviders()
+                    } catch (error: GitSyncFailureException) {
+                        return@withContext error.toGitSyncError()
+                    }
 
                 primitives.cleanStaleLockFiles(rootDir)
 
@@ -119,8 +123,11 @@ class GitSyncWorkflow
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val credentials =
-                    credentialStrategy.credentialProviders()
-                        ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                    try {
+                        credentialStrategy.credentialProviders()
+                    } catch (error: GitSyncFailureException) {
+                        return@withContext error.toGitSyncError()
+                    }
 
                 primitives.cleanStaleLockFiles(rootDir)
 

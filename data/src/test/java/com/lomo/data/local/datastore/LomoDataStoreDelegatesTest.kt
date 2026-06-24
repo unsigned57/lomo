@@ -3,6 +3,9 @@ package com.lomo.data.local.datastore
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.CoroutineScope
@@ -18,12 +21,34 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LomoDataStore delegate stores
- * - Behavior focus: persisted settings contracts, uri-directory exclusivity, blank-value removal, and storage format normalization.
- * - Observable outcomes: DataStore-backed flow values and one-shot reads after update operations.
- * - Red phase: Fails before behavior changes or migration are applied.
- * - Excludes: Android Context wiring, DataStore internal corruption handling, and repository consumers.
+ * - Owning layer: data/local datastore
+ * - Priority tier: P1
+ * - Capability: persist non-sensitive settings while limiting legacy credential access to one drain-only migration path.
+ *
+ * Scenarios:
+ * - Given legacy root and media directories, when content URIs are set, then URI values take precedence and legacy directory values are cleared.
+ * - Given invalid storage formats, when settings are persisted, then storage format defaults are exposed.
+ * - Given LAN share non-sensitive preferences and legacy pairing material, when stores are used, then preferences persist and legacy pairing material can only be drained.
+ * - Given blank nullable settings, when values are persisted, then nullable settings are removed.
+ * - Given sync and draft settings, when stores are updated, then persisted flow values reflect the updates.
+ *
+ * Observable outcomes:
+ * - DataStore-backed flow values, one-shot reads, and drain result after update operations.
+ *
+ * TDD proof:
+ * - RED: fails before the credential-boundary fix because LAN pairing material is still exposed as a normal DataStore preference.
+ *
+ * Excludes:
+ * - Android Context wiring, DataStore internal corruption handling, credential repository storage, and repository consumers.
+ *
+ * Test Change Justification:
+ * - Reason category: Data layer module gained app update install persistence, migration archive staging workspace, settings preference repos, and strengthened sync conflict store contracts.
+ * - Old behavior/assertion being replaced: previous data layer tests relied on older repository contracts and store implementations before these modules were restructured.
+ * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
+ * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
+ * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class LomoDataStoreDelegatesTest : DataFunSpec() {
@@ -32,7 +57,9 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
 
         test("storage display and interaction stores persist normalized values") { `storage display and interaction stores persist normalized values`() }
 
-        test("lan share and app version stores remove blank values and persist toggles") { `lan share and app version stores remove blank values and persist toggles`() }
+        test("lan share app version and legacy credential stores remove blank values persist toggles and drain pairing key") {
+            `lan share app version and legacy credential stores remove blank values persist toggles and drain pairing key`()
+        }
 
         test("git webdav and draft stores persist configuration and clear empty draft") { `git webdav and draft stores persist configuration and clear empty draft`() }
     }
@@ -96,31 +123,33 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             (interactionStore.quickSaveOnBackEnabled.first()).shouldBeFalse()
         }
 
-    private fun `lan share and app version stores remove blank values and persist toggles`() =
+    private fun `lan share app version and legacy credential stores remove blank values persist toggles and drain pairing key`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val lanShareStore = LanSharePreferencesStoreImpl(dataStore)
+            val legacyCredentialStore = LegacyCredentialDrainStoreImpl(dataStore)
             val appVersionStore = AppVersionStoreImpl(dataStore)
 
-            lanShareStore.updateLanSharePairingKeyHex("A1B2")
+            dataStore.edit {
+                it[stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)] = "A1B2"
+            }
             lanShareStore.updateLanShareE2eEnabled(false)
             lanShareStore.updateLanShareDeviceName("Pixel")
             lanShareStore.updateShareCardShowTime(false)
             lanShareStore.updateShareCardShowBrand(false)
             appVersionStore.updateLastAppVersion("0.9.1")
 
-            lanShareStore.lanSharePairingKeyHex.first() shouldBe "A1B2"
+            legacyCredentialStore.drainLegacyLanSharePairingKeyHex() shouldBe "A1B2"
+            legacyCredentialStore.drainLegacyLanSharePairingKeyHex().shouldBeNull()
             (lanShareStore.lanShareE2eEnabled.first()).shouldBeFalse()
             lanShareStore.lanShareDeviceName.first() shouldBe "Pixel"
             (lanShareStore.shareCardShowTime.first()).shouldBeFalse()
             (lanShareStore.shareCardShowBrand.first()).shouldBeFalse()
             appVersionStore.getLastAppVersionOnce() shouldBe "0.9.1"
 
-            lanShareStore.updateLanSharePairingKeyHex(" ")
             lanShareStore.updateLanShareDeviceName("")
             appVersionStore.updateLastAppVersion("")
 
-            lanShareStore.lanSharePairingKeyHex.first().shouldBeNull()
             lanShareStore.lanShareDeviceName.first().shouldBeNull()
             appVersionStore.getLastAppVersionOnce().shouldBeNull()
         }

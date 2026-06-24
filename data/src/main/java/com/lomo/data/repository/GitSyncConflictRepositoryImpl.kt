@@ -25,33 +25,32 @@ class GitSyncConflictRepositoryImpl
             conflictSet: SyncConflictSet,
         ): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
-            val token = runtime.credentialStore.getToken()
-            val preconditionError =
-                when {
-                    remoteUrl.isNullOrBlank() -> GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-                    token.isNullOrBlank() -> GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-                    else -> null
-                }
-            if (preconditionError != null) {
-                return preconditionError
+            if (remoteUrl.isNullOrBlank()) {
+                return GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
             }
             val resolvedRemoteUrl = checkNotNull(remoteUrl)
 
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val repoDir = resolveConflictRepoDir(layout)
-            val result =
-                repoDir?.let { resolvedRepoDir ->
-                    support.runGitIo {
-                        runtime.gitSyncEngine.resolveConflicts(
-                            resolvedRepoDir,
-                            resolvedRemoteUrl,
-                            resolution,
-                            conflictSet,
-                        )
-                    }
-                } ?: GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
+            if (repoDir == null) {
+                return GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
+            }
+            val tokenPreconditionError = support.gitTokenPreconditionError()
+            if (tokenPreconditionError != null) {
+                return tokenPreconditionError
+            }
 
-            if (result is GitSyncResult.Success && repoDir != null) {
+            val result =
+                support.runGitIo {
+                    runtime.gitSyncEngine.resolveConflicts(
+                        repoDir,
+                        resolvedRemoteUrl,
+                        resolution,
+                        conflictSet,
+                    )
+                }
+
+            if (result is GitSyncResult.Success) {
                 memoMirror.mirrorMemoFromRepo(repoDir, layout)
                 runNonFatalCatching {
                     runtime.memoSynchronizer.refresh()

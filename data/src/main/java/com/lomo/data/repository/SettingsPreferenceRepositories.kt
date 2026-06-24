@@ -26,107 +26,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private const val MEMO_ACTION_ORDER_DELIMITER = "|"
-private const val INPUT_TOOLBAR_TOOL_ORDER_DELIMITER = "|"
-private const val SIDEBAR_TAG_ORDER_DELIMITER = "|"
-private val memoActionOrderScopeJson = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = true
-}
-
-@Serializable
-private data class MemoActionOrdersByScopePayload(
-    val orders: Map<String, List<String>> = emptyMap(),
-)
-
-private fun decodeMemoActionOrder(serialized: String): List<String> =
-    serialized
-        .split(MEMO_ACTION_ORDER_DELIMITER)
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-
-private fun encodeMemoActionOrder(actionOrder: List<String>): String =
-    actionOrder
-        .asSequence()
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-        .joinToString(MEMO_ACTION_ORDER_DELIMITER)
-
-private fun normalizeMemoActionOrder(actionOrder: List<String>): List<String> =
-    decodeMemoActionOrder(encodeMemoActionOrder(actionOrder))
-
-private fun normalizeMemoActionOrderScope(scope: String): String? =
-    scope.trim().takeIf(String::isNotEmpty)
-
-private fun decodeMemoActionOrdersByScope(serialized: String): Map<String, List<String>> =
-    if (serialized.isBlank()) {
-        emptyMap()
-    } else {
-        // behavior-contract: silent-result-ok: corrupt JSON → empty map; next save overwrites
-        runCatching {
-            memoActionOrderScopeJson
-                .decodeFromString<MemoActionOrdersByScopePayload>(serialized)
-                .orders
-                .mapNotNull { (scope, order) ->
-                    val normalizedScope = normalizeMemoActionOrderScope(scope) ?: return@mapNotNull null
-                    normalizedScope to normalizeMemoActionOrder(order)
-                }.toMap()
-        }.getOrDefault(emptyMap())
-    }
-
-private fun encodeMemoActionOrdersByScope(ordersByScope: Map<String, List<String>>): String =
-    memoActionOrderScopeJson.encodeToString(
-        MemoActionOrdersByScopePayload(
-            orders =
-                ordersByScope
-                    .mapNotNull { (scope, order) ->
-                        val normalizedScope = normalizeMemoActionOrderScope(scope) ?: return@mapNotNull null
-                        val normalizedOrder = normalizeMemoActionOrder(order)
-                        if (normalizedOrder.isEmpty()) {
-                            null
-                        } else {
-                            normalizedScope to normalizedOrder
-                        }
-                    }.toMap(),
-        ),
-    )
-
-private fun decodeInputToolbarToolOrder(serialized: String): List<String> =
-    serialized
-        .split(INPUT_TOOLBAR_TOOL_ORDER_DELIMITER)
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-
-private fun encodeInputToolbarToolOrder(toolOrder: List<String>): String =
-    toolOrder
-        .asSequence()
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-        .joinToString(INPUT_TOOLBAR_TOOL_ORDER_DELIMITER)
-
-private fun decodeSidebarTagOrder(serialized: String): List<String> =
-    serialized
-        .split(SIDEBAR_TAG_ORDER_DELIMITER)
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-
-private fun encodeSidebarTagOrder(order: List<String>): String =
-    order
-        .asSequence()
-        .map(String::trim)
-        .filter(String::isNotEmpty)
-        .distinct()
-        .joinToString(SIDEBAR_TAG_ORDER_DELIMITER)
 
 @Singleton
 class PreferencesRepositoryImpl
@@ -271,10 +172,10 @@ class MemoActionPreferencesRepositoryImpl
 
         override fun getMemoActionOrder(scope: String): Flow<List<String>> {
             val normalizedScope =
-                normalizeMemoActionOrderScope(scope)
+                SettingsPreferenceCodecs.normalizeMemoActionOrderScope(scope)
                     ?: MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE
             return if (normalizedScope == MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE) {
-                dataStore.memoActionOrder.map(::decodeMemoActionOrder)
+                dataStore.memoActionOrder.map(SettingsPreferenceCodecs::decodeMemoActionOrder)
             } else {
                 getMemoActionOrdersByScope().map { ordersByScope -> ordersByScope[normalizedScope].orEmpty() }
             }
@@ -282,19 +183,14 @@ class MemoActionPreferencesRepositoryImpl
 
         override fun getMemoActionOrdersByScope(): Flow<Map<String, List<String>>> =
             combine(
-                dataStore.memoActionOrder.map(::decodeMemoActionOrder),
-                dataStore.memoActionOrdersByScope.map(::decodeMemoActionOrdersByScope),
+                dataStore.memoActionOrder.map(SettingsPreferenceCodecs::decodeMemoActionOrder),
+                dataStore.memoActionOrdersByScope.map(SettingsPreferenceCodecs::decodeMemoActionOrdersByScope),
             ) { mainOrder, scopedOrders ->
-                buildMap {
-                    putAll(scopedOrders)
-                    if (mainOrder.isNotEmpty()) {
-                        put(MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE, mainOrder)
-                    }
-                }
+                SettingsPreferenceCodecs.withMainMemoActionScope(mainOrder, scopedOrders)
             }
 
         override suspend fun updateMemoActionOrder(actionOrder: List<String>) {
-            dataStore.updateMemoActionOrder(encodeMemoActionOrder(actionOrder))
+            dataStore.updateMemoActionOrder(SettingsPreferenceCodecs.encodeMemoActionOrder(actionOrder))
         }
 
         override suspend fun updateMemoActionOrder(
@@ -302,22 +198,24 @@ class MemoActionPreferencesRepositoryImpl
             actionOrder: List<String>,
         ) {
             val normalizedScope =
-                normalizeMemoActionOrderScope(scope)
+                SettingsPreferenceCodecs.normalizeMemoActionOrderScope(scope)
                     ?: MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE
             if (normalizedScope == MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE) {
                 updateMemoActionOrder(actionOrder)
                 return
             }
             val ordersByScope =
-                decodeMemoActionOrdersByScope(dataStore.memoActionOrdersByScope.first())
+                SettingsPreferenceCodecs.decodeMemoActionOrdersByScope(dataStore.memoActionOrdersByScope.first())
                     .toMutableMap()
-            val normalizedOrder = normalizeMemoActionOrder(actionOrder)
+            val normalizedOrder = SettingsPreferenceCodecs.normalizeMemoActionOrder(actionOrder)
             if (normalizedOrder.isEmpty()) {
                 ordersByScope.remove(normalizedScope)
             } else {
                 ordersByScope[normalizedScope] = normalizedOrder
             }
-            dataStore.updateMemoActionOrdersByScope(encodeMemoActionOrdersByScope(ordersByScope))
+            dataStore.updateMemoActionOrdersByScope(
+                SettingsPreferenceCodecs.encodeMemoActionOrdersByScope(ordersByScope),
+            )
         }
     }
 
@@ -327,11 +225,11 @@ class InputToolbarPreferencesRepositoryImpl
     constructor(
         private val dataStore: LomoDataStore,
     ) : InputToolbarPreferencesRepository {
-        override fun getInputToolbarToolOrder(): Flow<List<String>> =
-            dataStore.inputToolbarToolOrder.map(::decodeInputToolbarToolOrder)
+    override fun getInputToolbarToolOrder(): Flow<List<String>> =
+            dataStore.inputToolbarToolOrder.map(SettingsPreferenceCodecs::decodeInputToolbarToolOrder)
 
         override suspend fun updateInputToolbarToolOrder(toolOrder: List<String>) {
-            dataStore.updateInputToolbarToolOrder(encodeInputToolbarToolOrder(toolOrder))
+            dataStore.updateInputToolbarToolOrder(SettingsPreferenceCodecs.encodeInputToolbarToolOrder(toolOrder))
         }
     }
 
@@ -341,11 +239,11 @@ class SidebarTagOrderPreferencesRepositoryImpl
     constructor(
         private val dataStore: LomoDataStore,
     ) : SidebarTagOrderPreferencesRepository {
-        override fun getSidebarTagOrder(): Flow<List<String>> =
-            dataStore.sidebarTagOrder.map(::decodeSidebarTagOrder)
+    override fun getSidebarTagOrder(): Flow<List<String>> =
+            dataStore.sidebarTagOrder.map(SettingsPreferenceCodecs::decodeSidebarTagOrder)
 
         override suspend fun updateSidebarTagOrder(order: List<String>) {
-            dataStore.updateSidebarTagOrder(encodeSidebarTagOrder(order))
+            dataStore.updateSidebarTagOrder(SettingsPreferenceCodecs.encodeSidebarTagOrder(order))
         }
     }
 

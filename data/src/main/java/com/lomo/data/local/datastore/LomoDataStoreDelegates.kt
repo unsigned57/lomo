@@ -2,6 +2,7 @@ package com.lomo.data.local.datastore
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
@@ -383,9 +384,6 @@ internal class LanSharePreferencesStoreImpl(
             default = PreferenceKeys.Defaults.LAN_SHARE_ENABLED,
         )
 
-    override val lanSharePairingKeyHex: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.LAN_SHARE_PAIRING_KEY_HEX, "lanSharePairingKeyHex")
-
     override val lanShareE2eEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.LAN_SHARE_E2E_ENABLED,
@@ -428,10 +426,6 @@ internal class LanSharePreferencesStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_ENABLED] = enabled }
     }
 
-    override suspend fun updateLanSharePairingKeyHex(keyHex: String?) {
-        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_PAIRING_KEY_HEX, keyHex)
-    }
-
     override suspend fun updateLanShareE2eEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_E2E_ENABLED] = enabled }
     }
@@ -454,6 +448,23 @@ internal class LanSharePreferencesStoreImpl(
 
     override suspend fun updateSyncInboxEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
+    }
+}
+
+internal class LegacyCredentialDrainStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoLegacyCredentialDrainStore {
+    override suspend fun drainLegacyLanSharePairingKeyHex(): String? {
+        var drainedValue: String? = null
+        dataStore.editPreferences {
+            drainedValue = this[LEGACY_LAN_SHARE_PAIRING_KEY_HEX]
+            remove(LEGACY_LAN_SHARE_PAIRING_KEY_HEX)
+        }
+        return drainedValue?.takeIf(String::isNotBlank)
+    }
+
+    private companion object {
+        val LEGACY_LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
     }
 }
 
@@ -489,14 +500,14 @@ internal class DailyReviewSessionStoreImpl(
     }
 }
 
-private fun normalizeMemoSnapshotMaxCount(value: Int): Int =
+internal fun normalizeMemoSnapshotMaxCount(value: Int): Int =
     if (value in SnapshotPreferenceOptions.RETENTION_COUNT_OPTIONS) {
         value
     } else {
         PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_COUNT
     }
 
-private fun normalizeMemoSnapshotMaxAgeDays(value: Int): Int =
+internal fun normalizeMemoSnapshotMaxAgeDays(value: Int): Int =
     if (value in SnapshotPreferenceOptions.RETENTION_DAY_OPTIONS) {
         value
     } else {

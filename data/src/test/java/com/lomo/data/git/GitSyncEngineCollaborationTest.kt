@@ -83,7 +83,7 @@ class GitSyncEngineCollaborationTest : DataFunSpec() {
         every { dataStore.gitAuthorName } returns flowOf("Lomo Test")
         every { dataStore.gitAuthorEmail } returns flowOf("lomo@test.local")
 
-        credentialStrategy = GitCredentialStrategy(credentialStore)
+        credentialStrategy = gitCredentialStrategy("dummy-token")
         primitives = spyk(GitRepositoryPrimitives())
         engine =
             GitSyncEngine(

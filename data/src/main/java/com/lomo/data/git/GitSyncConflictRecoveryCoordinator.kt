@@ -2,6 +2,7 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
@@ -51,8 +52,11 @@ internal class GitSyncConflictRecoveryCoordinator
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val credentials =
-                    credentialStrategy.credentialProviders()
-                        ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                    try {
+                        credentialStrategy.credentialProviders()
+                    } catch (error: GitSyncFailureException) {
+                        return@withContext error.toGitSyncError()
+                    }
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
@@ -112,11 +116,14 @@ internal class GitSyncConflictRecoveryCoordinator
         ): ForcePushOutcome =
             withContext(Dispatchers.IO) {
                 val credentials =
-                    credentialStrategy.credentialProviders()
-                        ?: return@withContext ForcePushOutcome(
-                            result = GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED),
+                    try {
+                        credentialStrategy.credentialProviders()
+                    } catch (error: GitSyncFailureException) {
+                        return@withContext ForcePushOutcome(
+                            result = error.toGitSyncError(),
                             syncedAtMs = null,
                         )
+                    }
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
@@ -177,8 +184,11 @@ internal class GitSyncConflictRecoveryCoordinator
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val credentials =
-                    credentialStrategy.credentialProviders()
-                        ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                    try {
+                        credentialStrategy.credentialProviders()
+                    } catch (error: GitSyncFailureException) {
+                        return@withContext error.toGitSyncError()
+                    }
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {

@@ -50,6 +50,16 @@ internal class SafMarkdownStorageBackendDelegate(
             onTrash = { safReadTrashFile(documentAccess, filename) },
         )
 
+    override suspend fun fingerprintFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? =
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safFingerprintFile(documentAccess, filename) },
+            onTrash = { safFingerprintTrashFile(documentAccess, filename) },
+        )
+
     override suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
