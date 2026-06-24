@@ -182,15 +182,15 @@ private fun SettingsBody(
     val heroState =
         remember(uiState.git, uiState.webDav, uiState.s3) {
             computeSettingsHomeHeroState(
-                gitEnabled = uiState.git.enabled,
-                gitLastSync = uiState.git.lastSyncTime,
-                gitSyncState = uiState.git.syncState,
-                webDavEnabled = uiState.webDav.enabled,
-                webDavLastSync = uiState.webDav.lastSyncTime,
-                webDavSyncState = uiState.webDav.syncState,
-                s3Enabled = uiState.s3.enabled,
-                s3LastSync = uiState.s3.lastSyncTime,
-                s3SyncState = uiState.s3.syncState,
+                gitEnabled = uiState.git.providerSettings.enabled,
+                gitLastSync = uiState.git.providerSettings.lastSyncTime,
+                gitSyncState = uiState.git.providerSettings.syncState,
+                webDavEnabled = uiState.webDav.providerSettings.enabled,
+                webDavLastSync = uiState.webDav.providerSettings.lastSyncTime,
+                webDavSyncState = uiState.webDav.providerSettings.syncState,
+                s3Enabled = uiState.s3.providerSettings.enabled,
+                s3LastSync = uiState.s3.providerSettings.lastSyncTime,
+                s3SyncState = uiState.s3.providerSettings.syncState,
             )
         }
     val notSetLabel = stringResource(R.string.settings_not_set)
@@ -350,7 +350,7 @@ private fun triggerEnabledProviderSyncs(
     features: SettingsFeatures,
     uiState: SettingsScreenUiState,
 ) {
-    if (uiState.git.enabled) features.git.triggerGitSyncNow()
-    if (uiState.webDav.enabled) features.webDav.triggerSyncNow()
-    if (uiState.s3.enabled) features.s3.triggerSyncNow()
+    if (uiState.git.providerSettings.enabled) features.git.provider.triggerSyncNow()
+    if (uiState.webDav.providerSettings.enabled) features.webDav.provider.triggerSyncNow()
+    if (uiState.s3.providerSettings.enabled) features.s3.provider.triggerSyncNow()
 }

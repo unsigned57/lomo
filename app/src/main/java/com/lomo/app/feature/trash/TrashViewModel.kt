@@ -2,17 +2,24 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.lomo.app.feature.common.AppConfigStateProvider
+import com.lomo.app.feature.common.MemoCollectionActionStateHolder
 import com.lomo.app.feature.common.MemoCollectionCapabilities
-import com.lomo.app.feature.common.MemoCollectionStateHolder
-import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
+import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoTrashUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 @HiltViewModel
@@ -24,17 +31,31 @@ class TrashViewModel
         imageMapProvider: ImageMapProvider,
         memoUiMapper: MemoUiMapper,
     ) : ViewModel() {
-        private val collectionWindowStateHolder =
-            MemoCollectionWindowStateHolder(
-                source = memoTrashUseCase::getDeletedMemosPagingSource,
-                scope = viewModelScope,
-            )
-        private val collectionStateHolder =
-            MemoCollectionStateHolder(
-                source = collectionWindowStateHolder.memos,
-                configStateProvider = appConfigStateProvider,
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = memoUiMapper,
+
+        private val mappingInput =
+            combine(
+                appConfigStateProvider.rootDirectory,
+                appConfigStateProvider.imageDirectory,
+                imageMapProvider.imageMap,
+            ) { root, img, map -> UiMappingInput(root, img, map) }
+                .distinctUntilChanged { old, new -> old.sameForPaging(new) }
+                .stateIn(viewModelScope, appWhileSubscribed(), UiMappingInput.EMPTY)
+
+        val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
+            combine(
+                mappingInput,
+                memoPager(
+                    scope = viewModelScope,
+                    pagingSourceFactory = memoTrashUseCase::getDeletedMemosPagingSource,
+                ),
+            ) { input, pagingData ->
+                pagingData.map { memo ->
+                    memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)
+                }
+            }
+
+        private val actionStateHolder =
+            MemoCollectionActionStateHolder(
                 capabilities =
                     MemoCollectionCapabilities.Trash(
                         restoreMemo = memoTrashUseCase::restoreMemo,
@@ -42,47 +63,41 @@ class TrashViewModel
                         clearTrash = memoTrashUseCase::clearTrash,
                     ),
                 scope = viewModelScope,
+                mapToUiModel = { memo ->
+                    val input = mappingInput.value
+                    memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)
+                }
             )
 
-        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
+        val appPreferences = appConfigStateProvider.appPreferences
+        val errorMessage: StateFlow<String?> = actionStateHolder.errorMessage
+        val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
+        val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
 
-        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
+        fun restoreMemo(memo: Memo, anchoredAfterKey: String?) =
+            actionStateHolder.actions.restore(memo, anchoredAfterKey)
 
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
-        val imageDirectory: StateFlow<String?> = collectionStateHolder.imageDirectory
+        fun deletePermanently(memo: Memo, anchoredAfterKey: String?) =
+            actionStateHolder.actions.deletePermanently(memo, anchoredAfterKey)
 
-        val trashMemos: StateFlow<List<Memo>> = collectionStateHolder.memos
-        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
+        fun clearTrash(items: List<Triple<String, Memo, String?>>) =
+            actionStateHolder.actions.clearTrash(items)
 
-        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
+        fun onDeleteAnimationSettled(memoId: String) = exitAnimationRegistry.settleExit(memoId)
 
-        val rootDirectory: StateFlow<String?> = collectionStateHolder.rootDirectory
-
-        val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            collectionStateHolder.uiMemos
-
-        fun loadMore() {
-            collectionWindowStateHolder.loadNextPage()
-        }
-
-        fun restoreMemo(memo: Memo) {
-            collectionStateHolder.actions.restore(memo)
-        }
-
-        fun deletePermanently(memo: Memo) {
-            collectionStateHolder.actions.deletePermanently(memo)
-        }
-
-        fun clearTrash() {
-            collectionStateHolder.actions.clearTrash()
-        }
-
-        fun onDeleteAnimationSettled(memoId: String) {
-            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
-        }
-
-        fun clearError() {
-            collectionStateHolder.errors.clear()
-        }
-
+        fun clearError() = actionStateHolder.errors.clear()
     }
+
+private data class UiMappingInput(
+    val root: String?,
+    val img: String?,
+    val map: Map<String, android.net.Uri>,
+) {
+    fun sameForPaging(other: UiMappingInput): Boolean {
+        return root == other.root && img == other.img && map == other.map
+    }
+
+    companion object {
+        val EMPTY = UiMappingInput(null, null, emptyMap())
+    }
+}

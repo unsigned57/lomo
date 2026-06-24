@@ -61,7 +61,7 @@ fun ShareScreen(
     val recoveryExecutor = rememberCapabilityRecoveryExecutor()
     val requestLanShareNetworkPermissions =
         rememberLanShareNetworkPermissionRequester(
-            lanShareEnabled = uiState.lanShareEnabled,
+            shouldRequestPermissions = uiState.lanShareEnabled,
             onPermissionGranted = viewModel.onLanShareNetworkPermissionsGranted,
             onPermissionDenied = viewModel.onLanShareNetworkPermissionsDenied,
         )
@@ -294,6 +294,7 @@ private fun ShareScreenBody(
             lanShareEnabled = uiState.lanShareEnabled,
             permissionState = uiState.lanSharePermissionState,
             discoveryError = uiState.lanShareDiscoveryError,
+            diagnostics = uiState.lanShareDiscoveryDiagnostics,
             transferState = uiState.transferState,
             onRequestLanSharePermissions = onRequestLanSharePermissions,
             onExecuteRecoveryAction = onExecuteRecoveryAction,

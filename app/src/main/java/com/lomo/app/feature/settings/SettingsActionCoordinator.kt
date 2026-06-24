@@ -1,5 +1,6 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.SyncBackendType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -13,9 +14,10 @@ class SettingsActionCoordinator(
     private val errorMapper: SettingsOperationErrorMapper,
     private val onOperationError: (SettingsOperationError) -> Unit,
 ) : SettingsLanShareFeatureActions,
-    SettingsGitFeatureActions,
-    SettingsWebDavFeatureActions,
-    SettingsS3FeatureActions {
+    SettingsRemoteProviderFeatureActions,
+    SettingsGitSpecificFeatureActions,
+    SettingsWebDavSpecificFeatureActions,
+    SettingsS3SpecificFeatureActions {
     val refreshPatConfigured: () -> Unit =
         { launchWithOperationResult { gitCoordinator.refreshPatConfigured() } }
 
@@ -60,8 +62,47 @@ class SettingsActionCoordinator(
             }
         }
 
-    override val updateGitSyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { gitCoordinator.updateGitSyncEnabled(enabled) } }
+    override val updateProviderEnabled: (SyncBackendType, Boolean) -> Unit =
+        { provider, enabled ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).updateEnabled(enabled)
+            }
+        }
+
+    override val updateProviderAutoSyncEnabled: (SyncBackendType, Boolean) -> Unit =
+        { provider, enabled ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).updateAutoSyncEnabled(enabled)
+            }
+        }
+
+    override val updateProviderAutoSyncInterval: (SyncBackendType, String) -> Unit =
+        { provider, interval ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).updateAutoSyncInterval(interval)
+            }
+        }
+
+    override val updateProviderSyncOnRefresh: (SyncBackendType, Boolean) -> Unit =
+        { provider, enabled ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).updateSyncOnRefreshEnabled(enabled)
+            }
+        }
+
+    override val triggerProviderSyncNow: (SyncBackendType) -> Unit =
+        { provider ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).triggerSyncNow()
+            }
+        }
+
+    override val testProviderConnection: (SyncBackendType) -> Unit =
+        { provider ->
+            launchWithOperationResult {
+                providerSettingsActions(provider).testConnection()
+            }
+        }
 
     override val updateGitRemoteUrl: (String) -> Unit =
         { url -> launchWithOperationResult { gitCoordinator.updateGitRemoteUrl(url) } }
@@ -75,32 +116,14 @@ class SettingsActionCoordinator(
     override val updateGitAuthorEmail: (String) -> Unit =
         { email -> launchWithOperationResult { gitCoordinator.updateGitAuthorEmail(email) } }
 
-    override val updateGitAutoSyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { gitCoordinator.updateGitAutoSyncEnabled(enabled) } }
-
-    override val updateGitAutoSyncInterval: (String) -> Unit =
-        { interval -> launchWithOperationResult { gitCoordinator.updateGitAutoSyncInterval(interval) } }
-
-    override val updateGitSyncOnRefresh: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { gitCoordinator.updateGitSyncOnRefresh(enabled) } }
-
-    override val triggerGitSyncNow: () -> Unit =
-        { launchWithOperationResult { gitCoordinator.triggerGitSyncNow() } }
-
     override val resolveGitConflictUsingRemote: () -> Unit =
         { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingRemote() } }
 
     override val resolveGitConflictUsingLocal: () -> Unit =
         { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingLocal() } }
 
-    override val testGitConnection: () -> Unit =
-        { launchWithOperationResult { gitCoordinator.testGitConnection() } }
-
     override val resetGitRepository: () -> Unit =
         { launchWithOperationResult { gitCoordinator.resetGitRepository() } }
-
-    override val updateWebDavSyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavSyncEnabled(enabled) } }
 
     override val updateWebDavProvider: (com.lomo.domain.model.WebDavProvider) -> Unit =
         { provider -> launchWithOperationResult { webDavCoordinator.updateWebDavProvider(provider) } }
@@ -116,24 +139,6 @@ class SettingsActionCoordinator(
 
     override val updateWebDavPassword: (String) -> Unit =
         { password -> launchWithOperationResult { webDavCoordinator.updateWebDavPassword(password) } }
-
-    override val updateWebDavAutoSyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncEnabled(enabled) } }
-
-    override val updateWebDavAutoSyncInterval: (String) -> Unit =
-        { interval -> launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncInterval(interval) } }
-
-    override val updateWebDavSyncOnRefresh: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavSyncOnRefresh(enabled) } }
-
-    override val triggerWebDavSyncNow: () -> Unit =
-        { launchWithOperationResult { webDavCoordinator.triggerWebDavSyncNow() } }
-
-    override val testWebDavConnection: () -> Unit =
-        { launchWithOperationResult { webDavCoordinator.testWebDavConnection() } }
-
-    override val updateS3SyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { s3Coordinator.updateS3SyncEnabled(enabled) } }
 
     override val updateS3EndpointUrl: (String) -> Unit =
         { url -> launchWithOperationResult { s3Coordinator.updateS3EndpointUrl(url) } }
@@ -189,21 +194,6 @@ class SettingsActionCoordinator(
     override val updateS3RcloneEncryptedSuffix: (String) -> Unit =
         { suffix -> launchWithOperationResult { s3Coordinator.updateS3RcloneEncryptedSuffix(suffix) } }
 
-    override val updateS3AutoSyncEnabled: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { s3Coordinator.updateS3AutoSyncEnabled(enabled) } }
-
-    override val updateS3AutoSyncInterval: (String) -> Unit =
-        { interval -> launchWithOperationResult { s3Coordinator.updateS3AutoSyncInterval(interval) } }
-
-    override val updateS3SyncOnRefresh: (Boolean) -> Unit =
-        { enabled -> launchWithOperationResult { s3Coordinator.updateS3SyncOnRefresh(enabled) } }
-
-    override val triggerS3SyncNow: () -> Unit =
-        { launchWithOperationResult { s3Coordinator.triggerS3SyncNow() } }
-
-    override val testS3Connection: () -> Unit =
-        { launchWithOperationResult { s3Coordinator.testS3Connection() } }
-
     private fun launchWithOperationResult(action: suspend () -> SettingsOperationError?) {
         scope.launch {
             val error = action()
@@ -227,4 +217,17 @@ class SettingsActionCoordinator(
                 }
         }
     }
+
+    private fun providerSettingsActions(provider: SyncBackendType): RemoteProviderSettingsActionTarget =
+        when (provider) {
+            SyncBackendType.GIT -> gitCoordinator.providerSettingsActions
+            SyncBackendType.WEBDAV -> webDavCoordinator.providerSettingsActions
+            SyncBackendType.S3 -> s3Coordinator.providerSettingsActions
+            SyncBackendType.INBOX,
+            SyncBackendType.NONE,
+            -> unsupportedRemoteProvider(provider)
+        }
+
+    private fun unsupportedRemoteProvider(provider: SyncBackendType): Nothing =
+        error("Provider $provider does not support remote provider settings actions")
 }

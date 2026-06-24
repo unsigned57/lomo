@@ -3,7 +3,6 @@ package com.lomo.app
 import android.app.Application
 import android.content.res.Configuration as AndroidConfiguration
 import androidx.hilt.work.HiltWorkerFactory
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -20,22 +19,15 @@ import com.lomo.app.feature.image.lomoImageDecoderCoroutineContext
 import com.lomo.app.feature.image.lomoImageDiskCache
 import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
 import com.lomo.app.navigation.ShareRoutePayloadStore
-import com.lomo.app.theme.ThemeResyncPolicy
-import com.lomo.app.theme.applyAppNightMode
-import com.lomo.app.theme.resolvePlatformNightMode
-import com.lomo.app.theme.toAppCompatNightMode
+import com.lomo.app.startup.AppStartupCoordinator
 import com.lomo.domain.repository.DatabaseInitializationRepository
-import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.SyncPolicyRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -49,14 +41,12 @@ class LomoApplication :
 
     @Inject lateinit var syncPolicyRepository: SyncPolicyRepository
 
-    @Inject lateinit var appConfigRepository: AppConfigRepository
+    @Inject lateinit var appStartupCoordinator: AppStartupCoordinator
     @Inject lateinit var databaseInitializationRepository: DatabaseInitializationRepository
     @Inject lateinit var appShutdownCoordinator: AppShutdownCoordinator
     @Inject lateinit var reminderCoordinator: ReminderCoordinator
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncStartupRegistered = AtomicBoolean(false)
-    @Volatile
-    private var currentThemeMode: ThemeMode = ThemeMode.SYSTEM
     private var lastKnownUiMode: Int? = null
 
     override val workManagerConfiguration: Configuration
@@ -88,7 +78,7 @@ class LomoApplication :
             Timber.plant(Timber.DebugTree())
         }
 
-        observeThemeMode()
+        appStartupCoordinator.start()
 
         appScope.launch(Dispatchers.IO) {
             runCatching {
@@ -140,15 +130,10 @@ class LomoApplication :
         super.onConfigurationChanged(newConfig)
         lastKnownUiMode = newConfig.uiMode
 
-        if (
-            ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                themeMode = currentThemeMode,
-                previousUiMode = previousUiMode,
-                currentUiMode = newConfig.uiMode,
-            )
-        ) {
-            applyAppNightMode(this, currentThemeMode)
-        }
+        appStartupCoordinator.resyncThemeOnConfigurationChange(
+            previousUiMode = previousUiMode,
+            currentUiMode = newConfig.uiMode,
+        )
     }
 
     override fun onTrimMemory(level: Int) {
@@ -172,42 +157,6 @@ class LomoApplication :
         super.onTerminate()
     }
 
-    private fun observeThemeMode() {
-        appScope.launch {
-            runCatching {
-                appConfigRepository.getThemeMode().collectLatest { themeMode ->
-                    applyThemeIfChanged(themeMode)
-                }
-            }.onFailure { error ->
-                Timber.w(error, "Failed to observe persisted theme mode, fallback to system")
-                applyThemeIfChanged(ThemeMode.SYSTEM)
-            }
-        }
-    }
-
-    private suspend fun applyThemeIfChanged(themeMode: ThemeMode) {
-        currentThemeMode = themeMode
-        val targetCompatMode = themeMode.toAppCompatNightMode()
-        val targetPlatformMode = resolvePlatformNightMode(themeMode)
-        val alreadyAppliedCompatMode = AppCompatDelegate.getDefaultNightMode() == targetCompatMode
-        val alreadyAppliedPlatformMode =
-            targetPlatformMode == null || resources.configuration.uiMode.let {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    getSystemService(android.app.UiModeManager::class.java)?.nightMode == targetPlatformMode
-                } else {
-                    true
-                }
-            }
-        if (alreadyAppliedCompatMode && alreadyAppliedPlatformMode) {
-            return
-        }
-        withContext(Dispatchers.Main.immediate) {
-            applyAppNightMode(
-                context = this@LomoApplication,
-                themeMode = themeMode,
-            )
-        }
-    }
 }
 
 private const val SHARE_ROUTE_PAYLOAD_CACHE_DIR = "share-route-payloads"

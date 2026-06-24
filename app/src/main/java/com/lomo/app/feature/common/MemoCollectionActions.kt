@@ -2,7 +2,9 @@ package com.lomo.app.feature.common
 
 import android.net.Uri
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.domain.model.StorageLocation
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.usecase.SaveImageResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -32,19 +34,23 @@ sealed interface MemoCollectionCapabilities {
 }
 
 class MemoCollectionActions internal constructor(
-    private val trashSnapshot: (() -> List<Memo>)?,
-    private val deletingMemoIds: MutableStateFlow<Set<String>>,
+    private val exitAnimationRegistry: ExitAnimationRegistry<MemoUiModel>,
     private val errors: MemoCollectionErrors,
     private val capabilities: MemoCollectionCapabilities,
     private val scope: CoroutineScope,
     private val onMemoContentReplaced: ((Memo, String) -> Unit)?,
+    private val mapToUiModel: (Memo) -> MemoUiModel,
 ) {
-    fun delete(memo: Memo) {
-        val deleteMemo = capabilities.deleteMemo("delete")
+    fun delete(memo: Memo, anchoredAfterKey: String?) {
         launchAnimatedMutation(
-            itemIds = setOf(memo.id),
+            memo = memo,
+            anchoredAfterKey = anchoredAfterKey,
             fallbackMessage = "Failed to delete memo",
         ) {
+            require(capabilities !is MemoCollectionCapabilities.Trash) {
+                "Cannot delete memo in Trash. Use restore or deletePermanently instead."
+            }
+            val deleteMemo = capabilities.deleteMemo("delete")
             deleteMemo(memo)
         }
     }
@@ -53,8 +59,8 @@ class MemoCollectionActions internal constructor(
         memo: Memo,
         newContent: String,
     ) {
-        val editable = capabilities.editable("update memo")
         launchMutation(fallbackMessage = "Failed to update memo") {
+            val editable = capabilities.editable("update memo")
             editable.updateMemo(memo, newContent)
             onMemoContentReplaced?.invoke(memo, newContent)
         }
@@ -65,8 +71,8 @@ class MemoCollectionActions internal constructor(
         lineIndex: Int,
         checked: Boolean,
     ) {
-        val toggleTodo = capabilities.toggleTodo("toggle todo")
         launchMutation(fallbackMessage = "Failed to update todo") {
+            val toggleTodo = capabilities.toggleTodo("toggle todo")
             val newContent = toggleTodo(memo, lineIndex, checked)
             if (newContent != null) {
                 onMemoContentReplaced?.invoke(memo, newContent)
@@ -79,9 +85,9 @@ class MemoCollectionActions internal constructor(
         onResult: (String) -> Unit,
         onError: (() -> Unit)? = null,
     ) {
-        val editable = capabilities.editable("save image")
         scope.launch {
             runCatching {
+                val editable = capabilities.editable("save image")
                 val path =
                     when (val result = editable.saveImage(StorageLocation(uri.toString()))) {
                         is SaveImageResult.SavedAndCacheSynced -> result.location.raw
@@ -95,45 +101,48 @@ class MemoCollectionActions internal constructor(
         }
     }
 
-    fun restore(memo: Memo) {
-        val trash = capabilities.trash("restore memo")
+    fun restore(memo: Memo, anchoredAfterKey: String?) {
         launchAnimatedMutation(
-            itemIds = setOf(memo.id),
+            memo = memo,
+            anchoredAfterKey = anchoredAfterKey,
             fallbackMessage = "Failed to restore memo",
         ) {
+            require(capabilities is MemoCollectionCapabilities.Trash) {
+                "Cannot restore memo. Collection is not Trash."
+            }
+            val trash = capabilities.trash("restore memo")
             trash.restoreMemo(memo)
         }
     }
 
-    fun deletePermanently(memo: Memo) {
-        val trash = capabilities.trash("delete permanently")
+    fun deletePermanently(memo: Memo, anchoredAfterKey: String?) {
         launchAnimatedMutation(
-            itemIds = setOf(memo.id),
+            memo = memo,
+            anchoredAfterKey = anchoredAfterKey,
             fallbackMessage = "Failed to delete memo",
         ) {
+            require(capabilities is MemoCollectionCapabilities.Trash) {
+                "Cannot permanently delete memo. Collection is not Trash."
+            }
+            val trash = capabilities.trash("delete permanently")
             trash.deletePermanently(memo)
         }
     }
 
-    fun clearTrash() {
-        val trash = capabilities.trash("clear trash")
-        val trashSnapshot = requireNotNull(trashSnapshot) {
-            "Trash collection actions require a collection snapshot"
-        }.invoke()
-        if (trashSnapshot.isEmpty()) {
-            return
-        }
-        launchAnimatedMutation(
-            itemIds = trashSnapshot.asSequence().map(Memo::id).toSet(),
+    fun clearTrash(items: List<Triple<String, Memo, String?>>) {
+        if (items.isEmpty()) return
+        launchAnimatedMutationBulk(
+            items = items,
             fallbackMessage = "Failed to clear trash",
         ) {
+            require(capabilities is MemoCollectionCapabilities.Trash) {
+                "Cannot clear trash. Collection is not Trash."
+            }
+            val trash = capabilities.trash("clear trash")
             trash.clearTrash()
         }
     }
 
-    fun onDeleteAnimationSettled(memoId: String) {
-        deletingMemoIds.update { ids -> ids - memoId }
-    }
 
     private fun launchMutation(
         fallbackMessage: String,
@@ -149,18 +158,43 @@ class MemoCollectionActions internal constructor(
     }
 
     private fun launchAnimatedMutation(
-        itemIds: Set<String>,
+        memo: Memo,
+        anchoredAfterKey: String?,
         fallbackMessage: String,
         mutation: suspend () -> Unit,
     ) {
         scope.launch {
-            val result =
+            runCatching {
+                val uiModel = mapToUiModel(memo)
                 runDeleteAnimationWithRollback(
-                    itemIds = itemIds,
-                    deletingIds = deletingMemoIds,
+                    itemId = memo.id,
+                    registry = exitAnimationRegistry,
+                    item = uiModel,
+                    anchoredAfterKey = anchoredAfterKey,
                     mutation = mutation,
                 )
-            result.exceptionOrNull()?.let { throwable ->
+            }.onFailure { throwable ->
+                errors.report(throwable, fallbackMessage)
+            }
+        }
+    }
+
+    private fun launchAnimatedMutationBulk(
+        items: List<Triple<String, Memo, String?>>,
+        fallbackMessage: String,
+        mutation: suspend () -> Unit,
+    ) {
+        scope.launch {
+            runCatching {
+                val mappedItems = items.map { (id, memo, anchor) ->
+                    Triple(id, mapToUiModel(memo), anchor)
+                }
+                runDeleteAnimationWithRollback(
+                    items = mappedItems,
+                    registry = exitAnimationRegistry,
+                    mutation = mutation,
+                )
+            }.onFailure { throwable ->
                 errors.report(throwable, fallbackMessage)
             }
         }
@@ -190,6 +224,7 @@ class MemoCollectionActions internal constructor(
                 ?: error("Memo collection capability does not support $action")
     }
 }
+
 
 class MemoCollectionErrors internal constructor(
     private val errorMessage: MutableStateFlow<String?>,

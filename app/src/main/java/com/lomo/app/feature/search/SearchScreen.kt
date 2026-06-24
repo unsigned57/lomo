@@ -64,6 +64,10 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlin.math.roundToInt
 
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
@@ -74,7 +78,8 @@ fun SearchScreen(
     lanShareEnabled: Boolean = true,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
-    val uiState = collectSearchScreenUiSnapshot(viewModel)
+    val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
+    val uiState = collectSearchScreenUiSnapshot(viewModel, pagedItems)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -134,24 +139,21 @@ fun SearchScreen(
             snackbarHostState = snackbarHostState,
             resultListState = searchResultListState,
             resultListActive = resultListActive,
-        ) { padding ->
+        ) { paddingValues ->
             SearchScreenContent(
+                pagedItems = pagedItems,
                 query = uiState.query,
-                showLoading = uiState.showLoading,
                 searchResults = uiState.searchResults,
                 dateFormat = uiState.dateFormat,
                 timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
-                deletingMemoIds = uiState.deletingMemoIds,
-                canLoadMore = uiState.canLoadMore,
+                exitAnimationRegistry = viewModel.exitAnimationRegistry,
                 listState = searchResultListState,
-                padding = padding,
+                padding = paddingValues,
                 onOpenEditor = openEditor,
                 onShowMenu = onShowSearchMenu,
-                onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
                 onTodoClick = viewModel::toggleTodo,
-                onLoadMore = viewModel::loadMore,
             )
         }
         if (isFilterSheetVisible) {
@@ -165,24 +167,28 @@ fun SearchScreen(
 }
 
 @Composable
-private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScreenUiSnapshot {
+private fun collectSearchScreenUiSnapshot(
+    viewModel: SearchViewModel,
+    pagedItems: LazyPagingItems<com.lomo.app.feature.main.MemoUiModel>
+): SearchScreenUiSnapshot {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val showLoading by viewModel.showLoading.collectAsStateWithLifecycle()
-    val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
-    val canLoadMore by viewModel.canLoadMore.collectAsStateWithLifecycle()
     val searchFilter by viewModel.searchFilter.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
-    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+
+    val itemSnapshotList = pagedItems.itemSnapshotList
+    val snapshotMemos = remember(itemSnapshotList) {
+        itemSnapshotList.items.toImmutableList()
+    }
+    val showLoading = pagedItems.loadState.refresh is LoadState.Loading
 
     return SearchScreenUiSnapshot(
         query = query,
         showLoading = showLoading,
-        searchResults = searchResults.toImmutableList(),
-        canLoadMore = canLoadMore,
+        searchResults = snapshotMemos,
         searchFilter = searchFilter,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
@@ -198,7 +204,6 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },
-        deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
         errorMessage = errorMessage,
     )
 }

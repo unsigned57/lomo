@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +40,7 @@ import com.lomo.app.feature.memo.MemoVersionHistoryUiMapper
 import com.lomo.app.feature.memo.appendImageMarkdown
 import com.lomo.app.feature.memo.appendMarkdownBlock
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
+import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.util.activityHiltViewModel
 import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.model.Memo
@@ -53,13 +55,16 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
 internal const val MAIN_SCREEN_FAB_VISIBILITY_THRESHOLD = 0.9f
 internal const val MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION = 0.8f
+internal const val NEW_MEMO_REVEAL_TIMEOUT_MS = 5_000L
 
 internal data class MainScreenDependencies(
     val mainViewModel: MainViewModel,
@@ -67,6 +72,7 @@ internal data class MainScreenDependencies(
     val editorViewModel: MemoEditorViewModel,
     val recordingViewModel: RecordingViewModel,
     val conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel,
+    val conflictStateViewModel: SyncConflictStateViewModel,
 )
 
 @Composable
@@ -86,15 +92,24 @@ fun MainScreen(
     editorViewModel: MemoEditorViewModel = injectedHiltViewModel(),
     recordingViewModel: RecordingViewModel = injectedHiltViewModel(),
     conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedHiltViewModel(),
+    conflictStateViewModel: SyncConflictStateViewModel = injectedHiltViewModel(),
 ) {
     val dependencies =
-        remember(viewModel, sidebarViewModel, editorViewModel, recordingViewModel, conflictViewModel) {
+        remember(
+            viewModel,
+            sidebarViewModel,
+            editorViewModel,
+            recordingViewModel,
+            conflictViewModel,
+            conflictStateViewModel,
+        ) {
             MainScreenDependencies(
                 mainViewModel = viewModel,
                 sidebarViewModel = sidebarViewModel,
                 editorViewModel = editorViewModel,
                 recordingViewModel = recordingViewModel,
                 conflictViewModel = conflictViewModel,
+                conflictStateViewModel = conflictStateViewModel,
             )
         }
     val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
@@ -130,15 +145,8 @@ fun MainScreen(
     MainScreenPendingNewMemoCreationEffect(
         pendingRequest = renderState.pendingNewMemoCreationRequest,
         listState = hostState.listState,
-        currentListTopMemoId = currentListTopMemoId,
-        newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
+        pagedUiMemos = pagedUiMemos,
         dependencies = dependencies,
-    )
-    MainScreenNewMemoInsertAnimationEffect(
-        listState = hostState.listState,
-        currentListTopMemoId = currentListTopMemoId,
-        currentTopViewportMemoId = null,
-        newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
     )
 
     MainScreenTransientEffects(
@@ -212,14 +220,11 @@ private fun MainScreenAutomaticRefreshEffect(
 private fun MainScreenPendingNewMemoCreationEffect(
     pendingRequest: PendingNewMemoCreationRequest?,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    currentListTopMemoId: String?,
-    newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     dependencies: MainScreenDependencies,
 ) {
     val scope = rememberCoroutineScope()
     val latestDependencies = rememberUpdatedState(dependencies)
-    val latestListTopMemoId = rememberUpdatedState(currentListTopMemoId)
-    val latestNewMemoInsertAnimationSession = rememberUpdatedState(newMemoInsertAnimationSession)
     val creationCoordinator =
         remember(listState, scope) {
             NewMemoCreationCoordinator<PendingNewMemoCreationRequest>(
@@ -230,10 +235,14 @@ private fun MainScreenPendingNewMemoCreationEffect(
                 scrollListToAbsoluteTop = {
                     listState.animateScrollToItem(0)
                 },
-                createMemo = { request ->
-                    latestNewMemoInsertAnimationSession.value.arm(
-                        previousTopMemoId = latestListTopMemoId.value,
-                    )
+                createMemo = { request, _ ->
+                    // The feed renders loaded rows from the paging snapshot and only calls
+                    // pagedUiMemos[index] for placeholders, so scrolling up to the top never updates
+                    // Paging's anchorPosition. Register a top access here so the create-triggered
+                    // Room refresh reloads anchored at the top (placeholdersBefore=0) instead of the
+                    // stale deep anchor — otherwise the top rows briefly become placeholders during
+                    // the refresh, which reads as the whole-list "flash".
+                    pagedUiMemos[0]
                     val consumedRequest =
                         latestDependencies.value.mainViewModel.consumePendingNewMemoCreationRequest(request.requestId)
                     if (consumedRequest != null) {
@@ -244,57 +253,27 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         )
                     }
                 },
+                currentTopMemoId = {
+                    pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
+                },
+                awaitNewTopItemAndReveal = { previousTopId ->
+                    val newTopId =
+                        withTimeoutOrNull(NEW_MEMO_REVEAL_TIMEOUT_MS) {
+                            snapshotFlow { pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id }
+                                .first { topId -> topId != null && topId != previousTopId }
+                        }
+                    if (newTopId != null) {
+                        // Pin the freshly-inserted (initially zero-height) row to the viewport top so its
+                        // two-phase enter (expand then fade) plays in view instead of above the fold.
+                        latestDependencies.value.mainViewModel.enterAnimationRegistry.beginEnter(newTopId)
+                        listState.scrollToItem(0)
+                    }
+                },
             )
         }
 
     LaunchedEffect(pendingRequest?.requestId) {
         pendingRequest?.let(creationCoordinator::submit)
-    }
-}
-
-@Composable
-private fun MainScreenNewMemoInsertAnimationEffect(
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    currentListTopMemoId: String?,
-    currentTopViewportMemoId: String?,
-    newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
-) {
-    val currentState = newMemoInsertAnimationSession.state
-
-    LaunchedEffect(
-        currentListTopMemoId,
-        currentTopViewportMemoId,
-        currentState.awaitingInsertedTopMemo,
-        currentState.blankSpaceMemoId,
-        currentState.previousTopMemoId,
-        currentState.gapReadyMemoId,
-    ) {
-        when {
-            currentState.awaitingInsertedTopMemo -> {
-                withFrameNanos { }
-                if (
-                    isInsertedTopMemoReadyForSpaceStage(
-                        state = currentState,
-                        currentListTopMemoId = currentListTopMemoId,
-                    )
-                ) {
-                    // A paging-refresh prepend re-anchors the list on the previous top item, leaving the new
-                    // row above the viewport. Re-pin to the absolute top before opening the blank-space gap so
-                    // the staged animation runs on a visible row instead of stalling off-screen.
-                    listState.scrollToItem(0)
-                    newMemoInsertAnimationSession.markInsertedTopMemoReady(
-                        insertedTopMemoId = currentListTopMemoId,
-                    )
-                }
-            }
-
-            currentState.gapReadyMemoId != null -> {
-                withFrameNanos { }
-                if (newMemoInsertAnimationSession.state.gapReadyMemoId == currentState.gapReadyMemoId) {
-                    newMemoInsertAnimationSession.markRevealReady(currentState.gapReadyMemoId)
-                }
-            }
-        }
     }
 }
 
@@ -337,7 +316,6 @@ internal data class MainScreenHostState(
     val snackbarHostState: SnackbarHostState,
     val scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     val listState: androidx.compose.foundation.lazy.LazyListState,
-    val newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
     val editorController: MemoEditorController,
     val isExpanded: Boolean,
     val directoryGuideController: MainDirectoryGuideController,

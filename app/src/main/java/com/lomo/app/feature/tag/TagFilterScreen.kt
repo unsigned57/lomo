@@ -58,11 +58,13 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
 private val TAG_FILTER_LIST_PADDING = 16.dp
 private val TAG_FILTER_LIST_BOTTOM_PADDING = 88.dp
-private const val TAG_FILTER_LOAD_MORE_LOOKAHEAD_ITEMS = 6
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -78,15 +80,13 @@ fun TagFilterScreen(
     lanShareEnabled: Boolean = true,
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
-    val memos by viewModel.uiMemos.collectAsStateWithLifecycle()
-    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
+    val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDir.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDir.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val canLoadMore by viewModel.canLoadMore.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val editorController = rememberMemoEditorController()
@@ -155,24 +155,21 @@ fun TagFilterScreen(
                 haptic.medium()
                 onBackClick()
             },
-        ) { padding ->
+        ) { paddingValues ->
             TagFilterScreenContent(
                 tagName = tagName,
-                memos = remember(memos) { memos.toImmutableList() },
+                pagedItems = pagedItems,
                 dateFormat = appPreferences.dateFormat,
                 timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
                 freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-                deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
+                exitAnimationRegistry = viewModel.exitAnimationRegistry,
                 onMemoEdit = openEditor,
                 onShowMenu = showMenu,
                 onImageClick = onNavigateToImage,
                 onTodoClick = viewModel::toggleTodo,
-                onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
                 onNavigateToTag = onNavigateToTag,
-                canLoadMore = canLoadMore,
-                onLoadMore = viewModel::loadMore,
-                modifier = modifier.padding(padding),
+                modifier = modifier.padding(paddingValues),
             )
         }
     }
@@ -248,39 +245,30 @@ private fun TagFilterTitle(tagName: String) {
 @Composable
 private fun TagFilterScreenContent(
     tagName: String,
-    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    pagedItems: LazyPagingItems<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    deletingMemoIds: ImmutableSet<String>,
+    exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<com.lomo.app.feature.main.MemoUiModel>,
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
-    onDeleteAnimationSettled: (String) -> Unit,
     onNavigateToTag: (String) -> Unit,
-    canLoadMore: Boolean,
-    onLoadMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     Box(modifier = modifier.fillMaxSize()) {
-        if (memos.isEmpty()) {
+        if (pagedItems.itemCount == 0) {
             EmptyState(
                 icon = Icons.Outlined.Tag,
                 title = stringResource(R.string.empty_no_tag_matches_title, tagName),
                 description = stringResource(R.string.empty_no_tag_matches_subtitle),
             )
         } else {
-            TagFilterLoadMoreEffect(
-                itemCount = memos.size,
-                canLoadMore = canLoadMore,
-                listState = listState,
-                onLoadMore = onLoadMore,
-            )
             MemoCardList(
-                memos = memos,
+                pagedMemos = pagedItems,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
@@ -291,8 +279,7 @@ private fun TagFilterScreenContent(
                 onTodoClick = onTodoClick,
                 onTagClick = onNavigateToTag,
                 animation = MemoCardListAnimation.Placement,
-                deletingMemoIds = deletingMemoIds,
-                onDeleteAnimationSettled = onDeleteAnimationSettled,
+                exitAnimationRegistry = exitAnimationRegistry,
                 listState = listState,
                 contentPadding =
                     PaddingValues(
@@ -304,28 +291,5 @@ private fun TagFilterScreenContent(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-    }
-}
-
-@Composable
-private fun TagFilterLoadMoreEffect(
-    itemCount: Int,
-    canLoadMore: Boolean,
-    listState: LazyListState,
-    onLoadMore: () -> Unit,
-) {
-    LaunchedEffect(listState, itemCount, canLoadMore) {
-        if (!canLoadMore || itemCount == 0) {
-            return@LaunchedEffect
-        }
-        snapshotFlow {
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            lastVisibleIndex >= itemCount - TAG_FILTER_LOAD_MORE_LOOKAHEAD_ITEMS
-        }.distinctUntilChanged()
-            .collect { shouldLoad ->
-                if (shouldLoad) {
-                    onLoadMore()
-                }
-            }
     }
 }

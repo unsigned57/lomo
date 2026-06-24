@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.ShareTransferState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -26,6 +27,7 @@ data class ShareScreenUiState(
     val lanShareEnabled: Boolean,
     val lanSharePermissionState: LanSharePermissionState,
     val lanShareDiscoveryError: String?,
+    val lanShareDiscoveryDiagnostics: LanShareDiscoveryDiagnostics,
     val e2eEnabled: Boolean,
     val pairingConfigured: Boolean,
     val savedPairingCode: String,
@@ -60,6 +62,8 @@ fun collectShareScreenUiState(viewModel: ShareViewModel): ShareScreenUiState {
     val lanShareEnabledValue = viewModel.lanShareEnabled.collectAsStateWithLifecycle().value
     val lanSharePermissionStateValue = viewModel.lanSharePermissionState.collectAsStateWithLifecycle().value
     val lanShareDiscoveryErrorValue = viewModel.lanShareDiscoveryError.collectAsStateWithLifecycle().value
+    val lanShareDiscoveryDiagnosticsValue =
+        viewModel.lanShareDiscoveryDiagnostics.collectAsStateWithLifecycle().value
     val e2e = viewModel.lanShareE2eEnabled.collectAsStateWithLifecycle().value
     val pairingConfiguredValue = viewModel.lanSharePairingConfigured.collectAsStateWithLifecycle().value
     val savedPairingCodeValue = viewModel.lanSharePairingCode.collectAsStateWithLifecycle().value
@@ -73,6 +77,7 @@ fun collectShareScreenUiState(viewModel: ShareViewModel): ShareScreenUiState {
         lanShareEnabled = lanShareEnabledValue,
         lanSharePermissionState = lanSharePermissionStateValue,
         lanShareDiscoveryError = lanShareDiscoveryErrorValue,
+        lanShareDiscoveryDiagnostics = lanShareDiscoveryDiagnosticsValue,
         e2eEnabled = e2e,
         pairingConfigured = pairingConfiguredValue,
         savedPairingCode = savedPairingCodeValue,

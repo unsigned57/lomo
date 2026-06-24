@@ -4,7 +4,6 @@ import com.lomo.app.feature.common.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -34,23 +33,4 @@ internal suspend fun runSettingsOperation(
         }
         specificError(throwable)
             ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
-    }
-
-internal suspend fun <TResult, TState> runConnectionTest(
-    state: MutableStateFlow<TState>,
-    testingState: TState,
-    execute: suspend () -> TResult,
-    mapSuccess: (TResult) -> TState,
-    mapFailure: (Throwable) -> TState,
-): SettingsOperationError? =
-    runCatching {
-        state.value = testingState
-        state.value = mapSuccess(execute())
-        null
-    }.getOrElse { throwable ->
-        if (throwable is CancellationException) {
-            throw throwable
-        }
-        state.value = mapFailure(throwable)
-        null
     }

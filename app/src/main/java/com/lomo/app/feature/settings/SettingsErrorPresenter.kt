@@ -38,6 +38,8 @@ object SettingsErrorPresenter {
                 stringResource(R.string.settings_git_repository_not_initialized)
             GitSyncErrorCode.CONFLICT ->
                 stringResource(R.string.settings_git_sync_conflict_summary)
+            GitSyncErrorCode.CREDENTIAL_UNREADABLE,
+            GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED,
             GitSyncErrorCode.UNKNOWN ->
                 sanitizedDetail(detail) ?: stringResource(R.string.error_unknown)
         }
@@ -67,6 +69,8 @@ object SettingsErrorPresenter {
                 sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_auth_failed_message)
             S3SyncErrorCode.BUCKET_ACCESS_FAILED ->
                 sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_bucket_access_failed_message)
+            S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION ->
+                stringResource(R.string.settings_s3_remote_layout_violation_message)
             S3SyncErrorCode.ENCRYPTION_FAILED ->
                 sanitizedDetail(detail) ?: stringResource(R.string.settings_s3_encryption_failed_message)
             S3SyncErrorCode.CONNECTION_FAILED,

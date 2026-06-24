@@ -2,6 +2,9 @@ package com.lomo.app.feature.common
 
 import com.lomo.app.di.AppScope
 import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.preferences.observeAppPreferences
+import com.lomo.domain.repository.AppPreferencesSnapshotRepository
+import com.lomo.domain.repository.CustomFontStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -13,6 +16,8 @@ class AppConfigStateProvider
     @Inject
     constructor(
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
+        private val appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
+        private val customFontStore: CustomFontStore,
         @AppScope private val appScope: CoroutineScope,
     ) {
         val rootDirectory: StateFlow<String?> =
@@ -31,8 +36,8 @@ class AppConfigStateProvider
                 .stateIn(appScope, appWhileSubscribed(), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigUiCoordinator
-                .appPreferences()
+            appPreferencesSnapshotRepository
+                .observeAppPreferences(customFontStore)
                 .stateIn(appScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
         val appLockEnabled: StateFlow<Boolean?> =

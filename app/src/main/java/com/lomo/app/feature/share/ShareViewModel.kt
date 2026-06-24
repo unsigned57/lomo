@@ -7,6 +7,8 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
@@ -23,6 +25,7 @@ import javax.inject.Inject
 
 private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
 private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
+private const val LAN_SHARE_PERMISSION_REQUIRED_MESSAGE = "Local network permission is required for LAN sharing"
 private const val SHARE_PAYLOAD_KEY = "payloadKey"
 private const val SHARE_MEMO_CONTENT_KEY = "memoContent"
 private const val SHARE_MEMO_TIMESTAMP_KEY = "memoTimestamp"
@@ -76,6 +79,10 @@ class ShareViewModel
             lanShareUiCoordinator.lanShareDeviceName
                 .stateIn(viewModelScope, appWhileSubscribed(), "")
 
+        val lanShareDiscoveryDiagnostics =
+            lanShareUiCoordinator.lanShareDiscoveryDiagnostics
+                .stateIn(viewModelScope, appWhileSubscribed(), LanShareDiscoveryDiagnostics())
+
         private val _pairingCodeError = MutableStateFlow<String?>(null)
         val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
         private val _pairingRequiredEvent = MutableStateFlow(0)
@@ -92,6 +99,11 @@ class ShareViewModel
         init {
             if (memoContentBacking.isBlank()) {
                 _operationError.value = "Share content is unavailable. Please reopen the share page."
+            }
+            viewModelScope.launch {
+                lanShareUiCoordinator.lanShareRuntimeState.collect { runtimeState ->
+                    handleLanShareRuntimeState(runtimeState)
+                }
             }
             viewModelScope.launch {
                 lanShareUiCoordinator.lanShareStartupFailures.collect { failure ->
@@ -120,12 +132,14 @@ class ShareViewModel
 
         val onLanShareNetworkPermissionsGranted: () -> Unit = {
             _lanSharePermissionState.value = LanSharePermissionState.Granted
+            lanShareUiCoordinator.refreshNetworkPermissionState()
             clearLanShareDiscoveryError()
             startLanShareDiscoverySession()
         }
 
         val onLanShareNetworkPermissionsDenied: () -> Unit = {
             _lanSharePermissionState.value = LanSharePermissionState.Denied
+            lanShareUiCoordinator.refreshNetworkPermissionState()
             _lanShareDiscoveryError.value = null
         }
 
@@ -263,6 +277,26 @@ class ShareViewModel
             _lanShareDiscoveryError.value = null
             if (_operationError.value == previousDiscoveryError) {
                 _operationError.value = null
+            }
+        }
+
+        private fun handleLanShareRuntimeState(runtimeState: LanShareRuntimeState) {
+            when (runtimeState) {
+                LanShareRuntimeState.PermissionBlocked -> {
+                    _lanSharePermissionState.value = LanSharePermissionState.Denied
+                    _lanShareDiscoveryError.value = LAN_SHARE_PERMISSION_REQUIRED_MESSAGE
+                }
+                LanShareRuntimeState.Running,
+                LanShareRuntimeState.WaitingForTopology,
+                -> {
+                    if (_lanSharePermissionState.value == LanSharePermissionState.Denied) {
+                        _lanSharePermissionState.value = LanSharePermissionState.Granted
+                    }
+                    if (_lanShareDiscoveryError.value == LAN_SHARE_PERMISSION_REQUIRED_MESSAGE) {
+                        _lanShareDiscoveryError.value = null
+                    }
+                }
+                LanShareRuntimeState.Stopped -> Unit
             }
         }
     }

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.ui.component.common.EnterAnimationRegistry
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
@@ -44,11 +45,8 @@ internal fun MainScreenScaffoldContent(
     mainListTotalCount: Int,
     uiState: MainViewModel.MainScreenState,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
-    deletingMemoIds: ImmutableSet<String>,
-    onPagedDeleteAnimationSettled: (String) -> Unit,
-    newMemoInsertAnimationState: NewMemoInsertAnimationState,
-    onNewMemoSpacePrepared: (String) -> Unit,
-    onNewMemoRevealConsumed: (String) -> Unit,
+    exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
+    enterAnimationRegistry: EnterAnimationRegistry,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
@@ -98,11 +96,8 @@ internal fun MainScreenScaffoldContent(
             searchQuery = searchQuery,
             mainListTotalCount = mainListTotalCount,
             pagedUiMemos = pagedUiMemos,
-            deletingMemoIds = deletingMemoIds,
-            onPagedDeleteAnimationSettled = onPagedDeleteAnimationSettled,
-            newMemoInsertAnimationState = newMemoInsertAnimationState,
-            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+            exitAnimationRegistry = exitAnimationRegistry,
+            enterAnimationRegistry = enterAnimationRegistry,
             listState = listState,
             isRefreshing = isRefreshing,
             onRefresh = actions.onRefresh,
@@ -185,11 +180,8 @@ private fun MainScreenScaffoldBody(
     searchQuery: String,
     mainListTotalCount: Int,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
-    deletingMemoIds: ImmutableSet<String>,
-    onPagedDeleteAnimationSettled: (String) -> Unit,
-    newMemoInsertAnimationState: NewMemoInsertAnimationState,
-    onNewMemoSpacePrepared: (String) -> Unit,
-    onNewMemoRevealConsumed: (String) -> Unit,
+    exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
+    enterAnimationRegistry: EnterAnimationRegistry,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -219,11 +211,8 @@ private fun MainScreenScaffoldBody(
             searchQuery = searchQuery,
             mainListTotalCount = mainListTotalCount,
             pagedUiMemos = pagedUiMemos,
-            deletingMemoIds = deletingMemoIds,
-            onPagedDeleteAnimationSettled = onPagedDeleteAnimationSettled,
-            newMemoInsertAnimationState = newMemoInsertAnimationState,
-            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+            exitAnimationRegistry = exitAnimationRegistry,
+            enterAnimationRegistry = enterAnimationRegistry,
             listState = listState,
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,

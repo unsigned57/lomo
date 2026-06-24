@@ -9,7 +9,6 @@ internal data class SearchScreenUiSnapshot(
     val query: String,
     val showLoading: Boolean,
     val searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
-    val canLoadMore: Boolean,
     val searchFilter: MemoListFilter,
     val dateFormat: String,
     val timeFormat: String,
@@ -25,6 +24,5 @@ internal data class SearchScreenUiSnapshot(
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
-    val deletingMemoIds: ImmutableSet<String>,
     val errorMessage: String?,
 )

@@ -5,7 +5,10 @@ import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.isConfigured
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
@@ -16,23 +19,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 
-sealed interface SettingsGitConnectionTestState {
-    data object Idle : SettingsGitConnectionTestState
-
-    data object Testing : SettingsGitConnectionTestState
-
-    data class Success(
-        val message: String,
-    ) : SettingsGitConnectionTestState
-
-    data class Error(
-        val code: GitSyncErrorCode,
-        val detail: String? = null,
-    ) : SettingsGitConnectionTestState
-}
-
 class SettingsGitCoordinator(
     private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
+    private val credentialCoordinator: SettingsCredentialCoordinator,
     scope: CoroutineScope,
 ) : SettingsGitFeatureSupport {
     private val sharedEnabled: StateFlow<Boolean> =
@@ -46,11 +35,12 @@ class SettingsGitCoordinator(
             .map { it ?: "" }
             .settingsStateIn(scope, "")
 
-    private val _gitPatStatus = MutableStateFlow(StoredCredentialStatus.Missing)
-    val gitPatStatus: StateFlow<StoredCredentialStatus> = _gitPatStatus.asStateFlow()
+    val gitPatStatus: StateFlow<StoredCredentialStatus> =
+        credentialCoordinator
+            .statusState(CredentialProvider.GIT, CredentialField.GIT_TOKEN)
 
-    private val _gitPatConfigured = MutableStateFlow(false)
-    val gitPatConfigured: StateFlow<Boolean> = _gitPatConfigured.asStateFlow()
+    val gitPatConfigured: StateFlow<Boolean> =
+        gitPatStatus.map { status -> status.isConfigured }.settingsStateIn(scope, false)
 
     val gitAuthorName: StateFlow<String> =
         gitSyncSettingsUseCase
@@ -83,17 +73,13 @@ class SettingsGitCoordinator(
             .map { value -> value ?: 0L }
             .settingsStateIn(scope, 0L)
 
-    private val _connectionTestState =
-        MutableStateFlow<SettingsGitConnectionTestState>(SettingsGitConnectionTestState.Idle)
-    val connectionTestState: StateFlow<SettingsGitConnectionTestState> = _connectionTestState.asStateFlow()
-
     private val _resetInProgress = MutableStateFlow(false)
     val resetInProgress: StateFlow<Boolean> = _resetInProgress.asStateFlow()
 
     val refreshPatConfigured: suspend () -> SettingsOperationError? =
         {
             runWithError("Failed to read Git token state") {
-                setGitPatStatus(gitSyncSettingsUseCase.getTokenStatus())
+                credentialCoordinator.refreshCredentialState(CredentialProvider.GIT)
             }
         }
 
@@ -120,8 +106,7 @@ class SettingsGitCoordinator(
     val updateGitPat: suspend (String) -> SettingsOperationError? =
         { token ->
             runWithError("Failed to update Git token") {
-                gitSyncSettingsUseCase.updateToken(token)
-                setGitPatStatus(token.toCredentialStatus())
+                credentialCoordinator.writeSecret(CredentialField.GIT_TOKEN, token)
             }
         }
 
@@ -173,49 +158,6 @@ class SettingsGitCoordinator(
             gitSyncSettingsUseCase.resolveConflictUsingLocal().toOperationErrorOrNull()
         }
 
-    val testGitConnection: suspend () -> SettingsOperationError? =
-        {
-            runConnectionTest(
-                state = _connectionTestState,
-                testingState = SettingsGitConnectionTestState.Testing,
-                execute = gitSyncSettingsUseCase::testConnection,
-                mapSuccess = { result ->
-                    when (result) {
-                        is GitSyncResult.Success -> SettingsGitConnectionTestState.Success(result.message)
-                        is GitSyncResult.Error -> SettingsGitConnectionTestState.Error(result.code, result.message)
-                        GitSyncResult.NotConfigured ->
-                            SettingsGitConnectionTestState.Error(
-                                code = GitSyncErrorCode.NOT_CONFIGURED,
-                                detail = "Git sync is not configured",
-                            )
-                        GitSyncResult.DirectPathRequired ->
-                            SettingsGitConnectionTestState.Error(
-                                code = GitSyncErrorCode.DIRECT_PATH_REQUIRED,
-                                detail = "Git sync requires a direct local directory path",
-                            )
-                        is GitSyncResult.Conflict ->
-                            SettingsGitConnectionTestState.Error(
-                                code = GitSyncErrorCode.CONFLICT,
-                                detail = result.message,
-                            )
-                    }
-                },
-                mapFailure = { throwable ->
-                    val operationError =
-                        throwable.toGitOperationErrorOrNull()
-                            ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to test Git connection"))
-                    when (operationError) {
-                        is SettingsOperationError.GitSync ->
-                            SettingsGitConnectionTestState.Error(operationError.code, operationError.detail)
-                        is SettingsOperationError.Message ->
-                            SettingsGitConnectionTestState.Error(GitSyncErrorCode.UNKNOWN, operationError.text)
-                        is SettingsOperationError.WebDavSync ->
-                            SettingsGitConnectionTestState.Error(GitSyncErrorCode.UNKNOWN, operationError.detail)
-                    }
-                },
-            )
-        }
-
     val resetGitRepository: suspend () -> SettingsOperationError? =
         {
             _resetInProgress.value = true
@@ -234,42 +176,114 @@ class SettingsGitCoordinator(
             }
         }
 
-    override val resetConnectionTestState: () -> Unit =
-        { _connectionTestState.value = SettingsGitConnectionTestState.Idle }
+    private val credentialFields: StateFlow<List<RemoteProviderCredentialFieldState>> =
+        gitPatStatus.mapSettingsStateIn(scope, emptyList()) { status ->
+            listOf(
+                RemoteProviderCredentialFieldState(
+                    field = RemoteProviderCredentialField.GitPat,
+                    status = status,
+                ),
+            )
+        }
 
-    private val remoteSyncSettingsCoordinator =
-        RemoteSyncSettingsCoordinator(
+    private val providerSettingsController =
+        ProviderSettingsController(
+            provider = SyncBackendType.GIT,
+            scope = scope,
             enabled = sharedEnabled,
             autoSyncEnabled = sharedAutoSyncEnabled,
             autoSyncInterval = sharedAutoSyncInterval,
             syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
             lastSyncTime = sharedLastSyncTime,
+            credentialFields = credentialFields,
             rawSyncState = gitSyncSettingsUseCase.observeSyncState(),
-            mapToUnifiedSyncState = { it },
+            mapToUnifiedSyncState = { state -> state },
             updateEnabledAction = updateGitSyncEnabledInternal,
             updateAutoSyncEnabledAction = updateGitAutoSyncEnabledInternal,
             updateAutoSyncIntervalAction = updateGitAutoSyncIntervalInternal,
             updateSyncOnRefreshEnabledAction = updateGitSyncOnRefreshInternal,
             triggerSyncNowAction = triggerGitSyncNowInternal,
-            testConnectionAction = testGitConnection,
+            testConnectionAction = ::testGitConnectionState,
+            mapConnectionFailure = ::mapGitConnectionFailure,
         )
 
-    val gitSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.enabled
-    val gitAutoSyncEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.autoSyncEnabled
-    val gitAutoSyncInterval: StateFlow<String> = remoteSyncSettingsCoordinator.autoSyncInterval
-    val gitSyncOnRefreshEnabled: StateFlow<Boolean> = remoteSyncSettingsCoordinator.syncOnRefreshEnabled
-    val gitLastSyncTime: StateFlow<Long> = remoteSyncSettingsCoordinator.lastSyncTime
-    val gitSyncState: StateFlow<UnifiedSyncState> =
-        remoteSyncSettingsCoordinator.syncState.settingsStateIn(scope, UnifiedSyncState.Idle)
+    val providerSettingsModel: StateFlow<RemoteProviderSettingsModel> = providerSettingsController.model
+    val providerSettingsActions: RemoteProviderSettingsActionTarget = providerSettingsController
+    val connectionTestState: StateFlow<RemoteProviderConnectionTestState> =
+        providerSettingsController.connectionTestState
+    val gitSyncEnabled: StateFlow<Boolean> = sharedEnabled
+    val gitAutoSyncEnabled: StateFlow<Boolean> = sharedAutoSyncEnabled
+    val gitAutoSyncInterval: StateFlow<String> = sharedAutoSyncInterval
+    val gitSyncOnRefreshEnabled: StateFlow<Boolean> = sharedSyncOnRefreshEnabled
+    val gitLastSyncTime: StateFlow<Long> = sharedLastSyncTime
+    val gitSyncState: StateFlow<UnifiedSyncState> = providerSettingsController.syncState
     val updateGitSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
-        remoteSyncSettingsCoordinator::updateEnabled
+        providerSettingsController::updateEnabled
     val updateGitAutoSyncEnabled: suspend (Boolean) -> SettingsOperationError? =
-        remoteSyncSettingsCoordinator::updateAutoSyncEnabled
+        providerSettingsController::updateAutoSyncEnabled
     val updateGitAutoSyncInterval: suspend (String) -> SettingsOperationError? =
-        remoteSyncSettingsCoordinator::updateAutoSyncInterval
+        providerSettingsController::updateAutoSyncInterval
     val updateGitSyncOnRefresh: suspend (Boolean) -> SettingsOperationError? =
-        remoteSyncSettingsCoordinator::updateSyncOnRefreshEnabled
-    val triggerGitSyncNow: suspend () -> SettingsOperationError? = remoteSyncSettingsCoordinator::triggerSyncNow
+        providerSettingsController::updateSyncOnRefreshEnabled
+    val triggerGitSyncNow: suspend () -> SettingsOperationError? = providerSettingsController::triggerSyncNow
+    val testGitConnection: suspend () -> SettingsOperationError? = providerSettingsController::testConnection
+
+    override val resetConnectionTestState: () -> Unit = providerSettingsController::resetConnectionTestState
+
+    private suspend fun testGitConnectionState(): RemoteProviderConnectionTestState =
+        when (val result = gitSyncSettingsUseCase.testConnection()) {
+            is GitSyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+            is GitSyncResult.Error ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = result.code.name,
+                    detail = result.message,
+                )
+            GitSyncResult.NotConfigured ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.NOT_CONFIGURED.name,
+                    detail = "Git sync is not configured",
+                )
+            GitSyncResult.DirectPathRequired ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.DIRECT_PATH_REQUIRED.name,
+                    detail = "Git sync requires a direct local directory path",
+                )
+            is GitSyncResult.Conflict ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.CONFLICT.name,
+                    detail = result.message,
+                )
+        }
+
+    private fun mapGitConnectionFailure(throwable: Throwable): RemoteProviderConnectionTestState.Error {
+        val operationError =
+            throwable.toGitOperationErrorOrNull()
+                ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to test Git connection"))
+        return when (operationError) {
+            is SettingsOperationError.GitSync ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = operationError.code.name,
+                    detail = operationError.detail,
+                )
+            is SettingsOperationError.Message ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.UNKNOWN.name,
+                    detail = operationError.text,
+                )
+            is SettingsOperationError.WebDavSync ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.UNKNOWN.name,
+                    detail = operationError.detail,
+                )
+        }
+    }
 
     private suspend fun runWithError(
         fallbackMessage: String,
@@ -280,18 +294,6 @@ class SettingsGitCoordinator(
             specificError = { throwable -> throwable.toGitOperationErrorOrNull() },
             action = action,
         )
-
-    private fun setGitPatStatus(status: StoredCredentialStatus) {
-        _gitPatStatus.value = status
-        _gitPatConfigured.value = status.isConfigured
-    }
-
-    private fun String.toCredentialStatus(): StoredCredentialStatus =
-        if (isBlank()) {
-            StoredCredentialStatus.Missing
-        } else {
-            StoredCredentialStatus.Present
-        }
 }
 
 private fun GitSyncResult.Error.toOperationError(): SettingsOperationError.GitSync =

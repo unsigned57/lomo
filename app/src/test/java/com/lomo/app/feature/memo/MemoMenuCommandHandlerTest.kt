@@ -28,6 +28,13 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - Compose sheet rendering, clipboard implementation, Android share intents, and InputSheet behavior.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 class MemoMenuCommandHandlerTest : AppFunSpec() {
     init {
@@ -99,7 +106,7 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
                     customFontPath = null,
                 ),
             onEditMemo = { memo -> events += MenuEvent.Edit(memo.id) },
-            onDeleteMemo = { memo -> events += MenuEvent.Delete(memo.id) },
+            onDeleteMemo = { memo, _ -> events += MenuEvent.Delete(memo.id) },
             onShareCard = { request ->
                 events +=
                     MenuEvent.ShareCard(

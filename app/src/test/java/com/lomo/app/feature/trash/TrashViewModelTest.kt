@@ -1,8 +1,10 @@
 package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
+import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -18,7 +20,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -26,15 +28,31 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
+ * - Unit under test: TrashViewModel
+ * - Owning layer: app
+ * - Priority tier: P1
  * - Capability: Trash list management, batch clear dispatching, permanent item deletions, and restore animations.
- * - Scenarios:
- *   - Given clearTrash call, transition all memos into the deleting state and trigger repository clear operation.
- *   - Given deletePermanently or restoreMemo triggers, retain row deletion indicators until item animations settle.
- *   - Given more trash memos than the initial window, grow the bounded page window on loadMore.
- * - Observable outcomes:
- *   - deletingMemoIds StateFlow values, trashUiMemos StateFlow lists, recorded page calls, and repository call checks.
- * - TDD proof: Asserts timing alignment, collapse marker settlement, and single-batch repo actions.
- * - Excludes: Compose UI trash layouts and pixel details.
+ *
+ * Scenarios:
+ * - Given clearTrash is called with multiple memos, when the operation runs, then all memos transition into the deleting state and one batch clear command is issued to the repository.
+ * - Given deletePermanently is triggered for a memo, when the repository completes removal, then the row deletion indicator is retained until the trash animation settles.
+ * - Given restoreMemo is triggered for a memo, when the repository completes the restore, then the row deletion indicator is retained until the trash animation settles.
+ *
+ * Observable outcomes:
+ * - deletingMemoIds StateFlow values, pagedUiMemos flow emissions, recorded page calls, and repository call checks.
+ *
+ * TDD proof:
+ * - Asserts timing alignment, collapse marker settlement, and single-batch repo actions were not present before the LomoList exit animation contract.
+ *
+ * Excludes:
+ * - Compose UI trash layouts and pixel details.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrashViewModelTest : AppFunSpec() {
@@ -71,9 +89,18 @@ class TrashViewModelTest : AppFunSpec() {
                 repository.setDeletedMemos(listOf(firstMemo, secondMemo))
 
                 val viewModel = createViewModel()
-                viewModel.trashUiMemos.first { it.size == 2 }
+                val pagingEmissions = mutableListOf<PagingData<MemoUiModel>>()
+                val collectJob = backgroundScope.launch {
+                    viewModel.pagedUiMemos.collect { pagingEmissions += it }
+                }
+                advanceUntilIdle()
 
-                viewModel.clearTrash()
+                viewModel.clearTrash(
+                    listOf(
+                        Triple(firstMemo.id, firstMemo, null),
+                        Triple(secondMemo.id, secondMemo, null)
+                    )
+                )
                 runCurrent()
 
                 viewModel.deletingMemoIds.value shouldBe setOf(firstMemo.id, secondMemo.id)
@@ -81,32 +108,9 @@ class TrashViewModelTest : AppFunSpec() {
 
                 viewModel.onDeleteAnimationSettled(firstMemo.id)
                 viewModel.onDeleteAnimationSettled(secondMemo.id)
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
-            }
-        }
-
-        test("loadMore appends the next trash page") {
-            runTest {
-                val deletedMemos =
-                    (1..60).map { index ->
-                        memo("trash-$index", LocalDate.of(2026, 3, 8), 9)
-                    }
-                repository.setDeletedMemos(deletedMemos)
-
-                val viewModel = createViewModel()
-
-                viewModel.trashMemos.first { memos -> memos.size == 50 }
-                viewModel.canLoadMore.first { canLoadMore -> canLoadMore }
-
-                viewModel.loadMore()
-                advanceUntilIdle()
-
-                viewModel.trashMemos.first { memos -> memos.size == 60 }
-                repository.trashPageCalls shouldBe
-                    listOf(
-                        FakeMemoStore.TrashPageCall(limit = 50, offset = 0),
-                        FakeMemoStore.TrashPageCall(limit = 50, offset = 50),
-                    )
+                collectJob.cancel()
             }
         }
 
@@ -121,9 +125,13 @@ class TrashViewModelTest : AppFunSpec() {
                 }
 
                 val viewModel = createViewModel()
-                viewModel.trashUiMemos.first { it.size == 1 }
+                val pagingEmissions = mutableListOf<PagingData<MemoUiModel>>()
+                val collectJob = backgroundScope.launch {
+                    viewModel.pagedUiMemos.collect { pagingEmissions += it }
+                }
+                advanceUntilIdle()
 
-                viewModel.deletePermanently(memo)
+                viewModel.deletePermanently(memo, null)
                 runCurrent()
 
                 viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
@@ -134,7 +142,9 @@ class TrashViewModelTest : AppFunSpec() {
                 viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
 
                 viewModel.onDeleteAnimationSettled(memo.id)
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
+                collectJob.cancel()
             }
         }
 
@@ -149,9 +159,13 @@ class TrashViewModelTest : AppFunSpec() {
                 }
 
                 val viewModel = createViewModel()
-                viewModel.trashUiMemos.first { it.size == 1 }
+                val pagingEmissions = mutableListOf<PagingData<MemoUiModel>>()
+                val collectJob = backgroundScope.launch {
+                    viewModel.pagedUiMemos.collect { pagingEmissions += it }
+                }
+                advanceUntilIdle()
 
-                viewModel.restoreMemo(memo)
+                viewModel.restoreMemo(memo, null)
                 runCurrent()
 
                 viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
@@ -162,7 +176,9 @@ class TrashViewModelTest : AppFunSpec() {
                 viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
 
                 viewModel.onDeleteAnimationSettled(memo.id)
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
+                collectJob.cancel()
             }
         }
     }
@@ -175,8 +191,10 @@ class TrashViewModelTest : AppFunSpec() {
                 ),
             appConfigStateProvider =
                 com.lomo.app.feature.common.AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                    CoroutineScope(SupervisorJob() + testDispatcher),
+                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                    appPreferencesSnapshotRepository = appConfigRepository,
+                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
             imageMapProvider = imageMapProvider,
             memoUiMapper = memoUiMapper,

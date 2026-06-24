@@ -23,7 +23,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.window.core.layout.WindowSizeClass
+import com.lomo.app.feature.conflict.RemoteSyncConflictProviders
 import com.lomo.app.feature.conflict.SyncConflictDialogController
+import com.lomo.app.feature.conflict.SyncConflictStateHost
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
@@ -127,7 +129,6 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
         snackbarHostState = snackbarHostState,
         scrollBehavior = scrollBehavior,
         listState = listState,
-        newMemoInsertAnimationSession = remember { NewMemoInsertAnimationSession() },
         editorController = editorController,
         isExpanded = isExpanded,
         directoryGuideController = rememberMainDirectoryGuideController(),
@@ -159,6 +160,7 @@ internal fun MainScreenDraftAutosaveEffect(
 internal fun MainScreenConflictHost(
     dependencies: MainScreenDependencies,
 ) {
+    val syncStates by dependencies.conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
     val conflictController =
         remember(dependencies.conflictViewModel) {
             SyncConflictDialogController(
@@ -177,6 +179,11 @@ internal fun MainScreenConflictHost(
             )
         }
     com.lomo.app.feature.conflict.SyncConflictDialogHost(controller = conflictController)
+    SyncConflictStateHost(
+        syncStates = syncStates,
+        providers = RemoteSyncConflictProviders,
+        controller = conflictController,
+    )
     LaunchedEffect(Unit) {
         dependencies.mainViewModel.syncConflictEvent.collect { conflictSet ->
             conflictController.onShowConflictDialog(conflictSet)

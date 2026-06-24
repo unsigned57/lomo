@@ -6,6 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.memoPager
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
@@ -20,12 +21,14 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.withContext
 
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
-private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
-private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE
+internal const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
+private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
+private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = false
 internal const val DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 
 sealed interface GalleryUiMemosState {
@@ -82,24 +85,21 @@ internal class MainMemoListStateHolder(
     private val memoPagingData: StateFlow<PagingData<Memo>?> =
         mainMemoQueryInput
             .flatMapLatest { queryInput ->
-                Pager(
-                    config =
-                        PagingConfig(
-                            pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
-                            initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
-                            prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
-                            enablePlaceholders = true,
-                            jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
-                        ),
+                memoPager(
+                    scope = scope,
+                    pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                    initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
+                    prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
+                    enablePlaceholders = DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS,
+                    jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
                     pagingSourceFactory = {
                         mainMemoListQueryUseCase.getMainListPagingSource(
                             queryInput.query,
                             queryInput.filter,
                         )
                     },
-                ).flow
-            }.cachedIn(scope)
-            .stateIn(scope, appWhileSubscribed(), null)
+                )
+            }.stateIn(scope, SharingStarted.Lazily, null)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val mainListTotalCount: StateFlow<Int> =

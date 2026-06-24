@@ -121,18 +121,11 @@ private fun SyncBackupSettingsBody(
     val webDavProviderLabels = remember(dialogOptions.webDavProviderLabels) {
         dialogOptions.webDavProviderLabels.toImmutableMap()
     }
-    val s3PathStyleLabels = remember(dialogOptions.s3PathStyleLabels) {
-        dialogOptions.s3PathStyleLabels.toImmutableMap()
-    }
-    val s3EncryptionModeLabels = remember(dialogOptions.s3EncryptionModeLabels) {
-        dialogOptions.s3EncryptionModeLabels.toImmutableMap()
-    }
-    val s3RcloneFilenameEncryptionLabels = remember(dialogOptions.s3RcloneFilenameEncryptionLabels) {
-        dialogOptions.s3RcloneFilenameEncryptionLabels.toImmutableMap()
-    }
-    val s3RcloneFilenameEncodingLabels = remember(dialogOptions.s3RcloneFilenameEncodingLabels) {
-        dialogOptions.s3RcloneFilenameEncodingLabels.toImmutableMap()
-    }
+    val s3SyncLabelSources =
+        rememberS3SyncLabelSources(
+            options = dialogOptions,
+            syncIntervalLabels = gitSyncIntervalLabels,
+        )
     val migrationOperationState by features.migration.operationState.collectAsStateWithLifecycle()
 
     Column(
@@ -210,11 +203,7 @@ private fun SyncBackupSettingsBody(
                     dialogState = dialogState,
                     s3Feature = features.s3,
                     onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
-                    syncIntervalLabels = gitSyncIntervalLabels,
-                    pathStyleLabels = s3PathStyleLabels,
-                    encryptionModeLabels = s3EncryptionModeLabels,
-                    rcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
-                    rcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
+                    labelSources = s3SyncLabelSources,
                 )
             },
         )

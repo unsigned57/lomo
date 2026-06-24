@@ -167,8 +167,3 @@ private fun SyncBackendType.conflictSubtitleResId(): Int =
         SyncBackendType.NONE,
         -> R.string.settings_s3_sync_status_conflict
     }
-
-private inline fun <reified T : Enum<T>> enumValueOrDefault(
-    raw: String?,
-    default: T,
-): T = raw?.let { value -> enumValues<T>().firstOrNull { it.name == value } } ?: default

@@ -20,17 +20,24 @@ import io.kotest.matchers.shouldBe
  *   the no-results target is selected.
  * - Given a non-empty query is not loading and has results, when content state resolves, then the
  *   results target is selected.
+ * - Given a non-empty query is not loading and has no results but has active exits, when content state resolves, then the
+ *   results target is selected.
  *
  * - Observable outcomes: returned enum value per matrix row.
  *
  * TDD proof:
- * - Fails before the stabilization because resolveSearchContentState still accepts Search's
- *   result list, making this local display policy look like a Batch B collection-state/projection
- *   integration point instead of a primitive local presentation mapping.
+ * - Fails before the stabilization when a query results set becomes empty during active exits, incorrectly selecting NoResults instead of Results.
  *
  * Excludes:
  * - Collection-state integration, result projection, SearchViewModel behavior, Compose animation
  *   frames, and memo card rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 class SearchContentStateTest : AppFunSpec() {
     init {
@@ -63,5 +70,17 @@ class SearchContentStateTest : AppFunSpec() {
 
             state shouldBe SearchContentState.Results
         }
+
+        test("given a non-empty query no loading empty results but has active exits when state resolves then it is Results") {
+            val state = resolveSearchContentState(
+                query = "hello",
+                showLoading = false,
+                hasResults = false,
+                hasActiveExits = true
+            )
+
+            state shouldBe SearchContentState.Results
+        }
     }
 }
+

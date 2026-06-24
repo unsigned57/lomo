@@ -1,40 +1,42 @@
 package com.lomo.app.feature.common
 
+import com.lomo.ui.component.common.ExitAnimationRegistry
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 
-internal suspend fun runDeleteAnimationWithRollback(
+internal suspend fun <T> runDeleteAnimationWithRollback(
     itemId: String,
-    deletingIds: MutableStateFlow<Set<String>>,
+    registry: ExitAnimationRegistry<T>,
+    item: T,
+    anchoredAfterKey: String?,
     mutation: suspend () -> Unit,
-): Result<Unit> {
-    return runDeleteAnimationWithRollback(
-        itemIds = setOf(itemId),
-        deletingIds = deletingIds,
+) {
+    runDeleteAnimationWithRollback(
+        items = listOf(Triple(itemId, item, anchoredAfterKey)),
+        registry = registry,
         mutation = mutation,
     )
 }
 
-internal suspend fun runDeleteAnimationWithRollback(
-    itemIds: Set<String>,
-    deletingIds: MutableStateFlow<Set<String>>,
+internal suspend fun <T> runDeleteAnimationWithRollback(
+    items: List<Triple<String, T, String?>>,
+    registry: ExitAnimationRegistry<T>,
     mutation: suspend () -> Unit,
-): Result<Unit> {
-    if (itemIds.isEmpty()) {
-        return Result.success(Unit)
+) {
+    if (items.isEmpty()) {
+        return
     }
 
-    deletingIds.update { it + itemIds }
+    items.forEach { (id, item, anchor) ->
+        registry.beginExit(id, item, anchor)
+    }
 
-    return runCatching {
+    runCatching {
         mutation()
-        Result.success(Unit)
-    }.getOrElse { throwable ->
-        deletingIds.update { it - itemIds }
-        if (throwable is CancellationException) {
-            throw throwable
+    }.onFailure { throwable ->
+        items.forEach { (id, _, _) ->
+            registry.settleExit(id)
         }
-        Result.failure(throwable)
+        throw throwable
     }
 }
+

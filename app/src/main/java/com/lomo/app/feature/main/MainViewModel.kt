@@ -23,6 +23,7 @@ import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SetMemoPinnedUseCase
+import com.lomo.ui.component.common.EnterAnimationRegistry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -37,18 +38,14 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlin.time.TimeMark
@@ -87,6 +84,9 @@ class MainViewModel
                         },
                     ),
                 scope = viewModelScope,
+                mapToUiModel = { memo ->
+                    memoUiMapper.mapToUiModel(memo, rootDirectory.value, imageDirectory.value, imageMap.value)
+                }
             )
 
         val collectionUiState: StateFlow<MemoCollectionUiState> = collectionActionStateHolder.uiState
@@ -155,16 +155,17 @@ class MainViewModel
             _pendingNewMemoCreationRequest.asStateFlow()
 
         val deletingMemoIds: StateFlow<Set<String>> = collectionActionStateHolder.deletingMemoIds
+        val exitAnimationRegistry = collectionActionStateHolder.exitAnimationRegistry
+
+        val enterAnimationRegistry = EnterAnimationRegistry()
 
         private val _hasResolvedInitialRoot = MutableStateFlow(false)
         private val _isInitialDirectoryImporting = MutableStateFlow(false)
         private val _rootDirectory = MutableStateFlow<String?>(null)
-        private val imageCacheSyncReady = MutableStateFlow(false)
         private var automaticRefreshJob: kotlinx.coroutines.Job? = null
         private var imageCacheSyncJob: kotlinx.coroutines.Job? = null
         private var lastAutomaticRefreshMark: TimeMark? = null
         private val manualRootRefreshPath = AtomicReference<String?>(null)
-        private val deferredStartupRequested = AtomicBoolean(false)
         val rootDirectory: StateFlow<String?> = _rootDirectory.asStateFlow()
 
         val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
@@ -397,13 +398,14 @@ class MainViewModel
             }
         }
 
-        val deleteMemo: (Memo) -> Unit = { memo ->
-            collectionActionStateHolder.actions.delete(memo)
+        val deleteMemo: (Memo, String?) -> Unit = { memo, anchoredAfterKey ->
+            collectionActionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
 
         internal fun onPagedDeleteAnimationSettled(memoId: String) {
-            collectionActionStateHolder.actions.onDeleteAnimationSettled(memoId)
+            exitAnimationRegistry.settleExit(memoId)
         }
+
 
         val markReminderDone: (String, String) -> Unit = { memoId, tokenRaw ->
             viewModelScope.launch(dispatcherProvider.io) {
@@ -546,30 +548,6 @@ class MainViewModel
             _errorMessage.value = null
         }
 
-        suspend fun runDeferredStartupTasksIfNeeded() {
-            if (!deferredStartupRequested.compareAndSet(false, true)) {
-                return
-            }
-            if (!_hasResolvedInitialRoot.value) {
-                _hasResolvedInitialRoot.filter { resolved -> resolved }.first()
-            }
-            runCatching {
-                startupCoordinator.runDeferredStartupTasks(_rootDirectory.value)
-            }.onFailure { throwable ->
-                when (throwable) {
-                    is CancellationException -> throw throwable
-                    is com.lomo.domain.usecase.SyncConflictException ->
-                        _syncConflictEvent.tryEmit(throwable.conflicts)
-                    is Exception ->
-                        _errorMessage.value =
-                            throwable.toUserMessage("Failed to finish startup sync")
-                    else -> throw throwable
-                }
-            }.also {
-                imageCacheSyncReady.value = true
-            }
-        }
-
         private fun updateRootDirectoryUiState(directory: String?) {
             val previousDirectory = _rootDirectory.value
             if (_hasResolvedInitialRoot.value && directory != null && directory != previousDirectory) {
@@ -585,28 +563,18 @@ class MainViewModel
             }
         }
 
-        @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+        @OptIn(FlowPreview::class)
         private fun loadImageMap() {
             // Image map now provided by ImageMapProvider (P2-001 refactor)
             // No need to collect here - imageMap exposed directly from provider
             viewModelScope.launch {
                 val initialConfiguredImageDirectory = appConfigStateProvider.currentImageDirectory()
-                val gateInitialConfiguredDirectorySync = AtomicBoolean(initialConfiguredImageDirectory != null)
 
                 imageDirectory
                     .filterNotNull()
                     .distinctUntilChanged()
-                    .transformLatest { directory ->
-                        val shouldWaitForDeferredStartup =
-                            gateInitialConfiguredDirectorySync.get() &&
-                                directory == initialConfiguredImageDirectory
-                        if (shouldWaitForDeferredStartup) {
-                            gateInitialConfiguredDirectorySync.set(false)
-                            imageCacheSyncReady.filter { ready -> ready }.first()
-                            return@transformLatest
-                        }
-                        emit(directory)
-                    }.debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
+                    .filter { directory -> directory != initialConfiguredImageDirectory }
+                    .debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
                     .collect { requestImageCacheSync("Failed to sync image cache") }
             }
         }

@@ -20,8 +20,10 @@ package com.lomo.app.feature.settings
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCredentialRepository
 import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
@@ -31,6 +33,7 @@ import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -82,6 +85,7 @@ class SettingsViewModelTest : AppFunSpec() {
     private val switchRootStorageUseCase: SwitchRootStorageUseCase = mockk()
     private val memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository()
     private val memoVersionRepository = FakeMemoVersionRepository()
+    private val credentialRepository = FakeCredentialRepository()
     private val migrationRepository = NoOpMigrationArchiveRepository()
     private val migrationWorkspaceStateResolver = NoOpWorkspaceStateResolver()
 
@@ -141,6 +145,7 @@ class SettingsViewModelTest : AppFunSpec() {
             shareServiceManager.incomingShare.value = com.lomo.domain.model.IncomingShareState.None
             shareServiceManager.discoveredDevices.value = emptyList()
             shareServiceManager.setLanSharePairingCodeError = null
+            credentialRepository.reset()
 
             mockEvery { gitSyncSettingsUseCase.observeGitSyncEnabled() } returns flowOf(false)
             mockEvery { gitSyncSettingsUseCase.observeRemoteUrl() } returns flowOf("")
@@ -209,7 +214,7 @@ class SettingsViewModelTest : AppFunSpec() {
                 mockCoEvery { gitSyncSettingsUseCase.triggerSyncNow() } throws IllegalStateException("sync failed")
                 val viewModel = createViewModel()
 
-                viewModel.gitFeature.triggerGitSyncNow()
+                viewModel.gitFeature.provider.triggerSyncNow()
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 viewModel.operationError.value shouldBe SettingsOperationError.Message("Failed to run Git sync: sync failed")
@@ -221,11 +226,12 @@ class SettingsViewModelTest : AppFunSpec() {
                 mockCoEvery { gitSyncSettingsUseCase.testConnection() } throws IllegalStateException("network down")
                 val viewModel = createViewModel()
 
-                viewModel.gitFeature.testGitConnection()
+                viewModel.gitFeature.provider.testConnection()
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                viewModel.connectionTestState.value shouldBe SettingsGitConnectionTestState.Error(
-                    code = GitSyncErrorCode.UNKNOWN,
+                viewModel.connectionTestState.value shouldBe RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.UNKNOWN.name,
                     detail = "Failed to test Git connection: network down",
                 )
                 viewModel.operationError.value shouldBe null
@@ -238,11 +244,12 @@ class SettingsViewModelTest : AppFunSpec() {
                     GitSyncResult.Error("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute")
                 val viewModel = createViewModel()
 
-                viewModel.gitFeature.testGitConnection()
+                viewModel.gitFeature.provider.testConnection()
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                viewModel.connectionTestState.value shouldBe SettingsGitConnectionTestState.Error(
-                    code = GitSyncErrorCode.UNKNOWN,
+                viewModel.connectionTestState.value shouldBe RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.UNKNOWN.name,
                     detail = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute",
                 )
             }
@@ -319,14 +326,16 @@ class SettingsViewModelTest : AppFunSpec() {
                 mockEvery { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(false)
                 mockEvery { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(false)
                 mockEvery { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf("none")
-                mockCoEvery { s3SyncSettingsUseCase.getEncryptionPassword2Status() } returns StoredCredentialStatus.Present
-                mockCoEvery { s3SyncSettingsUseCase.isEncryptionPassword2Configured() } returns true
+                credentialRepository.setFieldStatus(
+                    CredentialField.S3_ENCRYPTION_PASSWORD2,
+                    StoredCredentialStatus.Present,
+                )
 
                 val viewModel = createViewModel()
                 backgroundScope.launch { viewModel.uiState.collect {} }
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                viewModel.uiState.value.s3.enabled shouldBe true
+                viewModel.uiState.value.s3.providerSettings.enabled shouldBe true
                 viewModel.uiState.value.s3.bucket shouldBe "vault"
                 viewModel.uiState.value.s3.localSyncDirectory shouldBe "content://tree/primary%3AObsidian"
                 viewModel.uiState.value.s3.pathStyle shouldBe S3PathStyle.PATH_STYLE
@@ -336,7 +345,9 @@ class SettingsViewModelTest : AppFunSpec() {
                 viewModel.uiState.value.s3.rcloneDirectoryNameEncryption shouldBe false
                 viewModel.uiState.value.s3.rcloneDataEncryptionEnabled shouldBe false
                 viewModel.uiState.value.s3.rcloneEncryptedSuffix shouldBe "none"
-                viewModel.uiState.value.s3.encryptionPassword2Configured shouldBe true
+                viewModel.uiState.value.s3.providerSettings
+                    .credentialStatus(RemoteProviderCredentialField.S3EncryptionPassword2) shouldBe
+                    StoredCredentialStatus.Present
             }
         }
     }
@@ -345,6 +356,7 @@ class SettingsViewModelTest : AppFunSpec() {
         SettingsViewModel(
             coordinatorFactory = SettingsCoordinatorFactory(
                 appConfigRepository = appConfigRepository,
+                credentialRepository = credentialRepository,
                 lanShareService = shareServiceManager,
                 gitSyncSettingsUseCase = gitSyncSettingsUseCase,
                 webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,

@@ -3,14 +3,17 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.common.MemoCollectionActionStateHolder
 import com.lomo.app.feature.common.MemoCollectionCapabilities
-import com.lomo.app.feature.common.MemoCollectionStateHolder
-import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
@@ -22,7 +25,10 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -45,17 +51,35 @@ class TagFilterViewModel
     ) : ViewModel() {
         private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
         val tagName: String = routeArgs.tagName
-        private val collectionWindowStateHolder =
-            MemoCollectionWindowStateHolder(
-                source = { getMemosByTagPageUseCase(tag = tagName) },
-                scope = viewModelScope,
-            )
-        private val collectionStateHolder =
-            MemoCollectionStateHolder(
-                source = collectionWindowStateHolder.memos,
-                configStateProvider = appConfigStateProvider,
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = memoUiMapper,
+
+        val activeDayCount: StateFlow<Int> =
+            observeActiveDayCountUseCase()
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
+
+        private val mappingInput =
+            combine(
+                appConfigStateProvider.rootDirectory,
+                appConfigStateProvider.imageDirectory,
+                imageMapProvider.imageMap,
+            ) { root, img, map -> UiMappingInput(root, img, map) }
+                .distinctUntilChanged { old, new -> old.sameForPaging(new) }
+                .stateIn(viewModelScope, appWhileSubscribed(), UiMappingInput.EMPTY)
+
+        val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
+            combine(
+                mappingInput,
+                memoPager(
+                    scope = viewModelScope,
+                    pagingSourceFactory = { getMemosByTagPageUseCase(tag = tagName) },
+                ),
+            ) { input, pagingData ->
+                pagingData.map { memo ->
+                    memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)
+                }
+            }
+
+        private val actionStateHolder =
+            MemoCollectionActionStateHolder(
                 capabilities =
                     MemoCollectionCapabilities.Editable(
                         deleteMemo = deleteMemoUseCase::invoke,
@@ -66,44 +90,32 @@ class TagFilterViewModel
                         saveImage = saveImageUseCase::saveWithCacheSyncStatus,
                     ),
                 scope = viewModelScope,
+                mapToUiModel = { memo ->
+                    memoUiMapper.mapToUiModel(memo, rootDir.value, imageDir.value, imageMap.value)
+                }
             )
 
-        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
-        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
+        val errorMessage: StateFlow<String?> = actionStateHolder.errorMessage
+        val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
+        val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
+        val rootDir: StateFlow<String?> = appConfigStateProvider.rootDirectory
+        val imageDir: StateFlow<String?> = appConfigStateProvider.imageDirectory
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
-        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
-
-        val activeDayCount: StateFlow<Int> =
-            observeActiveDayCountUseCase()
-                .stateIn(viewModelScope, appWhileSubscribed(), 0)
-
-        val rootDir: StateFlow<String?> = collectionStateHolder.rootDirectory
-        val imageDir: StateFlow<String?> = collectionStateHolder.imageDirectory
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
-
-        val memos: StateFlow<List<Memo>> = collectionStateHolder.memos
-        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
-
-        val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            collectionStateHolder.uiMemos
-
-        fun loadMore() {
-            collectionWindowStateHolder.loadNextPage()
-        }
-
-        fun deleteMemo(memo: Memo) {
-            collectionStateHolder.actions.delete(memo)
+        fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
+            actionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
+            exitAnimationRegistry.settleExit(memoId)
         }
 
         fun updateMemo(
             memo: Memo,
             newContent: String,
         ) {
-            collectionStateHolder.actions.updateMemo(memo, newContent)
+            actionStateHolder.actions.updateMemo(memo, newContent)
         }
 
         fun toggleTodo(
@@ -111,7 +123,7 @@ class TagFilterViewModel
             lineIndex: Int,
             checked: Boolean,
         ) {
-            collectionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
+            actionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
         }
 
         fun saveImage(
@@ -119,11 +131,11 @@ class TagFilterViewModel
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            collectionStateHolder.actions.saveImage(uri, onResult, onError)
+            actionStateHolder.actions.saveImage(uri, onResult, onError)
         }
 
         fun clearError() {
-            collectionStateHolder.errors.clear()
+            actionStateHolder.errors.clear()
         }
 
         fun recordMemoActionUsage(actionId: MemoActionId) {
@@ -166,3 +178,17 @@ class TagFilterViewModel
             }
         }
     }
+
+private data class UiMappingInput(
+    val root: String?,
+    val img: String?,
+    val map: Map<String, android.net.Uri>,
+) {
+    fun sameForPaging(other: UiMappingInput): Boolean {
+        return root == other.root && img == other.img && map == other.map
+    }
+
+    companion object {
+        val EMPTY = UiMappingInput(null, null, emptyMap())
+    }
+}

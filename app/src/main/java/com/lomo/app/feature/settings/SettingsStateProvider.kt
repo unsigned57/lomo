@@ -4,8 +4,6 @@ import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
@@ -22,37 +20,17 @@ class SettingsStateProvider(
     val operationError: StateFlow<SettingsOperationError?>,
     scope: CoroutineScope,
 ) {
-    private data class GitIdentityState(
-        val enabled: Boolean,
+    private data class GitExtensionState(
         val remoteUrl: String,
-        val patStatus: StoredCredentialStatus,
         val authorName: String,
         val authorEmail: String,
     )
 
-    private data class GitSyncSettingsState(
-        val autoSyncEnabled: Boolean,
-        val autoSyncInterval: String,
-        val syncOnRefreshEnabled: Boolean,
-        val lastSyncTime: Long,
-        val syncState: UnifiedSyncState,
-    )
-
-    private data class WebDavIdentityState(
-        val enabled: Boolean,
+    private data class WebDavExtensionState(
         val provider: WebDavProvider,
         val baseUrl: String,
         val endpointUrl: String,
         val username: String,
-        val passwordStatus: StoredCredentialStatus,
-    )
-
-    private data class WebDavSyncSettingsState(
-        val autoSyncEnabled: Boolean,
-        val autoSyncInterval: String,
-        val syncOnRefreshEnabled: Boolean,
-        val lastSyncTime: Long,
-        val syncState: UnifiedSyncState,
     )
 
     private data class InteractionPrimaryState(
@@ -93,10 +71,10 @@ class SettingsStateProvider(
     )
 
     val pairingCodeError: StateFlow<String?> = lanShareCoordinator.pairingCodeError
-    val connectionTestState: StateFlow<SettingsGitConnectionTestState> = gitCoordinator.connectionTestState
-    val webDavConnectionTestState: StateFlow<SettingsWebDavConnectionTestState> = webDavCoordinator.connectionTestState
+    val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = gitCoordinator.connectionTestState
+    val webDavConnectionTestState: StateFlow<RemoteProviderConnectionTestState> = webDavCoordinator.connectionTestState
     private val s3StateProvider = SettingsS3StateProvider(s3Coordinator = s3Coordinator, scope = scope)
-    val s3ConnectionTestState: StateFlow<SettingsS3ConnectionTestState> = s3StateProvider.connectionTestState
+    val s3ConnectionTestState: StateFlow<RemoteProviderConnectionTestState> = s3StateProvider.connectionTestState
 
     private val storageState: StateFlow<StorageSectionState> =
         combine(
@@ -283,69 +261,35 @@ class SettingsStateProvider(
                 ),
         )
 
-    private val gitIdentityState: StateFlow<GitIdentityState> =
+    private val gitExtensionState: StateFlow<GitExtensionState> =
         combine(
-            gitCoordinator.gitSyncEnabled,
             gitCoordinator.gitRemoteUrl,
-            gitCoordinator.gitPatStatus,
             gitCoordinator.gitAuthorName,
             gitCoordinator.gitAuthorEmail,
-        ) { enabled, remoteUrl, patStatus, authorName, authorEmail ->
-            GitIdentityState(enabled, remoteUrl, patStatus, authorName, authorEmail)
+        ) { remoteUrl, authorName, authorEmail ->
+            GitExtensionState(remoteUrl, authorName, authorEmail)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
-                GitIdentityState(
-                    enabled = gitCoordinator.gitSyncEnabled.value,
+                GitExtensionState(
                     remoteUrl = gitCoordinator.gitRemoteUrl.value,
-                    patStatus = gitCoordinator.gitPatStatus.value,
                     authorName = gitCoordinator.gitAuthorName.value,
                     authorEmail = gitCoordinator.gitAuthorEmail.value,
                 ),
         )
 
-    private val gitSyncSettingsState: StateFlow<GitSyncSettingsState> =
-        combine(
-            gitCoordinator.gitAutoSyncEnabled,
-            gitCoordinator.gitAutoSyncInterval,
-            gitCoordinator.gitSyncOnRefreshEnabled,
-            gitCoordinator.gitLastSyncTime,
-            gitCoordinator.gitSyncState,
-        ) { autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState ->
-            GitSyncSettingsState(autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState)
-        }.stateIn(
-            scope = scope,
-            started = settingsWhileSubscribed(),
-            initialValue =
-                GitSyncSettingsState(
-                    autoSyncEnabled = gitCoordinator.gitAutoSyncEnabled.value,
-                    autoSyncInterval = gitCoordinator.gitAutoSyncInterval.value,
-                    syncOnRefreshEnabled = gitCoordinator.gitSyncOnRefreshEnabled.value,
-                    lastSyncTime = gitCoordinator.gitLastSyncTime.value,
-                    syncState = gitCoordinator.gitSyncState.value,
-                ),
-        )
-
     private val gitState: StateFlow<GitSectionState> =
         combine(
-            gitIdentityState,
-            gitSyncSettingsState,
-            gitCoordinator.connectionTestState,
+            gitCoordinator.providerSettingsModel,
+            gitExtensionState,
             gitCoordinator.resetInProgress,
-        ) { identity, syncSettings, connectionTestState, resetInProgress ->
+        ) { providerSettings, extension, resetInProgress ->
             GitSectionState(
-                enabled = identity.enabled,
-                remoteUrl = identity.remoteUrl,
-                patStatus = identity.patStatus,
-                authorName = identity.authorName,
-                authorEmail = identity.authorEmail,
-                autoSyncEnabled = syncSettings.autoSyncEnabled,
-                autoSyncInterval = syncSettings.autoSyncInterval,
-                syncOnRefreshEnabled = syncSettings.syncOnRefreshEnabled,
-                lastSyncTime = syncSettings.lastSyncTime,
-                syncState = syncSettings.syncState,
-                connectionTestState = connectionTestState,
+                providerSettings = providerSettings,
+                remoteUrl = extension.remoteUrl,
+                authorName = extension.authorName,
+                authorEmail = extension.authorEmail,
                 resetInProgress = resetInProgress,
             )
         }.stateIn(
@@ -353,127 +297,77 @@ class SettingsStateProvider(
             started = settingsWhileSubscribed(),
             initialValue =
                 GitSectionState(
-                    enabled = gitIdentityState.value.enabled,
-                    remoteUrl = gitIdentityState.value.remoteUrl,
-                    patStatus = gitIdentityState.value.patStatus,
-                    authorName = gitIdentityState.value.authorName,
-                    authorEmail = gitIdentityState.value.authorEmail,
-                    autoSyncEnabled = gitSyncSettingsState.value.autoSyncEnabled,
-                    autoSyncInterval = gitSyncSettingsState.value.autoSyncInterval,
-                    syncOnRefreshEnabled = gitSyncSettingsState.value.syncOnRefreshEnabled,
-                    lastSyncTime = gitSyncSettingsState.value.lastSyncTime,
-                    syncState = gitSyncSettingsState.value.syncState,
-                    connectionTestState = gitCoordinator.connectionTestState.value,
+                    providerSettings = gitCoordinator.providerSettingsModel.value,
+                    remoteUrl = gitExtensionState.value.remoteUrl,
+                    authorName = gitExtensionState.value.authorName,
+                    authorEmail = gitExtensionState.value.authorEmail,
                     resetInProgress = gitCoordinator.resetInProgress.value,
                 ),
         )
 
-    private val webDavIdentityInputs: StateFlow<Triple<Boolean, WebDavProvider, String>> =
+    private val webDavBaseExtensionState: StateFlow<Triple<WebDavProvider, String, String>> =
         combine(
-            webDavCoordinator.webDavSyncEnabled,
             webDavCoordinator.webDavProvider,
             webDavCoordinator.webDavBaseUrl,
-        ) { enabled, provider, baseUrl ->
-            Triple(enabled, provider, baseUrl)
+            webDavCoordinator.webDavEndpointUrl,
+        ) { provider, baseUrl, endpointUrl ->
+            Triple(provider, baseUrl, endpointUrl)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
                 Triple(
-                    webDavCoordinator.webDavSyncEnabled.value,
                     webDavCoordinator.webDavProvider.value,
                     webDavCoordinator.webDavBaseUrl.value,
+                    webDavCoordinator.webDavEndpointUrl.value,
                 ),
         )
 
-    private val webDavIdentityState: StateFlow<WebDavIdentityState> =
+    private val webDavExtensionState: StateFlow<WebDavExtensionState> =
         combine(
-            webDavIdentityInputs,
-            webDavCoordinator.webDavEndpointUrl,
+            webDavBaseExtensionState,
             webDavCoordinator.webDavUsername,
-            webDavCoordinator.passwordStatus,
-        ) { baseInputs, endpointUrl, username, passwordStatus ->
-            WebDavIdentityState(
-                enabled = baseInputs.first,
-                provider = baseInputs.second,
-                baseUrl = baseInputs.third,
-                endpointUrl = endpointUrl,
+        ) { baseInputs, username ->
+            WebDavExtensionState(
+                provider = baseInputs.first,
+                baseUrl = baseInputs.second,
+                endpointUrl = baseInputs.third,
                 username = username,
-                passwordStatus = passwordStatus,
             )
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
-                WebDavIdentityState(
-                    enabled = webDavCoordinator.webDavSyncEnabled.value,
+                WebDavExtensionState(
                     provider = webDavCoordinator.webDavProvider.value,
                     baseUrl = webDavCoordinator.webDavBaseUrl.value,
                     endpointUrl = webDavCoordinator.webDavEndpointUrl.value,
                     username = webDavCoordinator.webDavUsername.value,
-                    passwordStatus = webDavCoordinator.passwordStatus.value,
-                ),
-        )
-
-    private val webDavSyncSettingsState: StateFlow<WebDavSyncSettingsState> =
-        combine(
-            webDavCoordinator.webDavAutoSyncEnabled,
-            webDavCoordinator.webDavAutoSyncInterval,
-            webDavCoordinator.webDavSyncOnRefreshEnabled,
-            webDavCoordinator.webDavLastSyncTime,
-            webDavCoordinator.webDavSyncState,
-        ) { autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState ->
-            WebDavSyncSettingsState(autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState)
-        }.stateIn(
-            scope = scope,
-            started = settingsWhileSubscribed(),
-            initialValue =
-                WebDavSyncSettingsState(
-                    autoSyncEnabled = webDavCoordinator.webDavAutoSyncEnabled.value,
-                    autoSyncInterval = webDavCoordinator.webDavAutoSyncInterval.value,
-                    syncOnRefreshEnabled = webDavCoordinator.webDavSyncOnRefreshEnabled.value,
-                    lastSyncTime = webDavCoordinator.webDavLastSyncTime.value,
-                    syncState = webDavCoordinator.webDavSyncState.value,
                 ),
         )
 
     private val webDavState: StateFlow<WebDavSectionState> =
         combine(
-            webDavIdentityState,
-            webDavSyncSettingsState,
-            webDavCoordinator.connectionTestState,
-        ) { identity, syncSettings, connectionTestState ->
+            webDavCoordinator.providerSettingsModel,
+            webDavExtensionState,
+        ) { providerSettings, extension ->
             WebDavSectionState(
-                enabled = identity.enabled,
-                provider = identity.provider,
-                baseUrl = identity.baseUrl,
-                endpointUrl = identity.endpointUrl,
-                username = identity.username,
-                passwordStatus = identity.passwordStatus,
-                autoSyncEnabled = syncSettings.autoSyncEnabled,
-                autoSyncInterval = syncSettings.autoSyncInterval,
-                syncOnRefreshEnabled = syncSettings.syncOnRefreshEnabled,
-                lastSyncTime = syncSettings.lastSyncTime,
-                syncState = syncSettings.syncState,
-                connectionTestState = connectionTestState,
+                providerSettings = providerSettings,
+                provider = extension.provider,
+                baseUrl = extension.baseUrl,
+                endpointUrl = extension.endpointUrl,
+                username = extension.username,
             )
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
                 WebDavSectionState(
-                    enabled = webDavIdentityState.value.enabled,
-                    provider = webDavIdentityState.value.provider,
-                    baseUrl = webDavIdentityState.value.baseUrl,
-                    endpointUrl = webDavIdentityState.value.endpointUrl,
-                    username = webDavIdentityState.value.username,
-                    passwordStatus = webDavIdentityState.value.passwordStatus,
-                    autoSyncEnabled = webDavSyncSettingsState.value.autoSyncEnabled,
-                    autoSyncInterval = webDavSyncSettingsState.value.autoSyncInterval,
-                    syncOnRefreshEnabled = webDavSyncSettingsState.value.syncOnRefreshEnabled,
-                    lastSyncTime = webDavSyncSettingsState.value.lastSyncTime,
-                    syncState = webDavSyncSettingsState.value.syncState,
-                    connectionTestState = webDavCoordinator.connectionTestState.value,
+                    providerSettings = webDavCoordinator.providerSettingsModel.value,
+                    provider = webDavExtensionState.value.provider,
+                    baseUrl = webDavExtensionState.value.baseUrl,
+                    endpointUrl = webDavExtensionState.value.endpointUrl,
+                    username = webDavExtensionState.value.username,
                 ),
         )
 

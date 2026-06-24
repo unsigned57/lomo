@@ -267,7 +267,10 @@ class DailyReviewViewModel
             }
         }
 
-        fun deleteMemo(memo: Memo) {
+        fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
+            anchoredAfterKey?.let {
+                // behavior-contract: silent-result-ok: no-op for non-animated daily review list
+            }
             viewModelScope.launch {
                 runCatching {
                     deleteMemoUseCase(memo)

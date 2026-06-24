@@ -200,8 +200,7 @@ internal fun HandleSettingsOperationError(
     LaunchedEffect(operationError) {
         val error = operationError ?: return@LaunchedEffect
         if (error is SettingsOperationError.GitSync && gitFeature.shouldShowGitConflictDialog(error.code)) {
-            dialogState.gitConflictError = error
-            dialogState.showGitConflictResolutionDialog = true
+            dialogState.openProviderGitConflictDialog(error)
         } else {
             snackbarHostState.showSnackbar(localizedMessage ?: messages.unknownErrorMessage)
         }
@@ -210,76 +209,30 @@ internal fun HandleSettingsOperationError(
 }
 
 @Composable
-internal fun HandleGitConflictState(
+internal fun HandleGitProviderErrorState(
     syncState: UnifiedSyncState,
     gitFeature: SettingsGitFeatureViewModel,
     dialogState: SettingsDialogState,
-    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
         val errorState = syncState as? UnifiedSyncState.Error
-        if (errorState != null) {
-            if (errorState.error.provider != SyncBackendType.GIT) return@LaunchedEffect
-            val gitErrorCode =
-                enumValueOf<com.lomo.domain.model.GitSyncErrorCode>(
-                    errorState.error.providerCode ?: com.lomo.domain.model.GitSyncErrorCode.UNKNOWN.name,
-                )
-            if (
-                gitFeature.shouldShowGitConflictDialog(gitErrorCode) &&
-                !dialogState.showGitConflictResolutionDialog
-            ) {
-                dialogState.gitConflictError =
-                    SettingsOperationError.GitSync(
-                        code = gitErrorCode,
-                        detail = errorState.error.message,
-                    )
-                dialogState.showGitConflictResolutionDialog = true
-            }
+        if (errorState == null || errorState.error.provider != SyncBackendType.GIT) {
             return@LaunchedEffect
         }
-        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
-        onShowConflictDialog(conflictState.conflicts)
-    }
-}
-
-@Composable
-internal fun HandleWebDavConflictState(
-    syncState: UnifiedSyncState,
-    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
-    onShowReviewDialog: (com.lomo.domain.model.SyncReviewSession) -> Unit,
-) {
-    LaunchedEffect(syncState) {
-        when (syncState) {
-            is UnifiedSyncState.ConflictDetected -> {
-                if (syncState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
-                onShowConflictDialog(syncState.conflicts)
-            }
-            is UnifiedSyncState.ReviewRequired -> {
-                if (syncState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
-                onShowReviewDialog(syncState.review)
-            }
-            else -> Unit
-        }
-    }
-}
-
-@Composable
-internal fun HandleS3ConflictState(
-    syncState: UnifiedSyncState,
-    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
-    onShowReviewDialog: (com.lomo.domain.model.SyncReviewSession) -> Unit,
-) {
-    LaunchedEffect(syncState) {
-        when (syncState) {
-            is UnifiedSyncState.ConflictDetected -> {
-                if (syncState.provider != SyncBackendType.S3) return@LaunchedEffect
-                onShowConflictDialog(syncState.conflicts)
-            }
-            is UnifiedSyncState.ReviewRequired -> {
-                if (syncState.provider != SyncBackendType.S3) return@LaunchedEffect
-                onShowReviewDialog(syncState.review)
-            }
-            else -> Unit
+        val gitErrorCode =
+            enumValueOf<com.lomo.domain.model.GitSyncErrorCode>(
+                errorState.error.providerCode ?: com.lomo.domain.model.GitSyncErrorCode.UNKNOWN.name,
+            )
+        if (
+            gitFeature.shouldShowGitConflictDialog(gitErrorCode) &&
+            dialogState.activeProviderDialogRoute !is SettingsDialogRoute.RemoteProviderGitConflict
+        ) {
+            dialogState.openProviderGitConflictDialog(
+                SettingsOperationError.GitSync(
+                    code = gitErrorCode,
+                    detail = errorState.error.message,
+                ),
+            )
         }
     }
 }

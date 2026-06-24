@@ -213,6 +213,8 @@
     <string name="share_status_sent">已发送到 %1$s</string>
     <string name="share_searching_devices">正在搜索附近设备…</string>
     <string name="share_searching_hint">请确保两台设备连接到同一 WiFi</string>
+    <string name="share_searching_probe_backoff_hint">仍在轮询附近地址；热点网络下可能需要更长时间。</string>
+    <string name="share_searching_degraded_route_hint">本地路由已降级；请保持两台设备唤醒并连接同一热点。</string>
     <string name="share_permission_required_title">需要本地网络权限</string>
     <string name="share_permission_required_hint">请允许本地网络访问，以便在当前 Wi‑Fi 下发现附近设备。</string>
     <string name="share_open_settings">打开设置</string>
@@ -639,6 +641,7 @@
     <string name="settings_s3_not_configured_message">S3 同步尚未配置。</string>
     <string name="settings_s3_auth_failed_message">S3 凭证无效或缺失。</string>
     <string name="settings_s3_bucket_access_failed_message">无法访问配置的 S3 存储桶。</string>
+    <string name="settings_s3_remote_layout_violation_message">S3 同步已停止：远端对象不在当前配置的前缀范围内。</string>
     <string name="settings_s3_encryption_failed_message">当前加密配置无效。</string>
     <string name="settings_s3_test_connection">测试连接</string>
     <string name="settings_s3_test_connection_testing">测试中…</string>

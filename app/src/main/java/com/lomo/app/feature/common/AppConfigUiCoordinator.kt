@@ -1,11 +1,8 @@
 package com.lomo.app.feature.common
 
-import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.feature.memo.defaultMemoActionOrder
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.CustomFontStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -15,7 +12,6 @@ class AppConfigUiCoordinator
     @Inject
     constructor(
         private val appConfigRepository: AppConfigRepository,
-        private val customFontStore: CustomFontStore,
     ) {
         fun rootDirectory(): Flow<String?> =
             appConfigRepository
@@ -33,9 +29,6 @@ class AppConfigUiCoordinator
         appConfigRepository
             .observeLocation(StorageArea.VOICE)
             .map { it?.raw }
-
-        fun appPreferences(): Flow<AppPreferencesState> =
-            appConfigRepository.observeAppPreferences(customFontStore)
 
         suspend fun recordMemoActionUsage(
             actionId: String,

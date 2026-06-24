@@ -217,6 +217,8 @@
     <string name="share_status_sent">Sent to %1$s</string>
     <string name="share_searching_devices">Searching for nearby devices…</string>
     <string name="share_searching_hint">Make sure both devices are on the same WiFi</string>
+    <string name="share_searching_probe_backoff_hint">Still scanning nearby addresses; this can take longer on hotspot networks.</string>
+    <string name="share_searching_degraded_route_hint">Local route is degraded; keep both devices awake and on the same hotspot.</string>
     <string name="share_permission_required_title">Local network permission required</string>
     <string name="share_permission_required_hint">Allow local network access to discover nearby devices on this WiFi.</string>
     <string name="share_open_settings">Open settings</string>
@@ -644,6 +646,7 @@
     <string name="settings_s3_not_configured_message">S3 sync is not configured.</string>
     <string name="settings_s3_auth_failed_message">S3 credentials are invalid or missing.</string>
     <string name="settings_s3_bucket_access_failed_message">Cannot access the configured S3 bucket.</string>
+    <string name="settings_s3_remote_layout_violation_message">S3 sync stopped because a remote object is outside the configured prefix.</string>
     <string name="settings_s3_encryption_failed_message">The configured encryption settings are invalid.</string>
     <string name="settings_s3_test_connection">Test Connection</string>
     <string name="settings_s3_test_connection_testing">Testing…</string>

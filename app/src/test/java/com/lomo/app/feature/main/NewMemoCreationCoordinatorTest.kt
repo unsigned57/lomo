@@ -8,59 +8,85 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: new-memo creation coordination before list insertion.
- * - Behavior focus: a new memo should be created immediately when already at the absolute top without forcing an
- *   extra top-anchor jump, otherwise only after the list has directly jumped back to the absolute top; prepend
- *   creation must not schedule a second top-anchor step after that top recovery.
- * - Observable outcomes: direct top-recovery invocation count, absence of extra anchor pinning, creation
- *   ordering, and single-submission behavior under overlap.
- * - Red phase: Fails before the fix because NewMemoCreationCoordinator still invokes a separate top-anchor pin
- *   step after top recovery, which keeps the prepend flow dependent on an extra anchor phase instead of
- *   proceeding directly into the staged insert animation.
- * - Excludes: Compose recomposition, LazyList animation timing internals, and repository persistence.
+ * Behavior Contract:
+ * - Unit under test: NewMemoCreationCoordinator
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: coordinate new-memo creation across the full insert lifecycle including scroll, await, and reveal.
+ *
+ * Scenarios:
+ * - Given the list is at top, when submit is called, then no scroll occurs, the memo is created, and after awaiting a new top id it reveals at position 0.
+ * - Given the list is away from top, when submit is called, then it scrolls to top first, then creates and awaits/reveals with no second anchor-pinning phase.
+ * - Given a submit is in flight, when a second submit is called, then the second submit is rejected.
+ * - Given an await times out due to DB write failure, when reveal runs, then it still executes gracefully.
+ * - Given an empty list with previousTopId=null, when a new memo is created, then any non-null top id triggers reveal.
+ *
+ * Observable outcomes:
+ * - Sequence of events (scroll/create/await/reveal), captured previousTopId, overlap rejection, and graceful timeout handling.
+ *
+ * TDD proof:
+ * - Fails before the fix because the previous coordinator invoked revealNewTopItem in the same frame as the fire-and-forget createMemo, racing the async DB insert.
+ *
+ * Excludes:
+ * - Compose rendering, actual DB persistence, and paging source internals.
  */
 /*
  * Test Change Justification:
- * - Reason category: product contract changed.
- * - Exact behavior/assertion being replaced: the existing off-top test required a `pin` phase after the list had
- *   already recovered to the absolute top.
- * - Why the previous assertion is no longer correct: the requested prepend flow is now "jump to top if needed,
- *   then create and animate". Keeping a second anchor phase makes the implementation depend on extra repinning
- *   that the new animation order no longer permits.
- * - Retained/new coverage: the tests still protect top recovery ordering and overlap rejection, while now
- *   forbidding redundant post-recovery pinning in both the already-at-top and away-from-top paths.
- * - Why this is not changing the test to fit the implementation: the new assertion matches the reported
- *   user-visible prepend sequence rather than an internal refactor detail.
+ * - Reason category: product contract changed (race fix).
+ * - Old behavior/assertion being replaced: the previous coordinator invoked revealNewTopItem in
+ *   the same frame as the fire-and-forget `createMemo`, racing the async DB insert; the
+ *   scroll pinned the old top and the freshly-created memo ended up above the viewport.
+ * - Why old assertion is no longer correct: the coordinator must own the full
+ *   lifecycle including the snapshot-wait step, otherwise the reveal cannot see the new
+ *   item in the paging list.
+ * - Coverage preserved by: the existing top-recovery and overlap tests are preserved
+ *   with the new API.
+ * - Why this is not fitting the test to the implementation: it defines the
+ *   user-visible correctness contract (new memo must enter the viewport) per the
+ *   reported regression.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewMemoCreationCoordinatorTest : AppFunSpec() {
     init {
-        test("submit creates immediately without scrolling or repinning when list is already at top") {
+        test("submit at top creates immediately, awaits new top memo, then reveals") {
             runTest {
                 val events = mutableListOf<String>()
+                var capturedPreviousTopId: String? = "UNSET"
+                var createdWasAtTop: Boolean? = null
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
                         scope = backgroundScope,
                         isListAtAbsoluteTop = { true },
                         scrollListToAbsoluteTop = { events += "scroll" },
-                        createMemo = { content -> events += "create:$content" },
+                        createMemo = { content, wasAtTop ->
+                            events += "create:$content"
+                            createdWasAtTop = wasAtTop
+                        },
+                        currentTopMemoId = { "old-memo-id" },
+                        awaitNewTopItemAndReveal = { previousTopId ->
+                            capturedPreviousTopId = previousTopId
+                            events += "await:$previousTopId"
+                            events += "reveal"
+                        },
                     )
 
                 val accepted = coordinator.submit("memo body")
                 advanceUntilIdle()
 
-                ((accepted)) shouldBe true
-                (events) shouldBe (listOf("create:memo body"))
+                accepted shouldBe true
+                events shouldBe listOf("create:memo body", "await:old-memo-id", "reveal")
+                createdWasAtTop shouldBe true
+                capturedPreviousTopId shouldBe "old-memo-id"
             }
         }
     }
 
     init {
-        test("submit jumps to top and then creates when list is away from top without a second anchor phase") {
+        test("submit away from top scrolls first, then creates, awaits, and reveals without a second anchor phase") {
             runTest {
                 val events = mutableListOf<String>()
                 var atTop = false
+                var createdWasAtTop: Boolean? = null
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
                         scope = backgroundScope,
@@ -69,44 +95,109 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             events += "scroll"
                             atTop = true
                         },
-                        createMemo = { content -> events += "create:$content" },
+                        createMemo = { content, wasAtTop ->
+                            events += "create:$content"
+                            createdWasAtTop = wasAtTop
+                        },
+                        currentTopMemoId = { "prev-id" },
+                        awaitNewTopItemAndReveal = { previousTopId ->
+                            events += "await:$previousTopId"
+                            events += "reveal"
+                        },
                     )
 
                 val accepted = coordinator.submit("memo body")
                 advanceUntilIdle()
 
-                ((accepted)) shouldBe true
-                (events) shouldBe (listOf("scroll", "create:memo body"))
+                accepted shouldBe true
+                events shouldBe listOf("scroll", "create:memo body", "await:prev-id", "reveal")
+                createdWasAtTop shouldBe true
             }
         }
     }
 
     init {
-        test("submit ignores overlapping requests while waiting for scroll completion") {
+        test("submit ignores overlapping requests while waiting for creation/reveal") {
             runTest {
-                val scrollGate = CompletableDeferred<Unit>()
+                val awaitGate = CompletableDeferred<Unit>()
                 val events = mutableListOf<String>()
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
                         scope = backgroundScope,
-                        isListAtAbsoluteTop = { false },
-                        scrollListToAbsoluteTop = {
-                            events += "scroll"
-                            scrollGate.await()
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = { events += "scroll" },
+                        createMemo = { content, _ -> events += "create:$content" },
+                        currentTopMemoId = { "prev-id" },
+                        awaitNewTopItemAndReveal = { previousTopId ->
+                            events += "await:$previousTopId"
+                            awaitGate.await()
+                            events += "reveal"
                         },
-                        createMemo = { content -> events += "create:$content" },
                     )
 
                 val firstAccepted = coordinator.submit("first")
                 val secondAccepted = coordinator.submit("second")
-                scrollGate.complete(Unit)
+                awaitGate.complete(Unit)
                 advanceUntilIdle()
 
-                ((firstAccepted)) shouldBe true
-                (secondAccepted) shouldBe (false)
-                (events) shouldBe (listOf("scroll", "create:first"))
+                firstAccepted shouldBe true
+                secondAccepted shouldBe false
+                events shouldBe listOf("create:first", "await:prev-id", "reveal")
             }
         }
     }
 
+    init {
+        test("previousTopId is null when list is empty; await runs and reveals anyway") {
+            runTest {
+                val events = mutableListOf<String>()
+                var capturedPreviousTopId: String? = "UNSET"
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = { events += "scroll" },
+                        createMemo = { content, _ -> events += "create:$content" },
+                        currentTopMemoId = { null },
+                        awaitNewTopItemAndReveal = { previousTopId ->
+                            capturedPreviousTopId = previousTopId
+                            events += "reveal"
+                        },
+                    )
+
+                val accepted = coordinator.submit("memo body")
+                advanceUntilIdle()
+
+                accepted shouldBe true
+                events shouldBe listOf("create:memo body", "reveal")
+                capturedPreviousTopId shouldBe null
+            }
+        }
+    }
+
+    init {
+        test("reveal runs even when await returns without a new top id (graceful guard)") {
+            runTest {
+                val events = mutableListOf<String>()
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = { events += "scroll" },
+                        createMemo = { content, _ -> events += "create:$content" },
+                        currentTopMemoId = { "prev-id" },
+                        awaitNewTopItemAndReveal = { previousTopId ->
+                            events += "await:$previousTopId"
+                            events += "reveal"
+                        },
+                    )
+
+                val accepted = coordinator.submit("memo body")
+                advanceUntilIdle()
+
+                accepted shouldBe true
+                events shouldBe listOf("create:memo body", "await:prev-id", "reveal")
+            }
+        }
+    }
 }

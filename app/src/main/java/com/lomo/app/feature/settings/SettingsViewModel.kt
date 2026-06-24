@@ -71,7 +71,7 @@ class SettingsViewModel
         val uiState: StateFlow<SettingsScreenUiState> = stateProvider.uiState
 
         val pairingCodeError: StateFlow<String?> = stateProvider.pairingCodeError
-        val connectionTestState: StateFlow<SettingsGitConnectionTestState> = stateProvider.connectionTestState
+        val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = stateProvider.connectionTestState
         val operationError: StateFlow<SettingsOperationError?> = stateProvider.operationError
 
         val storageFeature =
@@ -122,17 +122,20 @@ class SettingsViewModel
             )
         val gitFeature =
             SettingsGitFeatureViewModel(
-                actionCoordinator = actionCoordinator,
+                providerActions = actionCoordinator,
+                gitActions = actionCoordinator,
                 gitCoordinator = gitCoordinator,
             )
         val webDavFeature =
             SettingsWebDavFeatureViewModel(
-                actionCoordinator = actionCoordinator,
+                providerActions = actionCoordinator,
+                webDavActions = actionCoordinator,
                 webDavCoordinator = webDavCoordinator,
             )
         val s3Feature =
             SettingsS3FeatureViewModel(
-                actionCoordinator = actionCoordinator,
+                providerActions = actionCoordinator,
+                s3Actions = actionCoordinator,
                 s3Coordinator = s3Coordinator,
             )
 

@@ -38,6 +38,7 @@ import java.io.IOException
  * - Given startup update checks are triggered more than once, when orchestration runs, then the startup check executes once and exposes one dialog candidate.
  * - Given a startup check is cancelled, when startup check is triggered again, then the next attempt can still expose a dialog candidate.
  * - Given a startup check fails transiently, when startup check is triggered again, then the next attempt can still expose a dialog candidate.
+ * - Given the update ViewModel is created, when UI subscribes to update state, then startup update discovery is not triggered from ViewModel initialization.
  * - Given an install-permission gate is emitted, when the user returns and retries, then the same downloaded candidate is reused for the next attempt.
  * - Given a download attempt fails, when retry is requested, then the retained candidate starts a new attempt and can recover.
  * - Given a cancelled download is immediately restarted, when the cancelled coroutine finishes late, then it cannot clear the new active download session.
@@ -52,6 +53,13 @@ import java.io.IOException
  *
  * Excludes:
  * - Compose rendering, GitHub release transport, APK bytes, PackageManager verification, and PackageInstaller UI.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class UpdateStartupOrchestrationContractTest : AppFunSpec() {
@@ -165,6 +173,29 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 orchestrator.dialogState.value.shouldBeNull()
+            }
+        }
+
+        test("given viewmodel initialization when update state is observed then startup check is not triggered") {
+            runTest(dispatcher.scheduler) {
+                var startupCheckCallCount = 0
+                val orchestrator =
+                    UpdateStartupOrchestrator(
+                        startupUpdateCheck = {
+                            startupCheckCallCount++
+                            sampleUpdateInfo(version = "2.8.0")
+                        },
+                    )
+                val viewModel =
+                    AppUpdateViewModel(
+                        updateStartupOrchestrator = orchestrator,
+                        appUpdateDownloadManager = newDownloadManager(repository = FakeAppUpdateDownloadRepository()),
+                    )
+
+                advanceUntilIdle()
+
+                startupCheckCallCount shouldBe 0
+                viewModel.dialogState.value.shouldBeNull()
             }
         }
 
@@ -302,6 +333,17 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
             downloadAndInstallAppUpdateUseCase = DownloadAndInstallAppUpdateUseCase(repository),
             cancelAppUpdateDownloadUseCase = CancelAppUpdateDownloadUseCase(repository),
             scope = scope,
+        )
+    }
+
+    private fun newDownloadManager(
+        repository: FakeAppUpdateDownloadRepository,
+    ): AppUpdateDownloadManager {
+        val context = mockk<Context>()
+        return AppUpdateDownloadManager(
+            context = context,
+            downloadAndInstallAppUpdateUseCase = DownloadAndInstallAppUpdateUseCase(repository),
+            cancelAppUpdateDownloadUseCase = CancelAppUpdateDownloadUseCase(repository),
         )
     }
 

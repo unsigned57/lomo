@@ -37,7 +37,7 @@ class SidebarViewModelTest : AppFunSpec() {
     private val memoRepository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val stateHolder = MainSidebarStateHolder()
-    private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore())
+    private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
 
     init {
         extension(MainDispatcherExtension(testDispatcher))

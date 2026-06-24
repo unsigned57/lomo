@@ -5,9 +5,13 @@ import androidx.compose.runtime.remember
 import androidx.paging.compose.LazyPagingItems
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.toPersistentList
+import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 
 private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER = 31
 private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_SAMPLE_COUNT = 20
+
+
 
 internal fun memoListItemKey(
     index: Int,
@@ -45,6 +49,30 @@ internal fun memoListItemAt(
 ): MemoUiModel? =
     visiblePagedMemos.getOrNull(index - visiblePagedMemoStartIndex)
         ?: if (index < pagedMemos.itemCount) pagedMemos.peek(index) else null
+
+/**
+ * Precomputes the globally unique LazyColumn item keys for the whole rendered range so a duplicate
+ * memo id can never reach `items(key = ...)` and crash Compose during fast scroll / paging refresh.
+ */
+@Composable
+internal fun rememberMemoListRenderKeys(
+    renderedItemCount: Int,
+    visiblePagedMemoStartIndex: Int,
+    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    pagedMemos: LazyPagingItems<MemoUiModel>,
+): ImmutableList<String> =
+    remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList, renderedItemCount) {
+        uniqueMemoListRenderKeys(
+            List(renderedItemCount) { index ->
+                memoListItemKey(
+                    index = index,
+                    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                    visiblePagedMemos = visiblePagedMemos,
+                    pagedMemos = pagedMemos,
+                )
+            },
+        ).toPersistentList()
+    }
 
 @Composable
 internal fun rememberMemoListScrollbarContentGeneration(
@@ -86,3 +114,24 @@ private fun buildMemoListScrollbarContentGeneration(
         deletingIdsHash = deletingIds.hashCode(),
     )
 }
+
+internal fun computeRenderedItemCount(
+    snapshotStartIndex: Int,
+    visiblePagedMemosSize: Int,
+    pagedMemosItemCount: Int,
+    knownTotalItemCount: Int,
+    pageSize: Int,
+): Int = maxOf(
+    snapshotStartIndex + visiblePagedMemosSize,
+    minOf(knownTotalItemCount, pagedMemosItemCount + pageSize)
+)
+
+internal fun computeRetainedExitsCount(
+    deletingIds: Set<String>,
+    snapshotMemoIds: Set<String>,
+): Int {
+    return deletingIds.count { it !in snapshotMemoIds }
+}
+
+
+

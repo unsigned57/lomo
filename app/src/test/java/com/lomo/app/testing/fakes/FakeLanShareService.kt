@@ -2,6 +2,8 @@ package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
@@ -14,6 +16,8 @@ class FakeLanShareService : LanShareService {
     override val discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val incomingShare = MutableStateFlow<IncomingShareState>(IncomingShareState.None)
     override val transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
+    override val lanShareRuntimeState = MutableStateFlow(LanShareRuntimeState.Stopped)
+    override val lanShareDiscoveryDiagnostics = MutableStateFlow(LanShareDiscoveryDiagnostics())
     override val lanShareStartupFailures = MutableSharedFlow<LanShareStartupFailure>(extraBufferCapacity = 1)
     override val lanSharePairingCode = MutableStateFlow("")
 
@@ -34,6 +38,7 @@ class FakeLanShareService : LanShareService {
     var stopServicesCalledCount = 0
     var startDiscoveryCalledCount = 0
     var stopDiscoveryCalledCount = 0
+    var refreshNetworkPermissionStateCalledCount = 0
     var acceptIncomingCalledCount = 0
     var rejectIncomingCalledCount = 0
     var resetTransferStateCalledCount = 0
@@ -72,6 +77,10 @@ class FakeLanShareService : LanShareService {
 
     override fun stopDiscovery() {
         stopDiscoveryCalledCount++
+    }
+
+    override fun refreshNetworkPermissionState() {
+        refreshNetworkPermissionStateCalledCount++
     }
 
     override suspend fun sendMemo(
