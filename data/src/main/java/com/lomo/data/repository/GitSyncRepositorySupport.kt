@@ -1,6 +1,13 @@
 package com.lomo.data.repository
 
+import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -14,6 +21,8 @@ class GitSyncRepositorySupport
     @Inject
     constructor(
         private val runtime: GitSyncRepositoryContext,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         suspend fun resolveRootDir(): File? {
             val directPath = runtime.dataStore.rootDirectory.first()
@@ -51,6 +60,33 @@ class GitSyncRepositorySupport
         suspend fun <T> runGitIo(block: suspend () -> T): T =
             withContext(Dispatchers.IO) {
                 block()
+            }
+
+        suspend fun gitTokenPreconditionError(): GitSyncResult.Error? =
+            when (
+                val result =
+                    credentialRepository.readSecret(
+                        field = CredentialField.GIT_TOKEN,
+                        authorization = securitySessionPolicy.authorizeCredentialRead(),
+                    )
+            ) {
+                CredentialSecretReadResult.Missing -> GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                is CredentialSecretReadResult.Present ->
+                    if (result.value.isBlank()) {
+                        GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                    } else {
+                        null
+                    }
+                CredentialSecretReadResult.Unreadable ->
+                    GitSyncResult.Error(
+                        code = GitSyncErrorCode.CREDENTIAL_UNREADABLE,
+                        message = "Git credential GIT_TOKEN is unreadable",
+                    )
+                is CredentialSecretReadResult.Unauthorized ->
+                    GitSyncResult.Error(
+                        code = GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED,
+                        message = "Git credential read denied: ${result.reason}",
+                    )
             }
 
         private fun internalRepoDir(hash: String): File {

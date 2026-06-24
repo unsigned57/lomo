@@ -1,11 +1,13 @@
 package com.lomo.data.repository
 
-import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.isConfigured
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncStateRepository
@@ -39,7 +41,7 @@ class GitSyncConfigurationMutationRepositoryImpl
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
-        private val credentialStore: GitCredentialStore,
+        private val credentialRepository: CredentialRepository,
     ) : GitSyncConfigurationMutationRepository {
         override suspend fun setGitSyncEnabled(enabled: Boolean) {
             dataStore.updateGitSyncEnabled(enabled)
@@ -50,12 +52,13 @@ class GitSyncConfigurationMutationRepositoryImpl
         }
 
         override suspend fun setToken(token: String) {
-            credentialStore.setToken(token)
+            credentialRepository.writeSecret(CredentialField.GIT_TOKEN, token)
         }
 
-        override suspend fun getToken(): String? = credentialStore.getToken()
-
-        override suspend fun getTokenStatus(): StoredCredentialStatus = credentialStore.tokenStatus
+        override suspend fun getTokenStatus(): StoredCredentialStatus =
+            credentialRepository
+                .credentialState(CredentialProvider.GIT)
+                .statusFor(CredentialField.GIT_TOKEN)
 
         override suspend fun isTokenConfigured(): Boolean = getTokenStatus().isConfigured
 

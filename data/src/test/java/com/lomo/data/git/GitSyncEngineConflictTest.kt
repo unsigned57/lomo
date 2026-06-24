@@ -23,6 +23,13 @@
  *
  * Excludes:
  * - remote hosting behavior, credential-provider transport internals, and UI state mapping.
+ *
+ * Test Change Justification:
+ * - Reason category: Data layer module gained app update install persistence, migration archive staging workspace, settings preference repos, and strengthened sync conflict store contracts.
+ * - Old behavior/assertion being replaced: previous data layer tests relied on older repository contracts and store implementations before these modules were restructured.
+ * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
+ * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
+ * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
  */
 package com.lomo.data.git
 
@@ -85,7 +92,7 @@ class GitSyncEngineConflictTest : DataFunSpec() {
         engine =
             GitSyncEngine(
                 dataStore = dataStore,
-                credentialStrategy = GitCredentialStrategy(credentialStore),
+                credentialStrategy = gitCredentialStrategy("dummy-token"),
                 primitives = GitRepositoryPrimitives(),
             )
         tempRoot = Files.createTempDirectory("git-sync-engine-conflict").toFile()

@@ -60,6 +60,13 @@ import io.kotest.matchers.booleans.shouldBeTrue
  *
  * Excludes:
  * - WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: Data layer module gained app update install persistence, migration archive staging workspace, settings preference repos, and strengthened sync conflict store contracts.
+ * - Old behavior/assertion being replaced: previous data layer tests relied on older repository contracts and store implementations before these modules were restructured.
+ * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
+ * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
+ * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
  */
 class WebDavConflictResolverTest : DataFunSpec() {
     init {
@@ -169,7 +176,11 @@ class WebDavConflictResolverTest : DataFunSpec() {
                 planner = WebDavSyncPlanner(),
                 stateHolder = stateHolder,
             )
-        support = WebDavSyncRepositorySupport(runtime)
+        support = WebDavSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testWebDavCredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            )
         resolver =
             WebDavConflictResolver(
                 runtime = runtime,
@@ -553,6 +564,10 @@ private class WebDavTrackingPendingSyncReviewStore : PendingSyncReviewStore {
     override suspend fun readDescriptor(source: SyncBackendType): PendingSyncReviewDescriptor? = descriptor
 
     override suspend fun write(review: SyncReviewSession) = Unit
+
+    override suspend fun writeDescriptor(descriptor: PendingSyncReviewDescriptor) {
+        this.descriptor = descriptor
+    }
 
     override suspend fun clear(source: SyncBackendType) {
         clearCalls += source

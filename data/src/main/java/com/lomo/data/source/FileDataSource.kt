@@ -55,6 +55,11 @@ interface MarkdownStorageDataSource {
         filename: String,
     ): String?
 
+    suspend fun fingerprintFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String?
+
     suspend fun readFile(uri: Uri): String?
 
     suspend fun saveFileIn(

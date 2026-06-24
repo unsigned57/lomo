@@ -52,6 +52,7 @@ internal object SettingsKey {
     const val S3_REGION = "s3Region"
     const val S3_BUCKET = "s3Bucket"
     const val S3_PREFIX = "s3Prefix"
+    const val S3_LOCAL_SYNC_DIRECTORY = "s3LocalSyncDirectory"
     const val S3_PATH_STYLE = "s3PathStyle"
     const val S3_ENCRYPTION_MODE = "s3EncryptionMode"
     const val S3_RCLONE_FILENAME_ENCRYPTION = "s3RcloneFilenameEncryption"

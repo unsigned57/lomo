@@ -46,8 +46,10 @@ import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.CredentialSecretReadResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -123,6 +125,7 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
 
     private lateinit var support: GitSyncRepositorySupport
     private lateinit var executor: GitSyncStatusExecutor
+    private lateinit var credentialRepository: TestCredentialRepository
 
     private fun setUp() {
         MockKAnnotations.init(this)
@@ -139,7 +142,10 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
         )
         every { dataStore.gitLastSyncTime } returns flowOf(0L)
         every { dataStore.gitRemoteUrl } returns flowOf("https://example.com/lomo.git")
-        coEvery { credentialStore.getToken() } returns "token"
+        credentialRepository =
+            TestCredentialRepository(
+                mutableMapOf(CredentialField.GIT_TOKEN to CredentialSecretReadResult.Present("token")),
+            )
 
         val runtime =
             GitSyncRepositoryContext(
@@ -154,7 +160,11 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
                 markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
-        support = GitSyncRepositorySupport(runtime)
+        support = GitSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = credentialRepository,
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            )
         executor = GitSyncStatusExecutor(runtime, support)
     }
 
@@ -271,31 +281,30 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
             val result = executor.testConnection()
 
             result shouldBe GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-            verify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
+            coVerify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
         }
 
     private fun `testConnection returns PAT required when token is missing`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("https://example.com/lomo.git")
-            coEvery { credentialStore.getToken() } returns ""
+            credentialRepository.setRead(CredentialField.GIT_TOKEN, CredentialSecretReadResult.Missing)
 
             val result = executor.testConnection()
 
             result shouldBe GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-            verify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
+            coVerify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
         }
 
     private fun `testConnection delegates to query coordinator when preconditions are satisfied`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("https://example.com/lomo.git")
-            coEvery { credentialStore.getToken() } returns "token"
             val expected = GitSyncResult.Success("connected")
-            every { gitSyncQueryCoordinator.testConnection("https://example.com/lomo.git") } returns expected
+            coEvery { gitSyncQueryCoordinator.testConnection("https://example.com/lomo.git") } returns expected
 
             val result = executor.testConnection()
 
             result shouldBe expected
-            verify(exactly = 1) { gitSyncQueryCoordinator.testConnection("https://example.com/lomo.git") }
+            coVerify(exactly = 1) { gitSyncQueryCoordinator.testConnection("https://example.com/lomo.git") }
         }
 
     private fun stubLayout(

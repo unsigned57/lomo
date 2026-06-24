@@ -227,9 +227,7 @@ class GitSyncWorkflowTest : DataFunSpec() {
         token: String?,
         primitives: GitRepositoryPrimitives = GitRepositoryPrimitives(),
     ): GitSyncWorkflow {
-        val credentialStore = mockk<GitCredentialStore>()
-        every { credentialStore.getToken() } returns token
-        val credentialStrategy = GitCredentialStrategy(credentialStore)
+        val credentialStrategy = gitCredentialStrategy(token)
         return GitSyncWorkflow(dataStore, credentialStrategy, primitives)
     }
 

@@ -18,6 +18,8 @@ interface PendingSyncConflictStore {
 
     suspend fun write(conflictSet: SyncConflictSet)
 
+    suspend fun writeDescriptor(descriptor: PendingSyncConflictDescriptor)
+
     suspend fun clear(source: SyncBackendType)
 }
 
@@ -76,7 +78,13 @@ class RoomPendingSyncConflictStore
 
         override suspend fun write(conflictSet: SyncConflictSet) {
             if (conflictSet.source == SyncBackendType.NONE) return
+            conflictSet.requireExplicitS3BinaryDescriptors()
             dao.upsert(conflictSet.toEntity(json = json, workspaceGeneration = activeGeneration()))
+        }
+
+        override suspend fun writeDescriptor(descriptor: PendingSyncConflictDescriptor) {
+            if (descriptor.source == SyncBackendType.NONE) return
+            dao.upsert(descriptor.toEntity(json = json, workspaceGeneration = activeGeneration()))
         }
 
         override suspend fun clear(source: SyncBackendType) {
@@ -123,6 +131,37 @@ private fun SyncConflictSet.toEntity(
                                         size = file.remoteContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
                                         etag = file.remoteContent?.pendingContentHash(),
                                     ),
+                            )
+                        },
+                ),
+            ),
+    )
+
+private fun SyncConflictSet.requireExplicitS3BinaryDescriptors() {
+    require(source != SyncBackendType.S3 || files.none(SyncConflictFile::isBinary)) {
+        "S3 binary/non-memo pending conflicts require explicit side descriptors from materialization"
+    }
+}
+
+private fun PendingSyncConflictDescriptor.toEntity(
+    json: Json,
+    workspaceGeneration: String,
+): PendingSyncConflictEntity =
+    PendingSyncConflictEntity(
+        workspaceGeneration = workspaceGeneration,
+        backend = source.name,
+        timestamp = timestamp,
+        payloadJson =
+            json.encodeToString(
+                PendingSyncConflictPayload(
+                    validationStatus = PendingSyncValidationStatus.PENDING_RELOAD.name,
+                    files =
+                        files.map { file ->
+                            PendingSyncConflictFilePayload(
+                                relativePath = file.relativePath,
+                                isBinary = file.isBinary,
+                                local = file.local.toPayload(),
+                                remote = file.remote.toPayload(),
                             )
                         },
                 ),
@@ -177,6 +216,15 @@ private data class PendingSyncSideMetadataPayload(
 
 private fun PendingSyncSideMetadataPayload.toModel(): PendingSyncSideMetadata =
     PendingSyncSideMetadata(
+        locator = locator,
+        contentHash = contentHash,
+        lastModified = lastModified,
+        size = size,
+        etag = etag,
+    )
+
+private fun PendingSyncSideMetadata.toPayload(): PendingSyncSideMetadataPayload =
+    PendingSyncSideMetadataPayload(
         locator = locator,
         contentHash = contentHash,
         lastModified = lastModified,

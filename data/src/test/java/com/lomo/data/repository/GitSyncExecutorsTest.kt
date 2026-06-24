@@ -34,6 +34,8 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialSecretReadResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -139,6 +141,7 @@ class GitSyncExecutorsTest : DataFunSpec() {
     private lateinit var support: GitSyncRepositorySupport
     private lateinit var initExecutor: GitSyncInitAndSyncExecutor
     private lateinit var maintenanceExecutor: GitSyncMaintenanceExecutor
+    private lateinit var credentialRepository: TestCredentialRepository
 
     private fun setUp() {
         MockKAnnotations.init(this)
@@ -155,6 +158,7 @@ class GitSyncExecutorsTest : DataFunSpec() {
         every { dataStore.voiceDirectory } returns flowOf(null)
         every { dataStore.voiceUri } returns flowOf(null)
         coEvery { credentialStore.getToken() } returns "token"
+        credentialRepository = testGitCredentialRepository()
         coEvery { gitMediaSyncBridge.reconcile(any(), any()) } returns GitMediaSyncSummary()
         coEvery { memoSynchronizer.refresh() } returns Unit
         coEvery { safGitMirrorBridge.pullFromSaf(any(), any()) } returns Unit
@@ -188,7 +192,11 @@ class GitSyncExecutorsTest : DataFunSpec() {
                 markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
-        support = GitSyncRepositorySupport(runtime)
+        support = GitSyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = credentialRepository,
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            )
         initExecutor =
             GitSyncInitAndSyncExecutor(
                 runtime = runtime,
@@ -228,7 +236,7 @@ class GitSyncExecutorsTest : DataFunSpec() {
 
     private fun `sync returns pat required error when token is missing`() =
         runTest {
-            coEvery { credentialStore.getToken() } returns null
+            credentialRepository.setRead(CredentialField.GIT_TOKEN, CredentialSecretReadResult.Missing)
             configureDirectLayout(createExistingDirectory("direct-root"))
 
             val result = initExecutor.sync()
@@ -427,7 +435,6 @@ class GitSyncExecutorsTest : DataFunSpec() {
             val result = maintenanceExecutor.resetLocalBranchToRemote()
 
             result shouldBe GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
-            coVerify(exactly = 1) { credentialStore.getToken() }
             coVerify(exactly = 0) { gitSyncEngine.resetLocalBranchToRemote(any(), any()) }
         }
 

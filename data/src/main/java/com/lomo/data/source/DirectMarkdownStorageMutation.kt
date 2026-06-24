@@ -1,6 +1,6 @@
 package com.lomo.data.source
 
-import android.net.Uri
+import com.lomo.data.util.md5Hex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -41,18 +41,25 @@ internal suspend fun directReadTrashFile(
         }
     }
 
-internal suspend fun directReadFileUri(uri: Uri): String? =
+internal suspend fun directFingerprintFile(
+    rootDir: File,
+    filename: String,
+): String? =
     withContext(Dispatchers.IO) {
-        if (uri.scheme != "file") {
-            return@withContext null
-        }
-        val path = uri.path ?: return@withContext null
-        val file = File(path)
-        if (file.exists()) {
-            file.readTextBestEffortUtf8()
-        } else {
-            null
-        }
+        val file = File(rootDir, filename)
+        ensureWithinDirectory(rootDir, file)
+        if (file.exists() && file.isFile) file.md5Hex() else null
+    }
+
+internal suspend fun directFingerprintTrashFile(
+    rootDir: File,
+    filename: String,
+): String? =
+    withContext(Dispatchers.IO) {
+        val trashDir = directTrashDir(rootDir)
+        val file = File(trashDir, filename)
+        ensureWithinDirectory(trashDir, file)
+        if (file.exists() && file.isFile) file.md5Hex() else null
     }
 
 internal suspend fun directSaveFile(

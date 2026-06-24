@@ -2,12 +2,10 @@ package com.lomo.data.source
 
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.lomo.data.util.md5Hex
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
-import okio.buffer
-import okio.source
 
 internal suspend fun safReadFile(
     documentAccess: SafDocumentAccess,
@@ -33,6 +31,24 @@ internal suspend fun safReadTrashFile(
     withContext(SAF_IO_DISPATCHER) {
         val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
+    }
+
+internal suspend fun safFingerprintFile(
+    documentAccess: SafDocumentAccess,
+    filename: String,
+): String? =
+    withContext(SAF_IO_DISPATCHER) {
+        val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
+        documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
+    }
+
+internal suspend fun safFingerprintTrashFile(
+    documentAccess: SafDocumentAccess,
+    filename: String,
+): String? =
+    withContext(SAF_IO_DISPATCHER) {
+        val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
+        documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
     }
 
 internal suspend fun safReadFileByDocumentId(
@@ -102,14 +118,3 @@ internal fun safStreamTrashFile(
     val file = documentAccess.trashDir()?.findFile(filename) ?: return emptyFlow()
     return documentAccess.streamTextLinesFromUri(file.uri)
 }
-
-private fun SafDocumentAccess.streamTextLinesFromUri(uri: Uri): Flow<String> =
-    flow {
-        val input = contentResolver.openInputStream(uri) ?: return@flow
-        input.source().buffer().use { source ->
-            while (true) {
-                val line = source.readUtf8Line() ?: break
-                emit(line)
-            }
-        }
-    }

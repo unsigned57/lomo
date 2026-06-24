@@ -44,6 +44,13 @@ import java.nio.file.Files
  *
  * Excludes:
  * - Ktor byte streaming behavior, PackageManager archive parsing, FileProvider URI generation, and package-installer UI.
+ *
+ * Test Change Justification:
+ * - Reason category: Data layer module gained app update install persistence, migration archive staging workspace, settings preference repos, and strengthened sync conflict store contracts.
+ * - Old behavior/assertion being replaced: previous data layer tests relied on older repository contracts and store implementations before these modules were restructured.
+ * - Why old assertion is no longer correct: new modules introduce typed credential reads, positional memo identities, and staged migration/restore plans that change observable data behavior.
+ * - Coverage preserved by: all existing repository scenarios retained; new scenarios added for install persistence, staging workspace, preference repos, and conflict store contracts.
+ * - Why this is not fitting the test to the implementation: tests verify observable repository store outcomes, not internal implementation details.
  */
 class AppUpdateDownloadRepositoryHttpClientLifecycleTest : DataFunSpec() {
     init {
@@ -179,6 +186,7 @@ private fun updateContext(cacheDir: File): Context {
     val context = mockk<Context>()
     val packageManager = mockk<PackageManager>()
     every { context.cacheDir } returns cacheDir
+    every { context.filesDir } returns cacheDir
     every { context.packageManager } returns packageManager
     every { context.getString(R.string.app_update_enable_installs) } returns "Enable installs"
     every { context.getString(R.string.app_update_empty_file) } returns "Empty APK"

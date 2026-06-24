@@ -32,8 +32,12 @@ import com.lomo.data.webdav.WebDavEndpointResolver
 import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.model.WebDavSyncErrorCode
+import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -44,6 +48,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
@@ -72,6 +77,10 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
         test("sync with no changes and existing metadata reuses initial listings") { `sync with no changes and existing metadata reuses initial listings`() }
 
         test("sync revalidates remote deletion before deleting unchanged local memo") { `sync revalidates remote deletion before deleting unchanged local memo`() }
+
+        test("given only legacy datastore WebDAV username when config resolves then missing credential is surfaced") {
+            `given only legacy datastore WebDAV username when config resolves then missing credential is surfaced`()
+        }
     }
 
 
@@ -104,6 +113,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
     private lateinit var memoSynchronizer: MemoSynchronizer
 
     private lateinit var planner: WebDavSyncPlanner
+    private lateinit var runtime: WebDavSyncRepositoryContext
     private lateinit var repository: WebDavSyncRepositoryImpl
 
     private fun setUp() {
@@ -127,11 +137,9 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
         every { dataStore.voiceUri } returns flowOf(null)
         every { endpointResolver.resolve(WebDavProvider.NUTSTORE, null, "https://dav.example.com/root/", "alice") } returns
             "https://dav.example.com/root/"
-        every { credentialStore.getUsername() } returns null
-        every { credentialStore.getPassword() } returns "secret"
         every { clientFactory.create("https://dav.example.com/root/", "alice", "secret") } returns client
         val stateHolder = WebDavSyncStateHolder()
-        val runtime =
+        runtime =
             WebDavSyncRepositoryContext(
                 dataStore = dataStore,
                 credentialStore = credentialStore,
@@ -144,7 +152,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                 planner = planner,
                 stateHolder = stateHolder,
             )
-        val support = WebDavSyncRepositorySupport(runtime)
+        val support = webDavSupport()
         val fileBridge =
             WebDavSyncFileBridge(
                 runtime = runtime,
@@ -153,11 +161,18 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             )
         repository =
             WebDavSyncRepositoryImpl(
-                configurationRepository = WebDavSyncConfigurationRepositoryImpl(dataStore),
+                configurationRepository =
+                    WebDavSyncConfigurationRepositoryImpl(
+                        dataStore = dataStore,
+                        credentialRepository = testWebDavCredentialRepository(),
+                        securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+                    ),
                 configurationMutationRepository =
                     WebDavSyncConfigurationMutationRepositoryImpl(
                         dataStore = dataStore,
                         credentialStore = credentialStore,
+                        credentialRepository = testWebDavCredentialRepository(),
+                        securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
                         clientFactory = configurationClientFactory,
                     ),
                 operationRepository =
@@ -208,6 +223,15 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             )
     }
 
+    private fun webDavSupport(
+        credentialRepository: CredentialRepository = testWebDavCredentialRepository(),
+    ): WebDavSyncRepositorySupport =
+        WebDavSyncRepositorySupport(
+            runtime = runtime,
+            credentialRepository = credentialRepository,
+            securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+        )
+
     private fun `test connection success keeps sync state idle`() =
         runTest {
             val result = repository.testConnection()
@@ -253,6 +277,26 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             }
             metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
             metadataDao.allEntities.single().etag shouldBe "etag-2"
+        }
+
+    private fun `given only legacy datastore WebDAV username when config resolves then missing credential is surfaced`() =
+        runTest {
+            val support =
+                webDavSupport(
+                    credentialRepository =
+                        testWebDavCredentialRepository(
+                            username = CredentialSecretReadResult.Missing,
+                            password = CredentialSecretReadResult.Present("secret"),
+                        ),
+                )
+
+            val failure = shouldThrow<WebDavSyncFailureException> {
+                support.resolveConfig()
+            }
+
+            failure.code shouldBe WebDavSyncErrorCode.CONNECTION_FAILED
+            failure.message shouldBe "WebDAV credential WEBDAV_USERNAME is missing"
+            verify(exactly = 0) { clientFactory.create(any(), any(), any()) }
         }
 
     private fun `sync with download only relists local files only`() =
