@@ -1,6 +1,12 @@
 package com.lomo.data.git
 
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.GitSyncFailureException
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import timber.log.Timber
 import javax.inject.Inject
@@ -10,14 +16,26 @@ import javax.inject.Singleton
 class GitCredentialStrategy
     @Inject
     constructor(
-        private val credentialStore: GitCredentialStore,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         @Volatile
         private var cachedCredentialIndex: Int = -1
 
-        fun credentialProviders(): List<UsernamePasswordCredentialsProvider>? {
-            val token = credentialStore.getToken()?.trim().orEmpty()
-            if (token.isBlank()) return null
+        suspend fun credentialProviders(): List<UsernamePasswordCredentialsProvider> {
+            val tokenRead =
+                credentialRepository
+                    .readSecret(
+                        field = CredentialField.GIT_TOKEN,
+                        authorization = securitySessionPolicy.authorizeCredentialRead(),
+                    ).toGitTokenRead()
+            if (tokenRead is GitTokenRead.Failure) {
+                throw tokenRead.error
+            }
+            val token = (tokenRead as GitTokenRead.Present).value.trim()
+            if (token.isBlank()) {
+                throw gitPatRequiredFailure()
+            }
 
             return listOf(
                 UsernamePasswordCredentialsProvider("x-access-token", token),
@@ -60,3 +78,39 @@ class GitCredentialStrategy
             throw lastError ?: IllegalStateException("$operation failed without a captured exception")
         }
     }
+
+private sealed interface GitTokenRead {
+    data class Present(
+        val value: String,
+    ) : GitTokenRead
+
+    data class Failure(
+        val error: GitSyncFailureException,
+    ) : GitTokenRead
+}
+
+private fun CredentialSecretReadResult.toGitTokenRead(): GitTokenRead =
+    when (this) {
+        CredentialSecretReadResult.Missing -> GitTokenRead.Failure(gitPatRequiredFailure())
+        is CredentialSecretReadResult.Present -> GitTokenRead.Present(value)
+        CredentialSecretReadResult.Unreadable ->
+            GitTokenRead.Failure(
+                GitSyncFailureException(
+                    code = GitSyncErrorCode.CREDENTIAL_UNREADABLE,
+                    message = "Git credential GIT_TOKEN is unreadable",
+                ),
+            )
+        is CredentialSecretReadResult.Unauthorized ->
+            GitTokenRead.Failure(
+                GitSyncFailureException(
+                    code = GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED,
+                    message = "Git credential read denied: $reason",
+                ),
+            )
+    }
+
+private fun gitPatRequiredFailure(): GitSyncFailureException =
+    GitSyncFailureException(
+        code = GitSyncErrorCode.PAT_REQUIRED,
+        message = GitSyncErrorMessages.PAT_REQUIRED,
+    )

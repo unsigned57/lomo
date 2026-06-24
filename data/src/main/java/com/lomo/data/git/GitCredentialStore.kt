@@ -2,6 +2,7 @@ package com.lomo.data.git
 
 import android.content.Context
 import com.lomo.data.security.KeystoreBackedPreferences
+import com.lomo.data.security.SecureStringReadResult
 import com.lomo.data.security.SecureStringStore
 import com.lomo.data.security.credentialStatus
 import com.lomo.domain.model.CredentialField
@@ -34,19 +35,21 @@ class GitCredentialStore private constructor(
 
     private val prefs: SecureStringStore by lazy(secureStringStoreFactory)
 
-    fun getToken(): String? = prefs.getString(KEY_GITHUB_PAT)
+    internal fun getToken(): String? = prefs.getString(KEY_GITHUB_PAT)
 
-    val tokenStatus: StoredCredentialStatus
+    internal fun readToken(): SecureStringReadResult = prefs.readString(KEY_GITHUB_PAT)
+
+    internal val tokenStatus: StoredCredentialStatus
         get() = prefs.credentialStatus(KEY_GITHUB_PAT)
 
-    val credentialState: CredentialState
+    internal val credentialState: CredentialState
         get() =
             CredentialState(
                 provider = CredentialProvider.GIT,
                 fields = listOf(CredentialFieldState(CredentialField.GIT_TOKEN, tokenStatus)),
             )
 
-    fun setToken(token: String?) {
+    internal fun setToken(token: String?) {
         prefs.putString(KEY_GITHUB_PAT, token)
     }
 

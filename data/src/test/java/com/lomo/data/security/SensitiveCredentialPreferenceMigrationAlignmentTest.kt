@@ -3,47 +3,50 @@ package com.lomo.data.security
 import com.lomo.data.repository.DataStoreMigrationSettingsStore
 import com.lomo.data.repository.SettingsKey
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.data.util.PreferenceKeys
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
 
 /*
  * Behavior Contract:
- * - Unit under test: SensitiveCredentialPreferencePolicy and DataStoreMigrationSettingsStore sensitive key classification
- * - Owning layer: data/security and data/repository
+ * - Unit under test: DataStoreMigrationSettingsStore credential sensitive key classification
+ * - Owning layer: data/repository
  * - Priority tier: P2
- * - Capability: keep DataStore-resident credential preferences on the migration sensitive channel.
+ * - Capability: keep repository-owned credentials on the migration sensitive channel.
  *
  * Scenarios:
- * - Given a DataStore-resident credential policy entry, when migration sensitive keys are classified, then its migration key is supported only as sensitive data.
- * - Given migration has DataStore-resident sensitive preference keys, when policy coverage is checked, then every backing preference is owned by SensitiveCredentialPreferencePolicy.
+ * - Given credential repository sensitive keys, when migration keys are classified, then each is supported only as sensitive data.
  *
  * Observable outcomes:
- * - policy key sets, migration key sets, and exact coverage between the policy and migration classification.
+ * - migration credential-sensitive key set and supported preference/sensitive sets.
  *
  * TDD proof:
- * - RED: fails before the fix because the policy exposes no DataStore-resident key set and the migration store hides a manual sensitive-key list.
+ * - RED: fails before the fix because LAN pairing key is still classified as a DataStore-resident preference secret.
  *
  * Excludes:
- * - archive encryption format, secure-store credential entries, UI import flow, and full settings schema catalog.
+ * - archive encryption format, secure-store implementation, UI import flow, and full settings schema catalog.
+ *
+ * Test Change Justification:
+ * - Reason category: Credential sensitive-key classification moved from DataStore-preference
+ *   mapping to unified CredentialRepository-owned secure storage.
+ * - Old behavior/assertion being replaced: LAN pairing key was classified as a DataStore-resident
+ *   preference secret alongside other sensitive settings.
+ * - Why old assertion is no longer correct: the CredentialRepository now owns credential secrets
+ *   through its own secure store path; LAN pairing key is no longer a DataStore preference.
+ * - Coverage preserved by: the same sensitive-key classification scenario retained; assertion
+ *   updated to verify credential keys are sensitive-only (not pref-mapped).
+ * - Why this is not fitting the test to the implementation: test verifies key classification
+ *   boundary, not internal secure store implementation.
  */
 class SensitiveCredentialPreferenceMigrationAlignmentTest : DataFunSpec() {
     init {
-        test("given datastore resident credential policy entries when migration sensitive keys are classified then policy entries are covered") {
-            SensitiveCredentialPreferencePolicy.dataStoreResidentSensitivePreferenceKeys shouldBe
-                setOf(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
-            DataStoreMigrationSettingsStore.dataStoreResidentSensitiveKeys shouldBe
+        test("given credential repository keys when migration sensitive keys are classified then credentials are sensitive only") {
+            DataStoreMigrationSettingsStore.credentialSensitiveKeys shouldBe
                 setOf(SettingsKey.LAN_SHARE_PAIRING_KEY_HEX)
 
             DataStoreMigrationSettingsStore.supportedSensitiveKeys shouldContainAll
-                DataStoreMigrationSettingsStore.dataStoreResidentSensitiveKeys
+                DataStoreMigrationSettingsStore.credentialSensitiveKeys
             DataStoreMigrationSettingsStore.supportedPreferenceKeys
-                .intersect(DataStoreMigrationSettingsStore.dataStoreResidentSensitiveKeys) shouldBe emptySet()
-        }
-
-        test("given datastore resident migration sensitive preferences when policy is checked then every key has policy coverage") {
-            DataStoreMigrationSettingsStore.dataStoreResidentSensitivePreferenceKeys shouldBe
-                SensitiveCredentialPreferencePolicy.dataStoreResidentSensitivePreferenceKeys
+                .intersect(DataStoreMigrationSettingsStore.credentialSensitiveKeys) shouldBe emptySet()
         }
     }
 }
