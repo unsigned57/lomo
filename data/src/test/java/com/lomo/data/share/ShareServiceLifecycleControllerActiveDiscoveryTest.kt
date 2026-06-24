@@ -9,6 +9,8 @@ package com.lomo.data.share
  *
  * Scenarios:
  * - Given discovery starts with an eligible LAN snapshot, when the active scanner is scheduled, then the first scan runs immediately.
+ * - Given LAN share services are desired before topology exists, when a LAN network later appears,
+ *   then the service starts without requiring another UI command.
  * - Given an active scan finds no peers, when time advances by the legacy one-second interval,
  *   then no retry runs until the empty-scan backoff elapses.
  * - Given an active scan finds a peer, when discovery remains active, then the next scan is slowed to the discovered-peer cadence.
@@ -39,6 +41,7 @@ package com.lomo.data.share
  */
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.Network
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.DiscoveredDevice
@@ -47,7 +50,10 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.every
+import io.mockk.just
+import io.mockk.Runs
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -114,6 +120,10 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             `start services binds wildcard server and discovery scans selected lan snapshot`()
         }
 
+        test("start services waits for topology and starts when lan network appears") {
+            `start services waits for topology and starts when lan network appears`()
+        }
+
         test("service registration failure keeps stable server running for active hotspot discovery") {
             `service registration failure keeps stable server running for active hotspot discovery`()
         }
@@ -176,6 +186,51 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             scanner.scanSnapshots shouldBe listOf(LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.37"))
             discovery.mergedDevices shouldBe listOf(device)
             controller.stopDiscovery()
+        }
+
+    private fun `start services waits for topology and starts when lan network appears`() =
+        runTest {
+            val networkCallback = slot<ConnectivityManager.NetworkCallback>()
+            val connectivityManager =
+                mockk<ConnectivityManager> {
+                    every { registerDefaultNetworkCallback(capture(networkCallback)) } just Runs
+                    every { unregisterNetworkCallback(any<ConnectivityManager.NetworkCallback>()) } just Runs
+                }
+            val discovery = RecordingLanShareDiscoveryCoordinator()
+            val scanner = RecordingLanShareActiveDiscoveryScanner(scanResults = listOf(emptyList()))
+            val server = RecordingLomoShareServerRuntime(boundPort = LAN_SHARE_DISCOVERY_PORT)
+            val hotspotSnapshot =
+                LanShareActiveNetworkSnapshot(
+                    networkKey = "hotspot-local",
+                    bindHost = "192.168.43.1",
+                    network = mockk(),
+                )
+            var snapshots = emptyList<LanShareActiveNetworkSnapshot>()
+            val controller =
+                createController(
+                    scope = this,
+                    connectivityManager = connectivityManager,
+                    discovery = discovery,
+                    scanner = scanner,
+                    server = server,
+                    snapshotsProvider = { snapshots },
+                )
+
+            controller.startServices()
+            runCurrent()
+
+            server.startCount shouldBe 0
+            networkCallback.isCaptured shouldBe true
+
+            snapshots = listOf(hotspotSnapshot)
+            networkCallback.captured.onAvailable(mockk())
+            testScheduler.advanceTimeBy(NETWORK_RESTART_DEBOUNCE_MS)
+            runCurrent()
+
+            server.startCount shouldBe 1
+            server.startedHost shouldBe "0.0.0.0"
+            discovery.registeredNetworkKeys shouldBe listOf(LAN_SHARE_GLOBAL_NSD_NETWORK_KEY, "hotspot-local")
+            controller.stopServices()
         }
 
     private fun `service registration failure keeps stable server running for active hotspot discovery`() =
@@ -452,8 +507,18 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
         runTest {
             val wifiPeer = DiscoveredDevice(name = "Wifi peer", host = "192.168.1.42", port = LAN_SHARE_DISCOVERY_PORT)
             val hotspotPeer = DiscoveredDevice(name = "Hotspot peer", host = "192.168.43.7", port = LAN_SHARE_DISCOVERY_PORT)
-            val wifiSnapshot = LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.5")
-            val hotspotSnapshot = LanShareActiveNetworkSnapshot(networkKey = "if:ap0", bindHost = "192.168.43.1")
+            val wifiSnapshot =
+                LanShareActiveNetworkSnapshot(
+                    networkKey = "wifi",
+                    bindHost = "192.168.1.5",
+                    network = mockk(),
+                )
+            val hotspotSnapshot =
+                LanShareActiveNetworkSnapshot(
+                    networkKey = "if:ap0",
+                    bindHost = "192.168.43.1",
+                    network = mockk(),
+                )
             val discovery = RecordingLanShareDiscoveryCoordinator()
             val scanner =
                 RecordingLanShareActiveDiscoveryScanner(
@@ -477,8 +542,8 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             controller.startDiscovery()
             runCurrent()
 
-            discovery.registeredNetworkKeys shouldBe listOf("wifi", "if:ap0")
-            discovery.startDiscoveryNetworkKeys shouldBe listOf("wifi", "if:ap0")
+            discovery.registeredNetworkKeys shouldBe listOf(LAN_SHARE_GLOBAL_NSD_NETWORK_KEY, "wifi", "if:ap0")
+            discovery.startDiscoveryNetworkKeys shouldBe listOf(LAN_SHARE_GLOBAL_NSD_NETWORK_KEY, "wifi", "if:ap0")
             scanner.scanSnapshots.toSet() shouldBe setOf(wifiSnapshot, hotspotSnapshot)
             discovery.mergedDevices.toSet() shouldBe setOf(wifiPeer, hotspotPeer)
             controller.stopServices()
@@ -486,8 +551,18 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
 
     private fun `nsd registration falls back when only some snapshots accept the listener`() =
         runTest {
-            val wifiSnapshot = LanShareActiveNetworkSnapshot(networkKey = "wifi", bindHost = "192.168.1.5")
-            val hotspotSnapshot = LanShareActiveNetworkSnapshot(networkKey = "if:ap0", bindHost = "192.168.43.1")
+            val wifiSnapshot =
+                LanShareActiveNetworkSnapshot(
+                    networkKey = "wifi",
+                    bindHost = "192.168.1.5",
+                    network = mockk(),
+                )
+            val hotspotSnapshot =
+                LanShareActiveNetworkSnapshot(
+                    networkKey = "if:ap0",
+                    bindHost = "192.168.43.1",
+                    network = mockk(),
+                )
             val discovery =
                 RecordingLanShareDiscoveryCoordinator(
                     registrationRejectedKeys = setOf("if:ap0"),
@@ -512,9 +587,9 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             testScheduler.advanceUntilIdle()
 
             server.startedHost shouldBe "0.0.0.0"
-            discovery.registeredNetworkKeys shouldBe listOf("wifi", "if:ap0")
+            discovery.registeredNetworkKeys shouldBe listOf(LAN_SHARE_GLOBAL_NSD_NETWORK_KEY, "wifi", "if:ap0")
             // Partial registration success must NOT emit the ServiceRegistrationFailed event:
-            // the wifi listener accepted, so peers can still discover us via that snapshot.
+            // global NSD and the wifi listener accepted, so peers can still discover us.
             failures.contains(LanShareStartupFailure.ServiceRegistrationFailed) shouldBe false
             controller.stopServices()
             collectJob.cancel()
@@ -523,15 +598,17 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
     private fun createController(
         scope: CoroutineScope,
         lanShareEnabled: Boolean = true,
+        connectivityManager: ConnectivityManager? = null,
         discovery: RecordingLanShareDiscoveryCoordinator,
         scanner: LanShareActiveDiscoveryScanner,
         server: RecordingLomoShareServerRuntime = RecordingLomoShareServerRuntime(boundPort = LAN_SHARE_DISCOVERY_PORT),
         snapshot: LanShareActiveNetworkSnapshot? = null,
         snapshots: List<LanShareActiveNetworkSnapshot> = listOfNotNull(snapshot),
+        snapshotsProvider: () -> List<LanShareActiveNetworkSnapshot> = { snapshots },
     ): ShareServiceLifecycleController {
         val context =
             mockk<Context>(relaxed = true) {
-                every { getSystemService(Context.CONNECTIVITY_SERVICE) } returns null
+                every { getSystemService(Context.CONNECTIVITY_SERVICE) } returns connectivityManager
                 every { getSystemService(Context.WIFI_SERVICE) } returns null
             }
         val pairingConfig =
@@ -548,7 +625,7 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
             discoveryCoordinator = discovery,
             activeDiscoveryScanner = scanner,
             serverRuntime = server,
-            resolveEligibleSnapshots = { _, _ -> snapshots },
+            resolveEligibleSnapshots = { _, _ -> snapshotsProvider() },
         )
     }
 
@@ -608,17 +685,19 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
     ) : LanShareActiveDiscoveryScanner {
         val scanSnapshots = mutableListOf<LanShareActiveNetworkSnapshot>()
 
-        override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice> {
+        override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult {
             scanSnapshots += snapshot
-            perSnapshotResults[snapshot.networkKey]?.let { return it }
-            return scanResults.getOrElse(scanSnapshots.lastIndex) { scanResults.lastOrNull().orEmpty() }
+            val devices =
+                perSnapshotResults[snapshot.networkKey]
+                    ?: scanResults.getOrElse(scanSnapshots.lastIndex) { scanResults.lastOrNull().orEmpty() }
+            return LanShareActiveDiscoveryScanResult.routed(snapshot = snapshot, devices = devices)
         }
     }
 
     private class HangingLanShareActiveDiscoveryScanner : LanShareActiveDiscoveryScanner {
         var cancellationCount = 0
 
-        override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice> =
+        override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult =
             try {
                 awaitCancellation()
             } finally {
@@ -667,6 +746,7 @@ class ShareServiceLifecycleControllerActiveDiscoveryTest : DataFunSpec() {
 
     private companion object {
         private const val LEGACY_ACTIVE_DISCOVERY_RETRY_DELAY_MS = 1_000L
+        private const val NETWORK_RESTART_DEBOUNCE_MS = 1_000L
         private const val EMPTY_SCAN_BACKOFF_DELAY_MS = 4_000L
         private const val DISCOVERED_DEVICE_SCAN_DELAY_MS = 30_000L
     }

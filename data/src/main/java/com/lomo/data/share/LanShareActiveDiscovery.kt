@@ -2,6 +2,11 @@ package com.lomo.data.share
 
 import android.net.Network
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareActiveProbeDiagnostics
+import com.lomo.domain.model.LanShareActiveProbeState
+import com.lomo.domain.model.LanShareDiscoveryDegradedReason
+import com.lomo.domain.model.LanShareProbeRouteState
+import com.lomo.domain.model.LanShareRouteSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -23,8 +28,57 @@ internal data class LanShareActiveDiscoveryTarget(
     val network: Network? = null,
 )
 
+internal data class LanShareActiveDiscoveryScanResult(
+    val devices: List<DiscoveredDevice>,
+    val snapshot: LanShareRouteSnapshot,
+    val activeProbe: LanShareActiveProbeDiagnostics,
+    val degradedReason: LanShareDiscoveryDegradedReason?,
+) {
+    companion object {
+        fun routed(
+            snapshot: LanShareActiveNetworkSnapshot,
+            devices: List<DiscoveredDevice>,
+            scanWindowOffset: Int = 0,
+            probedTargetCount: Int = ACTIVE_DISCOVERY_TARGET_BUDGET,
+        ): LanShareActiveDiscoveryScanResult =
+            LanShareActiveDiscoveryScanResult(
+                devices = devices,
+                snapshot = snapshot.toRouteSnapshot(LanShareProbeRouteState.BoundNetwork),
+                activeProbe =
+                    LanShareActiveProbeDiagnostics(
+                        state = LanShareActiveProbeState.Scanning,
+                        snapshotCount = 1,
+                        routeCapableSnapshotCount = 1,
+                        degradedSnapshotCount = 0,
+                        targetBudget = ACTIVE_DISCOVERY_TARGET_BUDGET,
+                        scanWindowOffset = scanWindowOffset,
+                        probedTargetCount = probedTargetCount,
+                        foundDeviceCount = devices.size,
+                    ),
+                degradedReason = null,
+            )
+
+        fun degradedNoRoute(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult =
+            LanShareActiveDiscoveryScanResult(
+                devices = emptyList(),
+                snapshot = snapshot.toRouteSnapshot(LanShareProbeRouteState.DegradedNoNetwork),
+                activeProbe =
+                    LanShareActiveProbeDiagnostics(
+                        state = LanShareActiveProbeState.DegradedNoRoute,
+                        snapshotCount = 1,
+                        routeCapableSnapshotCount = 0,
+                        degradedSnapshotCount = 1,
+                        targetBudget = ACTIVE_DISCOVERY_TARGET_BUDGET,
+                        probedTargetCount = 0,
+                        foundDeviceCount = 0,
+                    ),
+                degradedReason = LanShareDiscoveryDegradedReason.FallbackSnapshotWithoutNetwork,
+            )
+    }
+}
+
 internal interface LanShareActiveDiscoveryScanner {
-    suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice>
+    suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult
 }
 
 internal fun buildLanShareActiveDiscoveryTargets(
@@ -87,7 +141,16 @@ internal class LanShareActiveDiscoveryClient(
     private val scanWindowLock = Any()
     private val nextScanWindowOffsets = mutableMapOf<String, Int>()
 
-    override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice> {
+    override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult {
+        if (snapshot.network == null) {
+            Timber
+                .tag(TAG)
+                .d(
+                    "LAN active probe degraded for %s: missing Android Network route",
+                    snapshot.networkKey,
+                )
+            return LanShareActiveDiscoveryScanResult.degradedNoRoute(snapshot)
+        }
         val scanWindowOffset = claimScanWindowOffset(snapshot)
         val targets =
             buildLanShareActiveDiscoveryTargets(
@@ -95,14 +158,24 @@ internal class LanShareActiveDiscoveryClient(
                 network = snapshot.network,
                 scanWindowOffset = scanWindowOffset,
             )
-        if (targets.isEmpty()) return emptyList()
-        return targets
+        if (targets.isEmpty()) {
+            return LanShareActiveDiscoveryScanResult.routed(
+                snapshot = snapshot,
+                devices = emptyList(),
+                scanWindowOffset = scanWindowOffset,
+                probedTargetCount = 0,
+            )
+        }
+        val devices =
+            targets
             .chunked(ACTIVE_DISCOVERY_CONCURRENCY)
             .flatMap { chunk ->
                 coroutineScope {
                     chunk
                         .map { target ->
                             async(Dispatchers.IO) {
+                                // behavior-contract: silent-result-ok:
+                                // unreachable probe target means no peer at this address.
                                 runCatching { probeDevice(target) }
                                     .onFailure { error ->
                                         if (error is CancellationException) throw error
@@ -113,6 +186,12 @@ internal class LanShareActiveDiscoveryClient(
                         .filterNotNull()
                 }
             }.distinctBy { device -> device.endpointKey() }
+        return LanShareActiveDiscoveryScanResult.routed(
+            snapshot = snapshot,
+            devices = devices,
+            scanWindowOffset = scanWindowOffset,
+            probedTargetCount = targets.size,
+        )
     }
 
     private fun claimScanWindowOffset(snapshot: LanShareActiveNetworkSnapshot): Int =
@@ -124,11 +203,12 @@ internal class LanShareActiveDiscoveryClient(
         }
 }
 
-private suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget): DiscoveredDevice? =
+internal suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget): DiscoveredDevice? =
     withContext(Dispatchers.IO) {
+        val network = target.network ?: return@withContext null
         val url = URI("http://${target.host}:${target.port}/share/ping").toURL()
         val connection =
-            ((target.network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection)
+            (network.openConnection(url) as HttpURLConnection)
                 .apply {
                     requestMethod = "GET"
                     connectTimeout = ACTIVE_DISCOVERY_TIMEOUT_MS
@@ -163,10 +243,24 @@ internal fun mapLanSharePingResponse(
 
 private fun DiscoveredDevice.endpointKey(): String = "$host:$port"
 
+internal fun LanShareActiveNetworkSnapshot.toRouteSnapshot(
+    routeState: LanShareProbeRouteState =
+        if (network == null) {
+            LanShareProbeRouteState.DegradedNoNetwork
+        } else {
+            LanShareProbeRouteState.BoundNetwork
+        },
+): LanShareRouteSnapshot =
+    LanShareRouteSnapshot(
+        networkKey = networkKey,
+        bindHost = bindHost,
+        routeState = routeState,
+    )
+
 private const val TAG = "LanShareActiveDiscovery"
 private const val ACTIVE_DISCOVERY_CONCURRENCY = 32
-private const val ACTIVE_DISCOVERY_TARGET_BUDGET = 64
-private const val ACTIVE_DISCOVERY_NON_PRIORITY_TARGET_BUDGET = ACTIVE_DISCOVERY_TARGET_BUDGET - 4
+internal const val ACTIVE_DISCOVERY_TARGET_BUDGET = 64
+internal const val ACTIVE_DISCOVERY_NON_PRIORITY_TARGET_BUDGET = ACTIVE_DISCOVERY_TARGET_BUDGET - 4
 private const val ACTIVE_DISCOVERY_TIMEOUT_MS = 250
 private const val IPV4_OCTET_COUNT = 4
 private const val IPV4_USABLE_HOST_MIN = 1

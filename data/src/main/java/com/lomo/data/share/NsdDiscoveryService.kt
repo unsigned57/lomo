@@ -250,8 +250,10 @@ class NsdDiscoveryService(
     override fun mergeDiscoveredDevices(devices: List<DiscoveredDevice>) {
         if (devices.isEmpty()) return
         _discoveredDevices.update { existing ->
-            val incomingKeys = devices.map { device -> "${device.host}:${device.port}" }.toSet()
-            existing.filterNot { device -> "${device.host}:${device.port}" in incomingKeys } + devices
+            mergeLanShareDiscoveredDevices(
+                existing = existing,
+                incoming = devices,
+            )
         }
     }
 
@@ -350,9 +352,10 @@ class NsdDiscoveryService(
 
         Timber.tag(TAG).d("Resolved: ${device.name} at ${device.host}:${device.port}")
         _discoveredDevices.update { list ->
-            // Deduplicate by host to prevent multiple entries for the same device (e.g. after rename)
-            val existing = list.filter { it.host != device.host }
-            existing + device
+            mergeLanShareDiscoveredDevices(
+                existing = list,
+                incoming = listOf(device),
+            )
         }
     }
 

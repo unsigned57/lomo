@@ -2,6 +2,8 @@ package com.lomo.data.share
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.SharePayload
 import com.lomo.domain.model.ShareTransferState
@@ -64,6 +66,10 @@ class LanShareStateDelegate
         override val incomingShare: StateFlow<IncomingShareState> = incomingStateHolder.incomingShare
 
         override val transferState: StateFlow<ShareTransferState> = transferOrchestrator.transferState
+        override val lanShareRuntimeState: StateFlow<LanShareRuntimeState> =
+            lifecycleController.lanShareRuntimeState
+        override val lanShareDiscoveryDiagnostics: StateFlow<LanShareDiscoveryDiagnostics> =
+            lifecycleController.lanShareDiscoveryDiagnostics
         override val lanShareStartupFailures: Flow<LanShareStartupFailure> =
             lifecycleController.lanShareStartupFailures
 
@@ -111,6 +117,10 @@ class LanShareLifecycleControllerImpl
 
         override fun stopDiscovery() {
             lifecycleController.stopDiscovery()
+        }
+
+        override fun refreshNetworkPermissionState() {
+            lifecycleController.refreshNetworkPermissionState()
         }
     }
 
