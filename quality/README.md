@@ -65,7 +65,8 @@ AI agents inside the sandbox should normally use:
   - `quality/scripts/check_string_resource_parity.sh`
 - Final handoff:
   - `quality/scripts/ai_quality_check.sh`
-    - runs `qualityCheck` first, then the local maintenance report unless `LOMO_SKIP_LOCAL_MAINTENANCE=true`
+    - runs `qualityCheck` only by default
+    - set `LOMO_RUN_LOCAL_MAINTENANCE=true` only when the handoff also needs dependency updates, CVEs, and R8 diagnostics
 
 Policy notes:
 
@@ -139,7 +140,7 @@ Task roles:
 - `aiStaticQualityCheck`
   - AI-oriented static gate via `quality/scripts/ai_static_quality_check.sh`, which runs `staticQualityCheck`.
 - `staticQualityCheck`
-  - Compile gates, architecture checks, BDD+TDD test-style checks, Android Lint, and meaningful-test metadata without coverage.
+  - Compile gates, architecture checks, BDD+TDD test-style checks, Android Lint, quality workflow contract checks, and meaningful-test metadata without coverage.
 - `fullQualityCheck`
   - Internal staged full gate that backs `qualityCheck`.
 - `qualityCheck`
@@ -153,6 +154,8 @@ Task roles:
   - Experimental under the current AGP 9.2 alpha toolchain; use it as an advisory task, not a merge gate.
 - `dependencyVulnerabilityCheck`
   - Runs OWASP Dependency-Check and fails on known vulnerabilities at CVSS 7.0 or higher.
+  - Uses Dependency-Check data under the active Gradle user home so CI and AI repo-local Gradle caches preserve the NVD database between runs.
+  - Reads `NVD_API_KEY` when present and keeps NVD data valid for 24 hours before checking for updates.
 - `architectureCheck`
   - Detekt-based architecture guardrails.
 - `androidLintCheck`
@@ -241,7 +244,9 @@ Task roles:
   - `seeds.txt`
   - `mapping.txt`
   - `configuration.txt`
-- If you only want the full repository gate and intentionally need to skip the local maintenance pass, set `LOMO_SKIP_LOCAL_MAINTENANCE=true` before running `quality/scripts/ai_quality_check.sh`.
+- `quality/scripts/ai_quality_check.sh` skips local maintenance by default so high-frequency fix/test/commit loops do not download OWASP/NVD data.
+- If you need the full repository gate plus the local maintenance pass, set `LOMO_RUN_LOCAL_MAINTENANCE=true` before running `quality/scripts/ai_quality_check.sh`.
+- The dedicated GitHub Actions workflow `.github/workflows/dependency_vulnerability.yml` runs `dependencyVulnerabilityCheck` on a schedule or manual dispatch; configure the repository secret `NVD_API_KEY` to avoid slow unauthenticated NVD updates.
 - `LOMO_DEPENDENCY_VULNERABILITY_TIMEOUT_SECONDS` controls how long the local maintenance script waits for OWASP Dependency-Check before recording a timeout in the summary. The default is `300`.
 
 ## Warning Escalation Matrix
