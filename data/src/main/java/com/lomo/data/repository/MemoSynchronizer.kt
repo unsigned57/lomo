@@ -231,26 +231,18 @@ private class MemoOutboxDrainCoordinator(
     }
 
     private suspend fun processOutboxItem(item: MemoFileOutboxEntity): Boolean {
-            if (item.retryCount >= MAX_OUTBOX_RETRIES) {
-                if (isOutboxCompletionFailure(item.lastError)) {
-                    Timber.e(
-                        "Keep poisoned outbox item id=%d op=%s memoId=%s retryCount=%d " +
-                            "because lifecycle completion has not finished",
-                        item.id,
-                    item.operation,
-                    item.memoId,
-                    item.retryCount,
-                )
-                return false
-            }
+        if (item.retryCount >= MAX_OUTBOX_RETRIES) {
+            // Dead-lettered: the live claim no longer hands these out, so reaching here means a stale
+            // hand-off. Skip without halting the drain so the remaining items keep flushing and
+            // reconciliation is never frozen; recovery is left to a future retry trigger.
             Timber.e(
-                "Drop poisoned outbox item id=%d op=%s memoId=%s retryCount=%d",
+                "Skip dead-lettered outbox item id=%d op=%s memoId=%s retryCount=%d lastError=%s",
                 item.id,
                 item.operation,
                 item.memoId,
                 item.retryCount,
+                item.lastError,
             )
-            mutationHandler.acknowledgeMemoFileOutbox(item.id)
             return true
         }
 
@@ -300,7 +292,6 @@ private class MemoOutboxDrainCoordinator(
     }
 
     private companion object {
-        const val MAX_OUTBOX_RETRIES = 5
         const val OUTBOX_RETRY_DELAY_MS = 1_500L
     }
 }
@@ -310,6 +301,3 @@ private fun Throwable.toOutboxCompletionFailure(): IllegalStateException =
         "$OUTBOX_COMPLETION_FAILURE_PREFIX ${message ?: javaClass.simpleName}",
         this,
     )
-
-private fun isOutboxCompletionFailure(lastError: String?): Boolean =
-    lastError?.startsWith(OUTBOX_COMPLETION_FAILURE_PREFIX) == true

@@ -28,7 +28,6 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
@@ -62,9 +61,9 @@ class MarkdownParserTest : DataFunSpec() {
 
         test("test multiple memos in one file") { `test multiple memos in one file`() }
 
-        test("test stable ids with hash") { `test stable ids with hash`() }
+        test("test ids are stable across content edits") { `test ids are stable across content edits`() }
 
-        test("test collision with identical content and timestamp") { `test collision with identical content and timestamp`() }
+        test("test identical content and timestamp get distinct positional ordinals") { `test identical content and timestamp get distinct positional ordinals`() }
 
         test("test millisecond offsets for identical timestamps") { `test millisecond offsets for identical timestamps`() }
 
@@ -187,36 +186,20 @@ class MarkdownParserTest : DataFunSpec() {
         memos[2].content shouldBe "Dinner"
     }
 
-    private fun `test stable ids with hash`() {
-        // Scenario: Two notes with same timestamp.
-        // File 1: Note A, Note B
-        val content1 =
-            """
-- 10:00 Note A
-- 10:00 Note B
-            """.trimIndent()
-        val memos1 = parser.parseContent(content1, "file1")
-        val idAUsage1 = memos1[0].id
-        val idBUsage1 = memos1[1].id
+    private fun `test ids are stable across content edits`() {
+        // Positional ids do not embed the content, so editing a memo's body keeps its id stable.
+        // This is what keeps the DB projection aligned with the rewritten source file after an edit
+        // (the bug where edits stopped reaching the source file came from content-derived ids).
+        val before = parser.parseContent("- 10:00 Original body", "file1")[0].id
+        val after = parser.parseContent("- 10:00 A completely rewritten body #tag", "file1")[0].id
 
-        // File 2: Note B only (Simulate deleting Note A)
-        // If IDs were position based, Note B would take Note A's ID or change.
-        // With hash, it should keep its own ID.
-        val content2 =
-            """
-- 10:00 Note B
-            """.trimIndent()
-        val memos2 = parser.parseContent(content2, "file1")
-        val idBUsage2 = memos2[0].id
-
-        // Assert: ID of Note B should be identical in both cases
-        withClue("ID of Note B should remain stable after deleting Note A") { idBUsage2 shouldBe idBUsage1 }
-        // Also assert it's NOT the same as A's ID
-        idAUsage1 shouldNotBe idBUsage2
+        withClue("editing content must not change the positional id") { after shouldBe before }
+        before shouldBe "file1_10:00_0"
     }
 
-    private fun `test collision with identical content and timestamp`() {
-        // Edge case: Identical content and timestamp
+    private fun `test identical content and timestamp get distinct positional ordinals`() {
+        // Edge case: identical content and timestamp. Ordinals make each block uniquely addressable
+        // by file position instead of relying on a content hash + collision suffix.
         val content =
             """
 - 10:00 Duplicate
@@ -225,13 +208,8 @@ class MarkdownParserTest : DataFunSpec() {
 
         val memos = parser.parseContent(content, "file1")
         memos.size shouldBe 2
-        // First one has base hash ID
-        // Second one should have suffix _1
-        val baseId = memos[0].id
-        val collisionId = memos[1].id
-
-        withClue("Second ID should start with Base ID") { (collisionId.startsWith(baseId)).shouldBeTrue() }
-        withClue("Second ID should have suffix") { (collisionId.endsWith("_1")).shouldBeTrue() }
+        memos[0].id shouldBe "file1_10:00_0"
+        memos[1].id shouldBe "file1_10:00_1"
     }
 
     private fun `test millisecond offsets for identical timestamps`() {

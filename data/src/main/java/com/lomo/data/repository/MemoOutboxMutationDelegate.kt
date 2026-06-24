@@ -8,7 +8,7 @@ internal class MemoOutboxMutationDelegate(
     private val storageFormatProvider: MemoStorageFormatProvider,
 ) : MemoOutboxMutationOperations {
     override suspend fun hasPendingMemoFileOutbox(): Boolean =
-        runtime.daoBundle.memoOutboxDao.getMemoFileOutboxCount() > 0
+        runtime.daoBundle.memoOutboxDao.getPendingMemoFileOutboxCount(MAX_OUTBOX_RETRIES) > 0
 
     override suspend fun nextMemoFileOutbox(): MemoFileOutboxEntity? {
         val now = System.currentTimeMillis()
@@ -16,6 +16,7 @@ internal class MemoOutboxMutationDelegate(
             claimToken = UUID.randomUUID().toString(),
             claimedAt = now,
             staleBefore = now - OUTBOX_CLAIM_STALE_MS,
+            maxRetries = MAX_OUTBOX_RETRIES,
         )
     }
 
@@ -36,16 +37,28 @@ internal class MemoOutboxMutationDelegate(
 
     override suspend fun flushMemoFileOutbox(item: MemoFileOutboxEntity): Boolean =
         runtime.mutationGate.withLock {
-            val command = item.toLifecycleCommand()
-            when (command.operation) {
-                MemoLifecycleOperation.CREATE -> flushCreateFromOutbox(runtime, command)
-                MemoLifecycleOperation.UPDATE -> flushUpdateFromOutbox(runtime, storageFormatProvider, command)
-                MemoLifecycleOperation.DELETE_TO_TRASH -> flushDeleteFromOutbox(runtime, command)
-                MemoLifecycleOperation.RESTORE_FROM_TRASH -> flushRestoreFromOutbox(runtime, command)
-                MemoLifecycleOperation.PERMANENT_DELETE -> flushPermanentDeleteFromOutbox(runtime, command)
-                MemoLifecycleOperation.VERSION_RESTORE -> flushVersionRestoreFromOutbox(runtime, command)
+            if (item.operation == com.lomo.data.local.entity.MemoFileOutboxOp.CLEAR_TRASH_SHARD) {
+                flushClearTrashShard(runtime, item.memoDate)
+            } else {
+                val command = item.toLifecycleCommand()
+                when (command.operation) {
+                    MemoLifecycleOperation.CREATE -> flushCreateFromOutbox(runtime, command)
+                    MemoLifecycleOperation.UPDATE -> flushUpdateFromOutbox(runtime, storageFormatProvider, command)
+                    MemoLifecycleOperation.DELETE_TO_TRASH -> flushDeleteFromOutbox(runtime, command)
+                    MemoLifecycleOperation.RESTORE_FROM_TRASH -> flushRestoreFromOutbox(runtime, command)
+                    MemoLifecycleOperation.PERMANENT_DELETE -> flushPermanentDeleteFromOutbox(runtime, command)
+                    MemoLifecycleOperation.VERSION_RESTORE -> flushVersionRestoreFromOutbox(runtime, command)
+                }
             }
-    }
+        }
+}
+
+internal suspend fun flushClearTrashShard(
+    runtime: MemoMutationRuntime,
+    dateKey: String,
+): Boolean {
+    runtime.workspaceStore.deleteTrashShard(dateKey)
+    return true
 }
 
 internal class MemoOutboxLifecycleCompletionException(
@@ -151,11 +164,7 @@ internal suspend fun flushPermanentDeleteFromOutbox(
     val fileCompletion = runtime.trashMutationHandler.deleteFromTrashFileOnly(completionCommand)
     when (fileCompletion) {
         PermanentDeleteTrashFileCompletion.Completed -> Unit
-        PermanentDeleteTrashFileCompletion.MissingTrashBlock ->
-            throw MemoOutboxLifecycleCompletionException(
-                "PERMANENT_DELETE missing trash block for memo ${completionCommand.sourceMemo.id}: " +
-                    completionCommand.metadata.operationId.value,
-            )
+        PermanentDeleteTrashFileCompletion.MissingTrashBlock -> Unit
     }
     recordPermanentDeleteVersionHandoff(runtime, completionCommand)
     runtime.s3LocalChangeRecorder.recordMemoDelete(completionCommand.filename)

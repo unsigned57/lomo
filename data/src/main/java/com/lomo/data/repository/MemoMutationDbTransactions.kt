@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.MemoFileOutboxEntity
+import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.projection.ActiveMemoProjection
 import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.domain.model.MemoRevisionLifecycleState
@@ -102,6 +103,13 @@ internal suspend fun enqueueClearTrashWithOutbox(daoBundle: MemoMutationDaoBundl
     if (trashMemos.isEmpty()) return 0
 
     daoBundle.runInTransaction {
+        // One shard-clear row per date drains first and deletes the entire trash shard file in a
+        // single I/O. The per-memo permanent-delete rows below then complete idempotently (their
+        // block is already gone), so clearing a large trash no longer rewrites each shard once per
+        // memo. Destruction still happens in the drain via command-owned rows.
+        trashMemos.map(TrashMemoEntity::date).distinct().forEach { dateKey ->
+            daoBundle.memoOutboxDao.insertMemoFileOutbox(buildClearTrashShardOutbox(dateKey))
+        }
         trashMemos.forEach { trashMemo ->
             daoBundle.memoOutboxDao.insertMemoFileOutbox(
                 buildPermanentDeleteOutbox(MemoLifecycleCommand.permanentDelete(trashMemo.toDomain())),

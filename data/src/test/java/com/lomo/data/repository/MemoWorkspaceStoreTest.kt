@@ -54,6 +54,16 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Room SQL mechanics, sync transport journals, UI rendering, and MarkdownParser internals.
+ *
+ * Test Change Justification:
+ * - Reason category: Memo identity model shifted from content-derived to positional ids.
+ * - Old behavior/assertion being replaced: workspace shard projection used content-derived memo ids.
+ * - Why old assertion is no longer correct: positional ids replace content hashes for stable memo
+ *   identity during shard projection and block surgery.
+ * - Coverage preserved by: all shard projection, trash move, version restore, and missing-span
+ *   scenarios retained; identity assertions updated to positional id format.
+ * - Why this is not fitting the test to the implementation: tests verify observable memo collection
+ *   outputs and file-state metadata, not internal identity-derivation mechanics.
  */
 class MemoWorkspaceStoreTest : DataFunSpec() {
     init {
@@ -417,6 +427,11 @@ private class InMemoryWorkspaceMarkdownStorage : MarkdownStorageDataSource {
             MemoDirectoryType.MAIN -> mainFiles[filename]
             MemoDirectoryType.TRASH -> trashFiles[filename]
         }
+
+    override suspend fun fingerprintFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? = readFileIn(directory, filename)?.toByteArray(Charsets.UTF_8)?.md5Hex()
 
     override suspend fun readFile(uri: Uri): String? = null
 

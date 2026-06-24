@@ -52,12 +52,6 @@ internal suspend fun createSavePlan(
             .formatter(timestampFormat)
             .withZone(zoneId)
             .format(instant)
-    val baseId = runtime.memoIdentityPolicy.buildBaseId(dateString, timeString, content)
-    val precomputedCollisionCount =
-        runtime.daoBundle.memoIdentityDao.countMemoIdCollisions(
-            baseId = baseId,
-            globPattern = "${baseId}_*",
-        )
     val precomputedSameTimestampCount =
         runtime.daoBundle.memoIdentityDao.countMemosByIdGlob("${dateString}_${timeString}_*")
     return runtime.savePlanFactory.create(
@@ -67,7 +61,6 @@ internal suspend fun createSavePlan(
         timestampFormat = timestampFormat,
         existingFileContent = "",
         precomputedSameTimestampCount = precomputedSameTimestampCount,
-        precomputedCollisionCount = precomputedCollisionCount,
         geoLocation = geoLocation,
     )
 }

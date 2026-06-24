@@ -40,6 +40,26 @@ internal fun buildVersionRestoreOutbox(command: MemoLifecycleCommand): MemoFileO
     return command.toOutboxEntity()
 }
 
+/**
+ * A shard-scoped clear-trash row. Draining it deletes the whole trash shard file in one I/O, so the
+ * per-memo PERMANENT_DELETE rows enqueued alongside it complete idempotently (their block is already
+ * gone) instead of each re-rewriting the same file. Carries no memo, only the shard date key.
+ */
+internal fun buildClearTrashShardOutbox(dateKey: String): MemoFileOutboxEntity {
+    val identity = com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy.forClearTrashShard(dateKey)
+    return MemoFileOutboxEntity(
+        operation = MemoFileOutboxOp.CLEAR_TRASH_SHARD,
+        operationId = identity.operationId,
+        idempotencyKey = identity.idempotencyKey,
+        memoId = "clear-trash-shard:$dateKey",
+        memoDate = dateKey,
+        memoTimestamp = 0L,
+        memoRawContent = "",
+        newContent = null,
+        createRawContent = null,
+    )
+}
+
 internal fun outboxSourceMemo(item: MemoFileOutboxEntity): Memo {
     val content = item.sourceContent()
     val contentAnalysis = MemoContentAnalyzer.analyze(content)
@@ -68,6 +88,8 @@ internal fun MemoFileOutboxEntity.toLifecycleCommand(): MemoLifecycleCommand =
         MemoFileOutboxOp.RESTORE -> MemoLifecycleCommand.restoreFromTrash(outboxSourceMemo(this))
         MemoFileOutboxOp.PERMANENT_DELETE -> MemoLifecycleCommand.permanentDelete(outboxSourceMemo(this))
         MemoFileOutboxOp.VERSION_RESTORE -> decodeRevisionRestoreOutboxCommand(this)
+        MemoFileOutboxOp.CLEAR_TRASH_SHARD ->
+            error("CLEAR_TRASH_SHARD is a shard-scoped row with no per-memo lifecycle command: $memoDate")
     }.also { command ->
         command.requireDurableIdentity(
             operationId = operationId,
@@ -84,6 +106,8 @@ private fun MemoFileOutboxEntity.sourceContent(): String =
         -> contentFromRawMemoSource(memoRawContent)
         MemoFileOutboxOp.RESTORE -> requireNotNull(newContent) { "Outbox RESTORE requires newContent for memo $memoId" }
         MemoFileOutboxOp.CREATE -> requireNotNull(newContent) { "Outbox CREATE requires newContent for memo $memoId" }
+        MemoFileOutboxOp.CLEAR_TRASH_SHARD ->
+            error("CLEAR_TRASH_SHARD carries no memo content: $memoDate")
     }
 
 internal fun contentFromRawMemoSource(rawContent: String): String {

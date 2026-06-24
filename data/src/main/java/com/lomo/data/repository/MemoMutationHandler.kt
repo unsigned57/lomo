@@ -33,6 +33,13 @@ import javax.inject.Inject
 internal const val MAX_OUTBOX_ERROR_LENGTH = 512
 internal const val OUTBOX_CLAIM_STALE_MS = 2 * 60_000L
 
+/**
+ * Number of flush attempts after which an outbox item is considered a dead letter: it is no longer
+ * claimed by the live drain and no longer counts as pending work that blocks reconciliation. This is
+ * shared by the DAO claim/pending queries and the drain coordinator so "live" has a single meaning.
+ */
+internal const val MAX_OUTBOX_RETRIES = 5
+
 internal class StorageFormatSettings(
     val filenameFormat: String = StorageFilenameFormats.DEFAULT_PATTERN,
     val timestampFormat: String = StorageTimestampFormats.DEFAULT_PATTERN,

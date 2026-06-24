@@ -140,6 +140,16 @@ class MemoWorkspaceStore
             return MemoWorkspaceBlockRemoval.Removed
         }
 
+        /**
+         * Deletes an entire trash shard file in one operation. Used by clearTrash to batch the SAF
+         * I/O: emptying the trash removes every block in a shard, so a single delete replaces a
+         * per-memo read-rewrite cycle.
+         */
+        suspend fun deleteTrashShard(dateKey: String) {
+            requireSafeMemoDateKey(dateKey)
+            writer.deleteShard(directory = MemoDirectoryType.TRASH, filename = "$dateKey.md")
+        }
+
         suspend fun upsertMemoBlock(
             directory: MemoDirectoryType,
             filename: String,
@@ -208,26 +218,28 @@ class MemoWorkspaceStore
             }
             return MemoWorkspaceBlockRemoval.Removed
         }
-
-        private fun missingSpan(
-            directory: MemoDirectoryType,
-            filename: String,
-            memo: Memo,
-        ): MemoWorkspaceBlockMutationResult.MissingSourceSpan =
-            MemoWorkspaceBlockMutationResult.MissingSourceSpan(
-                directory = directory,
-                filename = filename,
-                memoId = memo.id,
-            )
-
-        private fun missingRemovalSpan(
-            directory: MemoDirectoryType,
-            filename: String,
-            memo: Memo,
-        ): MemoWorkspaceBlockRemoval.MissingSourceSpan =
-            MemoWorkspaceBlockRemoval.MissingSourceSpan(
-                directory = directory,
-                filename = filename,
-                memoId = memo.id,
-            )
     }
+
+// Stateless span helpers kept at file level so MemoWorkspaceStore stays within the per-class
+// function budget (TooManyFunctions); they construct result values and touch no instance state.
+private fun missingSpan(
+    directory: MemoDirectoryType,
+    filename: String,
+    memo: Memo,
+): MemoWorkspaceBlockMutationResult.MissingSourceSpan =
+    MemoWorkspaceBlockMutationResult.MissingSourceSpan(
+        directory = directory,
+        filename = filename,
+        memoId = memo.id,
+    )
+
+private fun missingRemovalSpan(
+    directory: MemoDirectoryType,
+    filename: String,
+    memo: Memo,
+): MemoWorkspaceBlockRemoval.MissingSourceSpan =
+    MemoWorkspaceBlockRemoval.MissingSourceSpan(
+        directory = directory,
+        filename = filename,
+        memoId = memo.id,
+    )

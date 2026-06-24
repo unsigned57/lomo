@@ -122,9 +122,9 @@ class MarkdownParser
                 return null
             }
 
-            val baseId = memoIdentityPolicy.buildBaseId(filename, PLAIN_MARKDOWN_FALLBACK_TIME, normalizedContent)
+            val id = memoIdentityPolicy.buildId(filename, PLAIN_MARKDOWN_FALLBACK_TIME, ordinal = 0)
             return Memo(
-                id = baseId,
+                id = id,
                 timestamp = resolveTimestamp(filename, PLAIN_MARKDOWN_FALLBACK_TIME, fallbackTimestampMillis),
                 content = normalizedContent,
                 rawContent = normalizedContent,
@@ -150,7 +150,6 @@ class MarkdownParser
             private val fallbackTimestampMillis: Long?,
         ) {
             private val result = mutableListOf<MarkdownMemoBlock>()
-            private val seenIds = mutableSetOf<String>()
             private val timestampCounts = mutableMapOf<String, Int>()
             private var lineIndex = 0
             private var sawHeader = false
@@ -217,8 +216,8 @@ class MarkdownParser
                 val fullRaw = currentRawBuilder.toString().trim()
                 val fullContent = currentContentBuilder.toString().trim()
 
-                val offset = timestampCounts.getOrDefault(currentTimestamp, 0)
-                timestampCounts[currentTimestamp] = offset + 1
+                val ordinal = timestampCounts.getOrDefault(currentTimestamp, 0)
+                timestampCounts[currentTimestamp] = ordinal + 1
 
                 val timestampLong =
                     memoIdentityPolicy.applyTimestampOffset(
@@ -228,13 +227,10 @@ class MarkdownParser
                                 timeStr = currentTimestamp,
                                 fallbackTimestampMillis = fallbackTimestampMillis,
                             ),
-                        occurrenceIndex = offset,
+                        occurrenceIndex = ordinal,
                     )
 
-                val baseId = memoIdentityPolicy.buildBaseId(filename, currentTimestamp, fullContent)
-                val collisionCount = memoIdentityPolicy.nextCollisionIndex(seenIds, baseId)
-                val id = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionCount)
-                seenIds.add(id)
+                val id = memoIdentityPolicy.buildId(filename, currentTimestamp, ordinal)
 
                 result +=
                     MarkdownMemoBlock(

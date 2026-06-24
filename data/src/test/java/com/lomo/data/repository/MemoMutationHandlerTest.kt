@@ -506,7 +506,6 @@ class MemoMutationHandlerTest : DataFunSpec() {
                 }
             }
 
-            coEvery { dao.countMemoIdCollisions(any(), any()) } returns 0
             coEvery { dao.countMemosByIdGlob(any()) } returns 0
             coEvery { dao.insertMemoFileOutbox(any()) } returnsMany listOf(1L, 2L)
             coEvery {
@@ -517,7 +516,6 @@ class MemoMutationHandlerTest : DataFunSpec() {
                     timestampFormat = any(),
                     existingFileContent = any(),
                     precomputedSameTimestampCount = any(),
-                    precomputedCollisionCount = any(),
                 )
             } answers {
                 val timestamp = secondArg<Long>()

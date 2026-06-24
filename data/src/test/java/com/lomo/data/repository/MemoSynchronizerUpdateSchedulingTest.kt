@@ -88,8 +88,8 @@ class MemoSynchronizerUpdateSchedulingTest : DataFunSpec() {
             `deletePermanently enqueues permanent delete outbox without directly destroying trash state`()
         }
 
-        test("clearTrash enqueues one permanent delete outbox per trash snapshot without direct destruction") {
-            `clearTrash enqueues one permanent delete outbox per trash snapshot without direct destruction`()
+        test("clearTrash enqueues a shard-clear row per date and a permanent delete row per memo without direct destruction") {
+            `clearTrash enqueues a shard-clear row per date and a permanent delete row per memo without direct destruction`()
         }
     }
 
@@ -316,7 +316,7 @@ class MemoSynchronizerUpdateSchedulingTest : DataFunSpec() {
         }
     }
 
-    private fun `clearTrash enqueues one permanent delete outbox per trash snapshot without direct destruction`() {
+    private fun `clearTrash enqueues a shard-clear row per date and a permanent delete row per memo without direct destruction`() {
         runBlocking {
             val memoA =
                 testMemo().copy(
@@ -370,11 +370,19 @@ class MemoSynchronizerUpdateSchedulingTest : DataFunSpec() {
 
             capturedOutbox.map { it.operation } shouldBe
                 listOf(
+                    MemoFileOutboxOp.CLEAR_TRASH_SHARD,
+                    MemoFileOutboxOp.CLEAR_TRASH_SHARD,
                     MemoFileOutboxOp.PERMANENT_DELETE,
                     MemoFileOutboxOp.PERMANENT_DELETE,
                 )
-            capturedOutbox.map { it.memoId } shouldBe listOf(memoA.id, memoB.id)
-            capturedOutbox.map { it.memoRawContent } shouldBe listOf(memoA.rawContent, memoB.rawContent)
+            val shardRows = capturedOutbox.filter { it.operation == MemoFileOutboxOp.CLEAR_TRASH_SHARD }
+            val memoRows = capturedOutbox.filter { it.operation == MemoFileOutboxOp.PERMANENT_DELETE }
+            // One shard-clear row per distinct trash date, drained before the per-memo rows.
+            shardRows.map { it.memoDate } shouldBe listOf(memoA.dateKey, memoB.dateKey)
+            memoRows.map { it.memoId } shouldBe listOf(memoA.id, memoB.id)
+            memoRows.map { it.memoRawContent } shouldBe listOf(memoA.rawContent, memoB.rawContent)
+            // clearTrash itself still performs no direct destruction: the shard files are only
+            // deleted when the CLEAR_TRASH_SHARD rows drain, not synchronously here.
             fileDataSource.files[MemoDirectoryType.TRASH to "${memoA.dateKey}.md"] shouldBe "${memoA.rawContent}\n"
             fileDataSource.files[MemoDirectoryType.TRASH to "${memoB.dateKey}.md"] shouldBe "${memoB.rawContent}\n"
             fileDataSource.deleteFileInCalls shouldBe emptyList()
