@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>CanBeNonNullable:DeleteViewportEntryCompensation.kt:compensation: DeleteViewportEntryPlacement?</ID>
     <ID>CanBeNonNullable:GalleryScreen.kt:aspectByMemoId: ImmutableMap&lt;String, Float&gt;?</ID>
     <ID>ForbiddenMethodCall:BenchmarkAnchorContract.kt:BenchmarkAnchorContract$lowercase()</ID>
     <ID>ForbiddenMethodCall:SettingsErrorPresenter.kt:lowercase()</ID>
@@ -40,8 +39,6 @@
     <ID>LongParameterList:DailyReviewScreen.kt:@Composable private fun DailyReviewPagerPage</ID>
     <ID>LongParameterList:DailyReviewScreen.kt:@Composable private fun DailyReviewScreenContent</ID>
     <ID>LongParameterList:DailyReviewViewModel.kt:DailyReviewViewModel</ID>
-    <ID>LongParameterList:DeleteViewportEntryCollapseFrame.kt:internal fun resolveDeleteViewportEntryCollapseFrame: DeleteViewportEntryCollapseFrame?</ID>
-    <ID>LongParameterList:DeleteViewportEntryCollapseFrame.kt:private fun hasBottomEntryBatch: Boolean</ID>
     <ID>LongParameterList:GalleryGridContent.kt:@OptIn(ExperimentalFoundationApi::class) @Composable fun GalleryGridContent</ID>
     <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun BoxScope.GalleryReelChrome</ID>
     <ID>LongParameterList:GalleryReelScreen.kt:@Composable private fun BoxScope.GalleryReelContent</ID>
@@ -70,8 +67,7 @@
     <ID>LongParameterList:MainScreenStateHosts.kt:@Composable internal fun MainScreenContentHost</ID>
     <ID>LongParameterList:MainScreenStateHosts.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun MainScreenNavigationContent</ID>
     <ID>LongParameterList:MainViewModel.kt:MainViewModel</ID>
-    <ID>LongParameterList:MemoCardListAnimation.kt:@Composable private fun MemoCardDeleteAnimatedContainer</ID>
-    <ID>LongParameterList:MemoCardListAnimation.kt:@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem</ID>
+    <ID>LongParameterList:MemoCardListAnimation.kt:@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable fun MemoCardList</ID>
     <ID>LongParameterList:MemoEditorController.kt:private fun buildMemoEditorSheetCallbacks: com.lomo.ui.component.input.InputSheetCallbacks</ID>
     <ID>LongParameterList:MemoEditorController.kt:private fun buildMemoEditorSheetState: com.lomo.ui.component.input.InputSheetState</ID>
     <ID>LongParameterList:MemoInteractionHost.kt:@Composable fun MemoInteractionHost</ID>
@@ -81,28 +77,18 @@
     <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedLazyColumn</ID>
     <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedListColumn</ID>
     <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun MemoPagedListRow</ID>
-    <ID>LongParameterList:PagedMemoListContent.kt:@Composable private fun rememberMemoPagedListMotionOwners: MemoPagedListMotionOwners</ID>
     <ID>LongParameterList:PagedMemoListContent.kt:@OptIn( androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ) @Composable internal fun MemoListContent</ID>
     <ID>LongParameterList:ReminderInsertDialog.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun ReminderDialogContent</ID>
     <ID>LongParameterList:SearchScreen.kt:@Composable private fun SearchScreenContent</ID>
     <ID>LongParameterList:SearchScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun FloatingSearchBar</ID>
     <ID>LongParameterList:SearchScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable private fun SearchScreenScaffold</ID>
     <ID>LongParameterList:SearchViewModel.kt:SearchViewModel</ID>
-    <ID>LongParameterList:SettingsGitSyncSections.kt:@Composable fun GitSyncSettingsSection</ID>
-    <ID>LongParameterList:SettingsGitSyncSections.kt:@Composable private fun GitSyncAdvancedContent</ID>
     <ID>LongParameterList:SettingsHomeHeroState.kt:internal fun computeSettingsHomeHeroState: SettingsHomeHeroState</ID>
     <ID>LongParameterList:SettingsQuickControls.kt:@Composable internal fun SettingsPreferencesQuickGroup</ID>
-    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable fun S3SyncSettingsSection</ID>
-    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3ConnectionPreferences</ID>
-    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3EncryptionPreferences</ID>
-    <ID>LongParameterList:SettingsS3SyncSections.kt:@Composable private fun S3SyncAdvancedContent</ID>
     <ID>LongParameterList:SettingsScreen.kt:@Composable private fun SettingsSubPagesAnimatedContent</ID>
     <ID>LongParameterList:SettingsScreenLayout.kt:@Composable private fun SettingsBody</ID>
     <ID>LongParameterList:SettingsScreenLayout.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable internal fun SettingsScreenScaffold</ID>
-    <ID>LongParameterList:SettingsScreenSyncContainers.kt:@Composable internal fun S3SyncSettingsSectionContainer</ID>
     <ID>LongParameterList:SettingsSections.kt:@Composable fun FormatsSettingsSection</ID>
-    <ID>LongParameterList:SettingsWebDavSyncSections.kt:@Composable fun WebDavSyncSettingsSection</ID>
-    <ID>LongParameterList:SettingsWebDavSyncSections.kt:@Composable private fun WebDavSyncAdvancedContent</ID>
     <ID>LongParameterList:ShareCardBitmapRenderer.kt:ShareCardBitmapRenderer$fun render: Bitmap</ID>
     <ID>LongParameterList:ShareCardBitmapRendererCanvas.kt:internal fun buildShareCardComposition: ShareCardComposition</ID>
     <ID>LongParameterList:ShareDeviceDiscoverySection.kt:@Composable internal fun DeviceDiscoverySection</ID>
@@ -163,12 +149,6 @@
     <ID>SuspendFunSwallowedCancellation:StatisticsViewModel.kt:StatisticsViewModel$runCatching</ID>
     <ID>SuspendFunSwallowedCancellation:SyncConflictViewModel.kt:SyncConflictViewModel$runCatching</ID>
     <ID>SuspendFunSwallowedCancellation:TagFilterViewModel.kt:TagFilterViewModel$runCatching</ID>
-    <ID>UnusedPrivateFunction:MemoListContent.kt:private fun Modifier.memoVisibilityModifier: Modifier</ID>
-    <ID>UnusedPrivateFunction:SettingsWebDavCoordinator.kt:private fun WebDavSyncResult.toOperationErrorOrNull: SettingsOperationError.WebDavSync?</ID>
-    <ID>UnusedPrivateFunction:TrashScreen.kt:private fun Modifier.trashItemDeleteModifier: Modifier</ID>
-    <ID>UnusedPrivateProperty:MemoListContent.kt:private const val MEMO_ITEM_HIDDEN_ALPHA = 0f</ID>
-    <ID>UnusedPrivateProperty:MemoListContent.kt:private const val MEMO_ITEM_VISIBLE_ALPHA = 1f</ID>
-    <ID>UnusedPrivateProperty:MemoListItemMotion.kt:private const val MEMO_DELETE_FADE_DURATION_MILLIS = 300</ID>
     <ID>UnusedPrivateProperty:TrashViewModel.kt:TrashViewModel$private val appConfigUiCoordinator: AppConfigUiCoordinator</ID>
     <ID>UnusedVariable:MainScreen.kt:val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()</ID>
     <ID>UseOrEmpty:SettingsGitCoordinator.kt:SettingsGitCoordinator$it ?: ""</ID>
