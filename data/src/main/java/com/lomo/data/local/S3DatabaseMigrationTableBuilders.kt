@@ -36,6 +36,7 @@ internal fun createS3RemoteIndexTable(db: SQLiteConnection) {
             `etag` TEXT,
             `remote_last_modified` INTEGER,
             `size` INTEGER,
+            `content_md5` TEXT,
             `last_seen_at` INTEGER NOT NULL,
             `last_verified_at` INTEGER,
             `scan_bucket` TEXT NOT NULL,
@@ -115,6 +116,7 @@ internal fun createS3SyncProtocolStateTable(db: SQLiteConnection) {
             `indexed_local_file_count` INTEGER NOT NULL,
             `indexed_remote_file_count` INTEGER NOT NULL,
             `local_mode_fingerprint` TEXT,
+            `local_audit_cursor` TEXT,
             `remote_scan_cursor` TEXT,
             `scan_epoch` INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(`workspace_generation`, `id`)

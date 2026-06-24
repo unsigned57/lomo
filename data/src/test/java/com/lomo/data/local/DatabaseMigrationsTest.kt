@@ -87,8 +87,8 @@ import io.kotest.matchers.string.shouldContain
  */
 class DatabaseMigrationsTest : DataFunSpec() {
     init {
-        test("database version is 60 for persisted memo statistics projection") {
-            `database version is 60 for persisted memo statistics projection`()
+        test("database version tracks current Report 10 S3 sync schema") {
+            `database version tracks current Report 10 S3 sync schema`()
         }
 
         test("migration list includes direct 55 to 56 upgrade path") { `migration list includes direct 55 to 56 upgrade path`() }
@@ -189,8 +189,8 @@ class DatabaseMigrationsTest : DataFunSpec() {
     }
 
 
-    private fun `database version is 60 for persisted memo statistics projection`() {
-        MEMO_DATABASE_VERSION shouldBe 60
+    private fun `database version tracks current Report 10 S3 sync schema`() {
+        MEMO_DATABASE_VERSION shouldBe 63
     }
 
     private fun `migration list includes direct 55 to 56 upgrade path`() {

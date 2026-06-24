@@ -53,7 +53,7 @@ import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
 import com.lomo.data.local.entity.WebDavLocalFingerprintEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 60
+const val MEMO_DATABASE_VERSION = 63
 
 @Database(
     entities =

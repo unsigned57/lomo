@@ -16,6 +16,7 @@ data class S3RemoteIndexEntity(
     @ColumnInfo(name = "etag") val etag: String?,
     @ColumnInfo(name = "remote_last_modified") val remoteLastModified: Long?,
     @ColumnInfo(name = "size") val size: Long?,
+    @ColumnInfo(name = "content_md5") val contentMd5: String? = null,
     @ColumnInfo(name = "last_seen_at") val lastSeenAt: Long,
     @ColumnInfo(name = "last_verified_at") val lastVerifiedAt: Long?,
     @ColumnInfo(name = "scan_bucket") val scanBucket: String,

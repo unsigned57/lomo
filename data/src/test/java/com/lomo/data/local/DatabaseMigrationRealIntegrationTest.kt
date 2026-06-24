@@ -48,6 +48,8 @@ class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
         test("stable baseline direct migration preserves current sqlite column contract on real database") { `stable baseline direct migration preserves current sqlite column contract on real database`() }
 
         test("stable baseline direct migration leaves external content fts searchable and trigger managed") { `stable baseline direct migration leaves external content fts searchable and trigger managed`() }
+
+        test("migration to current version clears memo projection and local file state for positional id reimport") { `migration to current version clears memo projection and local file state for positional id reimport`() }
     }
 
 
@@ -130,10 +132,12 @@ class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
         createVersion44Database().use { connection ->
             migrateDirectlyFrom44(connection)
 
-            querySingleString(connection, "SELECT `searchContent` FROM `$MEMO_TABLE` WHERE `id` = 'memo-1'") shouldBe SearchTokenizer.tokenize("苏格拉底 legacy memo")
-            ftsSearch(connection, "legacy*") shouldBe listOf("memo-1")
-            ftsSearch(connection, "苏格*") shouldBe listOf("memo-1")
+            // The positional-id migration clears the seeded memo projection; reconcile re-imports
+            // from the source files afterwards, so the legacy memo is gone and FTS starts empty.
+            querySingleString(connection, "SELECT COUNT(*) FROM `$MEMO_TABLE`") shouldBe "0"
+            (ftsSearch(connection, "legacy*").isEmpty()).shouldBeTrue()
 
+            // The external-content FTS infrastructure stays trigger-managed for freshly inserted memos.
             connection.prepareStatement(
                 """
                 INSERT INTO `$MEMO_TABLE`(
@@ -141,7 +145,7 @@ class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
                 ) VALUES (?,?,?,?,?,?,?,?,?,?)
                 """.trimIndent(),
             ).use { statement ->
-                statement.setString(1, "memo-new")
+                statement.setString(1, "2026_05_02_11:00:00_0")
                 statement.setLong(2, 2_001L)
                 statement.setLong(3, 2_002L)
                 statement.setString(4, "人工智能 update")
@@ -153,7 +157,7 @@ class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
                 statement.setString(10, null)
                 statement.executeUpdate()
             }
-            (ftsSearch(connection, "人工*").contains("memo-new")).shouldBeTrue()
+            (ftsSearch(connection, "人工*").contains("2026_05_02_11:00:00_0")).shouldBeTrue()
 
             connection.prepareStatement(
                 """
@@ -164,19 +168,34 @@ class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
             ).use { statement ->
                 statement.setString(1, "Android migration note")
                 statement.setString(2, SearchTokenizer.tokenize("Android migration note"))
-                statement.setString(3, "- 12:00 Android migration note")
+                statement.setString(3, "- 11:00 Android migration note")
                 statement.setLong(4, 2_010L)
-                statement.setString(5, "memo-1")
+                statement.setString(5, "2026_05_02_11:00:00_0")
                 statement.executeUpdate()
             }
-            (ftsSearch(connection, "Andr*").contains("memo-1")).shouldBeTrue()
-            (ftsSearch(connection, "legacy*").isEmpty()).shouldBeTrue()
+            (ftsSearch(connection, "Andr*").contains("2026_05_02_11:00:00_0")).shouldBeTrue()
+            (ftsSearch(connection, "人工*").isEmpty()).shouldBeTrue()
 
             connection.prepareStatement("DELETE FROM `$MEMO_TABLE` WHERE `id` = ?").use { statement ->
-                statement.setString(1, "memo-new")
+                statement.setString(1, "2026_05_02_11:00:00_0")
                 statement.executeUpdate()
             }
-            (ftsSearch(connection, "人工*").isEmpty()).shouldBeTrue()
+            (ftsSearch(connection, "Andr*").isEmpty()).shouldBeTrue()
+        }
+    }
+
+    private fun `migration to current version clears memo projection and local file state for positional id reimport`() {
+        createVersion44Database().use { connection ->
+            migrateIncrementally(connection)
+
+            // The memo identity changed to a content-independent positional id, so the legacy
+            // hash-id rows are cleared and the next reconcile re-imports them from the source files.
+            querySingleString(connection, "SELECT COUNT(*) FROM `$MEMO_TABLE`") shouldBe "0"
+            querySingleString(connection, "SELECT COUNT(*) FROM `$TRASH_MEMO_TABLE`") shouldBe "0"
+            querySingleString(connection, "SELECT COUNT(*) FROM `$MEMO_TAG_CROSS_REF_TABLE`") shouldBe "0"
+            querySingleString(connection, "SELECT COUNT(*) FROM `$MEMO_FILE_OUTBOX_TABLE`") shouldBe "0"
+            // local_file_state is emptied so every shard is treated as new and fully re-imported.
+            querySingleString(connection, "SELECT COUNT(*) FROM `$LOCAL_FILE_STATE_TABLE`") shouldBe "0"
         }
     }
 

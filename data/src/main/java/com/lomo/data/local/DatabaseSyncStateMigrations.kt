@@ -155,6 +155,7 @@ internal fun normalizeS3SyncProtocolStateTable(db: SQLiteConnection) {
             `indexed_local_file_count`,
             `indexed_remote_file_count`,
             `local_mode_fingerprint`,
+            `local_audit_cursor`,
             `remote_scan_cursor`,
             `scan_epoch`
         )
@@ -169,6 +170,7 @@ internal fun normalizeS3SyncProtocolStateTable(db: SQLiteConnection) {
             ${pickIntExpr(legacyColumns, "indexed_local_file_count", "indexedLocalFileCount")},
             ${pickIntExpr(legacyColumns, "indexed_remote_file_count", "indexedRemoteFileCount")},
             ${pickNullableTextExpr(legacyColumns, "local_mode_fingerprint", "localModeFingerprint")},
+            ${pickNullableTextExpr(legacyColumns, "local_audit_cursor", "localAuditCursor")},
             ${pickNullableTextExpr(legacyColumns, "remote_scan_cursor", "remoteScanCursor")},
             ${pickIntExpr(legacyColumns, "scan_epoch", defaultExpr = "0")}
         FROM `$legacyTable`
@@ -184,6 +186,7 @@ private fun hasNormalizedS3SyncProtocolStateColumns(columns: Set<String>): Boole
             "last_reconcile_at" in columns &&
             "last_full_remote_scan_at" in columns
     val hasScanCursorColumns =
+        "local_audit_cursor" in columns &&
         "remote_scan_cursor" in columns &&
             "scan_epoch" in columns
     return !hasLegacyManifestColumn && hasIncrementalColumns && hasScanCursorColumns
@@ -198,6 +201,7 @@ internal fun addS3SyncProtocolIncrementalColumns(db: SQLiteConnection) {
         "last_full_remote_scan_at",
         "`last_full_remote_scan_at` INTEGER",
     )
+    addS3SyncProtocolLocalAuditCursorColumn(db)
     addColumnIfMissing(db, S3_SYNC_PROTOCOL_STATE_TABLE, "remote_scan_cursor", "`remote_scan_cursor` TEXT")
     addColumnIfMissing(
         db,
@@ -205,6 +209,14 @@ internal fun addS3SyncProtocolIncrementalColumns(db: SQLiteConnection) {
         "scan_epoch",
         "`scan_epoch` INTEGER NOT NULL DEFAULT 0",
     )
+}
+
+internal fun addS3SyncProtocolLocalAuditCursorColumn(db: SQLiteConnection) {
+    addColumnIfMissing(db, S3_SYNC_PROTOCOL_STATE_TABLE, "local_audit_cursor", "`local_audit_cursor` TEXT")
+}
+
+internal fun addS3RemoteIndexContentMd5Column(db: SQLiteConnection) {
+    addColumnIfMissing(db, S3_REMOTE_INDEX_TABLE, "content_md5", "`content_md5` TEXT")
 }
 
 internal fun addColumnIfMissing(
