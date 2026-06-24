@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.jetbrainsKotlinJvm)
+    alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.kover)
 }
 
@@ -13,6 +14,7 @@ java {
 dependencies {
     implementation(libs.androidx.paging.common)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${libs.versions.coroutines.get()}")
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.kotest.runner.junit5)
     testImplementation(libs.kotest.assertions.core)
