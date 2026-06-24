@@ -68,7 +68,6 @@ class MemoIdentityPolicyIntegrationTest : DataFunSpec() {
                 timestampFormat = "HH:mm",
                 existingFileContent = "",
                 precomputedSameTimestampCount = 0,
-                precomputedCollisionCount = 0,
             )
 
         val parsed =
@@ -105,7 +104,6 @@ class MemoIdentityPolicyIntegrationTest : DataFunSpec() {
                 timestampFormat = "HH:mm",
                 existingFileContent = fileContent,
                 precomputedSameTimestampCount = 1,
-                precomputedCollisionCount = 1,
             )
 
         savePlanSecond.memo.id shouldBe parsedSecond.id

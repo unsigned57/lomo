@@ -35,8 +35,8 @@ interface MemoOutboxDao {
             updatedAt = :claimedAt
         WHERE id = (
             SELECT id FROM MemoFileOutbox
-            WHERE claimToken IS NULL
-               OR claimUpdatedAt <= :staleBefore
+            WHERE (claimToken IS NULL OR claimUpdatedAt <= :staleBefore)
+              AND retryCount < :maxRetries
             ORDER BY id ASC
             LIMIT 1
         )
@@ -46,6 +46,7 @@ interface MemoOutboxDao {
         claimToken: String,
         claimedAt: Long,
         staleBefore: Long,
+        maxRetries: Int,
     ): Int
 
     @Query("SELECT * FROM MemoFileOutbox WHERE claimToken = :claimToken LIMIT 1")
@@ -56,8 +57,9 @@ interface MemoOutboxDao {
         claimToken: String,
         claimedAt: Long,
         staleBefore: Long,
+        maxRetries: Int,
     ): MemoFileOutboxEntity? {
-        val claimed = claimNextMemoFileOutboxRow(claimToken, claimedAt, staleBefore)
+        val claimed = claimNextMemoFileOutboxRow(claimToken, claimedAt, staleBefore, maxRetries)
         if (claimed <= 0) return null
         return getMemoFileOutboxByClaimToken(claimToken)
     }
@@ -85,6 +87,10 @@ interface MemoOutboxDao {
         lastError: String?,
     )
 
-    @Query("SELECT COUNT(*) FROM MemoFileOutbox")
-    suspend fun getMemoFileOutboxCount(): Int
+    /**
+     * Counts only live (retryable) items. Dead-lettered items (retryCount >= [maxRetries]) are
+     * excluded so a permanently-stuck flush never reports as "pending work" that freezes refresh.
+     */
+    @Query("SELECT COUNT(*) FROM MemoFileOutbox WHERE retryCount < :maxRetries")
+    suspend fun getPendingMemoFileOutboxCount(maxRetries: Int): Int
 }

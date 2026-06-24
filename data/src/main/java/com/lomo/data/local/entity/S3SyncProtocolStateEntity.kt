@@ -18,6 +18,7 @@ data class S3SyncProtocolStateEntity(
     @ColumnInfo(name = "indexed_local_file_count") val indexedLocalFileCount: Int,
     @ColumnInfo(name = "indexed_remote_file_count") val indexedRemoteFileCount: Int,
     @ColumnInfo(name = "local_mode_fingerprint") val localModeFingerprint: String? = null,
+    @ColumnInfo(name = "local_audit_cursor") val localAuditCursor: String? = null,
     @ColumnInfo(name = "remote_scan_cursor") val remoteScanCursor: String? = null,
     @ColumnInfo(name = "scan_epoch") val scanEpoch: Long = 0L,
 ) {

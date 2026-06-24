@@ -12,6 +12,7 @@ private const val MEMO_FILE_OUTBOX_OP_DELETE = 2
 private const val MEMO_FILE_OUTBOX_OP_RESTORE = 3
 private const val MEMO_FILE_OUTBOX_OP_PERMANENT_DELETE = 4
 private const val MEMO_FILE_OUTBOX_OP_VERSION_RESTORE = 5
+private const val MEMO_FILE_OUTBOX_OP_CLEAR_TRASH_SHARD = 6
 
 @Entity(
     tableName = "MemoFileOutbox",
@@ -54,6 +55,7 @@ enum class MemoFileOutboxOp(
     RESTORE(MEMO_FILE_OUTBOX_OP_RESTORE),
     PERMANENT_DELETE(MEMO_FILE_OUTBOX_OP_PERMANENT_DELETE),
     VERSION_RESTORE(MEMO_FILE_OUTBOX_OP_VERSION_RESTORE),
+    CLEAR_TRASH_SHARD(MEMO_FILE_OUTBOX_OP_CLEAR_TRASH_SHARD),
     ;
 
     companion object {
@@ -77,6 +79,7 @@ internal enum class MemoFileOutboxIdentityKind(
     RESTORE_FROM_TRASH("restore-from-trash"),
     PERMANENT_DELETE("permanent-delete"),
     VERSION_RESTORE("version-restore"),
+    CLEAR_TRASH_SHARD("clear-trash-shard"),
 }
 
 internal object MemoFileOutboxIdentityPolicy {
@@ -153,6 +156,12 @@ internal object MemoFileOutboxIdentityPolicy {
                 ),
         )
 
+    fun forClearTrashShard(memoDate: String): MemoFileOutboxIdentity =
+        identity(
+            kind = MemoFileOutboxIdentityKind.CLEAR_TRASH_SHARD,
+            body = identityPart("memoDate", memoDate),
+        )
+
     fun forVersionRestoreHandoff(
         memoId: String,
         currentRevisionId: String,
@@ -217,6 +226,7 @@ internal object MemoFileOutboxIdentityPolicy {
                 )
             MemoFileOutboxOp.VERSION_RESTORE ->
                 error("VERSION_RESTORE outbox identity requires revision restore command metadata for memo $memoId")
+            MemoFileOutboxOp.CLEAR_TRASH_SHARD -> forClearTrashShard(memoDate)
         }
 
     private fun identity(

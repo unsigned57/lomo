@@ -48,6 +48,9 @@ const val SCHEMA_VERSION_57 = 57
 const val SCHEMA_VERSION_58 = 58
 const val SCHEMA_VERSION_59 = 59
 const val SCHEMA_VERSION_60 = 60
+const val SCHEMA_VERSION_61 = 61
+const val SCHEMA_VERSION_62 = 62
+const val SCHEMA_VERSION_63 = 63
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -315,6 +318,9 @@ private val INCREMENTAL_MIGRATIONS: Array<Migration> =
         MIGRATION_57_58,
         MIGRATION_58_59,
         MIGRATION_59_60,
+        MIGRATION_60_61,
+        MIGRATION_61_62,
+        MIGRATION_62_63,
     )
 
 val ALL_DATABASE_MIGRATIONS: Array<Migration> =
@@ -366,6 +372,8 @@ val ALL_DATABASE_MIGRATION_EDGES: List<Pair<Int, Int>> =
  * Phase AE: Apply v57→v58 changes (active memo content-flag projection columns).
  * Phase AF: Apply v58→v59 changes (workspace-generation-scoped sync state).
  * Phase AG: Apply v59→v60 changes (active memo statistics projection columns).
+ * Phase AH: Apply v60→v61 changes (S3 local audit cursor).
+ * Phase AI: Apply v61→v62 changes (S3 remote index content fingerprints).
  *
  * Hard migration rule for memo search:
  * Any migration that rebuilds, replaces, or bulk-copies the `Lomo` table must run
@@ -507,4 +515,13 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
 
     // ── Phase AG: v59 → v60 (active memo statistics projection columns) ───
     backfillMemoStatisticsProjectionColumns(db)
+
+    // ── Phase AH: v60 → v61 (S3 local audit cursor) ───────────────────────
+    addS3SyncProtocolLocalAuditCursorColumn(db)
+
+    // ── Phase AI: v61 → v62 (S3 remote index content fingerprints) ────────
+    addS3RemoteIndexContentMd5Column(db)
+
+    // ── Phase AJ: v62 → v63 (positional IDs migration) ───────────
+    resetMemoProjectionForPositionalIds(db)
 }

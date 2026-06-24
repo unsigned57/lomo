@@ -167,3 +167,24 @@ val MIGRATION_59_60: Migration =
             backfillMemoStatisticsProjectionColumns(connection)
         }
     }
+
+val MIGRATION_60_61: Migration =
+    object : Migration(SCHEMA_VERSION_60, SCHEMA_VERSION_61) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            addS3SyncProtocolLocalAuditCursorColumn(connection)
+        }
+    }
+
+val MIGRATION_61_62: Migration =
+    object : Migration(SCHEMA_VERSION_61, SCHEMA_VERSION_62) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            addS3RemoteIndexContentMd5Column(connection)
+        }
+    }
+
+val MIGRATION_62_63: Migration =
+    object : Migration(SCHEMA_VERSION_62, SCHEMA_VERSION_63) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            resetMemoProjectionForPositionalIds(connection)
+        }
+    }

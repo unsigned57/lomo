@@ -37,6 +37,15 @@ interface S3SyncMetadataDao {
 
     suspend fun getByRelativePaths(relativePaths: List<String>): List<S3SyncMetadataEntity>
 
+    suspend fun getLocalAuditPage(
+        afterRelativePath: String?,
+        limit: Int,
+    ): List<S3SyncMetadataEntity> =
+        getAll()
+            .filter { entity -> afterRelativePath == null || entity.relativePath > afterRelativePath }
+            .sortedBy(S3SyncMetadataEntity::relativePath)
+            .take(limit)
+
     suspend fun upsertAll(entities: List<S3SyncMetadataEntity>)
 
     suspend fun deleteByRelativePath(relativePath: String)
@@ -97,6 +106,21 @@ interface RawS3SyncMetadataDao {
     )
     suspend fun getByRelativePaths(
         relativePaths: List<String>,
+        workspaceGeneration: String,
+    ): List<S3SyncMetadataEntity>
+
+    @Query(
+        """
+        SELECT * FROM s3_sync_metadata
+        WHERE workspace_generation = :workspaceGeneration
+            AND (:afterRelativePath IS NULL OR relative_path > :afterRelativePath)
+        ORDER BY relative_path ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getLocalAuditPage(
+        afterRelativePath: String?,
+        limit: Int,
         workspaceGeneration: String,
     ): List<S3SyncMetadataEntity>
 
