@@ -37,7 +37,6 @@ class MemoSavePlanFactory
             timestampFormat: String,
             existingFileContent: String,
             precomputedSameTimestampCount: Int? = null,
-            precomputedCollisionCount: Int? = null,
             geoLocation: String? = null,
         ): MemoSavePlan {
             val instant = Instant.ofEpochMilli(timestamp)
@@ -60,29 +59,23 @@ class MemoSavePlanFactory
                     timeStr = timeString,
                     fallbackTimestampMillis = timestamp,
                 )
-            val sameTimestampCount =
+            // The position among same-time blocks drives both the unique id ordinal and the
+            // same-second timestamp offset, matching how the parser re-derives them from the file.
+            val ordinal =
                 precomputedSameTimestampCount
                     ?: countTimestampOccurrences(existingFileContent, timeString)
             val canonicalTimestamp =
                 memoIdentityPolicy.applyTimestampOffset(
                     baseTimestampMillis = baseCanonicalTimestamp,
-                    occurrenceIndex = sameTimestampCount,
+                    occurrenceIndex = ordinal,
                 )
 
-            val baseId = memoIdentityPolicy.buildBaseId(dateString, timeString, content)
-            val collisionIndex =
-                precomputedCollisionCount ?: countBaseIdCollisionsInFile(
-                    fileContent = existingFileContent,
-                    dateString = dateString,
-                    fallbackTimestampMillis = timestamp,
-                    baseId = baseId,
-                )
-            val optimisticId = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionIndex)
+            val id = memoIdentityPolicy.buildId(dateString, timeString, ordinal)
             val rawContent = "- $timeString $content"
 
             val memo =
                 Memo(
-                    id = optimisticId,
+                    id = id,
                     content = content,
                     dateKey = dateString,
                     timestamp = canonicalTimestamp,
@@ -110,23 +103,5 @@ class MemoSavePlanFactory
             if (fileContent.isBlank()) return 0
             val pattern = Regex("""^\s*-\s+${Regex.escape(timestamp)}(?:\s|$).*""")
             return fileContent.lineSequence().count(pattern::matches)
-        }
-
-        private fun countBaseIdCollisionsInFile(
-            fileContent: String,
-            dateString: String,
-            fallbackTimestampMillis: Long,
-            baseId: String,
-        ): Int {
-            if (fileContent.isBlank()) return 0
-
-            return parser
-                .parseContent(
-                    content = fileContent,
-                    filename = dateString,
-                    fallbackTimestampMillis = fallbackTimestampMillis,
-                ).count { memo ->
-                    memoIdentityPolicy.matchesBaseOrCollision(memo.id, baseId)
-                }
         }
     }

@@ -57,6 +57,7 @@ class FileWorkspaceConfigSourceDelegateMoreTest : DataFunSpec() {
 
     private fun `setRoot recognizes uppercase content scheme for voice root`() =
         runTest {
+            stubNoConfiguredSlots()
             val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
 
             delegate.setRoot(StorageRootType.VOICE, "CONTENT://tree/voice")
@@ -67,6 +68,7 @@ class FileWorkspaceConfigSourceDelegateMoreTest : DataFunSpec() {
 
     private fun `setRoot treats malformed uri text as direct path`() =
         runTest {
+            stubNoConfiguredSlots()
             val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
 
             delegate.setRoot(StorageRootType.IMAGE, "not a valid uri % value")
@@ -74,6 +76,15 @@ class FileWorkspaceConfigSourceDelegateMoreTest : DataFunSpec() {
             coVerify(exactly = 1) { dataStore.updateImageUri(null) }
             coVerify(exactly = 1) { dataStore.updateImageDirectory("not a valid uri % value") }
         }
+
+    private fun stubNoConfiguredSlots() {
+        every { dataStore.rootUri } returns flowOf(null)
+        every { dataStore.imageUri } returns flowOf(null)
+        every { dataStore.voiceUri } returns flowOf(null)
+        every { dataStore.syncInboxUri } returns flowOf(null)
+        every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
+        every { context.contentResolver.persistedUriPermissions } returns emptyList()
+    }
 
     private fun `getRootFlow reads image path when image uri is absent`() =
         runTest {

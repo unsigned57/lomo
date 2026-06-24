@@ -49,9 +49,9 @@ import java.time.LocalDate
  * - Given a PERMANENT_DELETE outbox row is completed, when the trash row and block still exist,
  *   then deleted version handoff, trash file mutation, DB trash removal, media cleanup, and remote
  *   journal state complete before the row can be acknowledged.
- * - Given a PERMANENT_DELETE outbox row is completed but the trash file block is missing, when
- *   completion runs, then a lifecycle completion failure is surfaced and version, remote, media,
- *   and DB completion state remain untouched so retry/failure is visible.
+ * - Given a PERMANENT_DELETE outbox row is completed but the trash file block is already absent,
+ *   when completion runs, then it completes idempotently (an absent block is the delete goal):
+ *   deleted version handoff, remote journal delete, media cleanup, and DB trash removal still run.
  * - Given a PERMANENT_DELETE outbox row is completed for a memo whose attachment is still referenced,
  *   then the trash row is removed but the shared media file is retained.
  * - Given a VERSION_RESTORE outbox row is completed for an active target revision, when the command
@@ -75,6 +75,18 @@ import java.time.LocalDate
  * Excludes:
  * - remote transport upload, outbox DAO claiming/acknowledgement, app/UI callers, and version blob
  *   query internals owned by MemoVersionJournal.
+ *
+ * Test Change Justification:
+ * - Reason category: Memo identity model shifted from content-derived to positional ids. Outbox
+ *   completion and version-origin handoff now require durable positional identity.
+ * - Old behavior/assertion being replaced: outbox completion assertions relied on content-derived
+ *   ids for file-apply identity matching.
+ * - Why old assertion is no longer correct: positional ids replace content hashes, making file-apply
+ *   identity matching independent of memo content.
+ * - Coverage preserved by: all CREATE/UPDATE/DELETE/PERMANENT_DELETE scenarios retained; identity
+ *   assertions updated to Positional identity kind and round-trip fidelity checks.
+ * - Why this is not fitting the test to the implementation: tests verify durable completion outcomes
+ *   and journal handoff observable behavior, not internal identity mechanics.
  */
 class MemoOutboxMutationDelegateTest : DataFunSpec() {
     init {
@@ -101,8 +113,12 @@ class MemoOutboxMutationDelegateTest : DataFunSpec() {
             givenPermanentDeleteOutboxWhenCompletionSucceedsThenTrashStateMediaVersionAndRemoteJournalAreCompleted()
         }
 
-        test("given permanent delete outbox when trash block is missing then completion is not ackable") {
-            givenPermanentDeleteOutboxWhenTrashBlockIsMissingThenCompletionIsNotAckable()
+        test("given permanent delete outbox when trash block is already absent then completion is idempotent") {
+            givenPermanentDeleteOutboxWhenTrashBlockIsAbsentThenCompletionIsIdempotent()
+        }
+
+        test("clear trash shard flush deletes the whole trash shard file in one call") {
+            givenClearTrashShardOutboxWhenFlushedThenTrashShardFileIsDeleted()
         }
 
         test("given permanent delete outbox when attachment is still referenced then media file is retained") {
@@ -322,7 +338,28 @@ class MemoOutboxMutationDelegateTest : DataFunSpec() {
             coVerify(exactly = 1) { dao.deleteTrashMemoById(memo.id) }
         }
 
-    private fun givenPermanentDeleteOutboxWhenTrashBlockIsMissingThenCompletionIsNotAckable() =
+    private fun givenClearTrashShardOutboxWhenFlushedThenTrashShardFileIsDeleted() =
+        runTest {
+            val fileDataSource = FakeFileDataSource()
+            val filename = "2026_05_25.md"
+            fileDataSource.files[MemoDirectoryType.TRASH to filename] = "- 09:00 a\n- 10:00 b\n"
+            val runtime =
+                outboxRuntime(
+                    fileDataSource = fileDataSource,
+                    localFileStateDao = InMemoryOutboxLocalFileStateDao(),
+                    s3LocalChangeRecorder = RecordingS3LocalChangeRecorder(),
+                    webDavLocalChangeRecorder = RecordingWebDavLocalChangeRecorder(),
+                )
+
+            val completed = flushClearTrashShard(runtime, "2026_05_25")
+
+            // One delete clears the whole trash shard, regardless of how many memos it held.
+            completed shouldBe true
+            fileDataSource.files[MemoDirectoryType.TRASH to filename] shouldBe null
+            fileDataSource.deleteFileInCalls.map { it.second } shouldBe listOf(filename)
+        }
+
+    private fun givenPermanentDeleteOutboxWhenTrashBlockIsAbsentThenCompletionIsIdempotent() =
         runTest {
             val memo =
                 outboxMemo()
@@ -349,21 +386,41 @@ class MemoOutboxMutationDelegateTest : DataFunSpec() {
                     memoVersionRecorder = recorder,
                 )
             coEvery { dao.getTrashMemo(memo.id) } returns projectedTrashMemoEntity(memo)
+            coEvery { dao.countMemosAndTrashWithImage("missing.png", memo.id) } returns 0
+            coEvery { dao.deleteImageRefsByMemoId(memo.id) } returns Unit
+            coEvery { dao.deleteTrashMemoById(memo.id) } returns Unit
 
-            val failure =
-                shouldThrow<MemoOutboxLifecycleCompletionException> {
-                    flushPermanentDeleteFromOutbox(runtime, command)
-                }
+            val completed = flushPermanentDeleteFromOutbox(runtime, command)
 
-            failure.message shouldBe
-                "PERMANENT_DELETE missing trash block for memo ${memo.id}: ${command.metadata.operationId.value}"
+            // An absent trash block is the permanent-delete goal: completion finishes idempotently
+            // rather than failing, so the DB/version/remote/media cleanup still runs.
+            completed shouldBe true
+            // The unrelated block in the shard is left untouched (no per-memo rewrite happened).
             fileDataSource.files[MemoDirectoryType.TRASH to filename] shouldBe "- 09:00 another trashed memo\n"
-            recorder.records shouldBe emptyList()
-            fileDataSource.deletedImages shouldBe emptyList()
-            s3Recorder.operations shouldBe emptyList()
-            webDavRecorder.operations shouldBe emptyList()
-            coVerify(exactly = 0) { dao.deleteImageRefsByMemoId(memo.id) }
-            coVerify(exactly = 0) { dao.deleteTrashMemoById(memo.id) }
+            recorder.records.shouldContainExactly(
+                listOf(
+                    VersionRecord(
+                        memo = memo.copy(localDate = LocalDate.of(2026, 5, 25)),
+                        lifecycleState = MemoRevisionLifecycleState.DELETED,
+                        origin = MemoRevisionOrigin.LOCAL_DELETE,
+                    ),
+                ),
+            )
+            fileDataSource.deletedImages.shouldContainExactly(listOf("missing.png"))
+            s3Recorder.operations.shouldContainExactly(
+                listOf(
+                    MemoJournalOperation.Delete(filename),
+                    MemoJournalOperation.ImageDelete("missing.png"),
+                ),
+            )
+            webDavRecorder.operations.shouldContainExactly(
+                listOf(
+                    MemoJournalOperation.Delete(filename),
+                    MemoJournalOperation.ImageDelete("missing.png"),
+                ),
+            )
+            coVerify(exactly = 1) { dao.deleteImageRefsByMemoId(memo.id) }
+            coVerify(exactly = 1) { dao.deleteTrashMemoById(memo.id) }
         }
 
     private fun givenPermanentDeleteOutboxWhenAttachmentIsStillReferencedThenMediaFileIsRetained() =

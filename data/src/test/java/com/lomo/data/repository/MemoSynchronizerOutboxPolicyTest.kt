@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy
 import com.lomo.data.local.entity.MemoFileOutboxOp
@@ -31,15 +13,41 @@ import com.lomo.data.testing.DataFunSpec
 
 /*
  * Behavior Contract:
- * - Unit under test: MemoSynchronizer
- * - Behavior focus: outbox drain policy during explicit refresh, including poisoned-item dropping,
- *   lifecycle completion failure retention, permanent-delete missing-trash-block failure marking,
- *   and skipping refresh while outbox work remains pending.
- * - Observable outcomes: outbox ack/failure calls and whether refresh is invoked after drain attempts.
- * - TDD proof: The permanent-delete missing-trash-block retry-limit scenario fails before the fix
- *   because the delegate returns plain false, the coordinator records a generic lastError, and the
- *   retry-limit policy acknowledges/drops the lifecycle completion row.
- * - Excludes: background drain scheduling, Room DAO behavior, and retired legacy capture coordination.
+ * - Unit under test: MemoSynchronizer (outbox drain + refresh coupling).
+ * - Owning layer: data repository orchestration.
+ * - Capability: a failed/stuck outbox flush must never freeze reconciliation nor halt the drain.
+ *
+ * Scenarios:
+ * - Given a dead-lettered item ahead of a live item, when refresh drains, then the dead-letter is
+ *   skipped (not flushed, not acknowledged) and the live item still flushes.
+ * - Given only dead-lettered items remain, when refresh runs, then reconciliation proceeds (the
+ *   outbox no longer reports pending work, so refresh is no longer frozen).
+ * - Given a live item whose flush fails, when refresh drains, then the item is marked failed for
+ *   retry and refresh is deferred while genuinely-pending work remains.
+ * - Given a live PERMANENT_DELETE whose completion cannot finish, when refresh drains, then it is
+ *   marked with the durable "completion:" failure prefix and refresh is deferred.
+ *
+ * Observable outcomes: flush/ack/markFailed calls and whether refreshEngine.refresh is invoked.
+ *
+ * Test Change Justification:
+ * - Reason category: Behavior change (systemic fix).
+ * - Old behavior/assertion being replaced: a retry-exhausted "completion" item halted the whole drain and
+ *   `hasPendingMemoFileOutbox` counted it, freezing reconciliation indefinitely; a plain poisoned
+ *   item was silently dropped. Those assertions encoded the data-loss/freeze defect.
+ * - Why old assertion is no longer correct: dead-lettered items are now quarantined at the
+ *   claim/pending boundary, so they neither halt the drain nor freeze refresh, and they are never
+ *   silently acknowledged.
+ * - Coverage preserved by: the new scenarios still verify live items flush, failed live items defer
+ *   refresh, and PERMANENT_DELETE completion failures are durably marked.
+ * - Why this is not fitting the test to the implementation: the contract is "a stuck write must not
+ *   strand other writes or freeze reconciliation", asserted via observable flush/ack/refresh calls.
+ *
+ * TDD proof:
+ * - Fails before the systemic fix because the old drain would freeze behind a dead-letter completion
+ *   item and never invoke refreshEngine.refresh, which the new dead-letter quarantine prevents.
+ *
+ * Excludes: background drain scheduling, Room DAO claim filtering (covered at the DAO layer), and
+ * the concrete reason a SAF write fails.
  */
 class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
     init {
@@ -47,19 +55,22 @@ class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
             setUp()
         }
 
-        test("refresh drops poisoned outbox item when retry limit is reached") { `refresh drops poisoned outbox item when retry limit is reached`() }
-
-        test("refresh marks failed outbox item and skips refresh while pending") { `refresh marks failed outbox item and skips refresh while pending`() }
-
-        test("refresh keeps lifecycle completion failure at retry limit without ack") {
-            `refresh keeps lifecycle completion failure at retry limit without ack`()
+        test("refresh skips dead-lettered item without halting and still flushes the next live item") {
+            `refresh skips dead-lettered item without halting and still flushes the next live item`()
         }
 
-        test("refresh keeps permanent delete missing trash block at retry limit without ack") {
-            `refresh keeps permanent delete missing trash block at retry limit without ack`()
+        test("refresh proceeds when only dead-lettered items remain") {
+            `refresh proceeds when only dead-lettered items remain`()
+        }
+
+        test("refresh marks failed live item and defers refresh while pending") {
+            `refresh marks failed live item and defers refresh while pending`()
+        }
+
+        test("refresh marks permanent delete completion failure and defers refresh") {
+            `refresh marks permanent delete completion failure and defers refresh`()
         }
     }
-
 
     @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
@@ -71,33 +82,53 @@ class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
         MockKAnnotations.init(this)
     }
 
-    private fun `refresh drops poisoned outbox item when retry limit is reached`() =
+    private fun `refresh skips dead-lettered item without halting and still flushes the next live item`() =
         runTest {
-            val poisonedItem = outboxItem(id = 1L, retryCount = 5, operation = MemoFileOutboxOp.UPDATE)
-            val healthyItem = outboxItem(id = 2L, retryCount = 0, operation = MemoFileOutboxOp.DELETE)
-            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(poisonedItem, healthyItem, null))
+            val deadLetter =
+                outboxItem(
+                    id = 1L,
+                    retryCount = MAX_OUTBOX_RETRIES,
+                    operation = MemoFileOutboxOp.UPDATE,
+                    lastError = "completion: stuck flush",
+                )
+            val liveItem = outboxItem(id = 2L, retryCount = 0, operation = MemoFileOutboxOp.DELETE)
+            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(deadLetter, liveItem, null))
 
             coEvery { mutationHandler.nextMemoFileOutbox() } coAnswers { queue.removeFirstOrNull() }
-            coEvery { mutationHandler.flushMemoFileOutbox(healthyItem) } returns true
+            coEvery { mutationHandler.flushMemoFileOutbox(liveItem) } returns true
             coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
 
-            val synchronizer =
-                MemoSynchronizer(
-                    refreshEngine = refreshEngine,
-                    mutationHandler = mutationHandler,
-                    outboxScope = immediateTestBackgroundScope(),
-                    startOutboxCoordinator = false,
-                )
-            synchronizer.refresh()
+            synchronizer().refresh()
 
-            coVerify(exactly = 1) { mutationHandler.acknowledgeMemoFileOutbox(poisonedItem.id) }
-            coVerify(exactly = 0) { mutationHandler.flushMemoFileOutbox(poisonedItem) }
-            coVerify(exactly = 1) { mutationHandler.flushMemoFileOutbox(healthyItem) }
-            coVerify(exactly = 1) { mutationHandler.acknowledgeMemoFileOutbox(healthyItem.id) }
+            coVerify(exactly = 0) { mutationHandler.flushMemoFileOutbox(deadLetter) }
+            coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(deadLetter.id) }
+            coVerify(exactly = 1) { mutationHandler.flushMemoFileOutbox(liveItem) }
+            coVerify(exactly = 1) { mutationHandler.acknowledgeMemoFileOutbox(liveItem.id) }
             coVerify(exactly = 1) { refreshEngine.refresh(null) }
         }
 
-    private fun `refresh marks failed outbox item and skips refresh while pending`() =
+    private fun `refresh proceeds when only dead-lettered items remain`() =
+        runTest {
+            val deadLetter =
+                outboxItem(
+                    id = 12L,
+                    retryCount = MAX_OUTBOX_RETRIES,
+                    operation = MemoFileOutboxOp.CREATE,
+                    lastError = "completion: version append unavailable",
+                )
+            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(deadLetter, null))
+
+            coEvery { mutationHandler.nextMemoFileOutbox() } coAnswers { queue.removeFirstOrNull() }
+            coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
+
+            synchronizer().refresh()
+
+            coVerify(exactly = 0) { mutationHandler.flushMemoFileOutbox(deadLetter) }
+            coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(deadLetter.id) }
+            coVerify(exactly = 1) { refreshEngine.refresh(null) }
+        }
+
+    private fun `refresh marks failed live item and defers refresh while pending`() =
         runTest {
             val failingItem = outboxItem(id = 11L, retryCount = 0, operation = MemoFileOutboxOp.UPDATE)
             val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(failingItem, null))
@@ -106,94 +137,47 @@ class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
             coEvery { mutationHandler.flushMemoFileOutbox(failingItem) } returns false
             coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns true
 
-            val synchronizer =
-                MemoSynchronizer(
-                    refreshEngine = refreshEngine,
-                    mutationHandler = mutationHandler,
-                    outboxScope = immediateTestBackgroundScope(),
-                    startOutboxCoordinator = false,
-                )
-            synchronizer.refresh()
+            synchronizer().refresh()
 
-            coVerify(exactly = 1) { mutationHandler.markMemoFileOutboxFailed(eq(failingItem.id), match { it is IllegalStateException }) }
+            coVerify(exactly = 1) {
+                mutationHandler.markMemoFileOutboxFailed(eq(failingItem.id), match { it is IllegalStateException })
+            }
             coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(failingItem.id) }
             coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
 
-    private fun `refresh keeps lifecycle completion failure at retry limit without ack`() =
+    private fun `refresh marks permanent delete completion failure and defers refresh`() =
         runTest {
-            val completionFailedItem =
-                outboxItem(
-                    id = 12L,
-                    retryCount = 5,
-                    operation = MemoFileOutboxOp.CREATE,
-                    lastError = "completion: version append unavailable",
-                )
-            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(completionFailedItem, null))
-
-            coEvery { mutationHandler.nextMemoFileOutbox() } coAnswers { queue.removeFirstOrNull() }
-            coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns true
-
-            val synchronizer =
-                MemoSynchronizer(
-                    refreshEngine = refreshEngine,
-                    mutationHandler = mutationHandler,
-                    outboxScope = immediateTestBackgroundScope(),
-                    startOutboxCoordinator = false,
-                )
-            synchronizer.refresh()
-
-            coVerify(exactly = 0) { mutationHandler.flushMemoFileOutbox(completionFailedItem) }
-            coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(completionFailedItem.id) }
-            coVerify(exactly = 0) { refreshEngine.refresh(any()) }
-        }
-
-    private fun `refresh keeps permanent delete missing trash block at retry limit without ack`() =
-        runTest {
-            val missingBlockItem =
-                outboxItem(
-                    id = 13L,
-                    retryCount = 4,
-                    operation = MemoFileOutboxOp.PERMANENT_DELETE,
-                )
+            val livePermanentDelete = outboxItem(id = 13L, retryCount = 0, operation = MemoFileOutboxOp.PERMANENT_DELETE)
             var durableLastError: String? = null
-            coEvery { mutationHandler.flushMemoFileOutbox(missingBlockItem) } returns false
+            coEvery { mutationHandler.flushMemoFileOutbox(livePermanentDelete) } returns false
             coEvery {
                 mutationHandler.markMemoFileOutboxFailed(
-                    missingBlockItem.id,
+                    livePermanentDelete.id,
                     match {
                         durableLastError = it.message
                         true
                     },
                 )
-            } coAnswers {
-                Unit
-            }
+            } coAnswers { Unit }
             coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns true
+            coEvery { mutationHandler.nextMemoFileOutbox() } returnsMany listOf(livePermanentDelete, null)
 
-            val synchronizer =
-                MemoSynchronizer(
-                    refreshEngine = refreshEngine,
-                    mutationHandler = mutationHandler,
-                    outboxScope = immediateTestBackgroundScope(),
-                    startOutboxCoordinator = false,
-                )
-            coEvery { mutationHandler.nextMemoFileOutbox() } returnsMany listOf(missingBlockItem, null)
-
-            synchronizer.refresh()
+            synchronizer().refresh()
 
             durableLastError.shouldStartWith("completion:")
-
-            val retryLimitItem = missingBlockItem.copy(retryCount = 5, lastError = durableLastError)
-            coEvery { mutationHandler.nextMemoFileOutbox() } returnsMany listOf(retryLimitItem, null)
-
-            synchronizer.refresh()
-
-            coVerify(exactly = 1) { mutationHandler.flushMemoFileOutbox(missingBlockItem) }
-            coVerify(exactly = 0) { mutationHandler.flushMemoFileOutbox(retryLimitItem) }
-            coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(missingBlockItem.id) }
+            coVerify(exactly = 1) { mutationHandler.flushMemoFileOutbox(livePermanentDelete) }
+            coVerify(exactly = 0) { mutationHandler.acknowledgeMemoFileOutbox(livePermanentDelete.id) }
             coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
+
+    private fun synchronizer(): MemoSynchronizer =
+        MemoSynchronizer(
+            refreshEngine = refreshEngine,
+            mutationHandler = mutationHandler,
+            outboxScope = immediateTestBackgroundScope(),
+            startOutboxCoordinator = false,
+        )
 
     private fun outboxItem(
         id: Long,

@@ -49,6 +49,16 @@ import io.kotest.matchers.string.shouldContain
  *
  * Excludes:
  * - outbox DAO persistence behavior, mutation scheduling, and file-system side effects.
+ *
+ * Test Change Justification:
+ * - Reason category: Memo identity model shifted from content-derived to positional ids.
+ * - Old behavior/assertion being replaced: outbox identity fields expected content-based hashing.
+ * - Why old assertion is no longer correct: positional (date_time_ordinal) ids replace content
+ *   hashes for identity stability across content edits.
+ * - Coverage preserved by: all lifecycle-mutation scenarios retained; identity assertions updated
+ *   to verify positional id format and round-trip fidelity.
+ * - Why this is not fitting the test to the implementation: tests verify durable operational
+ *   identity round-trip, not internal identity-derivation mechanics.
  */
 class MemoMutationOutboxBuildersTest : DataFunSpec() {
     init {
@@ -401,6 +411,7 @@ class MemoMutationOutboxBuildersTest : DataFunSpec() {
                 "restore-from-trash",
                 "permanent-delete",
                 "version-restore",
+                "clear-trash-shard",
             )
         listOf(create, update, delete, restore, permanentDelete, versionRestore)
             .map { identity -> identity.idempotencyKey }

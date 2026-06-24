@@ -18,12 +18,16 @@ package com.lomo.data.source
 
 
 
+import android.content.ContentResolver
 import android.content.Context
+import android.content.UriPermission
+import android.net.Uri
 import com.lomo.data.local.datastore.LomoDataStore
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -46,6 +50,10 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
 
         test("setRoot stores content uri for image storage and clears path") { `setRoot stores content uri for image storage and clears path`() }
 
+        test("setRoot releases persisted permissions no longer backing any slot") { `setRoot releases persisted permissions no longer backing any slot`() }
+
+        test("setRoot keeps persisted permissions still backing a slot") { `setRoot keeps persisted permissions still backing a slot`() }
+
         test("getRootFlow prefers uri and getRootDisplayNameFlow returns raw path when not using saf") { `getRootFlow prefers uri and getRootDisplayNameFlow returns raw path when not using saf`() }
 
         test("getRootDisplayNameFlow returns null when storage root is unset") { `getRootDisplayNameFlow returns null when storage root is unset`() }
@@ -57,11 +65,13 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
 
 
     private val context = mockk<Context>(relaxed = true)
+    private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
     private val backendResolver = mockk<FileStorageBackendResolver>(relaxed = true)
 
     private fun `setRoot stores direct path for main storage and clears uri`() =
         runTest {
+            stubNoConfiguredSlots()
             val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
 
             delegate.setRoot(StorageRootType.MAIN, "/memo/root")
@@ -72,12 +82,42 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
 
     private fun `setRoot stores content uri for image storage and clears path`() =
         runTest {
+            stubNoConfiguredSlots()
             val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
 
             delegate.setRoot(StorageRootType.IMAGE, "content://tree/images")
 
             coVerify(exactly = 1) { dataStore.updateImageUri("content://tree/images") }
             coVerify(exactly = 1) { dataStore.updateImageDirectory(null) }
+        }
+
+    private fun `setRoot releases persisted permissions no longer backing any slot`() =
+        runTest {
+            val activeUri = uriReturning("content://tree/active")
+            val orphanUri = uriReturning("content://tree/orphan")
+            stubConfiguredSlots(rootUri = "content://tree/active")
+            every { contentResolver.persistedUriPermissions } returns
+                listOf(permissionFor(activeUri), permissionFor(orphanUri))
+            val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
+
+            delegate.setRoot(StorageRootType.MAIN, "content://tree/active")
+
+            verify(exactly = 1) { contentResolver.releasePersistableUriPermission(orphanUri, any()) }
+            verify(exactly = 0) { contentResolver.releasePersistableUriPermission(activeUri, any()) }
+        }
+
+    private fun `setRoot keeps persisted permissions still backing a slot`() =
+        runTest {
+            // The grant is held by a different slot (the S3 local sync directory), so it must survive
+            // even though it is not the slot being changed.
+            val sharedUri = uriReturning("content://tree/shared")
+            stubConfiguredSlots(rootUri = "content://tree/root", s3LocalSyncDirectory = "content://tree/shared")
+            every { contentResolver.persistedUriPermissions } returns listOf(permissionFor(sharedUri))
+            val delegate = FileWorkspaceConfigSourceDelegate(context, dataStore, backendResolver)
+
+            delegate.setRoot(StorageRootType.MAIN, "content://tree/root")
+
+            verify(exactly = 0) { contentResolver.releasePersistableUriPermission(sharedUri, any()) }
         }
 
     private fun `getRootFlow prefers uri and getRootDisplayNameFlow returns raw path when not using saf`() =
@@ -128,4 +168,34 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
             (thrown is IOException).shouldBeTrue()
             thrown?.message shouldBe "No storage configured"
         }
+
+    private fun stubNoConfiguredSlots() = stubConfiguredSlots()
+
+    private fun stubConfiguredSlots(
+        rootUri: String? = null,
+        imageUri: String? = null,
+        voiceUri: String? = null,
+        syncInboxUri: String? = null,
+        s3LocalSyncDirectory: String? = null,
+    ) {
+        every { context.contentResolver } returns contentResolver
+        every { dataStore.rootUri } returns flowOf(rootUri)
+        every { dataStore.imageUri } returns flowOf(imageUri)
+        every { dataStore.voiceUri } returns flowOf(voiceUri)
+        every { dataStore.syncInboxUri } returns flowOf(syncInboxUri)
+        every { dataStore.s3LocalSyncDirectory } returns flowOf(s3LocalSyncDirectory)
+        every { contentResolver.persistedUriPermissions } returns emptyList()
+    }
+
+    private fun uriReturning(value: String): Uri {
+        val uri = mockk<Uri>()
+        every { uri.toString() } returns value
+        return uri
+    }
+
+    private fun permissionFor(permissionUri: Uri): UriPermission {
+        val permission = mockk<UriPermission>()
+        every { permission.uri } returns permissionUri
+        return permission
+    }
 }

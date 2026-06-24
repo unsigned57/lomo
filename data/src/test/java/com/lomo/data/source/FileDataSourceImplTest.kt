@@ -23,7 +23,9 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import io.mockk.MockKAnnotations
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 
@@ -59,6 +61,12 @@ class FileDataSourceImplTest : DataFunSpec() {
 
     private fun setUp() {
         MockKAnnotations.init(this)
+        // setRoot prunes orphaned persisted permissions, which reads every configured slot.
+        every { dataStore.rootUri } returns flowOf(null)
+        every { dataStore.imageUri } returns flowOf(null)
+        every { dataStore.voiceUri } returns flowOf(null)
+        every { dataStore.syncInboxUri } returns flowOf(null)
+        every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
         val resolver = FileStorageBackendResolver(context, dataStore)
         dataSource =
             FileDataSourceImpl(
