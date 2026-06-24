@@ -43,6 +43,7 @@ import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.R
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
@@ -84,20 +85,21 @@ internal fun DeviceDiscoverySection(
     lanShareEnabled: Boolean,
     permissionState: LanSharePermissionState,
     discoveryError: String?,
+    diagnostics: LanShareDiscoveryDiagnostics,
     transferState: ShareTransferState,
     onRequestLanSharePermissions: () -> Unit,
     onExecuteRecoveryAction: (CapabilityRecoveryAction) -> Unit,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activeFallbackDiscovery = lanShareEnabled && permissionState == LanSharePermissionState.Granted
     val contentState =
         resolveDeviceDiscoveryContentState(
             discoveredDeviceCount = devices.size,
             permissionState = permissionState,
             discoveryError = discoveryError,
-            activeFallbackDiscovery = activeFallbackDiscovery,
+            diagnostics = diagnostics,
         )
+    val searchHint = resolveDeviceDiscoverySearchHint(diagnostics)
     AnimatedVisibility(
         visible = showDevicesSection,
         enter =
@@ -125,7 +127,11 @@ internal fun DeviceDiscoverySection(
         modifier = modifier,
     ) { state ->
         when (state) {
-            DeviceDiscoveryContentState.Searching -> DeviceSearchingState(modifier = Modifier.fillMaxSize())
+            DeviceDiscoveryContentState.Searching ->
+                DeviceSearchingState(
+                    searchHint = searchHint,
+                    modifier = Modifier.fillMaxSize(),
+                )
             DeviceDiscoveryContentState.PermissionDenied ->
                 DevicePermissionRequiredState(
                     recoveryAffordance =
@@ -155,7 +161,10 @@ internal fun DeviceDiscoverySection(
 }
 
 @Composable
-private fun DeviceSearchingState(modifier: Modifier = Modifier) {
+private fun DeviceSearchingState(
+    searchHint: DeviceDiscoverySearchHint,
+    modifier: Modifier = Modifier,
+) {
     val infiniteTransition = rememberInfiniteTransition(label = "search-pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = SEARCH_PULSE_INITIAL_ALPHA,
@@ -205,12 +214,19 @@ private fun DeviceSearchingState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(AppSpacing.ExtraSmall))
         Text(
-            text = stringResource(R.string.share_searching_hint),
+            text = stringResource(searchHint.stringResId()),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = SEARCHING_HINT_ALPHA),
         )
     }
 }
+
+private fun DeviceDiscoverySearchHint.stringResId(): Int =
+    when (this) {
+        DeviceDiscoverySearchHint.SameWifi -> R.string.share_searching_hint
+        DeviceDiscoverySearchHint.ProbeBackoff -> R.string.share_searching_probe_backoff_hint
+        DeviceDiscoverySearchHint.DegradedRoute -> R.string.share_searching_degraded_route_hint
+    }
 
 @Composable
 private fun DeviceDiscoveryHeader(

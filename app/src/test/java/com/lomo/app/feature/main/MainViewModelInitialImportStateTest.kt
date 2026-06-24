@@ -67,15 +67,31 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
+ * - Unit under test: MainViewModel initial import and directory switching state.
+ * - Owning layer: app
+ * - Priority tier: P1
  * - Capability: Main screen loading and directory switching state orchestration.
- * - Scenarios:
- *   - Given starting workspace rebuild on new empty directory, UI must report InitialImporting until complete.
- *   - Given root directory change, confirm Ready state is not flashed prematurely before InitialImporting starts.
- *   - Given workspace rebuild finishes, UI state transitions cleanly to Ready.
- * - Observable outcomes:
- *   - uiState stateflow values over time during deferred import/rebuild operations.
- * - TDD proof: Confirms robust lifecycle status management during asynchronous I/O background refreshes.
- * - Excludes: Database writes, direct file synchronization protocols, and UI rendering hooks.
+ *
+ * Scenarios:
+ * - Given a workspace rebuild starts on a new empty directory, when the ViewModel observes the rebuild, then UI reports InitialImporting until complete.
+ * - Given a root directory change occurs, when the ViewModel transitions state, then Ready state is not flashed prematurely before InitialImporting starts.
+ * - Given a workspace rebuild finishes, when the ViewModel observes completion, then UI state transitions cleanly to Ready.
+ *
+ * Observable outcomes:
+ * - uiState StateFlow values over time during deferred import/rebuild operations.
+ *
+ * TDD proof:
+ * - Fails before the fix because lifecycle status management during asynchronous I/O background refreshes was not robustly observed.
+ *
+ * Excludes:
+ * - Database writes, direct file synchronization protocols, and UI rendering hooks.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelInitialImportStateTest : AppFunSpec() {
@@ -316,7 +332,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             setMemoPinnedUseCase = setMemoPinnedUseCase(),
             appConfigStateProvider = createAppConfigStateProvider(),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             sidebarStateHolder = sidebarStateHolder,
             versionHistoryCoordinator =
                 MainVersionHistoryCoordinator(
@@ -393,8 +409,10 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
         com.lomo.app.feature.common.AppConfigStateProvider(
-            AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
-            appScope!!,
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+            appPreferencesSnapshotRepository = appConfigRepository,
+            customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            appScope = appScope!!,
         )
 
     private fun syncProviderRegistry(): SyncProviderRegistry =

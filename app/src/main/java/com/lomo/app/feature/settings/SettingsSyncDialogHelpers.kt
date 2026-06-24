@@ -10,37 +10,25 @@ internal fun SettingsDialogState.openLanPairingDialog(
 }
 
 internal fun SettingsDialogState.openGitPatDialog() {
-    gitPatInput = ""
-    gitPatVisible = false
-    showGitPatDialog = true
+    openProviderTextDialog(RemoteProviderTextField.GitPat, initialValue = "")
 }
 
 internal fun SettingsDialogState.openWebDavPasswordDialog() {
-    webDavPasswordInput = ""
-    webDavPasswordVisible = false
-    showWebDavPasswordDialog = true
+    openProviderTextDialog(RemoteProviderTextField.WebDavPassword, initialValue = "")
 }
 
 internal fun SettingsDialogState.openS3SecretAccessKeyDialog() {
-    s3SecretAccessKeyInput = ""
-    s3SecretAccessKeyVisible = false
-    showS3SecretAccessKeyDialog = true
+    openProviderTextDialog(RemoteProviderTextField.S3SecretAccessKey, initialValue = "")
 }
 
 internal fun SettingsDialogState.openS3SessionTokenDialog() {
-    s3SessionTokenInput = ""
-    s3SessionTokenVisible = false
-    showS3SessionTokenDialog = true
+    openProviderTextDialog(RemoteProviderTextField.S3SessionToken, initialValue = "")
 }
 
 internal fun SettingsDialogState.openS3EncryptionPasswordDialog() {
-    s3EncryptionPasswordInput = ""
-    s3EncryptionPasswordVisible = false
-    showS3EncryptionPasswordDialog = true
+    openProviderTextDialog(RemoteProviderTextField.S3EncryptionPassword, initialValue = "")
 }
 
 internal fun SettingsDialogState.openS3EncryptionPassword2Dialog() {
-    s3EncryptionPassword2Input = ""
-    s3EncryptionPassword2Visible = false
-    showS3EncryptionPassword2Dialog = true
+    openProviderTextDialog(RemoteProviderTextField.S3EncryptionPassword2, initialValue = "")
 }

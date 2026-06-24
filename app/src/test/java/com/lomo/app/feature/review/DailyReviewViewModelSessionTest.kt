@@ -148,10 +148,12 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
                 com.lomo.app.feature.common.AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                    CoroutineScope(SupervisorJob() + testDispatcher),
+                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                    appPreferencesSnapshotRepository = appConfigRepository,
+                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
             memoUiMapper = MemoUiMapper(testDispatcher),
             deleteMemoUseCase = deleteMemoUseCase,

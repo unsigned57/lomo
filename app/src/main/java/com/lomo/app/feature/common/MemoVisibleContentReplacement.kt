@@ -2,7 +2,7 @@ package com.lomo.app.feature.common
 
 import com.lomo.domain.model.Memo
 
-internal data class MemoVisibleContentReplacement(
+data class MemoVisibleContentReplacement(
     val previousContent: String,
     val replacementContent: String,
 ) {
@@ -14,7 +14,7 @@ internal data class MemoVisibleContentReplacement(
         }
 }
 
-internal fun Memo.replacingVisibleContent(newContent: String): Memo {
+fun Memo.replacingVisibleContent(newContent: String): Memo {
     val newRawContent =
         if (content.isNotEmpty() && rawContent.contains(content)) {
             rawContent.replaceFirst(content, newContent)

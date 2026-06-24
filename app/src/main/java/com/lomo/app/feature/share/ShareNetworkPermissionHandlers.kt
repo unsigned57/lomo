@@ -14,7 +14,7 @@ import com.lomo.app.CapabilityRecoveryAction
 
 @Composable
 internal fun rememberLanShareNetworkPermissionRequester(
-    lanShareEnabled: Boolean,
+    shouldRequestPermissions: Boolean,
     onPermissionGranted: () -> Unit,
     onPermissionDenied: () -> Unit,
 ): () -> Unit {
@@ -43,14 +43,14 @@ internal fun rememberLanShareNetworkPermissionRequester(
         }
     val requestPermissions: () -> Unit = {
         when {
-            !lanShareEnabled -> Unit
+            !shouldRequestPermissions -> Unit
             requiredPermissions.isEmpty() || hasLanShareNetworkPermissions(context) -> onPermissionGranted()
             else -> permissionLauncher.launch(requiredPermissions.toTypedArray())
         }
     }
 
-    LaunchedEffect(lanShareEnabled, requiredPermissions) {
-        if (lanShareEnabled) {
+    LaunchedEffect(shouldRequestPermissions, requiredPermissions) {
+        if (shouldRequestPermissions) {
             requestPermissions()
         }
     }

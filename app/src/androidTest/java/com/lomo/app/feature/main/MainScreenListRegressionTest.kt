@@ -55,6 +55,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -791,7 +792,7 @@ class MainScreenListRegressionTest {
                 flowOf(PagingData.from(harness.memos.value))
             }.collectAsLazyPagingItems()
         val coordinator =
-            remember(listState, scope) {
+            remember(listState, scope, pagedMemos) {
                 NewMemoCreationCoordinator<String>(
                     scope = scope,
                     isListAtAbsoluteTop = {
@@ -800,7 +801,7 @@ class MainScreenListRegressionTest {
                     scrollListToAbsoluteTop = {
                         listState.scrollToItem(0)
                     },
-                    createMemo = { content ->
+                    createMemo = { content, _ ->
                         nextNewMemoIndex += 1
                         harness.memos.value =
                             (
@@ -811,6 +812,17 @@ class MainScreenListRegressionTest {
                                     ),
                                 ) + harness.memos.value
                             ).toImmutableList()
+                    },
+                    currentTopMemoId = {
+                        pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
+                    },
+                    awaitNewTopItemAndReveal = { previousTopId ->
+                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                            androidx.compose.runtime.snapshotFlow {
+                                pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
+                            }.first { topId -> topId != null && topId != previousTopId }
+                        }
+                        listState.scrollToItem(0)
                     },
                 )
             }
@@ -825,8 +837,7 @@ class MainScreenListRegressionTest {
             MemoListContent(
                 pagedMemos = pagedMemos,
                 knownTotalItemCount = harness.memos.value.size,
-                deletingMemoIds = persistentSetOf(),
-                onDeleteAnimationSettled = {},
+
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -857,8 +868,7 @@ class MainScreenListRegressionTest {
             MemoListContent(
                 pagedMemos = pagedMemos,
                 knownTotalItemCount = harness.memos.value.size,
-                deletingMemoIds = persistentSetOf(),
-                onDeleteAnimationSettled = {},
+
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -887,8 +897,7 @@ class MainScreenListRegressionTest {
             MemoListContent(
                 pagedMemos = pagedMemos,
                 knownTotalItemCount = pagedMemos.itemCount,
-                deletingMemoIds = deletingIds.toPersistentSet(),
-                onDeleteAnimationSettled = harness::onDeleteAnimationSettled,
+
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -919,8 +928,7 @@ class MainScreenListRegressionTest {
             MemoListContent(
                 pagedMemos = pagedMemos,
                 knownTotalItemCount = pagedMemos.itemCount,
-                deletingMemoIds = deletingIds.toPersistentSet(),
-                onDeleteAnimationSettled = harness::onDeleteAnimationSettled,
+
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},

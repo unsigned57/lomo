@@ -31,8 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
-import com.lomo.ui.component.common.lazyListMotionItem
-import com.lomo.ui.component.common.rememberLazyListMotionState
+import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
@@ -52,16 +51,6 @@ internal fun DeviceDiscoveryList(
     onDeviceClick: (DiscoveredDevice) -> Unit,
     listState: LazyListState,
 ) {
-    val deviceKeys =
-        remember(devices) {
-            devices.map { device -> device.motionKey() }.toPersistentList()
-        }
-    val listMotionState =
-        rememberLazyListMotionState(
-            itemKeys = deviceKeys,
-            removingKeys = persistentSetOf(),
-            listState = listState,
-        )
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -73,11 +62,7 @@ internal fun DeviceDiscoveryList(
                 isEnabled = transferState.allowsDeviceSelection(),
                 onClick = { onDeviceClick(device) },
                 modifier =
-                    Modifier.lazyListMotionItem(
-                        lazyItemScope = this,
-                        itemKey = device.motionKey(),
-                        motionState = listMotionState,
-                    ),
+                    Modifier.lomoListItemMotion(this),
             )
         }
     }

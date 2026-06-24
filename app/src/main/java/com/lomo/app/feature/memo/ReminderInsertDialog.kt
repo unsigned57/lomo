@@ -1,12 +1,5 @@
 package com.lomo.app.feature.memo
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material3.DatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -33,7 +25,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TimePickerState
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -52,7 +43,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.Recurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
-import com.lomo.ui.component.picker.ExpressivePickerDialog
+import com.lomo.ui.component.picker.ExpressivePickerStep
+import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
 import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
 import com.lomo.ui.theme.AppSpacing
 import java.time.Instant
@@ -60,10 +52,10 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneOffset
+import kotlinx.collections.immutable.persistentListOf
 
 private const val REMINDER_REPEAT_MIN = 1
 private const val REMINDER_REPEAT_MAX = 9
-private const val REMINDER_PAGE_SLIDE_FRACTION = 6
 private val REMINDER_INTERVAL_PRESETS = listOf(1, 5, 10, 15, 30)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,99 +79,44 @@ internal fun ReminderInsertDialog(
     var repeatCount by remember { mutableIntStateOf(REMINDER_REPEAT_MIN) }
     var recurrence by remember { mutableStateOf(Recurrence.NONE) }
     var intervalMinutes by remember { mutableIntStateOf(10) }
-    var page by remember { mutableStateOf(ReminderDialogPage.Date) }
 
-    val confirmLabel = stringResource(
-        if (page == ReminderDialogPage.Repeat) R.string.action_confirm else R.string.action_next,
-    )
-
-    ExpressivePickerDialog(
+    ExpressiveSteppedPickerDialog(
         title = stringResource(R.string.reminder_dialog_title),
-        confirmLabel = confirmLabel,
+        advanceLabel = stringResource(R.string.action_next),
+        confirmLabel = stringResource(R.string.action_confirm),
         dismissLabel = stringResource(R.string.action_cancel),
         onConfirm = {
-            when (page) {
-                ReminderDialogPage.Date -> page = ReminderDialogPage.Time
-                ReminderDialogPage.Time -> page = ReminderDialogPage.Repeat
-                ReminderDialogPage.Repeat -> {
-                    val dateMillis = datePickerState.selectedDateMillis
-                    if (dateMillis != null) {
-                        val localDate = Instant
-                            .ofEpochMilli(dateMillis)
-                            .atZone(ZoneOffset.UTC)
-                            .toLocalDate()
-                        onConfirm(
-                            buildReminderToken(
-                                date = localDate,
-                                hour = timePickerState.hour,
-                                minute = timePickerState.minute,
-                                repeatCount = repeatCount,
-                                intervalMinutes = intervalMinutes,
-                                recurrence = recurrence,
-                            ),
-                        )
-                    }
-                }
-            }
+            val dateMillis = datePickerState.selectedDateMillis ?: return@ExpressiveSteppedPickerDialog
+            val localDate = Instant.ofEpochMilli(dateMillis).atZone(ZoneOffset.UTC).toLocalDate()
+            onConfirm(
+                buildReminderToken(
+                    date = localDate,
+                    hour = timePickerState.hour,
+                    minute = timePickerState.minute,
+                    repeatCount = repeatCount,
+                    intervalMinutes = intervalMinutes,
+                    recurrence = recurrence,
+                ),
+            )
         },
         onDismiss = onDismiss,
-    ) {
-        AnimatedContent(
-            targetState = page,
-            transitionSpec = {
-                val forward = targetState.ordinal > initialState.ordinal
-                val direction = if (forward) 1 else -1
-                (
-                    slideInHorizontally { width -> direction * width / REMINDER_PAGE_SLIDE_FRACTION } + fadeIn()
-                ) togetherWith (
-                    slideOutHorizontally { width -> -direction * width / REMINDER_PAGE_SLIDE_FRACTION } + fadeOut()
-                ) using SizeTransform(clip = false)
-            },
-            label = "ReminderDialogPage",
-        ) { current ->
-            ReminderDialogContent(
-                page = current,
-                datePickerState = datePickerState,
-                timePickerState = timePickerState,
-                repeatCount = repeatCount,
-                onRepeatCountChange = { repeatCount = it },
-                recurrence = recurrence,
-                onRecurrenceChange = { recurrence = it },
-                intervalMinutes = intervalMinutes,
-                onIntervalMinutesChange = { intervalMinutes = it },
-            )
-        }
-    }
+        steps =
+            persistentListOf(
+                ExpressivePickerStep { ExpressiveDatePickerSurface(state = datePickerState) },
+                ExpressivePickerStep { ExpressiveTimePickerSurface(state = timePickerState) },
+                ExpressivePickerStep {
+                    ReminderRepeatPage(
+                        repeatCount = repeatCount,
+                        onRepeatCountChange = { repeatCount = it },
+                        recurrence = recurrence,
+                        onRecurrenceChange = { recurrence = it },
+                        intervalMinutes = intervalMinutes,
+                        onIntervalMinutesChange = { intervalMinutes = it },
+                    )
+                },
+            ),
+    )
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReminderDialogContent(
-    page: ReminderDialogPage,
-    datePickerState: DatePickerState,
-    timePickerState: TimePickerState,
-    repeatCount: Int,
-    onRepeatCountChange: (Int) -> Unit,
-    recurrence: Recurrence,
-    onRecurrenceChange: (Recurrence) -> Unit,
-    intervalMinutes: Int,
-    onIntervalMinutesChange: (Int) -> Unit,
-) {
-    when (page) {
-        ReminderDialogPage.Date -> ExpressiveDatePickerSurface(state = datePickerState)
-        ReminderDialogPage.Time -> ExpressiveTimePickerSurface(state = timePickerState)
-        ReminderDialogPage.Repeat -> ReminderRepeatPage(
-            repeatCount = repeatCount,
-            onRepeatCountChange = onRepeatCountChange,
-            recurrence = recurrence,
-            onRecurrenceChange = onRecurrenceChange,
-            intervalMinutes = intervalMinutes,
-            onIntervalMinutesChange = onIntervalMinutesChange,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ReminderRepeatPage(
     repeatCount: Int,
@@ -350,8 +287,6 @@ private fun RepeatStepper(
         Spacer(modifier = Modifier.height(0.dp))
     }
 }
-
-private enum class ReminderDialogPage { Date, Time, Repeat }
 
 internal fun buildReminderInsertionValue(
     inputValue: TextFieldValue,

@@ -8,9 +8,8 @@ import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.S3EncryptionMode
@@ -18,221 +17,97 @@ import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 
+data class S3SyncSectionLabels(
+    val common: RemoteProviderSectionLabels,
+    val pathStyle: String,
+    val encryptionMode: String,
+    val rcloneFilenameEncryption: String,
+    val rcloneFilenameEncoding: String,
+)
+
+data class S3SyncDialogActions(
+    val endpoint: S3EndpointDialogActions,
+    val credentials: S3CredentialDialogActions,
+    val encryption: S3EncryptionDialogActions,
+)
+
+data class S3EndpointDialogActions(
+    val openEndpointUrl: () -> Unit,
+    val openRegion: () -> Unit,
+    val openBucket: () -> Unit,
+    val openPrefix: () -> Unit,
+    val selectLocalSyncDirectory: () -> Unit,
+    val clearLocalSyncDirectory: () -> Unit,
+)
+
+data class S3CredentialDialogActions(
+    val openAccessKeyId: () -> Unit,
+    val openSecretAccessKey: () -> Unit,
+    val openSessionToken: () -> Unit,
+)
+
+data class S3EncryptionDialogActions(
+    val openPathStyle: () -> Unit,
+    val openEncryptionMode: () -> Unit,
+    val openEncryptionPassword: () -> Unit,
+    val openEncryptionPassword2: () -> Unit,
+    val openRcloneFilenameEncryption: () -> Unit,
+    val openRcloneFilenameEncoding: () -> Unit,
+    val openRcloneEncryptedSuffix: () -> Unit,
+)
+
+data class S3SyncSpecificActions(
+    val toggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
+    val toggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
+)
+
 @Composable
 fun S3SyncSettingsSection(
     state: S3SectionState,
-    pathStyleLabel: String,
-    encryptionModeLabel: String,
-    rcloneFilenameEncryptionLabel: String,
-    rcloneFilenameEncodingLabel: String,
-    syncIntervalLabel: String,
-    syncNowSubtitle: String,
-    connectionSubtitle: String,
-    onToggleEnabled: (Boolean) -> Unit,
-    onOpenEndpointUrlDialog: () -> Unit,
-    onOpenRegionDialog: () -> Unit,
-    onOpenBucketDialog: () -> Unit,
-    onOpenPrefixDialog: () -> Unit,
-    onSelectLocalSyncDirectory: () -> Unit,
-    onClearLocalSyncDirectory: () -> Unit,
-    onOpenAccessKeyIdDialog: () -> Unit,
-    onOpenSecretAccessKeyDialog: () -> Unit,
-    onOpenSessionTokenDialog: () -> Unit,
-    onOpenPathStyleDialog: () -> Unit,
-    onOpenEncryptionModeDialog: () -> Unit,
-    onOpenEncryptionPasswordDialog: () -> Unit,
-    onOpenEncryptionPassword2Dialog: () -> Unit,
-    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
-    onOpenRcloneFilenameEncodingDialog: () -> Unit,
-    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
-    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
-    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
-    onToggleAutoSync: (Boolean) -> Unit,
-    onOpenSyncIntervalDialog: () -> Unit,
-    onToggleSyncOnRefresh: (Boolean) -> Unit,
-    onSyncNow: () -> Unit,
-    onTestConnection: () -> Unit,
+    labels: S3SyncSectionLabels,
+    dialogs: S3SyncDialogActions,
+    specificActions: S3SyncSpecificActions,
+    actions: RemoteProviderSectionActions,
+    modifier: Modifier = Modifier,
 ) {
-    SwitchPreferenceItem(
-        title = stringResource(R.string.settings_s3_sync_enable),
-        subtitle = stringResource(R.string.settings_s3_sync_enable_subtitle),
-        icon = Icons.Outlined.Sync,
-        checked = state.enabled,
-        onCheckedChange = onToggleEnabled,
+    RemoteProviderSectionSurface(
+        providerSettings = state.providerSettings,
+        labels = labels.common,
+        actions = actions,
+        modifier = modifier,
+        providerSettingsContent = {
+            S3ConnectionPreferences(
+                state = state,
+                labels = labels,
+                dialogs = dialogs,
+                specificActions = specificActions,
+            )
+        },
+        providerActionContent = null,
     )
-    SettingsExpandableContent(
-        visible = state.enabled,
-        label = "S3SyncAdvancedVisibility",
-    ) {
-        S3SyncAdvancedContent(
-            state = state,
-            pathStyleLabel = pathStyleLabel,
-            encryptionModeLabel = encryptionModeLabel,
-            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
-            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
-            syncIntervalLabel = syncIntervalLabel,
-            syncNowSubtitle = syncNowSubtitle,
-            connectionSubtitle = connectionSubtitle,
-            onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
-            onOpenRegionDialog = onOpenRegionDialog,
-            onOpenBucketDialog = onOpenBucketDialog,
-            onOpenPrefixDialog = onOpenPrefixDialog,
-            onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
-            onClearLocalSyncDirectory = onClearLocalSyncDirectory,
-            onOpenAccessKeyIdDialog = onOpenAccessKeyIdDialog,
-            onOpenSecretAccessKeyDialog = onOpenSecretAccessKeyDialog,
-            onOpenSessionTokenDialog = onOpenSessionTokenDialog,
-            onOpenPathStyleDialog = onOpenPathStyleDialog,
-            onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
-            onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
-            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
-            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
-            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
-            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
-            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
-            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
-            onToggleAutoSync = onToggleAutoSync,
-            onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
-            onToggleSyncOnRefresh = onToggleSyncOnRefresh,
-            onSyncNow = onSyncNow,
-            onTestConnection = onTestConnection,
-        )
-    }
-}
-
-@Composable
-private fun S3SyncAdvancedContent(
-    state: S3SectionState,
-    pathStyleLabel: String,
-    encryptionModeLabel: String,
-    rcloneFilenameEncryptionLabel: String,
-    rcloneFilenameEncodingLabel: String,
-    syncIntervalLabel: String,
-    syncNowSubtitle: String,
-    connectionSubtitle: String,
-    onOpenEndpointUrlDialog: () -> Unit,
-    onOpenRegionDialog: () -> Unit,
-    onOpenBucketDialog: () -> Unit,
-    onOpenPrefixDialog: () -> Unit,
-    onSelectLocalSyncDirectory: () -> Unit,
-    onClearLocalSyncDirectory: () -> Unit,
-    onOpenAccessKeyIdDialog: () -> Unit,
-    onOpenSecretAccessKeyDialog: () -> Unit,
-    onOpenSessionTokenDialog: () -> Unit,
-    onOpenPathStyleDialog: () -> Unit,
-    onOpenEncryptionModeDialog: () -> Unit,
-    onOpenEncryptionPasswordDialog: () -> Unit,
-    onOpenEncryptionPassword2Dialog: () -> Unit,
-    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
-    onOpenRcloneFilenameEncodingDialog: () -> Unit,
-    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
-    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
-    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
-    onToggleAutoSync: (Boolean) -> Unit,
-    onOpenSyncIntervalDialog: () -> Unit,
-    onToggleSyncOnRefresh: (Boolean) -> Unit,
-    onSyncNow: () -> Unit,
-    onTestConnection: () -> Unit,
-) {
-    Column {
-        S3ConnectionPreferences(
-            state = state,
-            pathStyleLabel = pathStyleLabel,
-            encryptionModeLabel = encryptionModeLabel,
-            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
-            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
-            onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
-            onOpenRegionDialog = onOpenRegionDialog,
-            onOpenBucketDialog = onOpenBucketDialog,
-            onOpenPrefixDialog = onOpenPrefixDialog,
-            onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
-            onClearLocalSyncDirectory = onClearLocalSyncDirectory,
-            onOpenAccessKeyIdDialog = onOpenAccessKeyIdDialog,
-            onOpenSecretAccessKeyDialog = onOpenSecretAccessKeyDialog,
-            onOpenSessionTokenDialog = onOpenSessionTokenDialog,
-            onOpenPathStyleDialog = onOpenPathStyleDialog,
-            onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
-            onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
-            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
-            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
-            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
-            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
-            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
-            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
-        )
-        S3BehaviorPreferences(
-            state = state,
-            syncIntervalLabel = syncIntervalLabel,
-            onToggleAutoSync = onToggleAutoSync,
-            onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
-            onToggleSyncOnRefresh = onToggleSyncOnRefresh,
-        )
-        S3ActionPreferences(
-            syncNowSubtitle = syncNowSubtitle,
-            connectionSubtitle = connectionSubtitle,
-            onSyncNow = onSyncNow,
-            onTestConnection = onTestConnection,
-        )
-    }
 }
 
 @Composable
 private fun S3ConnectionPreferences(
     state: S3SectionState,
-    pathStyleLabel: String,
-    encryptionModeLabel: String,
-    rcloneFilenameEncryptionLabel: String,
-    rcloneFilenameEncodingLabel: String,
-    onOpenEndpointUrlDialog: () -> Unit,
-    onOpenRegionDialog: () -> Unit,
-    onOpenBucketDialog: () -> Unit,
-    onOpenPrefixDialog: () -> Unit,
-    onSelectLocalSyncDirectory: () -> Unit,
-    onClearLocalSyncDirectory: () -> Unit,
-    onOpenAccessKeyIdDialog: () -> Unit,
-    onOpenSecretAccessKeyDialog: () -> Unit,
-    onOpenSessionTokenDialog: () -> Unit,
-    onOpenPathStyleDialog: () -> Unit,
-    onOpenEncryptionModeDialog: () -> Unit,
-    onOpenEncryptionPasswordDialog: () -> Unit,
-    onOpenEncryptionPassword2Dialog: () -> Unit,
-    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
-    onOpenRcloneFilenameEncodingDialog: () -> Unit,
-    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
-    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
-    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
+    labels: S3SyncSectionLabels,
+    dialogs: S3SyncDialogActions,
+    specificActions: S3SyncSpecificActions,
 ) {
     Column {
         S3EndpointPreferences(
             state = state,
-            onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
-            onOpenRegionDialog = onOpenRegionDialog,
-            onOpenBucketDialog = onOpenBucketDialog,
-            onOpenPrefixDialog = onOpenPrefixDialog,
-            onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
-            onClearLocalSyncDirectory = onClearLocalSyncDirectory,
+            actions = dialogs.endpoint,
         )
         S3CredentialPreferences(
             state = state,
-            onOpenAccessKeyIdDialog = onOpenAccessKeyIdDialog,
-            onOpenSecretAccessKeyDialog = onOpenSecretAccessKeyDialog,
-            onOpenSessionTokenDialog = onOpenSessionTokenDialog,
+            actions = dialogs.credentials,
         )
         S3EncryptionPreferences(
             state = state,
-            pathStyleLabel = pathStyleLabel,
-            encryptionModeLabel = encryptionModeLabel,
-            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
-            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
-            onOpenPathStyleDialog = onOpenPathStyleDialog,
-            onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
-            onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
-            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
-            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
-            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
-            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
-            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
-            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
+            labels = labels,
+            dialogs = dialogs.encryption,
+            actions = specificActions,
         )
     }
 }
@@ -240,47 +115,42 @@ private fun S3ConnectionPreferences(
 @Composable
 private fun S3EndpointPreferences(
     state: S3SectionState,
-    onOpenEndpointUrlDialog: () -> Unit,
-    onOpenRegionDialog: () -> Unit,
-    onOpenBucketDialog: () -> Unit,
-    onOpenPrefixDialog: () -> Unit,
-    onSelectLocalSyncDirectory: () -> Unit,
-    onClearLocalSyncDirectory: () -> Unit,
+    actions: S3EndpointDialogActions,
 ) {
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_endpoint_url),
         subtitle = state.endpointUrl.ifBlank { stringResource(R.string.settings_not_set) },
         icon = Icons.Outlined.Link,
-        onClick = onOpenEndpointUrlDialog,
+        onClick = actions.openEndpointUrl,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_region),
         subtitle = state.region.ifBlank { stringResource(R.string.settings_not_set) },
         icon = Icons.Outlined.AccessTime,
-        onClick = onOpenRegionDialog,
+        onClick = actions.openRegion,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_bucket),
         subtitle = state.bucket.ifBlank { stringResource(R.string.settings_not_set) },
         icon = Icons.Outlined.FolderOpen,
-        onClick = onOpenBucketDialog,
+        onClick = actions.openBucket,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_prefix),
         subtitle = state.prefix.ifBlank { stringResource(R.string.settings_s3_prefix_root) },
         icon = Icons.Outlined.FolderOpen,
-        onClick = onOpenPrefixDialog,
+        onClick = actions.openPrefix,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_local_sync_directory),
         subtitle = s3LocalSyncDirectorySubtitle(state.localSyncDirectory),
         icon = Icons.Outlined.FolderOpen,
-        onClick = onSelectLocalSyncDirectory,
+        onClick = actions.selectLocalSyncDirectory,
     )
     if (state.localSyncDirectory.isNotBlank()) {
         SettingsDivider()
@@ -288,7 +158,7 @@ private fun S3EndpointPreferences(
             title = stringResource(R.string.settings_s3_local_sync_directory_default),
             subtitle = stringResource(R.string.settings_s3_local_sync_directory_default_subtitle),
             icon = Icons.Outlined.Refresh,
-            onClick = onClearLocalSyncDirectory,
+            onClick = actions.clearLocalSyncDirectory,
         )
     }
 }
@@ -296,92 +166,82 @@ private fun S3EndpointPreferences(
 @Composable
 private fun S3CredentialPreferences(
     state: S3SectionState,
-    onOpenAccessKeyIdDialog: () -> Unit,
-    onOpenSecretAccessKeyDialog: () -> Unit,
-    onOpenSessionTokenDialog: () -> Unit,
+    actions: S3CredentialDialogActions,
 ) {
+    val providerSettings = state.providerSettings
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_access_key_id),
         subtitle =
             credentialStatusSubtitle(
-                status = state.accessKeyStatus,
+                status = providerSettings.credentialStatus(RemoteProviderCredentialField.S3AccessKeyId),
                 configuredResId = R.string.settings_s3_access_key_configured,
                 missingResId = R.string.settings_s3_access_key_not_set,
             ),
         icon = Icons.Outlined.Lock,
-        onClick = onOpenAccessKeyIdDialog,
+        onClick = actions.openAccessKeyId,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_secret_access_key),
         subtitle =
             credentialStatusSubtitle(
-                status = state.secretAccessKeyStatus,
+                status = providerSettings.credentialStatus(RemoteProviderCredentialField.S3SecretAccessKey),
                 configuredResId = R.string.settings_s3_access_key_configured,
                 missingResId = R.string.settings_s3_access_key_not_set,
             ),
         icon = Icons.Outlined.Lock,
-        onClick = onOpenSecretAccessKeyDialog,
+        onClick = actions.openSecretAccessKey,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_session_token),
         subtitle =
             credentialStatusSubtitle(
-                status = state.sessionTokenStatus,
+                status = providerSettings.credentialStatus(RemoteProviderCredentialField.S3SessionToken),
                 configuredResId = R.string.settings_s3_session_token_configured,
                 missingResId = R.string.settings_s3_session_token_not_set,
             ),
         icon = Icons.Outlined.Lock,
-        onClick = onOpenSessionTokenDialog,
+        onClick = actions.openSessionToken,
     )
 }
 
 @Composable
 private fun S3EncryptionPreferences(
     state: S3SectionState,
-    pathStyleLabel: String,
-    encryptionModeLabel: String,
-    rcloneFilenameEncryptionLabel: String,
-    rcloneFilenameEncodingLabel: String,
-    onOpenPathStyleDialog: () -> Unit,
-    onOpenEncryptionModeDialog: () -> Unit,
-    onOpenEncryptionPasswordDialog: () -> Unit,
-    onOpenEncryptionPassword2Dialog: () -> Unit,
-    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
-    onOpenRcloneFilenameEncodingDialog: () -> Unit,
-    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
-    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
-    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
+    labels: S3SyncSectionLabels,
+    dialogs: S3EncryptionDialogActions,
+    actions: S3SyncSpecificActions,
 ) {
+    val providerSettings = state.providerSettings
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_path_style),
-        subtitle = pathStyleLabel,
+        subtitle = labels.pathStyle,
         icon = Icons.Outlined.Link,
-        onClick = onOpenPathStyleDialog,
+        onClick = dialogs.openPathStyle,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_encryption_mode),
-        subtitle = encryptionModeLabel,
+        subtitle = labels.encryptionMode,
         icon = Icons.Outlined.Lock,
-        onClick = onOpenEncryptionModeDialog,
+        onClick = dialogs.openEncryptionMode,
     )
     SettingsDivider()
     PreferenceItem(
         title = stringResource(R.string.settings_s3_encryption_password),
         subtitle =
             credentialStatusSubtitle(
-                status = state.encryptionPasswordStatus,
+                status = providerSettings.credentialStatus(RemoteProviderCredentialField.S3EncryptionPassword),
                 configuredResId = R.string.settings_s3_encryption_password_configured,
                 missingResId = R.string.settings_s3_encryption_password_not_set,
             ),
         icon = Icons.Outlined.Lock,
         enabled = state.encryptionMode != S3EncryptionMode.NONE,
         showChevron = state.encryptionMode != S3EncryptionMode.NONE,
-        onClick = onOpenEncryptionPasswordDialog,
+        onClick = dialogs.openEncryptionPassword,
     )
     SettingsExpandableContent(
         visible = state.encryptionMode == S3EncryptionMode.RCLONE_CRYPT,
@@ -393,28 +253,30 @@ private fun S3EncryptionPreferences(
                 title = stringResource(R.string.settings_s3_encryption_password2),
                 subtitle =
                     credentialStatusSubtitle(
-                        status = state.encryptionPassword2Status,
+                        status = providerSettings.credentialStatus(
+                            RemoteProviderCredentialField.S3EncryptionPassword2,
+                        ),
                         configuredResId = R.string.settings_s3_encryption_password2_configured,
                         missingResId = R.string.settings_s3_encryption_password2_not_set,
                     ),
                 icon = Icons.Outlined.Lock,
-                onClick = onOpenEncryptionPassword2Dialog,
+                onClick = dialogs.openEncryptionPassword2,
             )
             SettingsDivider()
             PreferenceItem(
                 title = stringResource(R.string.settings_s3_rclone_filename_encryption),
-                subtitle = rcloneFilenameEncryptionLabel,
+                subtitle = labels.rcloneFilenameEncryption,
                 icon = Icons.Outlined.DataObject,
-                onClick = onOpenRcloneFilenameEncryptionDialog,
+                onClick = dialogs.openRcloneFilenameEncryption,
             )
             when (state.rcloneFilenameEncryption) {
                 S3RcloneFilenameEncryption.STANDARD -> {
                     SettingsDivider()
                     PreferenceItem(
                         title = stringResource(R.string.settings_s3_rclone_filename_encoding),
-                        subtitle = rcloneFilenameEncodingLabel,
+                        subtitle = labels.rcloneFilenameEncoding,
                         icon = Icons.Outlined.DataObject,
-                        onClick = onOpenRcloneFilenameEncodingDialog,
+                        onClick = dialogs.openRcloneFilenameEncoding,
                     )
                     SettingsDivider()
                     SwitchPreferenceItem(
@@ -422,7 +284,7 @@ private fun S3EncryptionPreferences(
                         subtitle = stringResource(R.string.settings_s3_rclone_directory_name_encryption_subtitle),
                         icon = Icons.Outlined.Lock,
                         checked = state.rcloneDirectoryNameEncryption,
-                        onCheckedChange = onToggleRcloneDirectoryNameEncryption,
+                        onCheckedChange = actions.toggleRcloneDirectoryNameEncryption,
                     )
                 }
 
@@ -432,7 +294,7 @@ private fun S3EncryptionPreferences(
                         title = stringResource(R.string.settings_s3_rclone_encrypted_suffix),
                         subtitle = s3EncryptedSuffixSubtitle(state.rcloneEncryptedSuffix),
                         icon = Icons.Outlined.DataObject,
-                        onClick = onOpenRcloneEncryptedSuffixDialog,
+                        onClick = dialogs.openRcloneEncryptedSuffix,
                     )
                 }
 
@@ -444,73 +306,10 @@ private fun S3EncryptionPreferences(
                 subtitle = stringResource(R.string.settings_s3_rclone_data_encryption_subtitle),
                 icon = Icons.Outlined.Lock,
                 checked = state.rcloneDataEncryptionEnabled,
-                onCheckedChange = onToggleRcloneDataEncryptionEnabled,
+                onCheckedChange = actions.toggleRcloneDataEncryptionEnabled,
             )
         }
     }
-}
-
-@Composable
-private fun S3BehaviorPreferences(
-    state: S3SectionState,
-    syncIntervalLabel: String,
-    onToggleAutoSync: (Boolean) -> Unit,
-    onOpenSyncIntervalDialog: () -> Unit,
-    onToggleSyncOnRefresh: (Boolean) -> Unit,
-) {
-    SettingsDivider()
-    SwitchPreferenceItem(
-        title = stringResource(R.string.settings_s3_auto_sync),
-        subtitle = stringResource(R.string.settings_s3_auto_sync_subtitle),
-        icon = Icons.Outlined.Schedule,
-        checked = state.autoSyncEnabled,
-        onCheckedChange = onToggleAutoSync,
-    )
-    SettingsExpandableContent(
-        visible = state.autoSyncEnabled,
-        label = "S3AutoSyncIntervalVisibility",
-    ) {
-        Column {
-            SettingsDivider()
-            PreferenceItem(
-                title = stringResource(R.string.settings_s3_sync_interval),
-                subtitle = syncIntervalLabel,
-                icon = Icons.Outlined.Schedule,
-                onClick = onOpenSyncIntervalDialog,
-            )
-        }
-    }
-    SettingsDivider()
-    SwitchPreferenceItem(
-        title = stringResource(R.string.settings_s3_sync_on_refresh),
-        subtitle = stringResource(R.string.settings_s3_sync_on_refresh_subtitle),
-        icon = Icons.Outlined.Refresh,
-        checked = state.syncOnRefreshEnabled,
-        onCheckedChange = onToggleSyncOnRefresh,
-    )
-}
-
-@Composable
-private fun S3ActionPreferences(
-    syncNowSubtitle: String,
-    connectionSubtitle: String,
-    onSyncNow: () -> Unit,
-    onTestConnection: () -> Unit,
-) {
-    SettingsDivider()
-    PreferenceItem(
-        title = stringResource(R.string.settings_s3_sync_now),
-        subtitle = syncNowSubtitle,
-        icon = Icons.Outlined.Sync,
-        onClick = onSyncNow,
-    )
-    SettingsDivider()
-    PreferenceItem(
-        title = stringResource(R.string.settings_s3_test_connection),
-        subtitle = connectionSubtitle,
-        icon = Icons.Outlined.Link,
-        onClick = onTestConnection,
-    )
 }
 
 @Composable

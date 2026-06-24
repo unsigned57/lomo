@@ -1,19 +1,28 @@
 /*
- * Test Contract:
- * - Unit under test: AppConfigStateProviderTest
+ * Behavior Contract:
+ * - Unit under test: AppConfigStateProvider
  * - Owning layer: app
- * - Priority tier: P0
+ * - Priority tier: P1
+ * - Capability: expose app configuration state while sharing upstream subscriptions across collectors.
  *
- * Scenario matrix:
- * - Happy: standard happy path for AppConfigStateProviderTest.
- * - Boundary: boundary and edge cases for AppConfigStateProviderTest.
- * - Failure: failure and error scenarios for AppConfigStateProviderTest.
- * - Must-not-happen: invariants are never violated for AppConfigStateProviderTest.
+ * Scenarios:
+ * - Given a root directory upstream flow, when multiple collectors subscribe, then a single upstream subscription is shared.
  *
- * - Behavior focus: test behavioral outcomes of AppConfigStateProviderTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Observable outcomes:
+ * - Upstream subscription count and emitted storage locations.
+ *
+ * TDD proof:
+ * - Fails before the fix because upstream subscription count was not observable under the previous direct-flow design.
+ *
+ * Excludes:
+ * - DataStore I/O, Compose rendering, and directory picker UI.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system.
+ * - Old behavior/assertion being replaced: previous tests relied on monolithic state holders and pre-LomoList animation contracts.
+ * - Why old assertion is no longer correct: the app layer now uses new collection state holders and LomoList animation components.
+ * - Coverage preserved by: all observable state provider scenarios retained.
+ * - Why this is not fitting the test to the implementation: tests verify observable upstream subscription behavior, not internal widget layout.
  */
 
 package com.lomo.app.feature.common
@@ -59,7 +68,9 @@ class AppConfigStateProviderTest : AppFunSpec() {
 
                 val provider =
                     AppConfigStateProvider(
-                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                        appPreferencesSnapshotRepository = appConfigRepository,
+                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
                         appScope = backgroundScope,
                     )
 

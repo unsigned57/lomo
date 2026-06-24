@@ -13,6 +13,8 @@
  *   user-facing unavailable-content error is exposed and sending is skipped.
  * - Given LAN share startup, pairing, settings, or transfer operations fail, when the user invokes the
  *   operation, then observable error or pairing state is updated without hiding cancellation.
+ * - Given the LAN runtime reports local-network permission is blocked, when the ViewModel observes
+ *   repository state, then permission UI updates without relying on a share-screen-local retry event.
  * - Given attachment references exist in memo content, when sending succeeds, then extracted attachment
  *   URIs are forwarded with the memo payload.
  *
@@ -28,6 +30,13 @@
  * Excludes:
  * - Compose rendering, NavHost graph serialization, network transport internals, and attachment parser
  *   internals.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 
 package com.lomo.app.feature.share
@@ -38,6 +47,7 @@ import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import io.kotest.matchers.shouldBe
@@ -241,6 +251,22 @@ class ShareViewModelTest : AppFunSpec() {
             }
         }
 
+        test("onLanShareNetworkPermissionsGranted notifies lifecycle before starting discovery") {
+            runTest {
+                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+
+                val viewModel = createViewModel(payloadKey)
+
+                viewModel.onLanShareNetworkPermissionsGranted()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                viewModel.lanSharePermissionState.value shouldBe LanSharePermissionState.Granted
+                shareService.refreshNetworkPermissionStateCalledCount shouldBe 1
+                shareService.startServicesCalledCount shouldBe 1
+                shareService.startDiscoveryCalledCount shouldBe 1
+            }
+        }
+
         test("onLanShareNetworkPermissionsDenied marks denied state and skips startup") {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
@@ -250,6 +276,21 @@ class ShareViewModelTest : AppFunSpec() {
                 viewModel.onLanShareNetworkPermissionsDenied()
 
                 viewModel.lanSharePermissionState.value shouldBe LanSharePermissionState.Denied
+                shareService.startServicesCalledCount shouldBe 0
+                shareService.startDiscoveryCalledCount shouldBe 0
+            }
+        }
+
+        test("runtime permission blocked state marks share permission denied without local permission callback") {
+            runTest {
+                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+                val viewModel = createViewModel(payloadKey)
+
+                shareService.lanShareRuntimeState.value = LanShareRuntimeState.PermissionBlocked
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                viewModel.lanSharePermissionState.value shouldBe LanSharePermissionState.Denied
+                viewModel.lanShareDiscoveryError.value shouldBe "Local network permission is required for LAN sharing"
                 shareService.startServicesCalledCount shouldBe 0
                 shareService.startDiscoveryCalledCount shouldBe 0
             }

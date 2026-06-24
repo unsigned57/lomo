@@ -2,6 +2,7 @@ package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncState
@@ -32,7 +33,7 @@ class FakeGitSyncRepository : GitSyncRepository {
     override suspend fun setRemoteUrl(url: String) {}
     
     override suspend fun setToken(token: String) {}
-    override suspend fun getToken(): String? = null
+    override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
     override suspend fun setAuthorInfo(name: String, email: String) {}
     override fun getAuthorName(): Flow<String> = MutableStateFlow("")
     override fun getAuthorEmail(): Flow<String> = MutableStateFlow("")

@@ -1,6 +1,8 @@
 package com.lomo.app.feature.settings
 
 import android.text.format.DateUtils
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.SyncBackendType
@@ -37,7 +41,11 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.delay
 import kotlin.random.Random
+
+private const val TIP_AUTO_CYCLE_DELAY_MILLIS = 6000L
+private const val TIP_FADE_DURATION_MILLIS = 300
 
 private val SettingsHomeHeroTipResources: ImmutableList<Int> =
     persistentListOf(
@@ -96,12 +104,16 @@ private fun SettingsHomeHeroActiveContent(
                 text = titleText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = providersText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(modifier = Modifier.size(AppSpacing.Small))
@@ -118,7 +130,11 @@ private fun SettingsHomeHeroActiveContent(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.size(AppSpacing.ExtraSmall))
-            Text(stringResource(R.string.settings_home_hero_sync_now))
+            Text(
+                text = stringResource(R.string.settings_home_hero_sync_now),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -130,6 +146,11 @@ private fun SettingsHomeHeroTipContent() {
     val initialIndex = remember { Random.nextInt(totalTips) }
     var tipIndex by rememberSaveable { mutableIntStateOf(initialIndex) }
     val tipText = stringResource(SettingsHomeHeroTipResources[tipIndex % totalTips])
+
+    LaunchedEffect(tipIndex, totalTips) {
+        delay(TIP_AUTO_CYCLE_DELAY_MILLIS)
+        tipIndex = (tipIndex + 1) % totalTips
+    }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
@@ -145,11 +166,17 @@ private fun SettingsHomeHeroTipContent() {
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = tipText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
-            )
+            Crossfade(
+                targetState = tipText,
+                animationSpec = tween(durationMillis = TIP_FADE_DURATION_MILLIS),
+                label = "TipTextCrossfade",
+            ) { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                )
+            }
         }
         Spacer(modifier = Modifier.size(AppSpacing.Small))
         IconButton(

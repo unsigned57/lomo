@@ -53,7 +53,7 @@ data class MemoMenuTogglePinRequest(
 class MemoMenuCommandHandler(
     val presentationState: MemoMenuPresentationState,
     private val onEditMemo: (Memo) -> Unit,
-    private val onDeleteMemo: (Memo) -> Unit,
+    private val onDeleteMemo: (Memo, String?) -> Unit,
     private val onShareCard: (MemoMenuShareCardRequest) -> Unit,
     private val onShareText: (MemoMenuShareTextRequest) -> Unit,
     private val onLanShare: ((MemoMenuLanShareRequest) -> Unit)? = null,
@@ -80,7 +80,7 @@ class MemoMenuCommandHandler(
     }
 
     fun delete(selection: MemoMenuSelection) {
-        onDeleteMemo(selection.memo)
+        onDeleteMemo(selection.memo, selection.anchoredAfterKey)
     }
 
     fun shareCard(selection: MemoMenuSelection) {
@@ -141,7 +141,7 @@ class MemoMenuCommandHandler(
 fun rememberMemoMenuCommandHandler(
     presentationState: MemoMenuPresentationState,
     onEditMemo: (Memo) -> Unit,
-    onDeleteMemo: (Memo) -> Unit,
+    onDeleteMemo: (Memo, String?) -> Unit,
     onMemoActionInvoked: (MemoActionId) -> Unit,
     onLanShare: ((MemoMenuLanShareRequest) -> Unit)? = null,
     onTogglePin: ((Memo, Boolean) -> Unit)? = null,
@@ -182,7 +182,7 @@ fun rememberMemoMenuCommandHandler(
         MemoMenuCommandHandler(
             presentationState = presentationState,
             onEditMemo = { memo -> editMemoState.value(memo) },
-            onDeleteMemo = { memo -> deleteMemoState.value(memo) },
+            onDeleteMemo = { memo, anchoredAfterKey -> deleteMemoState.value(memo, anchoredAfterKey) },
             onShareCard = { request ->
                 scope.launch {
                     shareMemoAsImage(

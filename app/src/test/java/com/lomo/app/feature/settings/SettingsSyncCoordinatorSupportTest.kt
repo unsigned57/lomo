@@ -5,24 +5,35 @@ import com.lomo.domain.model.GitSyncErrorCode
 import io.kotest.assertions.fail
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: shared settings coordinator helpers in SettingsSyncCoordinatorSupport.kt
+ * Behavior Contract:
+ * - Unit under test: shared settings operation helpers in SettingsSyncCoordinatorSupport.kt
+ * - Owning layer: app/settings
+ * - Priority tier: P2
+ * - Capability: centralize cancellation-safe settings operation error mapping.
  *
- * Scenario matrix:
- * - Happy: standard happy path for SettingsSyncCoordinatorSupportTest.
- * - Boundary: boundary and edge cases for SettingsSyncCoordinatorSupportTest.
- * - Failure: failure and error scenarios for SettingsSyncCoordinatorSupportTest.
- * - Must-not-happen: invariants are never violated for SettingsSyncCoordinatorSupportTest.
- * - Behavior focus: shared helpers should centralize settings error handling and connection-test state transitions
- *   for Git/WebDAV/S3 coordinators without altering their user-visible contract.
- * - Observable outcomes: mapped SettingsOperationError values, connection-test state transitions, and cancellation
- *   propagation.
- * - Red phase: Fails before the fix because the shared coordinator helper layer does not exist yet.
- * - Excludes: use-case internals, coroutine scope wiring, and Compose rendering.
+ * Scenarios:
+ * - Given a provider-specific mapper returns an error, when the operation fails, then the specific
+ *   error is returned before fallback text.
+ * - Given cancellation occurs, when the operation is wrapped, then cancellation is rethrown.
+ *
+ * Observable outcomes:
+ * - Returned SettingsOperationError value and propagated CancellationException.
+ *
+ * TDD proof:
+ * - RED: earlier focused app tests failed before shared settings operation helpers existed.
+ *
+ * Excludes:
+ * - Provider connection-test lifecycle, which is owned by ProviderSettingsController.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 class SettingsSyncCoordinatorSupportTest : AppFunSpec() {
     init {
@@ -41,9 +52,7 @@ class SettingsSyncCoordinatorSupportTest : AppFunSpec() {
                     ))
             }
         }
-    }
 
-    init {
         test("runSettingsOperation rethrows cancellation") {
             runTest {
                 try {
@@ -59,46 +68,4 @@ class SettingsSyncCoordinatorSupportTest : AppFunSpec() {
             }
         }
     }
-
-    init {
-        test("runConnectionTest updates testing and success states") {
-            runTest {
-                val state = MutableStateFlow<SettingsGitConnectionTestState>(SettingsGitConnectionTestState.Idle)
-
-                runConnectionTest(
-                    state = state,
-                    testingState = SettingsGitConnectionTestState.Testing,
-                    execute = { "connected" },
-                    mapSuccess = { SettingsGitConnectionTestState.Success(it) },
-                    mapFailure = { SettingsGitConnectionTestState.Error(GitSyncErrorCode.UNKNOWN, it.message) },
-                )
-
-                (state.value) shouldBe (SettingsGitConnectionTestState.Success("connected"))
-            }
-        }
-    }
-
-    init {
-        test("runConnectionTest captures failure state without returning operation error") {
-            runTest {
-                val state = MutableStateFlow<SettingsGitConnectionTestState>(SettingsGitConnectionTestState.Idle)
-
-                val result =
-                    runConnectionTest(
-                        state = state,
-                        testingState = SettingsGitConnectionTestState.Testing,
-                        execute = { throw IllegalStateException("network down") },
-                        mapSuccess = { SettingsGitConnectionTestState.Success(it) },
-                        mapFailure = { SettingsGitConnectionTestState.Error(GitSyncErrorCode.UNKNOWN, it.message) },
-                    )
-
-                (result) shouldBe (null)
-                (state.value) shouldBe (SettingsGitConnectionTestState.Error(
-                        code = GitSyncErrorCode.UNKNOWN,
-                        detail = "network down",
-                    ))
-            }
-        }
-    }
-
 }

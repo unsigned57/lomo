@@ -27,12 +27,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.app.BuildConfig
 import com.lomo.app.R
+import com.lomo.app.feature.conflict.RemoteSyncConflictProviders
 import com.lomo.app.feature.conflict.SyncConflictDialogHost
 import com.lomo.app.feature.conflict.SyncConflictDialogController
+import com.lomo.app.feature.conflict.SyncConflictStateHost
+import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -41,7 +45,9 @@ import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
+import kotlinx.collections.immutable.ImmutableMap
 
 private const val SYSTEM_LANGUAGE_TAG = "system"
 private const val ENGLISH_LANGUAGE_TAG = "en"
@@ -99,8 +105,10 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     viewModel: SettingsViewModel = injectedHiltViewModel(),
     conflictViewModel: SyncConflictViewModel = injectedHiltViewModel(),
+    conflictStateViewModel: SyncConflictStateViewModel = injectedHiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val conflictSyncStates by conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val dialogState = rememberSettingsDialogState()
     var activeUpdateDialogState by remember { mutableStateOf<AppUpdateDialogState?>(null) }
@@ -150,6 +158,7 @@ fun SettingsScreen(
         snackbarHostState = snackbarHostState,
         messages = resources.messages,
         conflictController = conflictController,
+        conflictSyncStates = conflictSyncStates,
         onClearOperationError = viewModel::clearOperationError,
     )
     HandleSettingsUpdateDialogs(
@@ -405,6 +414,7 @@ private fun SettingsConflictHandlers(
     snackbarHostState: SnackbarHostState,
     messages: SettingsMessages,
     conflictController: SyncConflictDialogController,
+    conflictSyncStates: ImmutableMap<SyncBackendType, UnifiedSyncState>,
     onClearOperationError: () -> Unit,
 ) {
     HandleSettingsOperationError(
@@ -415,21 +425,15 @@ private fun SettingsConflictHandlers(
         messages = messages,
         onClearOperationError = onClearOperationError,
     )
-    HandleGitConflictState(
-        syncState = uiState.git.syncState,
+    HandleGitProviderErrorState(
+        syncState = uiState.git.providerSettings.syncState,
         gitFeature = features.git,
         dialogState = dialogState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
-    HandleWebDavConflictState(
-        syncState = uiState.webDav.syncState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
-        onShowReviewDialog = conflictController.onShowReviewDialog,
-    )
-    HandleS3ConflictState(
-        syncState = uiState.s3.syncState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
-        onShowReviewDialog = conflictController.onShowReviewDialog,
+    SyncConflictStateHost(
+        syncStates = conflictSyncStates,
+        providers = RemoteSyncConflictProviders,
+        controller = conflictController,
     )
 }
 

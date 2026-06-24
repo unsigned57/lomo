@@ -201,7 +201,7 @@ class DailyReviewViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                viewModel.deleteMemo(memo)
+                viewModel.deleteMemo(memo, null)
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "Failed to delete memo: delete failed"
@@ -216,7 +216,7 @@ class DailyReviewViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                viewModel.deleteMemo(memo)
+                viewModel.deleteMemo(memo, null)
                 advanceUntilIdle()
 
                 val state = viewModel.uiState.value as UiState.Success
@@ -376,7 +376,7 @@ class DailyReviewViewModelTest : AppFunSpec() {
                 val expectedAppendedIds =
                     memos.map(Memo::id).filterNot { id -> id in visibleIdsBeforeDelete }
 
-                viewModel.deleteMemo(deletedMemo)
+                viewModel.deleteMemo(deletedMemo, null)
                 advanceUntilIdle()
                 val visibleIdsAfterDelete =
                     (viewModel.uiState.value as UiState.Success)
@@ -431,7 +431,7 @@ class DailyReviewViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
                 loadMoreBlocked.isCompleted shouldBe true
 
-                viewModel.deleteMemo(deletedMemo)
+                viewModel.deleteMemo(deletedMemo, null)
                 advanceUntilIdle()
                 val visibleIdsAfterDelete =
                     (viewModel.uiState.value as UiState.Success)
@@ -455,10 +455,12 @@ class DailyReviewViewModelTest : AppFunSpec() {
             observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
             appConfigStateProvider =
                 com.lomo.app.feature.common.AppConfigStateProvider(
-                    AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
-                    CoroutineScope(SupervisorJob() + testDispatcher),
+                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                    appPreferencesSnapshotRepository = appConfigRepository,
+                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                 ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
             memoUiMapper = MemoUiMapper(testDispatcher),
             deleteMemoUseCase = deleteMemoUseCase,

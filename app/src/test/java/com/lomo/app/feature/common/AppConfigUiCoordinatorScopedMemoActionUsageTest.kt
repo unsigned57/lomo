@@ -60,7 +60,7 @@ class AppConfigUiCoordinatorScopedMemoActionUsageTest : AppFunSpec() {
                     )
                 )
 
-                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).recordMemoActionUsage(
+                AppConfigUiCoordinator(appConfigRepository).recordMemoActionUsage(
                     scope = MemoActionOrderScopes.GALLERY,
                     actionId = MemoActionId.EDIT.storageKey,
                 )
@@ -88,7 +88,7 @@ class AppConfigUiCoordinatorScopedMemoActionUsageTest : AppFunSpec() {
             runTest {
                 val order = listOf(MemoActionId.JUMP.storageKey, MemoActionId.COPY.storageKey)
 
-                AppConfigUiCoordinator(appConfigRepository, com.lomo.app.testing.fakes.FakeCustomFontStore()).updateMemoActionOrder(
+                AppConfigUiCoordinator(appConfigRepository).updateMemoActionOrder(
                     scope = MemoActionOrderScopes.REVIEW,
                     order = order,
                 )

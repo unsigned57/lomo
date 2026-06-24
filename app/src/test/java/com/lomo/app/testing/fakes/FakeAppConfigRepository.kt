@@ -1,5 +1,6 @@
 package com.lomo.app.testing.fakes
 
+import com.lomo.domain.model.AppPreferenceSnapshot
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
@@ -8,10 +9,12 @@ import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 /**
@@ -23,7 +26,7 @@ import kotlinx.coroutines.flow.map
  * preferred over `mockk(relaxed = true)` overrides. When a brand-new preference appears,
  * extend this class rather than wrapping it in MockK.
  */
-open class FakeAppConfigRepository : AppConfigRepository {
+open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshotRepository {
     private val locations: Map<StorageArea, MutableStateFlow<StorageLocation?>> =
         StorageArea.values().associateWith { MutableStateFlow<StorageLocation?>(null) }
     private val displayNames: Map<StorageArea, MutableStateFlow<String?>> =
@@ -91,6 +94,110 @@ open class FakeAppConfigRepository : AppConfigRepository {
     ) {
         memoActionOrders.value = memoActionOrders.value + (scope to order)
     }
+
+    override fun observeAppPreferenceSnapshot(): Flow<AppPreferenceSnapshot> =
+        combine(
+            observeDisplaySnapshot(),
+            observeEditorSnapshot(),
+            observeShareSnapshot(),
+            observeTypographySnapshot(),
+        ) { display, editor, share, typography ->
+            AppPreferenceSnapshot(
+                dateFormat = display.dateFormat,
+                timeFormat = display.timeFormat,
+                themeMode = display.themeMode,
+                colorSource = display.colorSource,
+                fontPreference = display.fontPreference,
+                hapticFeedbackEnabled = editor.hapticFeedbackEnabled,
+                showInputHints = editor.showInputHints,
+                doubleTapEditEnabled = editor.doubleTapEditEnabled,
+                freeTextCopyEnabled = editor.freeTextCopyEnabled,
+                memoActionAutoReorderEnabled = editor.memoActionAutoReorderEnabled,
+                memoActionOrder =
+                    editor.memoActionOrdersByScope[
+                        MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE,
+                    ].orEmpty(),
+                memoActionOrdersByScope = editor.memoActionOrdersByScope,
+                inputToolbarToolOrder = editor.inputToolbarToolOrder,
+                quickSaveOnBackEnabled = editor.quickSaveOnBackEnabled,
+                scrollbarEnabled = editor.scrollbarEnabled,
+                shareCardShowTime = share.shareCardShowTime,
+                shareCardShowBrand = share.shareCardShowBrand,
+                shareCardSignatureText = share.shareCardSignatureText,
+                typographyFontSizeScale = typography.fontSizeScale,
+                typographyLineHeightScale = typography.lineHeightScale,
+                typographyLetterSpacingScale = typography.letterSpacingScale,
+                typographyParagraphSpacingScale = typography.paragraphSpacingScale,
+            )
+        }
+
+    private fun observeDisplaySnapshot(): Flow<FakeDisplaySnapshot> =
+        combine(
+            dateFormat,
+            timeFormat,
+            themeMode,
+            colorSource,
+            fontPreference,
+        ) { dateFormat, timeFormat, themeMode, colorSource, fontPreference ->
+            FakeDisplaySnapshot(dateFormat, timeFormat, themeMode, colorSource, fontPreference)
+        }
+
+    private fun observeEditorSnapshot(): Flow<FakeEditorSnapshot> =
+        combine(
+            observeEditorToggleSnapshot(),
+            memoActionOrders,
+            inputToolbarToolOrder,
+            quickSaveOnBack,
+            scrollbarEnabled,
+        ) { toggles, memoActionOrders, inputToolbarToolOrder, quickSaveOnBack, scrollbarEnabled ->
+            FakeEditorSnapshot(
+                hapticFeedbackEnabled = toggles.hapticFeedbackEnabled,
+                showInputHints = toggles.showInputHints,
+                doubleTapEditEnabled = toggles.doubleTapEditEnabled,
+                freeTextCopyEnabled = toggles.freeTextCopyEnabled,
+                memoActionAutoReorderEnabled = toggles.memoActionAutoReorderEnabled,
+                memoActionOrdersByScope = memoActionOrders,
+                inputToolbarToolOrder = inputToolbarToolOrder,
+                quickSaveOnBackEnabled = quickSaveOnBack,
+                scrollbarEnabled = scrollbarEnabled,
+            )
+        }
+
+    private fun observeEditorToggleSnapshot(): Flow<FakeEditorToggleSnapshot> =
+        combine(
+            hapticEnabled,
+            showInputHints,
+            doubleTapEdit,
+            freeTextCopy,
+            memoActionAutoReorder,
+        ) { hapticEnabled, showInputHints, doubleTapEdit, freeTextCopy, memoActionAutoReorder ->
+            FakeEditorToggleSnapshot(
+                hapticFeedbackEnabled = hapticEnabled,
+                showInputHints = showInputHints,
+                doubleTapEditEnabled = doubleTapEdit,
+                freeTextCopyEnabled = freeTextCopy,
+                memoActionAutoReorderEnabled = memoActionAutoReorder,
+            )
+        }
+
+    private fun observeShareSnapshot(): Flow<FakeShareSnapshot> =
+        combine(
+            shareCardShowTime,
+            shareCardShowBrand,
+            shareCardSignatureText,
+        ) { shareCardShowTime, shareCardShowBrand, shareCardSignatureText ->
+            FakeShareSnapshot(shareCardShowTime, shareCardShowBrand, shareCardSignatureText)
+        }
+
+    private fun observeTypographySnapshot(): Flow<FakeTypographySnapshot> =
+        combine(
+            fontSizeScale,
+            lineHeightScale,
+            letterSpacingScale,
+            paragraphSpacingScale,
+        ) { fontSizeScale, lineHeightScale, letterSpacingScale, paragraphSpacingScale ->
+            FakeTypographySnapshot(fontSizeScale, lineHeightScale, letterSpacingScale, paragraphSpacingScale)
+        }
 
     private val deferredLocations: Map<StorageArea, MutableStateFlow<kotlinx.coroutines.CompletableDeferred<StorageLocation?>?>> =
         StorageArea.values().associateWith { MutableStateFlow<kotlinx.coroutines.CompletableDeferred<StorageLocation?>?>(null) }
@@ -305,3 +412,44 @@ open class FakeAppConfigRepository : AppConfigRepository {
         paragraphSpacingScale.value = scale
     }
 }
+
+private data class FakeDisplaySnapshot(
+    val dateFormat: String,
+    val timeFormat: String,
+    val themeMode: ThemeMode,
+    val colorSource: ColorSource,
+    val fontPreference: FontPreference,
+)
+
+private data class FakeEditorToggleSnapshot(
+    val hapticFeedbackEnabled: Boolean,
+    val showInputHints: Boolean,
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+)
+
+private data class FakeEditorSnapshot(
+    val hapticFeedbackEnabled: Boolean,
+    val showInputHints: Boolean,
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrdersByScope: Map<String, List<String>>,
+    val inputToolbarToolOrder: List<String>,
+    val quickSaveOnBackEnabled: Boolean,
+    val scrollbarEnabled: Boolean,
+)
+
+private data class FakeShareSnapshot(
+    val shareCardShowTime: Boolean,
+    val shareCardShowBrand: Boolean,
+    val shareCardSignatureText: String,
+)
+
+private data class FakeTypographySnapshot(
+    val fontSizeScale: Float,
+    val lineHeightScale: Float,
+    val letterSpacingScale: Float,
+    val paragraphSpacingScale: Float,
+)

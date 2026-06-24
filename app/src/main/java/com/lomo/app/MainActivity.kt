@@ -38,12 +38,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.withResumed
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.ui.benchmark.BenchmarkAnchorConfig
 import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
@@ -67,6 +66,8 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var shareServiceManager: LanShareService
 
+    @Inject lateinit var securitySessionController: SecuritySessionController
+
     private val viewModel: MainViewModel by viewModels()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
     private var nextPendingLaunchCommandId = 0L
@@ -85,13 +86,6 @@ class MainActivity : AppCompatActivity() {
             handleIntent(intent)
         }
         setMainContent()
-        lifecycleScope.launch {
-            lifecycle.withResumed {
-                lifecycleScope.launch {
-                    viewModel.runDeferredStartupTasksIfNeeded()
-                }
-            }
-        }
         // Network service bootstrap is not required for first frame rendering.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -152,9 +146,6 @@ class MainActivity : AppCompatActivity() {
                 audioPlayerController = audioPlayerController,
                 shareServiceManager = shareServiceManager,
                 currentUiMode = currentUiMode,
-                onThemeModeChanged = { themeMode ->
-                    applyAppNightMode(this@MainActivity, themeMode)
-                },
                 onRequestUnlock = { onSuccess, onFailure ->
                     requestAppUnlock(
                         activity = this@MainActivity,
@@ -162,6 +153,8 @@ class MainActivity : AppCompatActivity() {
                         onFailure = onFailure,
                     )
                 },
+                onCredentialReadsAuthorized = securitySessionController::markCredentialReadsAuthorized,
+                onCredentialReadsLocked = securitySessionController::markCredentialReadsLocked,
                 pendingLaunchCommands = pendingLaunchCommands,
                 onPendingLaunchCommandsConsumed = ::consumePendingLaunchCommands,
             )
@@ -249,8 +242,9 @@ private fun MainActivityScreen(
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
-    onThemeModeChanged: (com.lomo.domain.model.ThemeMode) -> Unit,
     onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+    onCredentialReadsAuthorized: () -> Unit,
+    onCredentialReadsLocked: () -> Unit,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     viewModel: MainViewModel = injectedHiltViewModel(),
@@ -261,11 +255,9 @@ private fun MainActivityScreen(
         rememberAppLockUiState(
             appLockEnabled = appLockEnabled,
             onRequestUnlock = onRequestUnlock,
+            onCredentialReadsAuthorized = onCredentialReadsAuthorized,
+            onCredentialReadsLocked = onCredentialReadsLocked,
         )
-
-    LaunchedEffect(appPreferences.themeMode, currentUiMode) {
-        onThemeModeChanged(appPreferences.themeMode)
-    }
 
     MainActivityRoot(
         appPreferences = appPreferences,
@@ -283,6 +275,8 @@ private fun MainActivityScreen(
 private fun rememberAppLockUiState(
     appLockEnabled: Boolean?,
     onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+    onCredentialReadsAuthorized: () -> Unit,
+    onCredentialReadsLocked: () -> Unit,
 ): AppLockUiState {
     var hasUnlockedThisLaunch by remember { mutableStateOf(false) }
     var hasRequestedAutoUnlock by remember { mutableStateOf(false) }
@@ -295,6 +289,9 @@ private fun rememberAppLockUiState(
             hasRequestedAutoUnlock = true
             unlockPromptInProgress = false
             unlockErrorMessage = null
+            onCredentialReadsAuthorized()
+        } else if (appLockEnabled == true && !hasUnlockedThisLaunch) {
+            onCredentialReadsLocked()
         }
     }
 
@@ -306,6 +303,7 @@ private fun rememberAppLockUiState(
                 hasUnlockedThisLaunch = true
                 unlockPromptInProgress = false
                 unlockErrorMessage = null
+                onCredentialReadsAuthorized()
             },
             { message ->
                 unlockPromptInProgress = false

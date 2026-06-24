@@ -8,6 +8,7 @@ import com.lomo.ui.util.formatAsDateTime
 data class MemoMenuSelection(
     val memo: Memo,
     val state: MemoMenuState,
+    val anchoredAfterKey: String? = null,
 )
 
 fun memoMenuState(
@@ -29,6 +30,7 @@ fun memoMenuSelection(
     dateFormat: String,
     timeFormat: String,
     imageUrls: List<String> = emptyList(),
+    anchoredAfterKey: String? = null,
 ): MemoMenuSelection =
     MemoMenuSelection(
         memo = memo,
@@ -39,4 +41,6 @@ fun memoMenuSelection(
                 timeFormat = timeFormat,
                 imageUrls = imageUrls,
             ),
+        anchoredAfterKey = anchoredAfterKey,
     )
+

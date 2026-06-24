@@ -27,38 +27,41 @@ import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 internal fun SearchScreenContent(
+    pagedItems: LazyPagingItems<MemoUiModel>,
     query: String,
-    showLoading: Boolean,
     searchResults: ImmutableList<MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    deletingMemoIds: ImmutableSet<String>,
-    canLoadMore: Boolean,
+    exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     listState: LazyListState,
     padding: PaddingValues,
     onOpenEditor: (Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
-    onDeleteAnimationSettled: (String) -> Unit,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
-    onLoadMore: () -> Unit,
 ) {
     val resultListContentPadding = searchResultListContentPadding(padding)
+    val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
+    val showLoading = pagedItems.loadState.refresh is LoadState.Loading && activeExits.isEmpty()
     val contentState =
         resolveSearchContentState(
             query = query,
             showLoading = showLoading,
-            hasResults = searchResults.isNotEmpty(),
+            hasResults = searchResults.isNotEmpty() || pagedItems.itemCount > 0,
+            hasActiveExits = activeExits.isNotEmpty(),
         )
     androidx.compose.animation.AnimatedContent(
         targetState = contentState,
@@ -91,14 +94,8 @@ internal fun SearchScreenContent(
                 CompositionLocalProvider(
                     LocalSearchHighlightQuery provides query,
                 ) {
-                    SearchLoadMoreEffect(
-                        itemCount = searchResults.size,
-                        canLoadMore = canLoadMore,
-                        listState = listState,
-                        onLoadMore = onLoadMore,
-                    )
                     MemoCardList(
-                        memos = searchResults,
+                        pagedMemos = pagedItems,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
@@ -107,8 +104,7 @@ internal fun SearchScreenContent(
                         onShowMenu = onShowMenu,
                         onTodoClick = onTodoClick,
                         animation = MemoCardListAnimation.None,
-                        deletingMemoIds = deletingMemoIds,
-                        onDeleteAnimationSettled = onDeleteAnimationSettled,
+                        exitAnimationRegistry = exitAnimationRegistry,
                         listState = listState,
                         contentPadding = resultListContentPadding,
                     )
@@ -126,29 +122,6 @@ private fun searchResultListContentPadding(screenPadding: PaddingValues): Paddin
         end = screenPadding.calculateEndPadding(layoutDirection) + AppSpacing.Medium,
         bottom = screenPadding.calculateBottomPadding() + AppSpacing.Medium,
     )
-}
-
-@Composable
-private fun SearchLoadMoreEffect(
-    itemCount: Int,
-    canLoadMore: Boolean,
-    listState: LazyListState,
-    onLoadMore: () -> Unit,
-) {
-    LaunchedEffect(listState, itemCount, canLoadMore) {
-        if (!canLoadMore || itemCount == 0) {
-            return@LaunchedEffect
-        }
-        snapshotFlow {
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            lastVisibleIndex >= itemCount - SEARCH_LOAD_MORE_LOOKAHEAD_ITEMS
-        }.distinctUntilChanged()
-            .collect { shouldLoad ->
-                if (shouldLoad) {
-                    onLoadMore()
-                }
-            }
-    }
 }
 
 @OptIn(androidx.compose.animation.ExperimentalAnimationApi::class)
@@ -178,5 +151,3 @@ private fun SearchLoadingState(modifier: Modifier = Modifier) {
         ExpressiveLoadingIndicator(modifier = Modifier.size(56.dp))
     }
 }
-
-private const val SEARCH_LOAD_MORE_LOOKAHEAD_ITEMS = 6

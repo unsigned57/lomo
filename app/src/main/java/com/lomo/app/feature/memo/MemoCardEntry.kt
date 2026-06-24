@@ -1,5 +1,6 @@
 package com.lomo.app.feature.memo
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.lomo.app.benchmark.BenchmarkAnchorContract
@@ -26,6 +27,8 @@ fun MemoCardEntry(
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit = {},
     isExpanded: Boolean? = null,
     onExpandedChange: ((Boolean) -> Unit)? = null,
+    anchoredAfterKey: String? = null,
+    isExiting: Boolean = false,
 ) {
     val memo = uiModel.memo
 
@@ -39,7 +42,11 @@ fun MemoCardEntry(
         isPinned = memo.isPinned,
         tags = uiModel.tags,
         reminders = uiModel.reminders,
-        modifier = modifier.benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id)),
+        modifier = modifier
+            .benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id))
+            // Avoid applying animateContentSize() when exiting to prevent conflict
+            // with the custom exit animation wrapper
+            .let { if (isExiting) it else it.animateContentSize() },
         allowFreeTextCopy = freeTextCopyEnabled,
         expandOnClick = true,
         isExpanded = isExpanded,
@@ -65,6 +72,7 @@ fun MemoCardEntry(
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
                     imageUrls = uiModel.imageUrls,
+                    anchoredAfterKey = anchoredAfterKey,
                 ),
             )
         },

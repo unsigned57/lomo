@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,12 +14,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
-import com.lomo.ui.component.picker.ExpressivePickerDialog
+import com.lomo.ui.component.picker.ExpressivePickerStep
+import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
 import com.lomo.ui.component.picker.ExpressiveTimePickerSurface
 import com.lomo.ui.component.picker.SecondsWheelPicker
 import java.time.Instant
@@ -31,6 +31,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.collections.immutable.persistentListOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,12 +63,13 @@ internal fun MemoBackfillDateTimeDialog(
     var selectedSecond by remember(initialTimestampMillis) { mutableIntStateOf(initialDateTime.second) }
     val selectedDate = datePickerState.selectedDateMillis?.toMemoBackfillLocalDate()
 
-    ExpressivePickerDialog(
+    ExpressiveSteppedPickerDialog(
         title = stringResource(R.string.memo_backfill_title),
+        advanceLabel = stringResource(R.string.action_next),
         confirmLabel = stringResource(R.string.memo_backfill_action_apply),
-        confirmEnabled = selectedDate != null,
+        dismissLabel = stringResource(R.string.action_cancel),
         onConfirm = {
-            val date = selectedDate ?: return@ExpressivePickerDialog
+            val date = selectedDate ?: return@ExpressiveSteppedPickerDialog
             onConfirm(
                 combineMemoBackfillDateTimeMillis(
                     date = date,
@@ -75,33 +77,50 @@ internal fun MemoBackfillDateTimeDialog(
                 ),
             )
         },
-        dismissLabel = stringResource(R.string.action_cancel),
         onDismiss = onDismiss,
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ExpressiveDatePickerSurface(state = datePickerState)
-            ExpressiveTimePickerSurface(
-                state = timePickerState,
-                secondsSlot = {
-                    Text(
-                        text = stringResource(R.string.memo_backfill_seconds_label),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SecondsWheelPicker(
-                        value = selectedSecond,
-                        onValueChange = { selectedSecond = it },
-                        modifier = Modifier.fillMaxWidth(),
+        steps =
+            persistentListOf(
+                ExpressivePickerStep(confirmEnabled = selectedDate != null) {
+                    ExpressiveDatePickerSurface(state = datePickerState)
+                },
+                ExpressivePickerStep {
+                    ExpressiveTimePickerSurface(state = timePickerState)
+                },
+                ExpressivePickerStep {
+                    MemoBackfillSecondsPage(
+                        selectedSecond = selectedSecond,
+                        onSecondChange = { selectedSecond = it },
                     )
                 },
-            )
-        }
+            ),
+    )
+}
+
+@Composable
+private fun MemoBackfillSecondsPage(
+    selectedSecond: Int,
+    onSecondChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.memo_backfill_seconds_label),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Start),
+        )
+        SecondsWheelPicker(
+            value = selectedSecond,
+            onValueChange = onSecondChange,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

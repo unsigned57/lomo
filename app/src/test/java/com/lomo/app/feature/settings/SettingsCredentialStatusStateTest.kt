@@ -1,6 +1,8 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.FakeCredentialRepository
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
@@ -38,12 +40,23 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Compose rendering, Android Keystore I/O, Git transport, and other settings sections.
+ *
+ * Test Change Justification:
+ * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
+ * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
+ * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
+ * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
+ * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
 class SettingsCredentialStatusStateTest : AppFunSpec() {
     init {
         test("given git token unreadable when settings refreshes credential state then unreadable remains observable") {
             runTest {
                 val repository = FakeGitCredentialStatusRepository(StoredCredentialStatus.Unreadable)
+                val credentialRepository =
+                    FakeCredentialRepository().apply {
+                        setFieldStatus(CredentialField.GIT_TOKEN, StoredCredentialStatus.Unreadable)
+                    }
                 val coordinator =
                     SettingsGitCoordinator(
                         gitSyncSettingsUseCase =
@@ -58,6 +71,7 @@ class SettingsCredentialStatusStateTest : AppFunSpec() {
                                     ),
                                 gitRemoteUrlUseCase = GitRemoteUrlUseCase(),
                             ),
+                        credentialCoordinator = SettingsCredentialCoordinator(credentialRepository),
                         scope = backgroundScope,
                     )
 
@@ -90,8 +104,6 @@ private class FakeGitCredentialStatusRepository(
     override suspend fun setRemoteUrl(url: String) = Unit
 
     override suspend fun setToken(token: String) = Unit
-
-    override suspend fun getToken(): String? = null
 
     override suspend fun getTokenStatus(): StoredCredentialStatus = tokenStatus
 

@@ -298,19 +298,6 @@ fun AboutSettingsSection(
 }
 
 @Composable
-fun connectionTestSubtitle(state: SettingsGitConnectionTestState): String =
-    when (state) {
-        is SettingsGitConnectionTestState.Idle -> ""
-        is SettingsGitConnectionTestState.Testing -> stringResource(R.string.settings_git_test_connection_testing)
-        is SettingsGitConnectionTestState.Success -> stringResource(R.string.settings_git_test_connection_success)
-        is SettingsGitConnectionTestState.Error ->
-            stringResource(
-                R.string.settings_git_test_connection_failed,
-                SettingsErrorPresenter.gitSyncErrorMessage(state.code, state.detail),
-            )
-    }
-
-@Composable
 fun themeModeLabel(
     mode: ThemeMode,
     labels: ImmutableMap<ThemeMode, String>,
@@ -323,18 +310,3 @@ internal fun SettingsDivider() {
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
     )
 }
-
-@Composable
-fun connectionTestSubtitle(state: SettingsWebDavConnectionTestState): String =
-    when (state) {
-        is SettingsWebDavConnectionTestState.Idle -> ""
-        is SettingsWebDavConnectionTestState.Testing ->
-            stringResource(R.string.settings_webdav_test_connection_testing)
-        is SettingsWebDavConnectionTestState.Success ->
-            stringResource(R.string.settings_webdav_test_connection_success)
-        is SettingsWebDavConnectionTestState.Error ->
-            stringResource(
-                R.string.settings_webdav_test_connection_failed,
-                SettingsErrorPresenter.webDavSyncErrorMessage(state.code, state.detail),
-            )
-    }

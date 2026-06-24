@@ -19,18 +19,6 @@ internal fun s3LocalSyncDirectorySubtitle(pathOrUri: String): String =
         }
         ?: stringResource(R.string.settings_not_set)
 
-@Composable
-internal fun s3ConnectionTestSubtitle(state: SettingsS3ConnectionTestState): String =
-    when (state) {
-        is SettingsS3ConnectionTestState.Idle -> ""
-        is SettingsS3ConnectionTestState.Testing ->
-            stringResource(R.string.settings_s3_test_connection_testing)
-        is SettingsS3ConnectionTestState.Success ->
-            stringResource(R.string.settings_s3_test_connection_success)
-        is SettingsS3ConnectionTestState.Error ->
-            stringResource(R.string.settings_s3_test_connection_failed, state.detail)
-    }
-
 private fun s3LocalSyncDirectoryDisplayName(pathOrUri: String): String {
     val trimmed = pathOrUri.trim()
     if (trimmed.isBlank()) {

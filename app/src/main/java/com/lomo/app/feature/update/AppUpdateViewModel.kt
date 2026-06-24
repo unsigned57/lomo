@@ -1,7 +1,6 @@
 package com.lomo.app.feature.update
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
@@ -33,14 +32,6 @@ class AppUpdateViewModel
     ) : ViewModel() {
         val dialogState: StateFlow<AppUpdateDialogState?> = updateStartupOrchestrator.dialogState
         val progressDialogState: StateFlow<AppUpdateProgressDialogState?> = appUpdateDownloadManager.progressDialogState
-
-        init {
-            checkForUpdates()
-        }
-
-        fun checkForUpdates() {
-            updateStartupOrchestrator.triggerStartupCheck(viewModelScope)
-        }
 
         fun startInAppUpdate(update: AppUpdateDialogState? = null) {
             val resolvedUpdate = update ?: updateStartupOrchestrator.consumeUpdateDialog() ?: return

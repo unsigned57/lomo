@@ -170,49 +170,40 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
     lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.Main> {
-        val animatedVisibilityScope = this
-        androidx.compose.animation.SharedTransitionLayout {
-            ProvideSharedAnimationLocals(
-                sharedTransitionScope = this,
-                animatedVisibilityScope = animatedVisibilityScope,
-            ) {
-                MainScreen(
-                    onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
-                    onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
-                    onNavigateToSearch = { navController.navigate(NavRoute.Search) },
-                    onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
-                    onNavigateToImage = navigateToImage,
-                    onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
-                    onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
-                    onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
-                    onNavigateToShare = navigateToShare,
-                    lanShareEnabled = lanShareEnabled,
-                )
-            }
-        }
+        // No SharedTransitionLayout: it creates a LookaheadScope around the whole feed, and any
+        // size-animating modifier on a LazyColumn item (insert grow / delete collapse / card expand)
+        // then crashes during fast fling ("LookaheadDelegate has not been measured yet"). The
+        // image→viewer shared-element transition is given up in favor of the list size animations;
+        // readers of LocalSharedTransitionScope degrade gracefully when it is null.
+        MainScreen(
+            onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
+            onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
+            onNavigateToSearch = { navController.navigate(NavRoute.Search) },
+            onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
+            onNavigateToImage = navigateToImage,
+            onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
+            onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
+            onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
+            onNavigateToShare = navigateToShare,
+            lanShareEnabled = lanShareEnabled,
+        )
     }
 
     composable<NavRoute.Tag> { backStackEntry ->
-        val animatedVisibilityScope = this
-        androidx.compose.animation.SharedTransitionLayout {
-            val mainViewModel: MainViewModel = activityHiltViewModel()
-            val tag = backStackEntry.toRoute<NavRoute.Tag>()
-            ProvideSharedAnimationLocals(
-                sharedTransitionScope = this,
-                animatedVisibilityScope = animatedVisibilityScope,
-            ) {
-                TagFilterScreen(
-                    tagName = tag.tagName,
-                    onBackClick = popBackStackSafely,
-                    onNavigateToImage = navigateToImage,
-                    onNavigateToShare = navigateToShare,
-                    onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
-                    onNavigateToMain = { navController.popBackStackOrNavigateMain() },
-                    onNavigateToTag = { otherTag -> navController.navigate(NavRoute.Tag(otherTag)) },
-                    lanShareEnabled = lanShareEnabled,
-                )
-            }
-        }
+        // No SharedTransitionLayout — TagFilterScreen shows the same MemoCardList feed as Main, so its
+        // LookaheadScope would crash the feed during fast fling (see NavRoute.Main).
+        val mainViewModel: MainViewModel = activityHiltViewModel()
+        val tag = backStackEntry.toRoute<NavRoute.Tag>()
+        TagFilterScreen(
+            tagName = tag.tagName,
+            onBackClick = popBackStackSafely,
+            onNavigateToImage = navigateToImage,
+            onNavigateToShare = navigateToShare,
+            onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+            onNavigateToMain = { navController.popBackStackOrNavigateMain() },
+            onNavigateToTag = { otherTag -> navController.navigate(NavRoute.Tag(otherTag)) },
+            lanShareEnabled = lanShareEnabled,
+        )
     }
 
     composable<NavRoute.DailyReview> {

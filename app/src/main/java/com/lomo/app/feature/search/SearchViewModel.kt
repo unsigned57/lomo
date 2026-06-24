@@ -2,15 +2,19 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.map
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.LoadingAwarePagingSource
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.common.MemoCollectionActionStateHolder
 import com.lomo.app.feature.common.MemoCollectionCapabilities
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
-import com.lomo.app.feature.common.MemoCollectionStateHolder
-import com.lomo.app.feature.common.MemoCollectionUiState
-import com.lomo.app.feature.common.MemoCollectionWindowStateHolder
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.memoPager
+import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
@@ -23,26 +27,30 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SearchMemosPageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import com.lomo.app.feature.common.MemoCollectionUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
 
 private const val SEARCH_QUERY_DEBOUNCE_MILLIS = 300L
-private const val SEARCH_LOADING_SHOW_DELAY_MILLIS = 120L
-private const val SEARCH_LOADING_MIN_VISIBLE_MILLIS = 280L
+private const val SEARCH_PAGE_SIZE = 20
+private const val SEARCH_INITIAL_LOAD_SIZE = 60
+private const val SEARCH_PREFETCH_DISTANCE = 10
+private const val SEARCH_ENABLE_PLACEHOLDERS = false
 
 @HiltViewModel
 class SearchViewModel
@@ -63,7 +71,6 @@ class SearchViewModel
         val searchQuery: StateFlow<String> = _searchQuery
         val searchFilterController = com.lomo.app.feature.common.MemoListFilterController()
         val searchFilter: StateFlow<MemoListFilter> = searchFilterController.filter
-        private var reportSearchLoadError: (Throwable) -> Unit = {}
 
         val activeDayCount: StateFlow<Int> =
             observeActiveDayCountUseCase()
@@ -75,35 +82,57 @@ class SearchViewModel
                 SearchQueryInput(query = rawQuery.trim(), filter = filter)
             }.debounce(SEARCH_QUERY_DEBOUNCE_MILLIS)
 
-        private val collectionWindowStateHolder =
-            MemoCollectionWindowStateHolder(
-                sourceInput = searchQueryInput,
-                source = { input ->
-                    searchMemosPageUseCase.getPagingSource(
-                        query = input.query,
-                        filter = input.filter,
-                    )
-                },
-                scope = viewModelScope,
-                onLoadError = { throwable ->
-                    reportSearchLoadError(throwable)
-                },
-            )
+        private val mappingInput =
+            combine(
+                appConfigStateProvider.rootDirectory,
+                appConfigStateProvider.imageDirectory,
+                imageMapProvider.imageMap,
+            ) { root, img, map -> UiMappingInput(root, img, map) }
+                .distinctUntilChanged { old, new -> old.sameForPaging(new) }
+                .stateIn(viewModelScope, appWhileSubscribed(), UiMappingInput.EMPTY)
 
-        val isSearching: StateFlow<Boolean> =
-            collectionWindowStateHolder.isLoading
+        @OptIn(ExperimentalCoroutinesApi::class)
+        private val searchPagedMemos: StateFlow<PagingData<Memo>?> =
+            searchQueryInput
+                .flatMapLatest { input ->
+                    if (input.query.isBlank()) {
+                        flowOf(PagingData.empty())
+                    } else {
+                        memoPager(
+                            scope = viewModelScope,
+                            pageSize = SEARCH_PAGE_SIZE,
+                            initialLoadSize = SEARCH_INITIAL_LOAD_SIZE,
+                            prefetchDistance = SEARCH_PREFETCH_DISTANCE,
+                            enablePlaceholders = SEARCH_ENABLE_PLACEHOLDERS,
+                            pagingSourceFactory = {
+                                LoadingAwarePagingSource(
+                                    delegate = searchMemosPageUseCase.getPagingSource(
+                                        query = input.query,
+                                        filter = input.filter,
+                                    ),
+                                    onError = { throwable ->
+                                        actionStateHolder.errors.report(throwable, "Failed to search memos")
+                                    }
+                                )
+                            }
+                        )
+                    }
+                }
+                .cachedIn(viewModelScope)
+                .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
-        val showLoading: StateFlow<Boolean> =
-            collectionWindowStateHolder.isLoading
-                .toDelayedSearchLoading()
-                .stateIn(viewModelScope, appWhileSubscribed(), false)
+        val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
+            combine(
+                mappingInput,
+                searchPagedMemos.filterNotNull(),
+            ) { mapInput, pagingData ->
+                pagingData.map { memo ->
+                    projectionMapper.memoUiMapper.mapToUiModel(memo, mapInput.root, mapInput.img, mapInput.map)
+                }
+            }
 
-        private val collectionStateHolder =
-            MemoCollectionStateHolder(
-                source = collectionWindowStateHolder.memos,
-                configStateProvider = appConfigStateProvider,
-                imageMapProvider = imageMapProvider,
-                memoUiMapper = projectionMapper.memoUiMapper,
+        private val actionStateHolder =
+            MemoCollectionActionStateHolder(
                 capabilities =
                     MemoCollectionCapabilities.Editable(
                         deleteMemo = deleteMemoUseCase::invoke,
@@ -114,20 +143,24 @@ class SearchViewModel
                         saveImage = saveImageUseCase::saveWithCacheSyncStatus,
                     ),
                 scope = viewModelScope,
+                mapToUiModel = { memo ->
+                    projectionMapper.memoUiMapper.mapToUiModel(
+                        memo = memo,
+                        rootPath = rootDirectory.value,
+                        imagePath = imageDirectory.value,
+                        imageMap = imageMap.value,
+                    )
+                }
             )
 
-        val collectionUiState: StateFlow<MemoCollectionUiState> = collectionStateHolder.uiState
-
-        val errorMessage: StateFlow<String?> = collectionStateHolder.errorMessage
-        val deletingMemoIds: StateFlow<Set<String>> = collectionStateHolder.deletingMemoIds
-        val rootDirectory: StateFlow<String?> = collectionStateHolder.rootDirectory
-        val imageDirectory: StateFlow<String?> = collectionStateHolder.imageDirectory
-        val imageMap: StateFlow<Map<String, android.net.Uri>> = collectionStateHolder.imageMap
-        val appPreferences: StateFlow<AppPreferencesState> = collectionStateHolder.appPreferences
-        val searchResults: StateFlow<List<Memo>> = collectionStateHolder.memos
-        val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            collectionStateHolder.uiMemos
-        val canLoadMore: StateFlow<Boolean> = collectionWindowStateHolder.canLoadMore
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
+        val errorMessage: StateFlow<String?> = actionStateHolder.errorMessage
+        val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
+        val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
+        val collectionUiState: StateFlow<MemoCollectionUiState> = actionStateHolder.uiState
+        val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
+        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
@@ -141,19 +174,19 @@ class SearchViewModel
         val onHasUrlChanged: (Boolean?) -> Unit = searchFilterController.onHasUrlChanged
         val clearSearchFilter: () -> Unit = searchFilterController.clear
 
-        fun deleteMemo(memo: Memo) {
-            collectionStateHolder.actions.delete(memo)
+        fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
+            actionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            collectionStateHolder.actions.onDeleteAnimationSettled(memoId)
+            exitAnimationRegistry.settleExit(memoId)
         }
 
         fun updateMemo(
             memo: Memo,
             newContent: String,
         ) {
-            collectionStateHolder.actions.updateMemo(memo, newContent)
+            actionStateHolder.actions.updateMemo(memo, newContent)
         }
 
         fun toggleTodo(
@@ -161,7 +194,7 @@ class SearchViewModel
             lineIndex: Int,
             checked: Boolean,
         ) {
-            collectionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
+            actionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
         }
 
         fun saveImage(
@@ -169,15 +202,11 @@ class SearchViewModel
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            collectionStateHolder.actions.saveImage(uri, onResult, onError)
+            actionStateHolder.actions.saveImage(uri, onResult, onError)
         }
 
         fun clearError() {
-            collectionStateHolder.errors.clear()
-        }
-
-        fun loadMore() {
-            collectionWindowStateHolder.loadNextPage()
+            actionStateHolder.errors.clear()
         }
 
         fun recordMemoActionUsage(actionId: MemoActionId) {
@@ -203,41 +232,24 @@ class SearchViewModel
                 appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
             }
         }
-
-        private data class SearchQueryInput(
-            val query: String,
-            val filter: MemoListFilter,
-        )
-
-        init {
-            reportSearchLoadError = { throwable ->
-                collectionStateHolder.errors.report(throwable, "Failed to search memos")
-            }
-        }
     }
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-private fun Flow<Boolean>.toDelayedSearchLoading() =
-    channelFlow {
-        var loadingVisible = false
-        var loadingMinimumVisibleJob: Job? = null
 
-        collectLatest { loading ->
-            if (loading) {
-                delay(SEARCH_LOADING_SHOW_DELAY_MILLIS)
-                loadingVisible = true
-                loadingMinimumVisibleJob =
-                    this@channelFlow.launch {
-                        delay(SEARCH_LOADING_MIN_VISIBLE_MILLIS)
-                    }
-                send(true)
-                awaitCancellation()
-            } else {
-                if (loadingVisible) {
-                    loadingMinimumVisibleJob?.join()
-                }
-                loadingVisible = false
-                send(false)
-            }
-        }
+private data class SearchQueryInput(
+    val query: String,
+    val filter: MemoListFilter,
+)
+
+private data class UiMappingInput(
+    val root: String?,
+    val img: String?,
+    val map: Map<String, android.net.Uri>,
+) {
+    fun sameForPaging(other: UiMappingInput): Boolean {
+        return root == other.root && img == other.img && map == other.map
     }
+
+    companion object {
+        val EMPTY = UiMappingInput(null, null, emptyMap())
+    }
+}

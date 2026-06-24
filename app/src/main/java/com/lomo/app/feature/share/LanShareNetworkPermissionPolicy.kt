@@ -10,6 +10,8 @@ import com.lomo.app.CapabilityPermissionNames
 import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.CapabilityRuntimePermissionPlan
+import com.lomo.domain.model.LanShareNetworkPermissionPolicy
+import com.lomo.domain.model.LanShareNetworkPermissionRequirement
 
 internal const val ACCESS_LOCAL_NETWORK_PERMISSION = CapabilityPermissionNames.AccessLocalNetwork
 internal const val NEARBY_WIFI_DEVICES_PERMISSION = CapabilityPermissionNames.NearbyWifiDevices
@@ -29,10 +31,18 @@ internal fun requiredLanShareNetworkPermissions(
     sdkInt: Int = Build.VERSION.SDK_INT,
     isPermissionRecognized: LanSharePermissionRecognizer = { true },
 ): List<String> =
-    lanShareNetworkPermissionPlan().requiredPermissions(
+    LanShareNetworkPermissionPolicy.requiredRequirements(
         sdkInt = sdkInt,
-        isPermissionRecognized = isPermissionRecognized,
-    )
+        isRequirementRecognized = { requirement ->
+            isPermissionRecognized(requirement.toAndroidPermissionName())
+        },
+    ).map(LanShareNetworkPermissionRequirement::toAndroidPermissionName)
+
+private fun LanShareNetworkPermissionRequirement.toAndroidPermissionName(): String =
+    when (this) {
+        LanShareNetworkPermissionRequirement.NearbyWifiDevices -> NEARBY_WIFI_DEVICES_PERMISSION
+        LanShareNetworkPermissionRequirement.AccessLocalNetwork -> ACCESS_LOCAL_NETWORK_PERMISSION
+    }
 
 internal fun hasLanShareNetworkPermissions(
     context: Context,

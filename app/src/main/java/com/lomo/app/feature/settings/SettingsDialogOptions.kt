@@ -74,19 +74,7 @@ fun SettingsDialogHost(
         features = features,
         dialogState = dialogState,
     )
-    GitDialogs(
-        uiState = uiState,
-        features = features,
-        dialogState = dialogState,
-        options = options,
-    )
-    WebDavDialogs(
-        uiState = uiState,
-        features = features,
-        dialogState = dialogState,
-        options = options,
-    )
-    S3Dialogs(
+    ProviderSettingsDialogs(
         uiState = uiState,
         features = features,
         dialogState = dialogState,

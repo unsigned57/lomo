@@ -1,9 +1,8 @@
 package com.lomo.app.feature.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
-import com.lomo.domain.model.S3RcloneFilenameEncoding
-import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.collections.immutable.ImmutableMap
@@ -38,39 +37,44 @@ internal fun GitSyncSettingsSectionContainer(
     gitFeature: SettingsGitFeatureViewModel,
     gitSyncIntervalLabels: ImmutableMap<String, String>,
 ) {
+    val providerSettings = state.providerSettings
     GitSyncSettingsSection(
         state = state,
-        syncIntervalLabel = gitSyncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
-        syncNowSubtitle =
-            unifiedSyncNowSubtitle(
-                provider = SyncBackendType.GIT,
-                state = state.syncState,
-                lastSyncTime = state.lastSyncTime,
+        labels =
+            RemoteProviderSectionLabels(
+                syncInterval =
+                    gitSyncIntervalLabels[providerSettings.autoSyncInterval]
+                        ?: providerSettings.autoSyncInterval,
             ),
-        connectionSubtitle = connectionTestSubtitle(state.connectionTestState),
-        onToggleEnabled = gitFeature.updateGitSyncEnabled,
-        onOpenRemoteUrlDialog = {
-            dialogState.gitRemoteUrlInput = state.remoteUrl
-            dialogState.showGitRemoteUrlDialog = true
-        },
-        onOpenPatDialog = dialogState::openGitPatDialog,
-        onOpenAuthorNameDialog = {
-            dialogState.gitAuthorNameInput = state.authorName
-            dialogState.showGitAuthorNameDialog = true
-        },
-        onOpenAuthorEmailDialog = {
-            dialogState.gitAuthorEmailInput = state.authorEmail
-            dialogState.showGitAuthorEmailDialog = true
-        },
-        onToggleAutoSync = gitFeature.updateGitAutoSyncEnabled,
-        onOpenSyncIntervalDialog = { dialogState.showGitSyncIntervalDialog = true },
-        onToggleSyncOnRefresh = gitFeature.updateGitSyncOnRefresh,
-        onSyncNow = { if (state.syncState.canTriggerManualSync()) gitFeature.triggerGitSyncNow() },
-        onTestConnection = {
-            gitFeature.resetConnectionTestState()
-            gitFeature.testGitConnection()
-        },
-        onOpenResetDialog = { dialogState.showGitResetConfirmDialog = true },
+        dialogs =
+            GitSyncDialogActions(
+                openRemoteUrl =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.GitRemoteUrl) {
+                        state.remoteUrl
+                    },
+                openPat = dialogState.providerTextDialogAction(RemoteProviderTextField.GitPat),
+                openAuthorName =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.GitAuthorName) {
+                        state.authorName
+                    },
+                openAuthorEmail =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.GitAuthorEmail) {
+                        state.authorEmail
+                    },
+                openReset =
+                    dialogState.providerConfirmationDialogAction(
+                        RemoteProviderConfirmationAction.GitResetRepository,
+                    ),
+            ),
+        actions =
+            remoteProviderSectionActions(
+                provider = SyncBackendType.GIT,
+                providerSettings = providerSettings,
+                providerFeature = gitFeature.provider,
+                openSyncInterval =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.GitSyncInterval),
+            ),
+        modifier = Modifier,
     )
 }
 
@@ -82,40 +86,46 @@ internal fun WebDavSyncSettingsSectionContainer(
     gitSyncIntervalLabels: ImmutableMap<String, String>,
     webDavProviderLabels: ImmutableMap<WebDavProvider, String>,
 ) {
+    val providerSettings = state.providerSettings
     WebDavSyncSettingsSection(
         state = state,
-        providerLabel = webDavProviderLabels[state.provider] ?: state.provider.name,
-        syncIntervalLabel = gitSyncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
-        syncNowSubtitle =
-            unifiedSyncNowSubtitle(
-                provider = SyncBackendType.WEBDAV,
-                state = state.syncState,
-                lastSyncTime = state.lastSyncTime,
+        labels =
+            WebDavSyncSectionLabels(
+                common =
+                    RemoteProviderSectionLabels(
+                        syncInterval =
+                            gitSyncIntervalLabels[providerSettings.autoSyncInterval]
+                                ?: providerSettings.autoSyncInterval,
+                    ),
+                provider = webDavProviderLabels[state.provider] ?: state.provider.name,
             ),
-        connectionSubtitle = connectionTestSubtitle(state.connectionTestState),
-        onToggleEnabled = webDavFeature.updateWebDavSyncEnabled,
-        onOpenProviderDialog = { dialogState.showWebDavProviderDialog = true },
-        onOpenBaseUrlDialog = {
-            dialogState.webDavBaseUrlInput = state.baseUrl
-            dialogState.showWebDavBaseUrlDialog = true
-        },
-        onOpenEndpointUrlDialog = {
-            dialogState.webDavEndpointUrlInput = state.endpointUrl
-            dialogState.showWebDavEndpointUrlDialog = true
-        },
-        onOpenUsernameDialog = {
-            dialogState.webDavUsernameInput = state.username
-            dialogState.showWebDavUsernameDialog = true
-        },
-        onOpenPasswordDialog = dialogState::openWebDavPasswordDialog,
-        onToggleAutoSync = webDavFeature.updateAutoSyncEnabled,
-        onOpenSyncIntervalDialog = { dialogState.showWebDavSyncIntervalDialog = true },
-        onToggleSyncOnRefresh = webDavFeature.updateSyncOnRefresh,
-        onSyncNow = { if (state.syncState.canTriggerManualSync()) webDavFeature.triggerSyncNow() },
-        onTestConnection = {
-            webDavFeature.resetConnectionTestState()
-            webDavFeature.testConnection()
-        },
+        dialogs =
+            WebDavSyncDialogActions(
+                openProvider =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.WebDavProvider),
+                openBaseUrl =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.WebDavBaseUrl) {
+                        state.baseUrl
+                    },
+                openEndpointUrl =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.WebDavEndpointUrl) {
+                        state.endpointUrl
+                    },
+                openUsername =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.WebDavUsername) {
+                        state.username
+                    },
+                openPassword = dialogState.providerTextDialogAction(RemoteProviderTextField.WebDavPassword),
+            ),
+        actions =
+            remoteProviderSectionActions(
+                provider = SyncBackendType.WEBDAV,
+                providerSettings = providerSettings,
+                providerFeature = webDavFeature.provider,
+                openSyncInterval =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.WebDavSyncInterval),
+            ),
+        modifier = Modifier,
     )
 }
 
@@ -125,72 +135,133 @@ internal fun S3SyncSettingsSectionContainer(
     dialogState: SettingsDialogState,
     s3Feature: SettingsS3FeatureViewModel,
     onSelectLocalSyncDirectory: () -> Unit,
-    syncIntervalLabels: ImmutableMap<String, String>,
-    pathStyleLabels: ImmutableMap<com.lomo.domain.model.S3PathStyle, String>,
-    encryptionModeLabels: ImmutableMap<com.lomo.domain.model.S3EncryptionMode, String>,
-    rcloneFilenameEncryptionLabels: ImmutableMap<S3RcloneFilenameEncryption, String>,
-    rcloneFilenameEncodingLabels: ImmutableMap<S3RcloneFilenameEncoding, String>,
+    labelSources: S3SyncLabelSources,
 ) {
+    val providerSettings = state.providerSettings
     S3SyncSettingsSection(
         state = state,
-        pathStyleLabel = pathStyleLabels[state.pathStyle] ?: state.pathStyle.name,
-        encryptionModeLabel = encryptionModeLabels[state.encryptionMode] ?: state.encryptionMode.name,
-        rcloneFilenameEncryptionLabel =
-            rcloneFilenameEncryptionLabels[state.rcloneFilenameEncryption] ?: state.rcloneFilenameEncryption.name,
-        rcloneFilenameEncodingLabel =
-            rcloneFilenameEncodingLabels[state.rcloneFilenameEncoding] ?: state.rcloneFilenameEncoding.name,
-        syncIntervalLabel = syncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
-        syncNowSubtitle =
-            unifiedSyncNowSubtitle(
-                provider = SyncBackendType.S3,
-                state = state.syncState,
-                lastSyncTime = state.lastSyncTime,
+        labels = s3SyncSectionLabels(state = state, sources = labelSources),
+        dialogs =
+            s3SyncDialogActions(
+                state = state,
+                dialogState = dialogState,
+                onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
+                onClearLocalSyncDirectory = s3Feature.clearLocalSyncDirectory,
             ),
-        connectionSubtitle = s3ConnectionTestSubtitle(state.connectionTestState),
-        onToggleEnabled = s3Feature.updateS3SyncEnabled,
-        onOpenEndpointUrlDialog = {
-            dialogState.s3EndpointUrlInput = state.endpointUrl
-            dialogState.showS3EndpointUrlDialog = true
-        },
-        onOpenRegionDialog = {
-            dialogState.s3RegionInput = state.region
-            dialogState.showS3RegionDialog = true
-        },
-        onOpenBucketDialog = {
-            dialogState.s3BucketInput = state.bucket
-            dialogState.showS3BucketDialog = true
-        },
-        onOpenPrefixDialog = {
-            dialogState.s3PrefixInput = state.prefix
-            dialogState.showS3PrefixDialog = true
-        },
-        onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
-        onClearLocalSyncDirectory = s3Feature.clearLocalSyncDirectory,
-        onOpenAccessKeyIdDialog = {
-            dialogState.s3AccessKeyIdInput = ""
-            dialogState.showS3AccessKeyIdDialog = true
-        },
-        onOpenSecretAccessKeyDialog = dialogState::openS3SecretAccessKeyDialog,
-        onOpenSessionTokenDialog = dialogState::openS3SessionTokenDialog,
-        onOpenPathStyleDialog = { dialogState.showS3PathStyleDialog = true },
-        onOpenEncryptionModeDialog = { dialogState.showS3EncryptionModeDialog = true },
-        onOpenEncryptionPasswordDialog = dialogState::openS3EncryptionPasswordDialog,
-        onOpenEncryptionPassword2Dialog = dialogState::openS3EncryptionPassword2Dialog,
-        onOpenRcloneFilenameEncryptionDialog = { dialogState.showS3RcloneFilenameEncryptionDialog = true },
-        onOpenRcloneFilenameEncodingDialog = { dialogState.showS3RcloneFilenameEncodingDialog = true },
-        onToggleRcloneDirectoryNameEncryption = s3Feature.updateRcloneDirectoryNameEncryption,
-        onToggleRcloneDataEncryptionEnabled = s3Feature.updateRcloneDataEncryptionEnabled,
-        onOpenRcloneEncryptedSuffixDialog = {
-            dialogState.s3RcloneEncryptedSuffixInput = state.rcloneEncryptedSuffix
-            dialogState.showS3RcloneEncryptedSuffixDialog = true
-        },
-        onToggleAutoSync = s3Feature.updateAutoSyncEnabled,
-        onOpenSyncIntervalDialog = { dialogState.showS3SyncIntervalDialog = true },
-        onToggleSyncOnRefresh = s3Feature.updateSyncOnRefresh,
-        onSyncNow = { if (state.syncState.canTriggerManualSync()) s3Feature.triggerSyncNow() },
-        onTestConnection = {
-            s3Feature.resetConnectionTestState()
-            s3Feature.testConnection()
-        },
+        specificActions =
+            S3SyncSpecificActions(
+                toggleRcloneDirectoryNameEncryption = s3Feature.updateRcloneDirectoryNameEncryption,
+                toggleRcloneDataEncryptionEnabled = s3Feature.updateRcloneDataEncryptionEnabled,
+            ),
+        actions =
+            remoteProviderSectionActions(
+                provider = SyncBackendType.S3,
+                providerSettings = providerSettings,
+                providerFeature = s3Feature.provider,
+                openSyncInterval =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.S3SyncInterval),
+            ),
+        modifier = Modifier,
     )
 }
+
+@Composable
+private fun s3SyncSectionLabels(
+    state: S3SectionState,
+    sources: S3SyncLabelSources,
+): S3SyncSectionLabels =
+    S3SyncSectionLabels(
+        common =
+            RemoteProviderSectionLabels(
+                syncInterval =
+                    sources.syncIntervals[state.providerSettings.autoSyncInterval]
+                        ?: state.providerSettings.autoSyncInterval,
+            ),
+        pathStyle = sources.pathStyles[state.pathStyle] ?: state.pathStyle.name,
+        encryptionMode = sources.encryptionModes[state.encryptionMode] ?: state.encryptionMode.name,
+        rcloneFilenameEncryption =
+            sources.rcloneFilenameEncryptions[state.rcloneFilenameEncryption]
+                ?: state.rcloneFilenameEncryption.name,
+        rcloneFilenameEncoding =
+            sources.rcloneFilenameEncodings[state.rcloneFilenameEncoding] ?: state.rcloneFilenameEncoding.name,
+    )
+
+private fun remoteProviderSectionActions(
+    provider: SyncBackendType,
+    providerSettings: RemoteProviderSettingsModel,
+    providerFeature: SettingsRemoteProviderFeatureViewModel,
+    openSyncInterval: () -> Unit,
+): RemoteProviderSectionActions =
+    RemoteProviderSectionActions(
+        provider = provider,
+        toggleEnabled = providerFeature::updateEnabled,
+        toggleAutoSync = providerFeature::updateAutoSyncEnabled,
+        openSyncInterval = openSyncInterval,
+        toggleSyncOnRefresh = providerFeature::updateSyncOnRefresh,
+        syncNow = {
+            if (providerSettings.syncState.canTriggerManualSync()) {
+                providerFeature.triggerSyncNow()
+            }
+        },
+        testConnection = {
+            providerFeature.resetConnectionTestState()
+            providerFeature.testConnection()
+        },
+    )
+
+private fun s3SyncDialogActions(
+    state: S3SectionState,
+    dialogState: SettingsDialogState,
+    onSelectLocalSyncDirectory: () -> Unit,
+    onClearLocalSyncDirectory: () -> Unit,
+): S3SyncDialogActions =
+    S3SyncDialogActions(
+        endpoint =
+            S3EndpointDialogActions(
+                openEndpointUrl =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3EndpointUrl) {
+                        state.endpointUrl
+                    },
+                openRegion =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3Region) {
+                        state.region
+                    },
+                openBucket =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3Bucket) {
+                        state.bucket
+                    },
+                openPrefix =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3Prefix) {
+                        state.prefix
+                    },
+                selectLocalSyncDirectory = onSelectLocalSyncDirectory,
+                clearLocalSyncDirectory = onClearLocalSyncDirectory,
+            ),
+        credentials =
+            S3CredentialDialogActions(
+                openAccessKeyId = dialogState.providerTextDialogAction(RemoteProviderTextField.S3AccessKeyId),
+                openSecretAccessKey =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3SecretAccessKey),
+                openSessionToken = dialogState.providerTextDialogAction(RemoteProviderTextField.S3SessionToken),
+            ),
+        encryption =
+            S3EncryptionDialogActions(
+                openPathStyle = dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.S3PathStyle),
+                openEncryptionMode =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.S3EncryptionMode),
+                openEncryptionPassword =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3EncryptionPassword),
+                openEncryptionPassword2 =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.S3EncryptionPassword2),
+                openRcloneFilenameEncryption =
+                    dialogState.providerSelectionDialogAction(
+                        RemoteProviderSelectionField.S3RcloneFilenameEncryption,
+                    ),
+                openRcloneFilenameEncoding =
+                    dialogState.providerSelectionDialogAction(RemoteProviderSelectionField.S3RcloneFilenameEncoding),
+                openRcloneEncryptedSuffix =
+                    dialogState.providerTextDialogAction(
+                        RemoteProviderTextField.S3RcloneEncryptedSuffix,
+                    ) { state.rcloneEncryptedSuffix },
+            ),
+    )
