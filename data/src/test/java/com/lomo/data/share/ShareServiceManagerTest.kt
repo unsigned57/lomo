@@ -73,7 +73,6 @@ class ShareServiceManagerTest : DataFunSpec() {
     private fun setUp() {
         MockKAnnotations.init(this)
         every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-        every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
         every { dataStore.lanShareDeviceName } returns flowOf("Lomo Device")
         every { dataStore.rootDirectory } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf(null)

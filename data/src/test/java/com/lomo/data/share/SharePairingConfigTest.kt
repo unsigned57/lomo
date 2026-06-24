@@ -19,14 +19,27 @@ package com.lomo.data.share
 
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialFieldState
+import com.lomo.domain.model.CredentialProvider
+import com.lomo.domain.model.CredentialState
+import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.CredentialReadAuthorization
+import com.lomo.domain.model.CredentialReadDenialReason
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadException
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
@@ -53,6 +66,10 @@ class SharePairingConfigTest : DataFunSpec() {
 
         test("requiresPairingBeforeSend returns true when e2e is enabled without valid key") { `requiresPairingBeforeSend returns true when e2e is enabled without valid key`() }
 
+        test("given credential reads are locked when effective pairing key is requested then locked status is surfaced") {
+            `given credential reads are locked when effective pairing key is requested then locked status is surfaced`()
+        }
+
         test("setLanShareEnabled delegates to datastore") { `setLanShareEnabled delegates to datastore`() }
 
         test("isLanShareEnabled reflects datastore flag") { `isLanShareEnabled reflects datastore flag`() }
@@ -64,42 +81,38 @@ class SharePairingConfigTest : DataFunSpec() {
     private fun `setLanSharePairingCode normalizes input and stores derived key material`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("My Device")
-            val config = SharePairingConfig(dataStore)
+            val credentialRepository = FakeCredentialRepository()
+            val config = SharePairingConfig(dataStore, credentialRepository, AuthorizedSecuritySessionPolicy)
 
             config.setLanSharePairingCode("  123 456  ")
 
             config.lanSharePairingCode.value shouldBe "123 456"
-            coVerify(exactly = 1) {
-                dataStore.updateLanSharePairingKeyHex(
-                    match { stored ->
-                        stored.startsWith("v2:")
-                    },
-                )
-            }
+            credentialRepository.lanPairingKeyHex?.startsWith("v2:") shouldBe true
         }
 
     private fun `clearLanSharePairingCode clears store and in memory state`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("My Device")
-            val config = SharePairingConfig(dataStore)
+            val credentialRepository = FakeCredentialRepository()
+            val config = SharePairingConfig(dataStore, credentialRepository, AuthorizedSecuritySessionPolicy)
             config.setLanSharePairingCode("654321")
 
             config.clearLanSharePairingCode()
 
             config.lanSharePairingCode.value shouldBe ""
-            coVerify(exactly = 1) { dataStore.updateLanSharePairingKeyHex(null) }
+            credentialRepository.lanPairingKeyHex shouldBe null
         }
 
     private fun `setLanShareDeviceName stores sanitized device name`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("My Device")
-            val config = SharePairingConfig(dataStore)
+            val config = SharePairingConfig(dataStore, FakeCredentialRepository(), AuthorizedSecuritySessionPolicy)
 
             config.setLanShareDeviceName("  My\u0000  Phone\t ")
 
@@ -109,9 +122,9 @@ class SharePairingConfigTest : DataFunSpec() {
     private fun `setLanShareDeviceName strips bidi spoofing controls`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("My Device")
-            val config = SharePairingConfig(dataStore)
+            val config = SharePairingConfig(dataStore, FakeCredentialRepository(), AuthorizedSecuritySessionPolicy)
 
             config.setLanShareDeviceName("  My\u202E Phone\u2066  ")
 
@@ -121,9 +134,9 @@ class SharePairingConfigTest : DataFunSpec() {
     private fun `requiresPairingBeforeSend returns false when e2e is disabled`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(false)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("My Device")
-            val config = SharePairingConfig(dataStore)
+            val config = SharePairingConfig(dataStore, FakeCredentialRepository(), AuthorizedSecuritySessionPolicy)
 
             val requiresPairing = config.requiresPairingBeforeSend()
 
@@ -133,9 +146,14 @@ class SharePairingConfigTest : DataFunSpec() {
     private fun `requiresPairingBeforeSend returns true when e2e is enabled without valid key`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
-            every { dataStore.lanSharePairingKeyHex } returns flowOf("not-a-valid-key")
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
             every { dataStore.lanShareDeviceName } returns flowOf("  My\u0000  Phone\t ")
-            val config = SharePairingConfig(dataStore)
+            val config =
+                SharePairingConfig(
+                    dataStore,
+                    FakeCredentialRepository(lanPairingKeyHex = "not-a-valid-key"),
+                    AuthorizedSecuritySessionPolicy,
+                )
 
             val requiresPairing = config.requiresPairingBeforeSend()
             val resolvedName = config.resolveDeviceName()
@@ -144,9 +162,27 @@ class SharePairingConfigTest : DataFunSpec() {
             resolvedName shouldBe "My Phone"
         }
 
+    private fun `given credential reads are locked when effective pairing key is requested then locked status is surfaced`() =
+        runTest {
+            coEvery { dataStore.drainLegacyLanSharePairingKeyHex() } returns null
+            val config =
+                SharePairingConfig(
+                    dataStore,
+                    FakeCredentialRepository(lanPairingKeyHex = "v2:abcdef"),
+                    LockedSecuritySessionPolicy,
+                )
+
+            val failure = shouldThrow<CredentialSecretReadException> {
+                config.getEffectivePairingKeyHex()
+            }
+
+            failure.result shouldBe
+                CredentialSecretReadResult.Unauthorized(CredentialReadDenialReason.SecuritySessionLocked)
+        }
+
     private fun `setLanShareEnabled delegates to datastore`() =
         runTest {
-            val config = SharePairingConfig(dataStore)
+            val config = SharePairingConfig(dataStore, FakeCredentialRepository(), AuthorizedSecuritySessionPolicy)
 
             config.setLanShareEnabled(false)
 
@@ -156,10 +192,75 @@ class SharePairingConfigTest : DataFunSpec() {
     private fun `isLanShareEnabled reflects datastore flag`() =
         runTest {
             every { dataStore.lanShareEnabled } returns flowOf(false)
-            val config = SharePairingConfig(dataStore)
+            val config = SharePairingConfig(dataStore, FakeCredentialRepository(), AuthorizedSecuritySessionPolicy)
 
             val enabled = config.isLanShareEnabled()
 
             enabled shouldBe false
         }
+}
+
+private class FakeCredentialRepository(
+    var lanPairingKeyHex: String? = null,
+) : CredentialRepository {
+    override fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState> =
+        flowOf(stateFor(provider))
+
+    override suspend fun credentialState(provider: CredentialProvider): CredentialState =
+        stateFor(provider)
+
+    private fun stateFor(provider: CredentialProvider): CredentialState =
+        CredentialState(
+            provider = provider,
+            fields =
+                when (provider) {
+                    CredentialProvider.LAN_SHARE ->
+                        listOf(
+                            CredentialFieldState(
+                                field = CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
+                                status =
+                                    if (lanPairingKeyHex == null) {
+                                        StoredCredentialStatus.Missing
+                                    } else {
+                                        StoredCredentialStatus.Present
+                                    },
+                            ),
+                        )
+                    else -> emptyList()
+                },
+        )
+
+    override suspend fun readSecret(
+        field: CredentialField,
+        authorization: CredentialReadAuthorization,
+    ): CredentialSecretReadResult {
+        if (authorization is CredentialReadAuthorization.Denied) {
+            return CredentialSecretReadResult.Unauthorized(authorization.reason)
+        }
+        return when (field) {
+            CredentialField.LAN_SHARE_PAIRING_KEY_HEX ->
+                lanPairingKeyHex?.let(CredentialSecretReadResult::Present) ?: CredentialSecretReadResult.Missing
+            else -> CredentialSecretReadResult.Missing
+        }
+    }
+
+    override suspend fun writeSecret(
+        field: CredentialField,
+        value: String?,
+    ) {
+        when (field) {
+            CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> lanPairingKeyHex = value
+            else -> Unit
+        }
+    }
+}
+
+private object AuthorizedSecuritySessionPolicy : SecuritySessionPolicy {
+    override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
+        CredentialReadAuthorization.Authorized
+}
+
+private object LockedSecuritySessionPolicy : SecuritySessionPolicy {
+    override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
+        CredentialReadAuthorization.Denied(CredentialReadDenialReason.SecuritySessionLocked)
 }

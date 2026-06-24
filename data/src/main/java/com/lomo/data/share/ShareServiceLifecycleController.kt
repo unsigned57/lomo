@@ -7,26 +7,26 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareActiveProbeDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.SharePayload
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -103,6 +103,19 @@ private class RealLomoShareServerRuntime(
     }
 }
 
+private fun createLanShareDebouncedAction(
+    scope: CoroutineScope,
+    dispatcher: CoroutineDispatcher,
+    delayMs: Long,
+    action: suspend () -> Unit,
+): LanShareDebouncedAction =
+    LanShareDebouncedAction(
+        scope = scope,
+        dispatcher = dispatcher,
+        delayMs = delayMs,
+        action = action,
+    )
+
 @OptIn(ExperimentalUuidApi::class)
 class ShareServiceLifecycleController
     @Inject
@@ -118,12 +131,31 @@ class ShareServiceLifecycleController
             activeDiscoveryScanner: LanShareActiveDiscoveryScanner,
             serverRuntime: LomoShareServerRuntime,
             resolveEligibleSnapshots: (ConnectivityManager?, Set<Network>) -> List<LanShareActiveNetworkSnapshot>,
+            networkPermissionGateway: LanShareNetworkPermissionGateway =
+                AndroidLanShareNetworkPermissionGateway(context),
         ) : this(context, pairingConfig) {
             this.scope = scope
             this.nsdService = discoveryCoordinator
             this.activeDiscoveryClient = activeDiscoveryScanner
             this.serverRuntime = serverRuntime
             this.resolveEligibleSnapshots = resolveEligibleSnapshots
+            this.networkPermissionGateway = networkPermissionGateway
+            this.activeDiscoveryLoop = createActiveDiscoveryLoop()
+            val dispatcher = scope.coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher ?: Dispatchers.IO
+            this.refreshRegistrationDebouncer =
+                createLanShareDebouncedAction(
+                    scope = scope,
+                    dispatcher = dispatcher,
+                    delayMs = NSD_REFRESH_DEBOUNCE_MS,
+                    action = refreshRegistrationAction,
+                )
+            this.networkRestartDebouncer =
+                createLanShareDebouncedAction(
+                    scope = scope,
+                    dispatcher = dispatcher,
+                    delayMs = NETWORK_RESTART_DEBOUNCE_MS,
+                    action = networkRestartAction,
+                )
         }
 
         private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -138,23 +170,48 @@ class ShareServiceLifecycleController
         private var resolveEligibleSnapshots:
             (ConnectivityManager?, Set<Network>) -> List<LanShareActiveNetworkSnapshot> =
             ::resolveLanShareEligibleNetworkSnapshots
+        private var networkPermissionGateway: LanShareNetworkPermissionGateway =
+            AndroidLanShareNetworkPermissionGateway(context)
+        private val runtimeReconcileMutex = Mutex()
         private val serviceStateLock = Any()
         private val connectivityManager =
             context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         private var networkCallbackRegistered = false
-        private var activeNetworkSnapshots: List<LanShareActiveNetworkSnapshot> = emptyList()
+        private var activeServiceSnapshots: List<LanShareActiveNetworkSnapshot> = emptyList()
+        private var activeDiscoverySnapshots: List<LanShareActiveNetworkSnapshot> = emptyList()
         private val observedLanNetworks = LanShareObservedNetworkRegistry()
+        private val runtimeSnapshot: () -> LanShareDiagnosticsRuntimeSnapshot = {
+            synchronized(serviceStateLock) {
+                LanShareDiagnosticsRuntimeSnapshot(
+                    servicesDesired = servicesDesired,
+                    discoveryDesired = discoveryDesired,
+                    serviceSnapshots = activeServiceSnapshots,
+                    discoverySnapshots = activeDiscoverySnapshots,
+                    serverPort = serverPort,
+                )
+            }
+        }
 
         val discoveredDevices: StateFlow<List<DiscoveredDevice>>
             get() = nsdService.discoveredDevices
+        private val diagnosticsPublisher =
+            LanShareDiscoveryDiagnosticsPublisher(runtimeSnapshot = runtimeSnapshot)
+        val lanShareRuntimeState: StateFlow<LanShareRuntimeState> = diagnosticsPublisher.runtimeState
+        val lanShareDiscoveryDiagnostics = diagnosticsPublisher.diagnostics
+        private var activeDiscoveryLoop = createActiveDiscoveryLoop()
         private val _lanShareStartupFailures =
             MutableSharedFlow<LanShareStartupFailure>(extraBufferCapacity = 1)
         val lanShareStartupFailures: SharedFlow<LanShareStartupFailure> =
             _lanShareStartupFailures.asSharedFlow()
 
         private var serverPort: Int = 0
-        private var activeDiscoveryJob: Job? = null
         private val localUuid = Uuid.random().toString()
+
+        @Volatile
+        private var servicesDesired = false
+
+        @Volatile
+        private var discoveryDesired = false
 
         @Volatile
         private var servicesStarted = false
@@ -169,28 +226,22 @@ class ShareServiceLifecycleController
                 acquireLock = multicastLockManager::acquire,
                 releaseLock = multicastLockManager::releaseIfHeld,
             )
-        private val refreshRegistrationDebouncer =
-            LanShareDebouncedAction(
-                scope = scope,
-                dispatcher = Dispatchers.IO,
-                delayMs = NSD_REFRESH_DEBOUNCE_MS,
-            ) {
-                val (shouldRefresh, snapshotsForRefresh) =
-                    synchronized(serviceStateLock) {
-                        (servicesStarted && serverPort > 0) to activeNetworkSnapshots
-                    }
-                if (!shouldRefresh) return@LanShareDebouncedAction
-
+        private val refreshRegistrationAction: suspend () -> Unit = {
+            val (shouldRefresh, snapshotsForRefresh) =
+                synchronized(serviceStateLock) {
+                    (servicesStarted && serverPort > 0) to activeServiceSnapshots
+                }
+            if (shouldRefresh) {
                 runCatching {
                     val deviceName = pairingConfig.resolveDeviceName()
                     serverRuntime.updateDiscoveryDeviceName(deviceName)
-                    snapshotsForRefresh.forEach { snapshot ->
+                    buildLanShareNsdStrategies(snapshotsForRefresh).forEach { strategy ->
                         nsdService.registerService(
-                            networkKey = snapshot.networkKey,
+                            networkKey = strategy.networkKey,
                             port = serverPort,
                             deviceName = deviceName,
                             uuid = localUuid,
-                            targetNetwork = snapshot.network,
+                            targetNetwork = strategy.targetNetwork,
                         )
                     }
                     Timber
@@ -205,33 +256,25 @@ class ShareServiceLifecycleController
                     Timber.tag(TAG).e(error, "Failed to refresh NSD registration")
                 }
             }
-        private val networkRestartDebouncer =
-            LanShareDebouncedAction(
+        }
+        private val networkRestartAction: suspend () -> Unit = {
+            Timber.tag(TAG).d("Active LAN networks changed; restarting LAN share services")
+            reconcileDesiredRuntime()
+        }
+        private var refreshRegistrationDebouncer =
+            createLanShareDebouncedAction(
+                scope = scope,
+                dispatcher = Dispatchers.IO,
+                delayMs = NSD_REFRESH_DEBOUNCE_MS,
+                action = refreshRegistrationAction,
+            )
+        private var networkRestartDebouncer =
+            createLanShareDebouncedAction(
                 scope = scope,
                 dispatcher = Dispatchers.IO,
                 delayMs = NETWORK_RESTART_DEBOUNCE_MS,
-            ) {
-                val previousSnapshots =
-                    synchronized(serviceStateLock) {
-                        if (!servicesStarted && !discoveryStarted) {
-                            return@LanShareDebouncedAction
-                        }
-                        activeNetworkSnapshots.toSet()
-                    }
-                val currentSnapshots =
-                    resolveEligibleSnapshots(
-                        connectivityManager,
-                        observedLanNetworks.snapshot(),
-                    ).toSet()
-                if (currentSnapshots == previousSnapshots) return@LanShareDebouncedAction
-
-                Timber.tag(TAG).d("Active LAN networks changed; restarting LAN share services")
-                stopServices()
-                if (pairingConfig.isLanShareEnabled()) {
-                    startServices()
-                    startDiscovery()
-                }
-            }
+                action = networkRestartAction,
+            )
         private val ensureNetworkCallbackRegistered: () -> Unit = {
             val manager = connectivityManager
             if (!networkCallbackRegistered && manager != null) {
@@ -265,7 +308,7 @@ class ShareServiceLifecycleController
         private val unregisterNetworkCallbackIfIdle: () -> Unit = {
             val shouldUnregister =
                 synchronized(serviceStateLock) {
-                    !servicesStarted && !discoveryStarted
+                    !servicesDesired && !discoveryDesired && !servicesStarted && !discoveryStarted
                 }
             val manager = connectivityManager
             if (shouldUnregister && manager != null && networkCallbackRegistered) {
@@ -347,104 +390,39 @@ class ShareServiceLifecycleController
             scope.launch {
                 if (!pairingConfig.isLanShareEnabled()) {
                     Timber.tag(TAG).d("Skip service start because LAN share is disabled")
+                    diagnosticsPublisher.publishRuntimeState(LanShareRuntimeState.Stopped)
                     return@launch
                 }
-                val shouldStart =
-                    synchronized(serviceStateLock) {
-                        if (servicesStarted) {
-                            false
-                        } else {
-                            servicesStarted = true
-                            true
-                        }
-                    }
-                if (!shouldStart) return@launch
-
-                multicastLockLease.acquire(LanShareMulticastLockOwner.Service)
-                runCatching {
-                    val eligibleSnapshots =
-                        resolveEligibleSnapshots(
-                            connectivityManager,
-                            observedLanNetworks.snapshot(),
-                        ).takeIf { it.isNotEmpty() }
-                            ?: error("No private LAN interface available for LAN share")
-                    val deviceName = pairingConfig.resolveDeviceName()
-                    serverPort =
-                        serverRuntime.start(
-                            port = LAN_SHARE_DISCOVERY_PORT,
-                            host = LAN_SHARE_SERVER_BIND_HOST,
-                            deviceName = deviceName,
-                        )
-                    var anyRegistered = false
-                    eligibleSnapshots.forEach { snapshot ->
-                        val registered =
-                            nsdService.registerService(
-                                networkKey = snapshot.networkKey,
-                                port = serverPort,
-                                deviceName = deviceName,
-                                uuid = localUuid,
-                                targetNetwork = snapshot.network,
-                            )
-                        if (registered) {
-                            anyRegistered = true
-                        } else {
-                            Timber
-                                .tag(TAG)
-                                .d(
-                                    "NSD service registration rejected; bindHost=%s, networkKey=%s",
-                                    snapshot.bindHost,
-                                    snapshot.networkKey,
-                                )
-                        }
-                    }
-                    if (!anyRegistered) {
-                        _lanShareStartupFailures.tryEmit(LanShareStartupFailure.ServiceRegistrationFailed)
-                    }
-                    synchronized(serviceStateLock) {
-                        activeNetworkSnapshots = eligibleSnapshots
-                    }
-                    ensureNetworkCallbackRegistered()
-                    Timber
-                        .tag(TAG)
-                        .d(
-                            "Services started: server=%d, device=%s, snapshots=%s",
-                            serverPort,
-                            deviceName,
-                            eligibleSnapshots.joinToString { "${it.networkKey}@${it.bindHost}" },
-                        )
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    synchronized(serviceStateLock) {
-                        servicesStarted = false
-                        activeNetworkSnapshots = emptyList()
-                    }
-                    serverPort = 0
-                    multicastLockLease.release(LanShareMulticastLockOwner.Service)
-                    runCatching { nsdService.unregisterAll() }
-                        .onFailure { Timber.tag(TAG).e(it, "Failed to clean NSD registration after start failure") }
-                    runCatching { serverRuntime.stop() }
-                        .onFailure { Timber.tag(TAG).e(it, "Failed to stop server after start failure") }
-                    unregisterNetworkCallbackIfIdle()
-                    Timber.tag(TAG).e(error, "Failed to start services")
+                synchronized(serviceStateLock) {
+                    servicesDesired = true
                 }
+                ensureNetworkCallbackRegistered()
+                reconcileDesiredRuntime()
             }
         }
 
         fun stopServices() {
             synchronized(serviceStateLock) {
+                servicesDesired = false
+                discoveryDesired = false
                 servicesStarted = false
                 discoveryStarted = false
-                activeNetworkSnapshots = emptyList()
+                activeServiceSnapshots = emptyList()
+                activeDiscoverySnapshots = emptyList()
             }
             serverPort = 0
-            activeDiscoveryJob?.cancel()
-            activeDiscoveryJob = null
+            activeDiscoveryLoop.stop()
             refreshRegistrationDebouncer.cancel()
             nsdService.stopAllDiscovery()
             nsdService.unregisterAll()
             serverRuntime.stop()
             multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
             multicastLockLease.release(LanShareMulticastLockOwner.Service)
+            diagnosticsPublisher.publishRuntimeState(
+                state = LanShareRuntimeState.Stopped,
+                activeProbe = LanShareActiveProbeDiagnostics(),
+                degradedReason = null,
+            )
             unregisterNetworkCallbackIfIdle()
             Timber.tag(TAG).d("Services stopped")
         }
@@ -453,71 +431,33 @@ class ShareServiceLifecycleController
             scope.launch {
                 if (!pairingConfig.isLanShareEnabled()) {
                     Timber.tag(TAG).d("Skip discovery start because LAN share is disabled")
+                    diagnosticsPublisher.publishRuntimeState(LanShareRuntimeState.Stopped)
                     return@launch
-                }
-                val alreadyStarted =
-                    synchronized(serviceStateLock) {
-                        if (discoveryStarted) {
-                            true
-                        } else {
-                            discoveryStarted = true
-                            false
-                        }
-                }
-                if (alreadyStarted) {
-                    return@launch
-                }
-                multicastLockLease.acquire(LanShareMulticastLockOwner.Discovery)
-                val targetSnapshots =
-                    synchronized(serviceStateLock) { activeNetworkSnapshots }
-                        .ifEmpty {
-                            resolveEligibleSnapshots(
-                                connectivityManager,
-                                observedLanNetworks.snapshot(),
-                            )
-                        }
-                if (targetSnapshots.isEmpty()) {
-                    synchronized(serviceStateLock) {
-                        discoveryStarted = false
-                    }
-                    multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
-                    _lanShareStartupFailures.tryEmit(LanShareStartupFailure.DiscoveryStartFailed)
-                    unregisterNetworkCallbackIfIdle()
-                    return@launch
-                }
-                var anyDiscoveryAccepted = false
-                targetSnapshots.forEach { snapshot ->
-                    val accepted =
-                        nsdService.startDiscovery(
-                            networkKey = snapshot.networkKey,
-                            uuid = localUuid,
-                            targetNetwork = snapshot.network,
-                        )
-                    if (accepted) anyDiscoveryAccepted = true
-                }
-                if (!anyDiscoveryAccepted) {
-                    _lanShareStartupFailures.tryEmit(LanShareStartupFailure.DiscoveryStartFailed)
-                    Timber.tag(TAG).d("NSD discovery was rejected on every snapshot; continuing active LAN scan")
                 }
                 synchronized(serviceStateLock) {
-                    if (activeNetworkSnapshots.isEmpty()) {
-                        activeNetworkSnapshots = targetSnapshots
-                    }
+                    discoveryDesired = true
                 }
                 ensureNetworkCallbackRegistered()
-                restartActiveDiscoveryScans(targetSnapshots)
+                reconcileDesiredRuntime()
             }
         }
 
         fun stopDiscovery() {
             synchronized(serviceStateLock) {
+                discoveryDesired = false
                 discoveryStarted = false
             }
-            activeDiscoveryJob?.cancel()
-            activeDiscoveryJob = null
+            activeDiscoveryLoop.stop()
             nsdService.stopAllDiscovery()
             multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
+            publishRuntimeStateAfterStop()
             unregisterNetworkCallbackIfIdle()
+        }
+
+        fun refreshNetworkPermissionState() {
+            scope.launch {
+                reconcileDesiredRuntime()
+            }
         }
 
         val acceptIncoming: () -> Unit = {
@@ -532,10 +472,266 @@ class ShareServiceLifecycleController
             refreshRegistrationDebouncer.trigger()
         }
 
+        private fun createActiveDiscoveryLoop(): LanShareActiveDiscoveryLoop =
+            LanShareActiveDiscoveryLoop(
+                scope = scope,
+                activeDiscoveryClient = activeDiscoveryClient,
+                discoveryCoordinator = nsdService,
+                isDiscoveryStarted = { synchronized(serviceStateLock) { discoveryStarted } },
+                activeSnapshots = { synchronized(serviceStateLock) { activeDiscoverySnapshots } },
+                resolveEligibleSnapshots = {
+                    resolveEligibleSnapshots(
+                        connectivityManager,
+                        observedLanNetworks.snapshot(),
+                    )
+                },
+                publishDiagnostics = diagnosticsPublisher::publishActiveDiscoveryDiagnostics,
+            )
+
+        private suspend fun reconcileDesiredRuntime() {
+            runtimeReconcileMutex.withLock {
+                val (wantsServices, wantsDiscovery) =
+                    synchronized(serviceStateLock) {
+                        servicesDesired to discoveryDesired
+                    }
+                if (!wantsServices && !wantsDiscovery) {
+                    diagnosticsPublisher.publishRuntimeState(LanShareRuntimeState.Stopped)
+                    unregisterNetworkCallbackIfIdle()
+                    return
+                }
+                if (!pairingConfig.isLanShareEnabled()) {
+                    synchronized(serviceStateLock) {
+                        servicesDesired = false
+                        discoveryDesired = false
+                    }
+                    stopActualRuntimeForWaiting()
+                    diagnosticsPublisher.publishRuntimeState(
+                        state = LanShareRuntimeState.Stopped,
+                        activeProbe = LanShareActiveProbeDiagnostics(),
+                        degradedReason = null,
+                    )
+                    unregisterNetworkCallbackIfIdle()
+                    return
+                }
+                ensureNetworkCallbackRegistered()
+                if (!networkPermissionGateway.hasRequiredPermissions()) {
+                    stopActualRuntimeForWaiting()
+                    diagnosticsPublisher.publishRuntimeState(
+                        state = LanShareRuntimeState.PermissionBlocked,
+                        activeProbe = LanShareActiveProbeDiagnostics(),
+                        degradedReason = null,
+                    )
+                    Timber.tag(TAG).d("LAN share waiting for local-network permissions")
+                    return
+                }
+
+                val eligibleSnapshots =
+                    resolveEligibleSnapshots(
+                        connectivityManager,
+                        observedLanNetworks.snapshot(),
+                    )
+                if (eligibleSnapshots.isEmpty()) {
+                    stopActualRuntimeForWaiting()
+                    diagnosticsPublisher.publishRuntimeState(
+                        state = LanShareRuntimeState.WaitingForTopology,
+                        activeProbe = LanShareActiveProbeDiagnostics(),
+                        degradedReason = null,
+                    )
+                    Timber.tag(TAG).d("LAN share waiting for eligible LAN topology")
+                    return
+                }
+
+                if (wantsServices) {
+                    ensureServicesStarted(eligibleSnapshots)
+                } else {
+                    stopActualServices()
+                }
+                if (wantsDiscovery) {
+                    ensureDiscoveryStarted(eligibleSnapshots)
+                } else {
+                    stopActualDiscovery()
+                }
+                synchronized(serviceStateLock) {
+                    if (servicesStarted || discoveryStarted) {
+                        diagnosticsPublisher.publishRuntimeState(LanShareRuntimeState.Running)
+                    }
+                }
+            }
+        }
+
+        private val ensureServicesStarted: suspend (
+            List<LanShareActiveNetworkSnapshot>,
+        ) -> Unit = { eligibleSnapshots ->
+            val alreadyStartedOnSameSnapshots =
+                synchronized(serviceStateLock) {
+                    servicesStarted && serverPort > 0 && activeServiceSnapshots == eligibleSnapshots
+                }
+            if (!alreadyStartedOnSameSnapshots) {
+                var acquiredServiceLease = false
+                runCatching {
+                    val deviceName = pairingConfig.resolveDeviceName()
+                    val wasStarted =
+                        synchronized(serviceStateLock) {
+                            servicesStarted && serverPort > 0
+                        }
+                    if (wasStarted) {
+                        nsdService.unregisterAll()
+                        serverRuntime.updateDiscoveryDeviceName(deviceName)
+                    } else {
+                        multicastLockLease.acquire(LanShareMulticastLockOwner.Service)
+                        acquiredServiceLease = true
+                        serverPort =
+                            serverRuntime.start(
+                                port = LAN_SHARE_DISCOVERY_PORT,
+                                host = LAN_SHARE_SERVER_BIND_HOST,
+                                deviceName = deviceName,
+                            )
+                    }
+                    var anyRegistered = false
+                    buildLanShareNsdStrategies(eligibleSnapshots).forEach { strategy ->
+                        val registered =
+                            nsdService.registerService(
+                                networkKey = strategy.networkKey,
+                                port = serverPort,
+                                deviceName = deviceName,
+                                uuid = localUuid,
+                                targetNetwork = strategy.targetNetwork,
+                            )
+                        if (registered) {
+                            anyRegistered = true
+                        } else {
+                            Timber
+                                .tag(TAG)
+                                .d(
+                                    "NSD service registration rejected; strategy=%s",
+                                    strategy.networkKey,
+                                )
+                        }
+                    }
+                    if (!anyRegistered) {
+                        _lanShareStartupFailures.tryEmit(LanShareStartupFailure.ServiceRegistrationFailed)
+                    }
+                    synchronized(serviceStateLock) {
+                        servicesStarted = true
+                        activeServiceSnapshots = eligibleSnapshots
+                    }
+                    Timber
+                        .tag(TAG)
+                        .d(
+                            "Services started: server=%d, device=%s, snapshots=%s",
+                            serverPort,
+                            deviceName,
+                            eligibleSnapshots.joinToString { "${it.networkKey}@${it.bindHost}" },
+                        )
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    if (acquiredServiceLease && serverPort == 0) {
+                        multicastLockLease.release(LanShareMulticastLockOwner.Service)
+                    }
+                    stopActualServices()
+                    Timber.tag(TAG).e(error, "Failed to start services")
+                }
+            }
+        }
+
+        private val ensureDiscoveryStarted: (List<LanShareActiveNetworkSnapshot>) -> Unit = { eligibleSnapshots ->
+            val alreadyStartedOnSameSnapshots =
+                synchronized(serviceStateLock) {
+                    discoveryStarted && activeDiscoverySnapshots == eligibleSnapshots
+                } && activeDiscoveryLoop.isRunning
+            if (!alreadyStartedOnSameSnapshots) {
+                if (discoveryStarted) {
+                    stopActualDiscovery()
+                }
+                multicastLockLease.acquire(LanShareMulticastLockOwner.Discovery)
+                var anyDiscoveryAccepted = false
+                buildLanShareNsdStrategies(eligibleSnapshots).forEach { strategy ->
+                    val accepted =
+                        nsdService.startDiscovery(
+                            networkKey = strategy.networkKey,
+                            uuid = localUuid,
+                            targetNetwork = strategy.targetNetwork,
+                        )
+                    if (accepted) anyDiscoveryAccepted = true
+                }
+                if (!anyDiscoveryAccepted) {
+                    _lanShareStartupFailures.tryEmit(LanShareStartupFailure.DiscoveryStartFailed)
+                    Timber.tag(TAG).d("NSD discovery was rejected on every snapshot; continuing active LAN scan")
+                }
+                synchronized(serviceStateLock) {
+                    discoveryStarted = true
+                    activeDiscoverySnapshots = eligibleSnapshots
+                }
+                activeDiscoveryLoop.restart(eligibleSnapshots)
+            }
+        }
+
+        private val stopActualRuntimeForWaiting: () -> Unit = {
+            stopActualDiscovery()
+            stopActualServices()
+            synchronized(serviceStateLock) {
+                if (!servicesStarted && !discoveryStarted) {
+                    activeServiceSnapshots = emptyList()
+                    activeDiscoverySnapshots = emptyList()
+                }
+            }
+        }
+
+        private val publishRuntimeStateAfterStop: () -> Unit = {
+            val state =
+                synchronized(serviceStateLock) {
+                    if (servicesStarted || discoveryStarted) {
+                        LanShareRuntimeState.Running
+                    } else {
+                        LanShareRuntimeState.Stopped
+                    }
+                }
+            diagnosticsPublisher.publishRuntimeState(
+                state = state,
+                activeProbe = LanShareActiveProbeDiagnostics(),
+                degradedReason = null,
+            )
+        }
+
+        private val stopActualServices: () -> Unit = {
+            val shouldStop =
+                synchronized(serviceStateLock) {
+                    val wasStarted = servicesStarted || serverPort > 0
+                    servicesStarted = false
+                    activeServiceSnapshots = emptyList()
+                    wasStarted
+                }
+            if (shouldStop) {
+                serverPort = 0
+                refreshRegistrationDebouncer.cancel()
+                runCatching { nsdService.unregisterAll() }
+                    .onFailure { Timber.tag(TAG).e(it, "Failed to unregister LAN share services") }
+                runCatching { serverRuntime.stop() }
+                    .onFailure { Timber.tag(TAG).e(it, "Failed to stop LAN share server") }
+                multicastLockLease.release(LanShareMulticastLockOwner.Service)
+            }
+        }
+
+        private val stopActualDiscovery: () -> Unit = {
+            val shouldStop =
+                synchronized(serviceStateLock) {
+                    val wasStarted = discoveryStarted || activeDiscoveryLoop.hasJob
+                    discoveryStarted = false
+                    activeDiscoverySnapshots = emptyList()
+                    wasStarted
+                }
+            if (shouldStop) {
+                activeDiscoveryLoop.stop()
+                runCatching { nsdService.stopAllDiscovery() }
+                    .onFailure { Timber.tag(TAG).e(it, "Failed to stop LAN share discovery") }
+                multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
+            }
+        }
+
         private fun handleDiscoveryStartFailed() {
             val snapshots =
                 synchronized(serviceStateLock) {
-                    activeNetworkSnapshots
+                    activeDiscoverySnapshots
                 }
             synchronized(serviceStateLock) {
                 discoveryStarted = snapshots.isNotEmpty()
@@ -545,110 +741,13 @@ class ShareServiceLifecycleController
                 multicastLockLease.release(LanShareMulticastLockOwner.Discovery)
                 unregisterNetworkCallbackIfIdle()
             } else {
-                ensureActiveDiscoveryScans(snapshots)
+                activeDiscoveryLoop.startIfIdle(snapshots)
             }
         }
 
         private fun handleRegistrationFailed() {
             _lanShareStartupFailures.tryEmit(LanShareStartupFailure.ServiceRegistrationFailed)
             Timber.tag(TAG).d("NSD registration failed; keeping active share server for direct LAN probes")
-        }
-
-        private fun restartActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot> = emptyList()) {
-            activeDiscoveryJob?.cancel()
-            startActiveDiscoveryScans(snapshots)
-        }
-
-        private fun ensureActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot> = emptyList()) {
-            if (activeDiscoveryJob?.isActive == true) {
-                return
-            }
-            startActiveDiscoveryScans(snapshots)
-        }
-
-        private fun startActiveDiscoveryScans(snapshots: List<LanShareActiveNetworkSnapshot>) {
-            activeDiscoveryJob =
-                scope.launch {
-                    val schedulePolicy = LanShareActiveDiscoverySchedulePolicy()
-                    while (
-                        isActive &&
-                        synchronized(serviceStateLock) {
-                            discoveryStarted
-                        }
-                    ) {
-                        val delayMs = schedulePolicy.delayBeforeNextScanMs()
-                        if (delayMs > 0) delay(delayMs)
-                        if (
-                            !isActive ||
-                            !synchronized(serviceStateLock) {
-                                discoveryStarted
-                            }
-                        ) {
-                            return@launch
-                        }
-                        val foundDeviceCount = runActiveDiscoveryScan(snapshots)
-                        schedulePolicy.recordScanResult(foundDeviceCount)
-                    }
-                }
-        }
-
-        private suspend fun runActiveDiscoveryScan(seedSnapshots: List<LanShareActiveNetworkSnapshot>): Int {
-            val snapshots =
-                seedSnapshots
-                    .ifEmpty {
-                        synchronized(serviceStateLock) { activeNetworkSnapshots }
-                    }
-                    .ifEmpty {
-                        resolveEligibleSnapshots(
-                            connectivityManager,
-                            observedLanNetworks.snapshot(),
-                        )
-                    }
-            if (snapshots.isEmpty()) return 0
-
-            val merged =
-                runCatching {
-                    coroutineScope {
-                        snapshots
-                            .map { snapshot ->
-                                async {
-                                    runCatching { activeDiscoveryClient.scan(snapshot) }
-                                        .onFailure { error ->
-                                            if (error is CancellationException) throw error
-                                            Timber
-                                                .tag(TAG)
-                                                .d(
-                                                    error,
-                                                    "LAN active discovery scan failed for %s",
-                                                    snapshot.networkKey,
-                                                )
-                                        }.getOrDefault(emptyList())
-                                }
-                            }.awaitAll()
-                            .flatten()
-                            .distinctBy { device -> "${device.host}:${device.port}" }
-                    }
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    Timber.tag(TAG).d(error, "LAN active discovery scan aggregation failed")
-                }.getOrDefault(emptyList())
-
-            val shouldMerge =
-                synchronized(serviceStateLock) {
-                    discoveryStarted
-                }
-            if (shouldMerge && merged.isNotEmpty()) {
-                nsdService.mergeDiscoveredDevices(merged)
-            }
-            if (merged.isEmpty()) {
-                Timber
-                    .tag(TAG)
-                    .d(
-                        "LAN active discovery scan returned no peers across %d snapshots",
-                        snapshots.size,
-                    )
-            }
-            return merged.size
         }
 
         private companion object {
