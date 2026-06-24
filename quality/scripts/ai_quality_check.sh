@@ -13,9 +13,11 @@ echo "ai-quality-check: using HOME at $ai_home"
 
 lomo_ai_run_gradle qualityCheck "$@"
 
-if [ "${LOMO_SKIP_LOCAL_MAINTENANCE:-false}" = "true" ]; then
-  echo "ai-quality-check: skipping local maintenance because LOMO_SKIP_LOCAL_MAINTENANCE=true"
+if [ "${LOMO_RUN_LOCAL_MAINTENANCE:-false}" != "true" ]; then
+  echo "ai-quality-check: skipping local maintenance by default"
+  echo "ai-quality-check: run quality/scripts/ai_local_maintenance_check.sh or set LOMO_RUN_LOCAL_MAINTENANCE=true for dependency updates, CVEs, and R8 diagnostics"
   exit 0
 fi
 
+echo "ai-quality-check: running local maintenance because LOMO_RUN_LOCAL_MAINTENANCE=true"
 bash "$script_dir/ai_local_maintenance_check.sh" "$@"

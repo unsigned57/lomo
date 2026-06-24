@@ -45,7 +45,7 @@ val composeCompilerReportTasksByProject =
     )
 val compileGateTasksByProject =
     linkedMapOf(
-        "app" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
+        "app" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac", "compileDebugAndroidTestKotlin"),
         "data" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
         "ui-components" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
         "domain" to listOf("compileKotlin", "compileJava"),
@@ -189,6 +189,16 @@ dependencyCheck {
     failBuildOnCVSS = 7.0f
     formats = listOf("HTML", "SARIF")
     suppressionFile = rootProject.file("quality/owasp/dependency-check-suppressions.xml").absolutePath
+    nvd {
+        providers.environmentVariable("NVD_API_KEY")
+            .orNull
+            ?.takeIf { it.isNotBlank() }
+            ?.let { apiKey = it }
+        validForHours = 24
+    }
+    data {
+        directory = gradle.gradleUserHomeDir.resolve("dependency-check-data").absolutePath
+    }
 }
 
 extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) {
@@ -426,6 +436,13 @@ tasks.register("dependencyVulnerabilityCheck") {
     dependsOn("dependencyCheckAnalyze")
 }
 
+tasks.register("qualityWorkflowContractCheck", Exec::class.java) {
+    group = "verification"
+    description = "Checks quality workflow routing so network maintenance stays out of high-frequency gates."
+    workingDir = rootProject.projectDir
+    commandLine("bash", "quality/scripts/test/ai_quality_check_contract_test.sh")
+}
+
 kover {
     currentProject {
         createVariant(koverQualityVariant) {}
@@ -461,7 +478,14 @@ tasks.register("coverageCheck") {
 tasks.register("staticQualityCheck") {
     group = "verification"
     description = "Runs compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage."
-    dependsOn("compileGateCheck", "architectureCheck", "testStyleCheck", "androidLintCheck", "meaningfulTestCheck")
+    dependsOn(
+        "compileGateCheck",
+        "architectureCheck",
+        "testStyleCheck",
+        "androidLintCheck",
+        "meaningfulTestCheck",
+        "qualityWorkflowContractCheck",
+    )
     mustRunAfter("unitTestCheck")
 }
 
