@@ -3,6 +3,8 @@ package com.lomo.domain.model
 enum class GitSyncErrorCode {
     NOT_CONFIGURED,
     PAT_REQUIRED,
+    CREDENTIAL_UNREADABLE,
+    CREDENTIAL_UNAUTHORIZED,
     DIRECT_PATH_REQUIRED,
     REMOTE_URL_NOT_CONFIGURED,
     MEMO_DIRECTORY_NOT_CONFIGURED,
@@ -62,6 +64,12 @@ private fun gitSyncErrorCodeFromMessage(rawMessage: String?): GitSyncErrorCode {
             GitSyncErrorCode.NOT_CONFIGURED
         normalized.equals("No Personal Access Token configured", ignoreCase = true) ->
             GitSyncErrorCode.PAT_REQUIRED
+        normalized.contains("credential", ignoreCase = true) &&
+            normalized.contains("unreadable", ignoreCase = true) ->
+            GitSyncErrorCode.CREDENTIAL_UNREADABLE
+        normalized.contains("credential", ignoreCase = true) &&
+            normalized.contains("denied", ignoreCase = true) ->
+            GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED
         normalized.startsWith("Git sync requires direct path mode", ignoreCase = true) ||
             normalized.startsWith("Git sync requires a direct local directory path", ignoreCase = true) ->
             GitSyncErrorCode.DIRECT_PATH_REQUIRED

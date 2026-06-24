@@ -14,6 +14,9 @@ import io.kotest.matchers.shouldBe
  * - Given one side is empty, when merge runs, then the non-empty side is returned.
  * - Given equal text, non-overlapping anchor insertions, a superset segment, or short disjoint memo content,
  *   when merge runs, then the safe merged text is returned.
+ * - Given both sides hold memo blocks that share a header timestamp (the same memo edited on each side),
+ *   when merge runs, then the newer file's version replaces the block instead of duplicating it, while
+ *   memos with distinct timestamps are still unioned.
  * - Given overlapping edits, uncertain segments, or an input that exceeds the configured merge budget,
  *   when merge runs, then null is returned so conflict review handles the file.
  * - Given the configured budget is smaller than the actual LCS matrix including sentinel row/column,
@@ -22,8 +25,22 @@ import io.kotest.matchers.shouldBe
  * Observable outcomes:
  * - Returned merged text, or null to decline automatic write-back.
  *
+ * Test Change Justification:
+ * - Reason category: SyncConflictTextMerge production code gained memo-dedup merge, budget-aware LCS, and
+ *   anchor-based detection. Tests must cover the new merge strategies and budget constraints.
+ * - Old behavior/assertion being replaced: merge only handled simple text diff; no memo dedup, no budget gating.
+ * - Why old assertion is no longer correct: the merge engine now returns null for overlapping edits
+ *   and performs memo-block-level deduplication for shared-timestamp blocks.
+ * - Coverage preserved by: keeping existing empty-side and equal-text scenarios, adding budget,
+ *   anchor, overlap, and multi-block memo dedup scenarios.
+ * - Why this is not fitting the test to the implementation: each new case exercises a distinct
+ *   observable merge outcome (null, merged text, deduplicated block), not internal LCS details.
+ *
  * TDD proof:
  * - Fails before the fix because merge has no injectable policy/budget and always attempts the LCS path.
+ * - RED memo-dedup follow-up: an edited single-memo shard (same timestamp, rewritten first line) was
+ *   concatenated into two blocks ("…original beginning\n\n…edited beginning") instead of keeping the
+ *   newer single block, because disjoint memo content was unconditionally appended older-first.
  *
  * Excludes:
  * - Repository write-back, UI rendering, binary conflict handling, and large heap stress tests.
@@ -99,6 +116,42 @@ class SyncConflictTextMergeTest : DomainFunSpec() {
                 )
 
             merged shouldBe expectedMergedText
+        }
+
+        test("merge keeps the newer local version when both sides hold the same edited memo timestamp") {
+            val merged =
+                SyncConflictTextMerge.merge(
+                    localText = "- 14:30:00 edited beginning",
+                    remoteText = "- 14:30:00 original beginning",
+                    localLastModified = 20L,
+                    remoteLastModified = 10L,
+                )
+
+            merged shouldBe "- 14:30:00 edited beginning"
+        }
+
+        test("merge keeps the newer remote version when both sides hold the same edited memo timestamp") {
+            val merged =
+                SyncConflictTextMerge.merge(
+                    localText = "- 14:30:00 stale local edit",
+                    remoteText = "- 14:30:00 newer remote edit",
+                    localLastModified = 10L,
+                    remoteLastModified = 20L,
+                )
+
+            merged shouldBe "- 14:30:00 newer remote edit"
+        }
+
+        test("merge deduplicates the shared-timestamp memo while keeping distinct memos") {
+            val merged =
+                SyncConflictTextMerge.merge(
+                    localText = "- 09:00:00 shared edited\n\n- 10:00:00 local only",
+                    remoteText = "- 09:00:00 shared original",
+                    localLastModified = 20L,
+                    remoteLastModified = 10L,
+                )
+
+            merged shouldBe "- 09:00:00 shared edited\n\n- 10:00:00 local only"
         }
 
         test("merge returns null for overlapping edits in the same slot") {

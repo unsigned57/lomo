@@ -39,13 +39,17 @@ sealed interface FontPreference {
          */
         fun fromStorageValue(value: String?): FontPreference {
             if (value.isNullOrBlank()) return default()
+            return fromStorageValueOrNull(value) ?: default()
+        }
+
+        fun fromStorageValueOrNull(value: String): FontPreference? {
             if (value == STORAGE_SYSTEM) return SystemDefault
             if (value.startsWith(STORAGE_CUSTOM_PREFIX)) {
                 val id = value.removePrefix(STORAGE_CUSTOM_PREFIX).trim()
-                if (id.isEmpty() || id.contains('/') || id.contains('\\')) return default()
+                if (id.isEmpty() || id.contains('/') || id.contains('\\')) return null
                 return UserImported(id)
             }
-            return default()
+            return null
         }
     }
 }

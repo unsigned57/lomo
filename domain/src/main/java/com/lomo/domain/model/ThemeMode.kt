@@ -10,5 +10,7 @@ enum class ThemeMode(
 
     companion object {
         fun fromValue(value: String): ThemeMode = entries.find { it.value == value } ?: SYSTEM
+
+        fun fromValueOrNull(value: String): ThemeMode? = entries.find { it.value == value }
     }
 }

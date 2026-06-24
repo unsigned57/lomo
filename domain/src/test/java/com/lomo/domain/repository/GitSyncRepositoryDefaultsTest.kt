@@ -19,6 +19,7 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
@@ -80,7 +81,7 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override suspend fun setToken(token: String) = Unit
 
-        override suspend fun getToken(): String? = null
+        override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
 
         override suspend fun setAuthorInfo(
             name: String,

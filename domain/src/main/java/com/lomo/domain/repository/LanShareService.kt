@@ -2,6 +2,8 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +16,8 @@ interface LanShareStateRepository {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
     val incomingShare: StateFlow<IncomingShareState>
     val transferState: StateFlow<ShareTransferState>
+    val lanShareRuntimeState: StateFlow<LanShareRuntimeState>
+    val lanShareDiscoveryDiagnostics: StateFlow<LanShareDiscoveryDiagnostics>
     val lanShareStartupFailures: Flow<LanShareStartupFailure>
     val lanSharePairingCode: StateFlow<String>
     val lanShareEnabled: Flow<Boolean>
@@ -30,6 +34,8 @@ interface LanShareLifecycleController {
     fun startDiscovery()
 
     fun stopDiscovery()
+
+    fun refreshNetworkPermissionState()
 }
 
 interface LanShareTransferController {

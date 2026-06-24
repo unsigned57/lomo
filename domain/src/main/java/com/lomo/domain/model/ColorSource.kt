@@ -52,16 +52,20 @@ sealed interface ColorSource {
          */
         fun fromStorageValue(value: String?): ColorSource {
             if (value.isNullOrBlank()) return default()
+            return fromStorageValueOrNull(value) ?: default()
+        }
+
+        fun fromStorageValueOrNull(value: String): ColorSource? {
             if (value == STORAGE_DYNAMIC) return DynamicWallpaper
             if (value.startsWith(STORAGE_PRESET_PREFIX)) {
                 val id = ColorPresetId.fromValue(value.removePrefix(STORAGE_PRESET_PREFIX))
-                return id?.let(::Preset) ?: default()
+                return id?.let(::Preset)
             }
             if (value.startsWith(STORAGE_SEED_PREFIX)) {
                 val rgb = parseRgbHex(value.removePrefix(STORAGE_SEED_PREFIX))
-                return rgb?.let { CustomSeed(asOpaqueArgb(it)) } ?: default()
+                return rgb?.let { CustomSeed(asOpaqueArgb(it)) }
             }
-            return default()
+            return null
         }
     }
 }

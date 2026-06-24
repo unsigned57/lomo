@@ -40,6 +40,7 @@ import com.lomo.domain.testing.fakes.FakeMemoStore
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.domain.testing.fakes.FakeSyncInboxRepository
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -57,7 +58,7 @@ import kotlinx.coroutines.test.runTest
  *   - Given a startup request, when deferred startup runs, then it recreates the inbox directory structure before processing changes.
  *   - Given a changed app version but missing root directory, when deferred startup runs, then it updates version without full resync.
  *   - Given slow image cache warmup, when deferred startup runs, then it processes sync inbox changes concurrently without blocking.
- *   - Given failing rebuild or image cache refresh, when deferred startup runs on version change, then it swallows failures best-effort and finishes.
+ *   - Given required rebuild fails on version change, when deferred startup runs, then last processed version is not advanced.
  *   - Given generic sync inbox failures, when deferred startup runs, then it continues executing best-effort.
  *   - Given a sync inbox review, when deferred startup runs, then it leaves review resolution on the review route.
  * - Observable outcomes: call counts, state changes, version updates, thrown exceptions, and execution concurrency.
@@ -314,23 +315,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("runDeferredStartupTasks keeps progressing when version-change rebuild and image refresh fail") {
+        test("runDeferredStartupTasks does not advance version when required version-change rebuild fails") {
             runTest {
                 val directorySettingsRepository = FakeDirectorySettingsRepository()
-                val delegateMedia = FakeMediaRepository()
-                val mediaRepository = object : MediaRepository {
-                    override suspend fun importImage(source: StorageLocation) = delegateMedia.importImage(source)
-                    override suspend fun removeImage(entryId: MediaEntryId) = delegateMedia.removeImage(entryId)
-                    override fun observeImageLocations() = delegateMedia.observeImageLocations()
-                    override suspend fun ensureCategoryWorkspace(category: MediaCategory) = delegateMedia.ensureCategoryWorkspace(category)
-                    override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) = delegateMedia.allocateVoiceCaptureTarget(entryId)
-                    override suspend fun removeVoiceCapture(entryId: MediaEntryId) = delegateMedia.removeVoiceCapture(entryId)
-
-                    override suspend fun refreshImageLocations() {
-                        delegateMedia.refreshImageLocations()
-                        throw IllegalArgumentException("refresh failed")
-                    }
-                }
+                val mediaRepository = FakeMediaRepository()
                 val initializeWorkspaceUseCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
                 val memoRepository = FakeMemoStore()
                 val delegatePolicy = FakeSyncPolicyRepository()
@@ -367,11 +355,14 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     syncInboxRepository = syncInboxRepository,
                 )
 
-                useCase.runDeferredStartupTasks(rootDir = "/workspace", currentVersion = "0.9.1")
+                shouldThrow<IllegalStateException> {
+                    useCase.runDeferredStartupTasks(rootDir = "/workspace", currentVersion = "0.9.1")
+                }
 
                 syncInboxRepository.syncRequests shouldBe listOf(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-                delegateMedia.refreshImageLocationsCallCount shouldBe 2
-                appVersionRepository.lastAppVersion shouldBe "0.9.1"
+                mediaRepository.refreshImageLocationsCallCount shouldBe 1
+                appVersionRepository.lastAppVersion shouldBe "0.9.0"
+                appVersionRepository.updatedVersions shouldBe emptyList()
             }
         }
 

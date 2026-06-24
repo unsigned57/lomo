@@ -2,6 +2,7 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
+import com.lomo.domain.model.PreferenceValueCodecs
 import com.lomo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 
@@ -59,7 +60,7 @@ interface InteractionBehaviorPreferencesRepository {
 
 interface MemoActionPreferencesRepository {
     companion object {
-        const val DEFAULT_MEMO_ACTION_ORDER_SCOPE = "main"
+        const val DEFAULT_MEMO_ACTION_ORDER_SCOPE = PreferenceValueCodecs.DEFAULT_MEMO_ACTION_ORDER_SCOPE
     }
 
     fun isMemoActionAutoReorderEnabled(): Flow<Boolean>
