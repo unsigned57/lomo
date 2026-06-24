@@ -3,7 +3,6 @@
   <ManuallySuppressedIssues/>
   <CurrentIssues>
     <ID>AbstractClassCanBeInterface:MarkdownBlockKey.kt:MarkdownBlockKey$MarkdownBlockKey</ID>
-    <ID>CanBeNonNullable:LazyListMotionState.kt:placement: LazyListMotionPlacement?</ID>
     <ID>CanBeNonNullable:MemoMenuHost.kt:current: MemoMenuState?</ID>
     <ID>CanBeNonNullable:MemoMenuHost.kt:onLanShare: ((MemoMenuState) -&gt; Unit)?</ID>
     <ID>DoubleMutabilityForCollection:SidebarDrawerTagTree.kt:var currentLevelNodes = rootNodes</ID>
@@ -27,7 +26,6 @@
     <ID>LongParameterList:InputSheetContent.kt:@Composable internal fun InputSheetContent</ID>
     <ID>LongParameterList:InputSheetContent.kt:@Composable private fun InputSheetBody</ID>
     <ID>LongParameterList:InputSheetFocusEffects.kt:@Composable internal fun InputSheetFocusRequestEffects</ID>
-    <ID>LongParameterList:LazyListRemoveFrame.kt:internal fun resolveRemoveFrame: LazyListRemoveFrame?</ID>
     <ID>LongParameterList:MarkdownRenderer.kt:@Composable private fun MarkdownRendererContent</ID>
     <ID>LongParameterList:MemoActionSheet.kt:@Composable private fun ActionItemRow</ID>
     <ID>LongParameterList:MemoActionSheet.kt:@Composable private fun rememberResolvedMemoActionSheetActions: ImmutableList&lt;MemoActionSheetAction&gt;</ID>
