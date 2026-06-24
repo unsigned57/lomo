@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
-import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 
@@ -15,12 +14,9 @@ internal suspend fun classifyInitialOverlaps(
     localFiles: Map<String, LocalS3File>,
     remoteFiles: Map<String, RemoteS3File>,
     metadataByPath: Map<String, S3SyncMetadataEntity>,
-    client: com.lomo.data.s3.LomoS3Client,
-    config: S3ResolvedConfig,
-    encodingSupport: S3SyncEncodingSupport,
-    fileBridgeScope: S3SyncFileBridgeScope,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
     mode: S3LocalSyncMode,
+    localFingerprintSource: S3LocalFingerprintSource,
     timestampToleranceMs: Long = 1000L,
 ): S3InitialSyncClassification {
     val candidatePaths =
@@ -38,32 +34,18 @@ internal suspend fun classifyInitialOverlaps(
             candidatePaths = candidatePaths,
             localFiles = localFiles,
             remoteFiles = remoteFiles,
-            fileBridgeScope = fileBridgeScope,
             layout = layout,
             mode = mode,
+            localFingerprintSource = localFingerprintSource,
             timestampToleranceMs = timestampToleranceMs,
         )
 
-    val unresolvedCountBeforeFallback = accumulation.conflictCount + accumulation.memoFallbackPaths.size
+    val unresolvedCountBeforeFallback = accumulation.conflictCount
     val shouldUseLightweightPreview =
         shouldUseLightweightInitialPreview(
             candidateCount = candidatePaths.size,
             unresolvedCount = unresolvedCountBeforeFallback,
         )
-
-    if (!shouldUseLightweightPreview) {
-        resolveMemoFallbackDecisions(
-            accumulation = accumulation,
-            localFiles = localFiles,
-            remoteFiles = remoteFiles,
-            client = client,
-            config = config,
-            encodingSupport = encodingSupport,
-            fileBridgeScope = fileBridgeScope,
-            layout = layout,
-            timestampToleranceMs = timestampToleranceMs,
-        )
-    }
 
     val finalConflictCount =
         candidatePaths.size -
@@ -82,11 +64,8 @@ internal suspend fun classifyInitialOverlaps(
 }
 
 private data class InitialOverlapAccumulation(
-    val localBytesCache: MutableMap<String, ByteArray?>,
-    val remoteBytesCache: MutableMap<String, ByteArray?>,
     val equivalentMetadataByPath: MutableMap<String, S3SyncMetadataEntity>,
     val resolvedActionsByPath: MutableMap<String, S3SyncAction>,
-    val memoFallbackPaths: List<String>,
     val conflictCount: Int,
 )
 
@@ -94,35 +73,40 @@ private suspend fun collectFastInitialDecisions(
     candidatePaths: List<String>,
     localFiles: Map<String, LocalS3File>,
     remoteFiles: Map<String, RemoteS3File>,
-    fileBridgeScope: S3SyncFileBridgeScope,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
     mode: S3LocalSyncMode,
+    localFingerprintSource: S3LocalFingerprintSource,
     timestampToleranceMs: Long,
 ): InitialOverlapAccumulation {
-    val localBytesCache = mutableMapOf<String, ByteArray?>()
-    val remoteBytesCache = mutableMapOf<String, ByteArray?>()
     val equivalentMetadataByPath = linkedMapOf<String, S3SyncMetadataEntity>()
     val resolvedActionsByPath = linkedMapOf<String, S3SyncAction>()
-    val memoFallbackPaths = mutableListOf<String>()
     var conflictCount = 0
     candidatePaths.forEach { path ->
         val local = requireNotNull(localFiles[path])
         val remote = requireNotNull(remoteFiles[path])
-        when (
-            resolveInitialOverlapFast(
+        val localFingerprint =
+            resolveInitialOverlapLocalFingerprint(
                 path = path,
                 local = local,
                 remote = remote,
                 layout = layout,
                 mode = mode,
-                fileBridgeScope = fileBridgeScope,
-                localBytesCache = localBytesCache,
+                localFingerprintSource = localFingerprintSource,
+            )
+        when (
+            resolveInitialOverlapFast(
+                path = path,
+                local = local,
+                localFingerprint = localFingerprint,
+                remote = remote,
+                layout = layout,
+                mode = mode,
                 timestampToleranceMs = timestampToleranceMs,
             )
         ) {
             InitialOverlapDecision.EQUIVALENT ->
                 equivalentMetadataByPath[path] =
-                    initialEquivalentMetadata(path, local, remote, localBytesCache[path])
+                    initialEquivalentMetadata(path, local, localFingerprint, remote)
 
             InitialOverlapDecision.UPLOAD ->
                 resolvedActionsByPath[path] = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_ONLY)
@@ -130,76 +114,39 @@ private suspend fun collectFastInitialDecisions(
             InitialOverlapDecision.DOWNLOAD ->
                 resolvedActionsByPath[path] = S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_ONLY)
 
-            InitialOverlapDecision.NEEDS_MEMO_CONTENT_FALLBACK -> memoFallbackPaths += path
             InitialOverlapDecision.CONFLICT -> conflictCount += 1
         }
     }
     return InitialOverlapAccumulation(
-        localBytesCache = localBytesCache,
-        remoteBytesCache = remoteBytesCache,
         equivalentMetadataByPath = equivalentMetadataByPath,
         resolvedActionsByPath = resolvedActionsByPath,
-        memoFallbackPaths = memoFallbackPaths,
         conflictCount = conflictCount,
     )
 }
 
-private suspend fun resolveMemoFallbackDecisions(
-    accumulation: InitialOverlapAccumulation,
-    localFiles: Map<String, LocalS3File>,
-    remoteFiles: Map<String, RemoteS3File>,
-    client: com.lomo.data.s3.LomoS3Client,
-    config: S3ResolvedConfig,
-    encodingSupport: S3SyncEncodingSupport,
-    fileBridgeScope: S3SyncFileBridgeScope,
-    layout: com.lomo.data.sync.SyncDirectoryLayout,
-    timestampToleranceMs: Long,
-) {
-    accumulation.memoFallbackPaths.forEach { path ->
-        val local = requireNotNull(localFiles[path])
-        val remote = requireNotNull(remoteFiles[path])
-        when (
-            resolveMemoContentFallback(
-                path = path,
-                local = local,
-                remote = remote,
-                client = client,
-                config = config,
-                encodingSupport = encodingSupport,
-                fileBridgeScope = fileBridgeScope,
-                layout = layout,
-                localBytesCache = accumulation.localBytesCache,
-                remoteBytesCache = accumulation.remoteBytesCache,
-                timestampToleranceMs = timestampToleranceMs,
-            )
-        ) {
-            InitialOverlapDecision.EQUIVALENT ->
-                accumulation.equivalentMetadataByPath[path] =
-                    initialEquivalentMetadata(path, local, remote, accumulation.localBytesCache[path])
-
-            InitialOverlapDecision.UPLOAD ->
-                accumulation.resolvedActionsByPath[path] =
-                    S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_ONLY)
-
-            InitialOverlapDecision.DOWNLOAD ->
-                accumulation.resolvedActionsByPath[path] =
-                    S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_ONLY)
-
-            InitialOverlapDecision.NEEDS_MEMO_CONTENT_FALLBACK,
-            InitialOverlapDecision.CONFLICT,
-            -> Unit
-        }
-    }
-}
-
-private suspend fun resolveInitialOverlapFast(
+private suspend fun resolveInitialOverlapLocalFingerprint(
     path: String,
     local: LocalS3File,
     remote: RemoteS3File,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
     mode: S3LocalSyncMode,
-    fileBridgeScope: S3SyncFileBridgeScope,
-    localBytesCache: MutableMap<String, ByteArray?>,
+    localFingerprintSource: S3LocalFingerprintSource,
+): String? {
+    local.localFingerprint?.let { return it }
+    val sizesDiffer = remote.size != null && local.size != null && remote.size != local.size
+    if (sizesDiffer || !isMemoPath(path, layout, mode) || remote.memoContentFingerprint() == null) {
+        return null
+    }
+    return localFingerprintSource.fingerprint(path, local)
+}
+
+private fun resolveInitialOverlapFast(
+    path: String,
+    local: LocalS3File,
+    localFingerprint: String?,
+    remote: RemoteS3File,
+    layout: com.lomo.data.sync.SyncDirectoryLayout,
+    mode: S3LocalSyncMode,
     timestampToleranceMs: Long,
 ): InitialOverlapDecision {
     val remoteSize = remote.size
@@ -207,54 +154,17 @@ private suspend fun resolveInitialOverlapFast(
     if (remoteSize != null && localSize != null && remoteSize != localSize) {
         return newerSideDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
     }
-    normalizeSinglePartS3Md5(remote.etag)?.let { expectedMd5 ->
-        val localMd5 =
-            localBytesCache.getOrPut(path) {
-                fileBridgeScope.readLocalBytes(path, layout)
-            }?.md5Hex()
-        if (localMd5 != null) {
-            return if (localMd5 == expectedMd5) {
+    if (isMemoPath(path, layout, mode)) {
+        val remoteFingerprint = remote.memoContentFingerprint()
+        if (localFingerprint != null && remoteFingerprint != null) {
+            return if (localFingerprint == remoteFingerprint) {
                 InitialOverlapDecision.EQUIVALENT
             } else {
                 newerSideDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
             }
         }
     }
-    if (isMemoPath(path, layout, mode)) {
-        return InitialOverlapDecision.NEEDS_MEMO_CONTENT_FALLBACK
-    }
     return InitialOverlapDecision.CONFLICT
-}
-
-private suspend fun resolveMemoContentFallback(
-    path: String,
-    local: LocalS3File,
-    remote: RemoteS3File,
-    client: com.lomo.data.s3.LomoS3Client,
-    config: S3ResolvedConfig,
-    encodingSupport: S3SyncEncodingSupport,
-    fileBridgeScope: S3SyncFileBridgeScope,
-    layout: com.lomo.data.sync.SyncDirectoryLayout,
-    localBytesCache: MutableMap<String, ByteArray?>,
-    remoteBytesCache: MutableMap<String, ByteArray?>,
-    timestampToleranceMs: Long,
-): InitialOverlapDecision {
-    val localBytes =
-        localBytesCache.getOrPut(path) {
-            fileBridgeScope.readLocalBytes(path, layout)
-        } ?: return InitialOverlapDecision.CONFLICT
-    val remoteBytes =
-        remoteBytesCache.getOrPut(path) {
-            runNonFatalCatching {
-                val payload = client.getSmallObject(remote.remotePath)
-                encodingSupport.decodeContent(payload.bytes, config)
-            }.getOrNull()
-        } ?: return InitialOverlapDecision.CONFLICT
-    return if (localBytes.contentEquals(remoteBytes)) {
-        InitialOverlapDecision.EQUIVALENT
-    } else {
-        newerSideDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
-    }
 }
 
 private fun shouldUseLightweightInitialPreview(
@@ -281,8 +191,8 @@ private fun newerSideDecision(
 private fun initialEquivalentMetadata(
     path: String,
     local: LocalS3File,
+    localFingerprint: String?,
     remote: RemoteS3File,
-    localBytes: ByteArray?,
 ): S3SyncMetadataEntity =
     S3SyncMetadataEntity(
         relativePath = path,
@@ -292,7 +202,7 @@ private fun initialEquivalentMetadata(
         localLastModified = local.lastModified,
         localSize = local.size,
         remoteSize = remote.size,
-        localFingerprint = normalizeSinglePartS3Md5(remote.etag) ?: localBytes?.md5Hex(),
+        localFingerprint = localFingerprint ?: remote.memoContentFingerprint(),
         lastSyncedAt = System.currentTimeMillis(),
         lastResolvedDirection = S3SyncMetadataEntity.NONE,
         lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
@@ -302,7 +212,6 @@ private enum class InitialOverlapDecision {
     EQUIVALENT,
     UPLOAD,
     DOWNLOAD,
-    NEEDS_MEMO_CONTENT_FALLBACK,
     CONFLICT,
 }
 private const val S3_INITIAL_HIGH_CONFLICT_MIN_CANDIDATES = 8

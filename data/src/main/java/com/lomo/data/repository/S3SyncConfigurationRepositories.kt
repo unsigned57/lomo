@@ -1,7 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.s3.S3CredentialStore
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -10,6 +11,7 @@ import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.isConfigured
+import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
 import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncStateRepository
@@ -71,7 +73,7 @@ class S3SyncConfigurationMutationRepositoryImpl
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
-        private val credentialStore: S3CredentialStore,
+        private val credentialRepository: CredentialRepository,
     ) : S3SyncConfigurationMutationRepository {
         override suspend fun setS3SyncEnabled(enabled: Boolean) {
             dataStore.updateS3SyncEnabled(enabled)
@@ -102,15 +104,15 @@ class S3SyncConfigurationMutationRepositoryImpl
         }
 
         override suspend fun setAccessKeyId(accessKeyId: String) {
-            credentialStore.setAccessKeyId(accessKeyId.trim())
+            credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId.trim())
         }
 
         override suspend fun setSecretAccessKey(secretAccessKey: String) {
-            credentialStore.setSecretAccessKey(secretAccessKey.trim())
+            credentialRepository.writeSecret(CredentialField.S3_SECRET_ACCESS_KEY, secretAccessKey.trim())
         }
 
         override suspend fun setSessionToken(sessionToken: String) {
-            credentialStore.setSessionToken(sessionToken.trim())
+            credentialRepository.writeSecret(CredentialField.S3_SESSION_TOKEN, sessionToken.trim())
         }
 
         override suspend fun setPathStyle(pathStyle: S3PathStyle) {
@@ -142,27 +144,29 @@ class S3SyncConfigurationMutationRepositoryImpl
         }
 
         override suspend fun setEncryptionPassword(password: String) {
-            credentialStore.setEncryptionPassword(password.trim())
+            credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD, password.trim())
         }
 
         override suspend fun setEncryptionPassword2(password: String) {
-            credentialStore.setEncryptionPassword2(password.trim())
+            credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD2, password.trim())
         }
 
-        override suspend fun getAccessKeyStatus(): StoredCredentialStatus = credentialStore.accessKeyIdStatus
+        override suspend fun getAccessKeyStatus(): StoredCredentialStatus =
+            credentialState().statusFor(CredentialField.S3_ACCESS_KEY_ID)
 
         override suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
-            credentialStore.secretAccessKeyStatus
+            credentialState().statusFor(CredentialField.S3_SECRET_ACCESS_KEY)
 
-        override suspend fun getSessionTokenStatus(): StoredCredentialStatus = credentialStore.sessionTokenStatus
+        override suspend fun getSessionTokenStatus(): StoredCredentialStatus =
+            credentialState().statusFor(CredentialField.S3_SESSION_TOKEN)
 
         override suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
-            credentialStore.encryptionPasswordStatus
+            credentialState().statusFor(CredentialField.S3_ENCRYPTION_PASSWORD)
 
         override suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
-            credentialStore.encryptionPassword2Status
+            credentialState().statusFor(CredentialField.S3_ENCRYPTION_PASSWORD2)
 
-        override suspend fun getCredentialState(): CredentialState = credentialStore.credentialState
+        override suspend fun getCredentialState(): CredentialState = credentialState()
 
         override suspend fun isAccessKeyConfigured(): Boolean = getAccessKeyStatus().isConfigured
 
@@ -188,6 +192,9 @@ class S3SyncConfigurationMutationRepositoryImpl
         override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
             dataStore.updateS3SyncOnRefresh(enabled)
         }
+
+        private suspend fun credentialState(): CredentialState =
+            credentialRepository.credentialState(CredentialProvider.S3)
     }
 
 @Singleton

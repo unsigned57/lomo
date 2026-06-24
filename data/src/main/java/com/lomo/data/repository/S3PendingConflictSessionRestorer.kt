@@ -11,6 +11,7 @@ internal class S3PendingConflictSessionRestorer(
     private val runtime: S3SyncRepositoryContext,
     private val support: S3SyncRepositorySupport,
     private val encodingSupport: S3SyncEncodingSupport,
+    private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
     private val fileBridge: S3SyncFileBridge,
     private val lifecycleRunner: RemoteSyncLifecycleRunner,
 ) : PendingSyncConflictRestorer {
@@ -39,6 +40,7 @@ internal class S3PendingConflictSessionRestorer(
                                 layout = layout,
                                 fileBridgeScope = fileBridgeScope,
                                 encodingSupport = encodingSupport,
+                                objectKeyPolicy = objectKeyPolicy,
                             ),
                         descriptor = descriptor,
                     ),
@@ -142,6 +144,7 @@ private class S3PendingConflictValidator(
     private val layout: SyncDirectoryLayout,
     private val fileBridgeScope: S3SyncFileBridgeScope,
     private val encodingSupport: S3SyncEncodingSupport,
+    private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
 ) {
     private lateinit var meteredClient: LomoS3Client
 
@@ -170,7 +173,12 @@ private class S3PendingConflictValidator(
     }
 
     private suspend fun restoreFile(file: PendingSyncConflictFileDescriptor): PendingConflictFileRestore {
-        val local = fileBridgeScope.localFile(file.relativePath, layout)
+        val local =
+            fileBridgeScope.pendingValidationLocalFile(
+                path = file.relativePath,
+                layout = layout,
+                requireContentFingerprint = file.local.contentHash != null,
+            )
         return when {
             local == null -> PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.MISSING_LOCAL)
             !file.local.matchesLocal(local) ->
@@ -183,20 +191,23 @@ private class S3PendingConflictValidator(
         file: PendingSyncConflictFileDescriptor,
         local: LocalS3File,
     ): PendingConflictFileRestore {
-        val remotePath = remotePathFor(file)
-        val remote = meteredClient.getObjectMetadata(remotePath)
+        val remoteKey = remoteKeyFor(file)
+        if (!file.remote.hasCompleteRemoteMetadata()) {
+            return PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
+        }
+        val remote = meteredClient.getObjectMetadata(remoteKey.value)
         return when {
             remote == null -> PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
             !file.remote.matchesRemoteMetadata(remote, encodingSupport) ->
                 PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
-            else -> restoreContents(file, local, remotePath, remote)
+            else -> restoreContents(file, local, remoteKey, remote)
         }
     }
 
     private suspend fun restoreContents(
         file: PendingSyncConflictFileDescriptor,
         local: LocalS3File,
-        remotePath: String,
+        remoteKey: S3RemoteObjectKey,
         remote: S3RemoteObject,
     ): PendingConflictFileRestore {
         val localContent =
@@ -210,14 +221,14 @@ private class S3PendingConflictValidator(
                 null
             } else {
                 String(
-                    encodingSupport.decodeContent(meteredClient.getSmallObject(remotePath).bytes, config),
+                    encodingSupport.decodeContent(meteredClient.getSmallObject(remoteKey.value).bytes, config),
                     Charsets.UTF_8,
                 )
-            }
+        }
         return when {
-            !file.local.matchesContent(localContent) ->
+            !file.isBinary && !file.local.matchesContent(localContent) ->
                 PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
-            !file.remote.matchesContent(remoteContent) ->
+            !file.isBinary && !file.remote.matchesContent(remoteContent) ->
                 PendingConflictFileRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
             else ->
                 PendingConflictFileRestore.Restored(
@@ -236,9 +247,8 @@ private class S3PendingConflictValidator(
         }
     }
 
-    private fun remotePathFor(file: PendingSyncConflictFileDescriptor): String =
-        file.remote.locator.takeIf { locator -> locator != file.relativePath }
-            ?: encodingSupport.remotePathFor(file.relativePath, config)
+    private fun remoteKeyFor(file: PendingSyncConflictFileDescriptor): S3RemoteObjectKey =
+        objectKeyPolicy.validatedExistingKey(file.remote.locator, config)
 }
 
 private fun PendingSyncSideMetadata.matchesRemoteMetadata(

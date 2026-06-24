@@ -2,12 +2,10 @@ package com.lomo.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.database.Cursor
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
-import com.lomo.data.source.safQueryChildDocumentsWithIdsRecursiveCommon
-import com.lomo.data.source.getStringOrNull
-import com.lomo.data.source.getLongOrZero
-import com.lomo.data.source.getLongOrNull
+import com.lomo.data.util.md5Hex
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +38,11 @@ interface S3SafTreeAccess {
     ): ByteArray?
 
     suspend fun readText(
+        rootUriString: String,
+        relativePath: String,
+    ): String?
+
+    suspend fun md5Hex(
         rootUriString: String,
         relativePath: String,
     ): String?
@@ -84,6 +87,99 @@ class AndroidS3SafTreeAccess
         private fun cacheKey(rootUriString: String, relativePath: String): String =
             "$rootUriString:${sanitizeRelativePath(relativePath) ?: relativePath}"
 
+        private fun listS3SafFiles(
+            rootUriString: String,
+            rootUri: Uri,
+            rootDocId: String,
+        ): List<S3SafTreeFile> {
+            val results = mutableListOf<S3SafTreeFile>()
+            val queue = ArrayDeque<Pair<String, String>>().apply { add(rootDocId to "") }
+            while (queue.isNotEmpty()) {
+                val (parentDocId, prefix) = queue.removeFirst()
+                val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
+                context.contentResolver.query(
+                    childUri,
+                    S3_SAF_LIST_PROJECTION,
+                    null,
+                    null,
+                    null,
+                )?.use { cursor ->
+                    processS3SafListCursor(
+                        rootUriString = rootUriString,
+                        rootUri = rootUri,
+                        prefix = prefix,
+                        queue = queue,
+                        cursor = cursor,
+                        results = results,
+                    )
+                }
+            }
+            return results
+        }
+
+        private fun processS3SafListCursor(
+            rootUriString: String,
+            rootUri: Uri,
+            prefix: String,
+            queue: ArrayDeque<Pair<String, String>>,
+            cursor: Cursor,
+            results: MutableList<S3SafTreeFile>,
+        ) {
+            val docIdIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val lastModifiedIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            while (cursor.moveToNext()) {
+                processS3SafListRow(
+                    rootUriString = rootUriString,
+                    rootUri = rootUri,
+                    prefix = prefix,
+                    queue = queue,
+                    cursor = cursor,
+                    indexes =
+                        S3SafListCursorIndexes(
+                            documentId = docIdIndex,
+                            name = nameIndex,
+                            mime = mimeIndex,
+                            lastModified = lastModifiedIndex,
+                            size = sizeIndex,
+                        ),
+                    results = results,
+                )
+            }
+        }
+
+        private fun processS3SafListRow(
+            rootUriString: String,
+            rootUri: Uri,
+            prefix: String,
+            queue: ArrayDeque<Pair<String, String>>,
+            cursor: Cursor,
+            indexes: S3SafListCursorIndexes,
+            results: MutableList<S3SafTreeFile>,
+        ) {
+            val documentId = cursor.getStringOrNull(indexes.documentId)
+            val name = cursor.getStringOrNull(indexes.name)
+            if (documentId == null || name == null || name.startsWith(".")) return
+            val isDirectory = cursor.getStringOrNull(indexes.mime) == DocumentsContract.Document.MIME_TYPE_DIR
+            val relativePath = joinRelativePath(prefix, name)
+            if (isDirectory) {
+                queue.add(documentId to relativePath)
+            } else {
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId).toString()
+                uriCache[cacheKey(rootUriString, relativePath)] = UriCacheEntry(documentUri, documentId)
+                results +=
+                    S3SafTreeFile(
+                        relativePath = relativePath,
+                        lastModified = cursor.getLongOrZero(indexes.lastModified),
+                        size = cursor.getLongOrNull(indexes.size),
+                        documentUri = documentUri,
+                        documentId = documentId,
+                    )
+            }
+        }
+
         override suspend fun listFiles(rootUriString: String): List<S3SafTreeFile> =
             withContext(Dispatchers.IO) {
                 val rootUri = rootUriString.toUri()
@@ -93,28 +189,7 @@ class AndroidS3SafTreeAccess
                     Timber.w(e, "Failed to get tree document ID")
                     return@withContext emptyList()
                 }
-                val files = safQueryChildDocumentsWithIdsRecursiveCommon(
-                    context = context,
-                    rootUri = rootUri,
-                    baseDocId = rootDocId,
-                    excludeTrash = true,
-                    shouldSkip = { name, _ -> name.startsWith(".") },
-                    fileFilter = { true }
-                )
-                files.map { file ->
-                    val uriStr = file.uriString
-                    val docId = file.documentId
-                    if (uriStr != null) {
-                        uriCache[cacheKey(rootUriString, file.filename)] = UriCacheEntry(uriStr, docId)
-                    }
-                    S3SafTreeFile(
-                        relativePath = file.filename,
-                        lastModified = file.lastModified,
-                        size = file.size,
-                        documentUri = uriStr,
-                        documentId = docId
-                    )
-                }
+                listS3SafFiles(rootUriString = rootUriString, rootUri = rootUri, rootDocId = rootDocId)
             }
 
         override suspend fun getFile(
@@ -173,6 +248,24 @@ class AndroidS3SafTreeAccess
             rootUriString: String,
             relativePath: String,
         ): String? = readBytes(rootUriString, relativePath)?.toString(StandardCharsets.UTF_8)
+
+        override suspend fun md5Hex(
+            rootUriString: String,
+            relativePath: String,
+        ): String? =
+            withContext(Dispatchers.IO) {
+                val entry = resolvePathToUriAndId(rootUriString, relativePath) ?: return@withContext null
+                try {
+                    val input =
+                        context.contentResolver.openInputStream(entry.documentUri.toUri())
+                            ?: return@withContext null
+                    input.use { stream -> stream.md5Hex() }
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to fingerprint file: %s", relativePath)
+                    uriCache.remove(cacheKey(rootUriString, relativePath))
+                    null
+                }
+            }
 
         override suspend fun exportToFile(
             rootUriString: String,
@@ -456,6 +549,11 @@ internal object UnsupportedS3SafTreeAccess : S3SafTreeAccess {
         relativePath: String,
     ): String? = error("S3 SAF tree access is not configured for this test instance")
 
+    override suspend fun md5Hex(
+        rootUriString: String,
+        relativePath: String,
+    ): String? = error("S3 SAF tree access is not configured for this test instance")
+
     override suspend fun exportToFile(
         rootUriString: String,
         relativePath: String,
@@ -485,3 +583,29 @@ internal object UnsupportedS3SafTreeAccess : S3SafTreeAccess {
         error("S3 SAF tree access is not configured for this test instance")
     }
 }
+
+private fun Cursor.getStringOrNull(index: Int): String? =
+    if (index != -1) getString(index) else null
+
+private fun Cursor.getLongOrZero(index: Int): Long =
+    if (index != -1) getLong(index) else 0L
+
+private fun Cursor.getLongOrNull(index: Int): Long? =
+    if (index != -1 && !isNull(index)) getLong(index) else null
+
+private data class S3SafListCursorIndexes(
+    val documentId: Int,
+    val name: Int,
+    val mime: Int,
+    val lastModified: Int,
+    val size: Int,
+)
+
+private val S3_SAF_LIST_PROJECTION =
+    arrayOf(
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE,
+        DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        DocumentsContract.Document.COLUMN_SIZE,
+    )

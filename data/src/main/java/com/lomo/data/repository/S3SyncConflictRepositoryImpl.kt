@@ -51,6 +51,7 @@ class S3ConflictResolver
         private val runtime: S3SyncRepositoryContext,
         private val support: S3SyncRepositorySupport,
         private val encodingSupport: S3SyncEncodingSupport,
+        private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
         private val fileBridge: S3SyncFileBridge,
         private val protocolStateStore: S3SyncProtocolStateStore,
         private val localChangeJournalStore: S3LocalChangeJournalStore,
@@ -101,8 +102,9 @@ class S3ConflictResolver
             mode: S3LocalSyncMode,
         ): S3SyncResult {
             val context = loadResolutionContext(conflictSet)
+            val pendingDescriptor = pendingConflictStore.readDescriptor(conflictSet.source)
             validatePendingConflictBeforeResolve(
-                descriptor = pendingConflictStore.readDescriptor(conflictSet.source),
+                descriptor = pendingDescriptor,
                 client = client,
                 layout = layout,
                 config = config,
@@ -119,7 +121,13 @@ class S3ConflictResolver
                     client = client,
                     layout = layout,
                     config = config,
-                    remoteFiles = context.remoteFiles,
+                    remoteFiles =
+                        context.remoteFiles +
+                            pendingDescriptor
+                                ?.toRestoredRemoteFiles(
+                                    config = config,
+                                    objectKeyPolicy = objectKeyPolicy,
+                                ).orEmpty(),
                     metadataByPath = context.metadataByPath,
                     fileBridgeScope = fileBridgeScope,
                     mode = mode,
@@ -147,7 +155,7 @@ class S3ConflictResolver
                 }
                 refreshS3ResolutionMemoCache(runtime, "conflict")
             }
-            return buildFinalResult(conflictSet, applied.unresolvedFiles)
+            return buildFinalResult(conflictSet, pendingDescriptor, applied.unresolvedFiles)
         }
 
         private suspend fun validatePendingConflictBeforeResolve(
@@ -161,23 +169,44 @@ class S3ConflictResolver
             descriptor ?: return null
             descriptor.files.forEach { file ->
                 val local =
-                    fileBridgeScope.localFile(file.relativePath, layout)
-                        ?: return PendingSyncInvalidationReason.MISSING_LOCAL
-                if (!file.local.matchesLocal(local)) return PendingSyncInvalidationReason.STALE_LOCAL
-                val remotePath =
-                    file.remote.locator.takeIf { locator -> locator != file.relativePath }
-                        ?: metadataByPath[file.relativePath]?.remotePath
-                        ?: encodingSupport.remotePathFor(file.relativePath, config)
-                val remote = client.getObjectMetadata(remotePath) ?: return PendingSyncInvalidationReason.MISSING_REMOTE
-                val remoteLastModified = encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified)
-                if (!file.remote.matchesRemote(remote.eTag, remoteLastModified, remote.size)) {
-                    return PendingSyncInvalidationReason.STALE_REMOTE
-                }
-                if (!file.isBinary) {
+                    fileBridgeScope.pendingValidationLocalFile(
+                        path = file.relativePath,
+                        layout = layout,
+                        requireContentFingerprint = file.local.contentHash != null,
+                    ) ?: return PendingSyncInvalidationReason.MISSING_LOCAL
+                val remoteKey =
+                    objectKeyPolicy.resolveS3OperationKey(
+                        relativePath = file.relativePath,
+                        explicitExistingKey = file.remote.locator,
+                        remoteFile = null,
+                        metadata = metadataByPath[file.relativePath],
+                        config = config,
+                    )
+                if (file.isBinary) {
+                    // Binary/non-memo files carry no comparable text: validate through the recorded
+                    // fingerprint and remote object metadata, rejecting local divergence before any HEAD.
+                    if (!file.local.matchesLocal(local)) return PendingSyncInvalidationReason.STALE_LOCAL
+                    if (!file.remote.hasCompleteRemoteMetadata()) return PendingSyncInvalidationReason.STALE_REMOTE
+                    val remote =
+                        client.getObjectMetadata(remoteKey.value)
+                            ?: return PendingSyncInvalidationReason.MISSING_REMOTE
+                    val remoteLastModified =
+                        encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified)
+                    if (!file.remote.matchesRemote(remote.eTag, remoteLastModified, remote.size)) {
+                        return PendingSyncInvalidationReason.STALE_REMOTE
+                    }
+                } else {
+                    // Memo/text conflicts validate staleness by content equality, the authoritative signal
+                    // for "the versions the user is resolving are still current". Remote `lastModified` is
+                    // normalized differently between the cached remote index (raw HTTP time) and a fresh
+                    // HEAD (app-embedded mtime), so an exact timestamp/etag match would spuriously
+                    // invalidate an unchanged memo and force the user to apply the resolution twice.
+                    client.getObjectMetadata(remoteKey.value)
+                        ?: return PendingSyncInvalidationReason.MISSING_REMOTE
                     val localContent = fileBridgeScope.readLocalText(file.relativePath, layout)
                     val remoteContent =
                         String(
-                            encodingSupport.decodeContent(client.getSmallObject(remotePath).bytes, config),
+                            encodingSupport.decodeContent(client.getSmallObject(remoteKey.value).bytes, config),
                             Charsets.UTF_8,
                         )
                     if (!file.local.matchesContent(localContent)) return PendingSyncInvalidationReason.STALE_LOCAL
@@ -280,11 +309,16 @@ class S3ConflictResolver
 
         private suspend fun buildFinalResult(
             conflictSet: SyncConflictSet,
+            pendingDescriptor: PendingSyncConflictDescriptor?,
             unresolvedFiles: List<com.lomo.domain.model.SyncConflictFile>,
         ): S3SyncResult {
             if (unresolvedFiles.isNotEmpty()) {
                 val pendingConflicts = conflictSet.copy(files = unresolvedFiles)
-                pendingConflictStore.write(pendingConflicts)
+                val pendingDescriptorTail =
+                    requireNotNull(pendingDescriptor) {
+                        "S3 unresolved conflict persistence requires a pending descriptor with provider locators"
+                    }.filterFiles(unresolvedFiles.map { file -> file.relativePath }.toSet())
+                pendingConflictStore.writeDescriptor(pendingDescriptorTail)
                 runtime.stateHolder.state.value = com.lomo.domain.model.S3SyncState.ConflictDetected(pendingConflicts)
                 return S3SyncResult.Conflict(
                     message = "Pending conflicts remain",
@@ -368,13 +402,16 @@ class S3ConflictResolver
             val mergedBytes = mergedText.toByteArray(Charsets.UTF_8)
             fileBridgeScope.writeLocalBytes(file.relativePath, mergedBytes, layout)
             val localFile = fileBridgeScope.localFile(file.relativePath, layout)
-            val remotePath =
-                remoteFiles[file.relativePath]?.remotePath
-                    ?: metadataByPath[file.relativePath]?.remotePath
-                    ?: encodingSupport.remotePathFor(file.relativePath, config)
+            val remoteKey =
+                objectKeyPolicy.resolveS3OperationKey(
+                    relativePath = file.relativePath,
+                    remoteFile = remoteFiles[file.relativePath],
+                    metadata = metadataByPath[file.relativePath],
+                    config = config,
+                )
             val uploaded =
                 client.putSmallObject(
-                    key = remotePath,
+                    key = remoteKey.value,
                     bytes = encodingSupport.encodeContent(mergedBytes, config),
                     contentType = contentTypeForPath(file.relativePath, layout, runtime, mode),
                     metadata = encodingSupport.objectMetadata(System.currentTimeMillis()),
@@ -387,7 +424,7 @@ class S3ConflictResolver
                         path = file.relativePath,
                         etag = uploaded.eTag,
                         lastModified = localFile?.lastModified ?: System.currentTimeMillis(),
-                        remotePath = remotePath,
+                        remotePath = remoteKey.value,
                     ),
                 direction = com.lomo.domain.model.S3SyncDirection.UPLOAD,
                 reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
@@ -416,14 +453,17 @@ class S3ConflictResolver
                         }
                         ?: return@withSession null
                 val localFile = fileBridgeScope.localFile(file.relativePath, layout)
-                val remotePath =
-                    remoteFiles[file.relativePath]?.remotePath
-                        ?: metadataByPath[file.relativePath]?.remotePath
-                        ?: encodingSupport.remotePathFor(file.relativePath, config)
+                val remoteKey =
+                    objectKeyPolicy.resolveS3OperationKey(
+                        relativePath = file.relativePath,
+                        remoteFile = remoteFiles[file.relativePath],
+                        metadata = metadataByPath[file.relativePath],
+                        config = config,
+                    )
                 val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
                 val uploaded =
                     client.putObjectFile(
-                        key = remotePath,
+                        key = remoteKey.value,
                         file = uploadFile.file,
                         contentType = contentTypeForPath(file.relativePath, layout, runtime, mode),
                         metadata = encodingSupport.objectMetadata(System.currentTimeMillis()),
@@ -436,7 +476,7 @@ class S3ConflictResolver
                             path = file.relativePath,
                             etag = uploaded.eTag,
                             lastModified = localFile?.lastModified ?: System.currentTimeMillis(),
-                            remotePath = remotePath,
+                            remotePath = remoteKey.value,
                         ),
                     direction = com.lomo.domain.model.S3SyncDirection.UPLOAD,
                     reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
@@ -453,13 +493,16 @@ class S3ConflictResolver
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             fileBridgeScope: S3SyncFileBridgeScope,
         ): S3ConflictResolutionOutcome {
-            val remotePath =
-                remoteFiles[file.relativePath]?.remotePath
-                    ?: metadataByPath[file.relativePath]?.remotePath
-                    ?: encodingSupport.remotePathFor(file.relativePath, config)
+            val remoteKey =
+                objectKeyPolicy.resolveS3OperationKey(
+                    relativePath = file.relativePath,
+                    remoteFile = remoteFiles[file.relativePath],
+                    metadata = metadataByPath[file.relativePath],
+                    config = config,
+                )
             return transferWorkspace.withSession { session ->
                 val downloadedFile = session.createTempFile("s3-conflict-remote-", ".tmp")
-                val remoteObject = client.getObjectToFile(remotePath, downloadedFile)
+                val remoteObject = client.getObjectToFile(remoteKey.value, downloadedFile)
                 val decoded = encodingSupport.decodeDownloadedFile(downloadedFile, config, session)
                 fileBridgeScope.importLocalFile(file.relativePath, decoded.file, layout)
                 val localFile = fileBridgeScope.localFile(file.relativePath, layout)
@@ -475,7 +518,7 @@ class S3ConflictResolver
                                     remoteObject.metadata,
                                     remoteObject.lastModified,
                                 ) ?: remoteFiles[file.relativePath]?.lastModified,
-                            remotePath = remotePath,
+                            remotePath = remoteKey.value,
                         ),
                     direction = com.lomo.domain.model.S3SyncDirection.DOWNLOAD,
                     reason = com.lomo.domain.model.S3SyncReason.REMOTE_NEWER,
@@ -492,6 +535,7 @@ class S3ReviewResolver
         private val runtime: S3SyncRepositoryContext,
         private val support: S3SyncRepositorySupport,
         private val encodingSupport: S3SyncEncodingSupport,
+        private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
         private val fileBridge: S3SyncFileBridge,
         private val protocolStateStore: S3SyncProtocolStateStore,
         private val localChangeJournalStore: S3LocalChangeJournalStore,
@@ -542,10 +586,12 @@ class S3ReviewResolver
             mode: S3LocalSyncMode,
         ): S3SyncResult {
             val context = loadResolutionContext(review)
+            val pendingDescriptor = pendingReviewStore.readDescriptor(review.source)
+            var pendingRemoteFiles = emptyMap<String, RemoteS3File>()
             val validatedReview =
                 when (
                     val restored =
-                        pendingReviewStore.readDescriptor(review.source)?.let { descriptor ->
+                        pendingDescriptor?.let { descriptor ->
                             S3PendingReviewRestorer(
                                 client = client,
                                 layout = layout,
@@ -553,11 +599,20 @@ class S3ReviewResolver
                                 metadataByPath = context.metadataByPath,
                                 fileBridgeScope = fileBridgeScope,
                                 encodingSupport = encodingSupport,
+                                objectKeyPolicy = objectKeyPolicy,
                             ).restore(descriptor)
                         }
                 ) {
                     null -> review
-                    is PendingSyncRestoreResult.Restored -> restored.session
+                    is PendingSyncRestoreResult.Restored -> {
+                        pendingRemoteFiles =
+                            requireNotNull(pendingDescriptor)
+                                .toRestoredRemoteFiles(
+                                    config = config,
+                                    objectKeyPolicy = objectKeyPolicy,
+                                )
+                        restored.session
+                    }
                     is PendingSyncRestoreResult.Invalidated -> {
                         pendingReviewStore.clear(review.source)
                         return S3SyncResult.Error("Pending S3 review session requires rebuild: ${restored.reason}")
@@ -575,7 +630,7 @@ class S3ReviewResolver
                     client = client,
                     layout = layout,
                     config = config,
-                    remoteFiles = context.remoteFiles,
+                    remoteFiles = context.remoteFiles + pendingRemoteFiles,
                     metadataByPath = context.metadataByPath,
                     fileBridgeScope = fileBridgeScope,
                     mode = mode,
@@ -603,7 +658,7 @@ class S3ReviewResolver
                 }
                 refreshS3ResolutionMemoCache(runtime, "review")
             }
-            return buildFinalResult(validatedReview, applied.unresolvedItems)
+            return buildFinalResult(validatedReview, pendingDescriptor, applied.unresolvedItems)
         }
 
         private suspend fun loadResolutionContext(
@@ -703,11 +758,16 @@ class S3ReviewResolver
 
         private suspend fun buildFinalResult(
             review: SyncReviewSession,
+            pendingDescriptor: PendingSyncReviewDescriptor?,
             unresolvedItems: List<SyncReviewItem>,
         ): S3SyncResult {
             if (unresolvedItems.isNotEmpty()) {
                 val pendingReview = review.copy(items = unresolvedItems)
-                pendingReviewStore.write(pendingReview)
+                val pendingDescriptorTail =
+                    requireNotNull(pendingDescriptor) {
+                        "S3 unresolved review persistence requires a pending descriptor with provider locators"
+                    }.filterItems(unresolvedItems.map { item -> item.relativePath }.toSet())
+                pendingReviewStore.writeDescriptor(pendingDescriptorTail)
                 runtime.stateHolder.state.value = S3SyncState.PreviewingInitialSync(pendingReview)
                 return S3SyncResult.Review("Pending review items remain", pendingReview)
             }
@@ -761,13 +821,16 @@ class S3ReviewResolver
             val mergedBytes = mergedText.toByteArray(Charsets.UTF_8)
             fileBridgeScope.writeLocalBytes(item.relativePath, mergedBytes, layout)
             val localFile = fileBridgeScope.localFile(item.relativePath, layout)
-            val remotePath =
-                remoteFiles[item.relativePath]?.remotePath
-                    ?: metadataByPath[item.relativePath]?.remotePath
-                    ?: encodingSupport.remotePathFor(item.relativePath, config)
+            val remoteKey =
+                objectKeyPolicy.resolveS3OperationKey(
+                    relativePath = item.relativePath,
+                    remoteFile = remoteFiles[item.relativePath],
+                    metadata = metadataByPath[item.relativePath],
+                    config = config,
+                )
             val uploaded =
                 client.putSmallObject(
-                    key = remotePath,
+                    key = remoteKey.value,
                     bytes = encodingSupport.encodeContent(mergedBytes, config),
                     contentType = contentTypeForPath(item.relativePath, layout, runtime, mode),
                     metadata = encodingSupport.objectMetadata(System.currentTimeMillis()),
@@ -780,7 +843,7 @@ class S3ReviewResolver
                         path = item.relativePath,
                         etag = uploaded.eTag,
                         lastModified = localFile?.lastModified ?: System.currentTimeMillis(),
-                        remotePath = remotePath,
+                        remotePath = remoteKey.value,
                     ),
                 direction = com.lomo.domain.model.S3SyncDirection.UPLOAD,
                 reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
@@ -809,14 +872,17 @@ class S3ReviewResolver
                         }
                         ?: return@withSession null
                 val localFile = fileBridgeScope.localFile(item.relativePath, layout)
-                val remotePath =
-                    remoteFiles[item.relativePath]?.remotePath
-                        ?: metadataByPath[item.relativePath]?.remotePath
-                        ?: encodingSupport.remotePathFor(item.relativePath, config)
+                val remoteKey =
+                    objectKeyPolicy.resolveS3OperationKey(
+                        relativePath = item.relativePath,
+                        remoteFile = remoteFiles[item.relativePath],
+                        metadata = metadataByPath[item.relativePath],
+                        config = config,
+                    )
                 val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
                 val uploaded =
                     client.putObjectFile(
-                        key = remotePath,
+                        key = remoteKey.value,
                         file = uploadFile.file,
                         contentType = contentTypeForPath(item.relativePath, layout, runtime, mode),
                         metadata = encodingSupport.objectMetadata(System.currentTimeMillis()),
@@ -829,7 +895,7 @@ class S3ReviewResolver
                             path = item.relativePath,
                             etag = uploaded.eTag,
                             lastModified = localFile?.lastModified ?: System.currentTimeMillis(),
-                            remotePath = remotePath,
+                            remotePath = remoteKey.value,
                         ),
                     direction = com.lomo.domain.model.S3SyncDirection.UPLOAD,
                     reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
@@ -846,13 +912,16 @@ class S3ReviewResolver
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             fileBridgeScope: S3SyncFileBridgeScope,
         ): S3ReviewResolutionOutcome {
-            val remotePath =
-                remoteFiles[item.relativePath]?.remotePath
-                    ?: metadataByPath[item.relativePath]?.remotePath
-                    ?: encodingSupport.remotePathFor(item.relativePath, config)
+            val remoteKey =
+                objectKeyPolicy.resolveS3OperationKey(
+                    relativePath = item.relativePath,
+                    remoteFile = remoteFiles[item.relativePath],
+                    metadata = metadataByPath[item.relativePath],
+                    config = config,
+                )
             return transferWorkspace.withSession { session ->
                 val downloadedFile = session.createTempFile("s3-review-remote-", ".tmp")
-                val remoteObject = client.getObjectToFile(remotePath, downloadedFile)
+                val remoteObject = client.getObjectToFile(remoteKey.value, downloadedFile)
                 val decoded = encodingSupport.decodeDownloadedFile(downloadedFile, config, session)
                 fileBridgeScope.importLocalFile(item.relativePath, decoded.file, layout)
                 val localFile = fileBridgeScope.localFile(item.relativePath, layout)
@@ -868,7 +937,7 @@ class S3ReviewResolver
                                     remoteObject.metadata,
                                     remoteObject.lastModified,
                                 ) ?: remoteFiles[item.relativePath]?.lastModified,
-                            remotePath = remotePath,
+                            remotePath = remoteKey.value,
                         ),
                     direction = com.lomo.domain.model.S3SyncDirection.DOWNLOAD,
                     reason = com.lomo.domain.model.S3SyncReason.REMOTE_NEWER,
@@ -950,6 +1019,61 @@ private data class S3ResolutionContext(
     val remoteFiles: Map<String, RemoteS3File>,
 )
 
+private fun PendingSyncConflictDescriptor.toRestoredRemoteFiles(
+    config: S3ResolvedConfig,
+    objectKeyPolicy: S3RemoteObjectKeyPolicy,
+): Map<String, RemoteS3File> =
+    files.associate { file ->
+        val remoteKey = objectKeyPolicy.validatedExistingKey(file.remote.locator, config)
+        file.relativePath to
+            RemoteS3File(
+                path = file.relativePath,
+                etag = file.remote.etag,
+                lastModified = file.remote.lastModified,
+                size = file.remote.size,
+                remotePath = remoteKey.value,
+                verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
+            )
+    }
+
+private fun PendingSyncReviewDescriptor.toRestoredRemoteFiles(
+    config: S3ResolvedConfig,
+    objectKeyPolicy: S3RemoteObjectKeyPolicy,
+): Map<String, RemoteS3File> =
+    items.associate { item ->
+        val remoteKey = objectKeyPolicy.validatedExistingKey(item.incoming.locator, config)
+        item.relativePath to
+            RemoteS3File(
+                path = item.relativePath,
+                etag = item.incoming.etag,
+                lastModified = item.incoming.lastModified,
+                size = item.incoming.size,
+                remotePath = remoteKey.value,
+                verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
+            )
+    }
+
+private fun PendingSyncConflictDescriptor.filterFiles(relativePaths: Set<String>): PendingSyncConflictDescriptor =
+    copy(files = files.filter { file -> file.relativePath in relativePaths })
+
+private fun PendingSyncReviewDescriptor.filterItems(relativePaths: Set<String>): PendingSyncReviewDescriptor =
+    copy(items = items.filter { item -> item.relativePath in relativePaths })
+
+private fun S3RemoteObjectKeyPolicy.resolveS3OperationKey(
+    relativePath: String,
+    explicitExistingKey: String? = null,
+    remoteFile: RemoteS3File?,
+    metadata: com.lomo.data.local.entity.S3SyncMetadataEntity?,
+    config: S3ResolvedConfig,
+): S3RemoteObjectKey =
+    explicitExistingKey?.let { key -> validatedExistingKey(key, config) }
+        ?: resolveOperationKey(
+            relativePath = relativePath,
+            config = config,
+            remoteFile = remoteFile,
+            metadata = metadata,
+        )
+
 private class S3PendingReviewRestorer(
     private val client: com.lomo.data.s3.LomoS3Client,
     private val layout: SyncDirectoryLayout,
@@ -957,6 +1081,7 @@ private class S3PendingReviewRestorer(
     private val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
     private val fileBridgeScope: S3SyncFileBridgeScope,
     private val encodingSupport: S3SyncEncodingSupport,
+    private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
 ) : PendingSyncReviewRestorer {
     override suspend fun restore(
         descriptor: PendingSyncReviewDescriptor,
@@ -983,26 +1108,36 @@ private class S3PendingReviewRestorer(
 
     private suspend fun restoreItem(item: PendingSyncReviewItemDescriptor): S3PendingReviewItemRestore {
         val local =
-            fileBridgeScope.localFile(item.relativePath, layout)
-                ?: return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_LOCAL)
+            fileBridgeScope.pendingValidationLocalFile(
+                path = item.relativePath,
+                layout = layout,
+                requireContentFingerprint = item.local.contentHash != null,
+            ) ?: return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_LOCAL)
         if (!item.local.matchesLocal(local)) {
             return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
         }
-        val remotePath = remotePathFor(item)
-        val remote =
-            client.getObjectMetadata(remotePath)
-                ?: return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
-        val remoteLastModified = encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified)
-        if (!item.incoming.matchesRemote(remote.eTag, remoteLastModified, remote.size)) {
+        val remoteKey = remoteKeyFor(item)
+        // Binary incoming files have no comparable text, so reject incomplete metadata before any HEAD.
+        if (item.isBinary && !item.incoming.hasCompleteRemoteMetadata()) {
             return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
         }
-        return restoreContents(item, local, remotePath, remoteLastModified)
+        val remote =
+            client.getObjectMetadata(remoteKey.value)
+                ?: return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
+        val remoteLastModified = encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified)
+        // Text incoming staleness is validated by content equality in restoreContents; the remote
+        // lastModified normalization (cached raw HTTP time vs fresh app-embedded mtime) would otherwise
+        // spuriously invalidate an unchanged memo. Binary files keep the etag/mtime/size comparison.
+        if (item.isBinary && !item.incoming.matchesRemote(remote.eTag, remoteLastModified, remote.size)) {
+            return S3PendingReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
+        }
+        return restoreContents(item, local, remoteKey, remoteLastModified)
     }
 
     private suspend fun restoreContents(
         item: PendingSyncReviewItemDescriptor,
         local: LocalS3File,
-        remotePath: String,
+        remoteKey: S3RemoteObjectKey,
         remoteLastModified: Long?,
     ): S3PendingReviewItemRestore {
         val localContent = if (item.isBinary) null else fileBridgeScope.readLocalText(item.relativePath, layout)
@@ -1011,7 +1146,7 @@ private class S3PendingReviewRestorer(
                 null
             } else {
                 String(
-                    encodingSupport.decodeContent(client.getSmallObject(remotePath).bytes, config),
+                    encodingSupport.decodeContent(client.getSmallObject(remoteKey.value).bytes, config),
                     Charsets.UTF_8,
                 )
             }
@@ -1036,10 +1171,8 @@ private class S3PendingReviewRestorer(
         }
     }
 
-    private fun remotePathFor(item: PendingSyncReviewItemDescriptor): String =
-        item.incoming.locator.takeIf { locator -> locator != item.relativePath }
-            ?: metadataByPath[item.relativePath]?.remotePath
-            ?: encodingSupport.remotePathFor(item.relativePath, config)
+    private fun remoteKeyFor(item: PendingSyncReviewItemDescriptor): S3RemoteObjectKey =
+        objectKeyPolicy.validatedExistingKey(item.incoming.locator, config)
 }
 
 private sealed interface S3PendingReviewItemRestore {

@@ -4,7 +4,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker
 import timber.log.Timber
 
-internal const val DEFAULT_SYNC_WORKER_MAX_RETRY_ATTEMPTS = 3
+private const val NON_POLICY_SYNC_WORKER_MAX_RETRY_ATTEMPTS = 3
 
 internal fun CoroutineWorker.successWorkResult(
     workerName: String,
@@ -22,7 +22,7 @@ internal fun CoroutineWorker.errorWorkResult(
     workerName: String,
     message: String,
     throwable: Throwable? = null,
-    maxRetryAttempts: Int = DEFAULT_SYNC_WORKER_MAX_RETRY_ATTEMPTS,
+    maxRetryAttempts: Int = syncWorkMaxRetryAttempts(),
 ): ListenableWorker.Result {
     if (throwable == null) {
         Timber.e("%s error: %s", workerName, message)
@@ -53,10 +53,20 @@ internal fun skipWorkResult(
 }
 
 internal fun CoroutineWorker.retryOrFailure(
-    maxRetryAttempts: Int = DEFAULT_SYNC_WORKER_MAX_RETRY_ATTEMPTS,
+    maxRetryAttempts: Int,
 ): ListenableWorker.Result =
     if (runAttemptCount < maxRetryAttempts) {
         ListenableWorker.Result.retry()
     } else {
         ListenableWorker.Result.failure()
     }
+
+private fun CoroutineWorker.syncWorkMaxRetryAttempts(): Int {
+    val attempts =
+        inputData.getInt(
+            SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY,
+            NON_POLICY_SYNC_WORKER_MAX_RETRY_ATTEMPTS,
+        )
+    require(attempts > 0) { "Sync worker max retry attempts must be positive" }
+    return attempts
+}

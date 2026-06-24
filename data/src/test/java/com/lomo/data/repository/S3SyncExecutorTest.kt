@@ -25,11 +25,13 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.s3.S3DeleteObjectsResult
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
@@ -122,11 +124,11 @@ class S3SyncExecutorTest : DataFunSpec() {
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf(File(vaultRoot, "attachments/voice").absolutePath)
         every { dataStore.voiceUri } returns flowOf(null)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
         every { clientFactory.create(any()) } returns client
         coEvery { memoSynchronizer.refresh() } returns Unit
         coEvery { metadataDao.getAllPlannerMetadataSnapshots() } returns emptyList()
@@ -146,13 +148,28 @@ class S3SyncExecutorTest : DataFunSpec() {
                 performanceTuner = DisabledSyncPerformanceTuner,
                 transactionRunner = NoOpS3SyncTransactionRunner,
             )
+        val encodingSupport = S3SyncEncodingSupport()
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
         executor =
             S3SyncExecutor(
                 runtime = runtime,
-                support = S3SyncRepositorySupport(runtime),
-                encodingSupport = S3SyncEncodingSupport(),
-                fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
-                actionApplier = S3SyncActionApplier(runtime, S3SyncEncodingSupport(), S3SyncFileBridge(runtime, S3SyncEncodingSupport())),
+                support =
+                    S3SyncRepositorySupport(
+                        runtime = runtime,
+                        credentialRepository = testS3CredentialRepository(),
+                        securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+                    ),
+                encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                fileBridge = fileBridge,
+                actionApplier =
+                    S3SyncActionApplier(
+                        runtime = runtime,
+                        encodingSupport = encodingSupport,
+                        objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                        fileBridge = fileBridge,
+                        transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+                    ),
                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,
@@ -206,7 +223,7 @@ class S3SyncExecutorTest : DataFunSpec() {
                         remoteLastModified = 10L,
                     ),
                 )
-            coEvery { client.deleteObject(managedPath) } returns Unit
+            coEvery { client.deleteObjects(listOf(managedPath)) } returns S3DeleteObjectsResult()
             coEvery { metadataDao.replaceAll(any()) } returns Unit
 
             val result = executor.performSync()
@@ -214,8 +231,9 @@ class S3SyncExecutorTest : DataFunSpec() {
             val success = result as S3SyncResult.Success
             success.message shouldBe "S3 sync completed"
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
-            coVerify(exactly = 1) { client.deleteObject(managedPath) }
-            coVerify(exactly = 0) { client.deleteObject(externalPath) }
+            coVerify(exactly = 1) { client.deleteObjects(listOf(managedPath)) }
+            coVerify(exactly = 0) { client.deleteObject(any()) }
+            coVerify(exactly = 0) { client.deleteObjects(match { keys -> externalPath in keys }) }
         }
 
     private fun remoteObject(key: String) =

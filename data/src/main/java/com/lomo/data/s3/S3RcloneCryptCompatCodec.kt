@@ -23,6 +23,8 @@ import okio.Buffer
 
 class S3RcloneCryptCompatCodec(
     private val nonceGenerator: () -> ByteArray = ::generateNonce,
+    private val keyMaterialDerivation: (password: String, password2: String) -> ByteArray =
+        ::deriveRcloneKeyMaterial,
 ) {
     fun encryptKey(
         key: String,
@@ -262,29 +264,26 @@ class S3RcloneCryptCompatCodec(
         }
     }
 
+    private val derivedKeyMaterialCache =
+        object : LinkedHashMap<RcloneKeyMaterialCacheKey, RcloneDerivedKeyMaterial>(
+            DERIVED_KEY_CACHE_CAPACITY,
+            DERIVED_KEY_CACHE_LOAD_FACTOR,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<RcloneKeyMaterialCacheKey, RcloneDerivedKeyMaterial>,
+            ): Boolean = size > DERIVED_KEY_CACHE_CAPACITY
+        }
+
     private fun deriveKeyMaterial(
         password: String,
         password2: String,
-    ): RcloneDerivedKeyMaterial {
-        val derived =
-            if (password.isEmpty()) {
-                ByteArray(TOTAL_KEY_MATERIAL_SIZE_BYTES)
-            } else {
-                SCrypt.generate(
-                    password.toByteArray(StandardCharsets.UTF_8),
-                    if (password2.isEmpty()) DEFAULT_SALT else password2.toByteArray(StandardCharsets.UTF_8),
-                    SCRYPT_N,
-                    SCRYPT_R,
-                    SCRYPT_P,
-                    TOTAL_KEY_MATERIAL_SIZE_BYTES,
-                )
+    ): RcloneDerivedKeyMaterial =
+        synchronized(derivedKeyMaterialCache) {
+            derivedKeyMaterialCache.getOrPut(RcloneKeyMaterialCacheKey(password, password2)) {
+                keyMaterialDerivation(password, password2).toRcloneDerivedKeyMaterial()
             }
-        return RcloneDerivedKeyMaterial(
-            dataKey = derived.copyOfRange(0, DATA_KEY_SIZE_BYTES),
-            nameKey = derived.copyOfRange(DATA_KEY_SIZE_BYTES, DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES),
-            nameTweak = derived.copyOfRange(DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES, derived.size),
-        )
-    }
+        }
 
     private fun secretBoxSeal(
         nonce: ByteArray,
@@ -387,6 +386,42 @@ private data class RcloneDerivedKeyMaterial(
     val nameKey: ByteArray,
     val nameTweak: ByteArray,
 )
+
+private data class RcloneKeyMaterialCacheKey(
+    val password: String,
+    val password2: String,
+)
+
+private const val DERIVED_KEY_CACHE_CAPACITY = 4
+private const val DERIVED_KEY_CACHE_LOAD_FACTOR = 0.75f
+
+internal fun deriveRcloneKeyMaterial(
+    password: String,
+    password2: String,
+): ByteArray =
+    if (password.isEmpty()) {
+        ByteArray(TOTAL_KEY_MATERIAL_SIZE_BYTES)
+    } else {
+        SCrypt.generate(
+            password.toByteArray(StandardCharsets.UTF_8),
+            if (password2.isEmpty()) DEFAULT_SALT else password2.toByteArray(StandardCharsets.UTF_8),
+            SCRYPT_N,
+            SCRYPT_R,
+            SCRYPT_P,
+            TOTAL_KEY_MATERIAL_SIZE_BYTES,
+        )
+    }
+
+private fun ByteArray.toRcloneDerivedKeyMaterial(): RcloneDerivedKeyMaterial {
+    require(size == TOTAL_KEY_MATERIAL_SIZE_BYTES) {
+        "Rclone key material must be $TOTAL_KEY_MATERIAL_SIZE_BYTES bytes"
+    }
+    return RcloneDerivedKeyMaterial(
+        dataKey = copyOfRange(0, DATA_KEY_SIZE_BYTES),
+        nameKey = copyOfRange(DATA_KEY_SIZE_BYTES, DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES),
+        nameTweak = copyOfRange(DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES, size),
+    )
+}
 
 private fun transformSegments(
     value: String,

@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.s3.LomoS3Client
+import com.lomo.data.s3.S3DeleteObjectsResult
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
@@ -345,9 +346,9 @@ private class MeteredS3Client(
         delegate.deleteObject(key)
     }
 
-    override suspend fun deleteObjects(keys: List<String>) {
+    override suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult {
         keys.forEach { session.recordNetworkOperation(RemoteSyncNetworkOperation.Delete) }
-        delegate.deleteObjects(keys)
+        return delegate.deleteObjects(keys)
     }
 
     override fun close() {

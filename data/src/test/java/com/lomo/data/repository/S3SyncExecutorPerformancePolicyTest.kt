@@ -31,6 +31,7 @@ import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
@@ -125,11 +126,11 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf(voiceRootDirectory.absolutePath)
         every { dataStore.voiceUri } returns flowOf(null)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
         every { clientFactory.create(any()) } returns client
         coEvery { client.getObjectToFile(any(), any()) } coAnswers {
             val key = args[0] as String
@@ -173,10 +174,22 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
         executor =
             S3SyncExecutor(
                 runtime = runtime,
-                support = S3SyncRepositorySupport(runtime),
+                support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+                ),
                 encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
                 fileBridge = fileBridge,
-                actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+                actionApplier =
+                    S3SyncActionApplier(
+                        runtime = runtime,
+                        encodingSupport = encodingSupport,
+                        objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                        fileBridge = fileBridge,
+                        transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+                    ),
                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,

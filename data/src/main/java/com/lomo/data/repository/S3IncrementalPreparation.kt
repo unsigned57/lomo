@@ -68,10 +68,7 @@ internal suspend fun prepareLocalOnlyIncrementalSync(
             }
         }
     val localFiles =
-        candidatePaths
-            .associateWith { path -> fileBridgeScope.localFile(path, layout) }
-            .mapNotNull { (path, file) -> file?.let { path to it } }
-            .toMap()
+        resolveLocalS3FilesForPaths(candidatePaths) { path -> fileBridgeScope.localFile(path, layout) }
     val plan =
         planner.planPaths(
             paths = candidatePaths,

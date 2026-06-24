@@ -23,6 +23,7 @@ data class S3RemoteIndexEntry(
     val dirtySuspect: Boolean = false,
     val missingOnLastScan: Boolean = false,
     val scanEpoch: Long = 0L,
+    val contentMd5: String? = null,
 )
 
 interface S3RemoteIndexStore {
@@ -144,6 +145,7 @@ private fun S3RemoteIndexEntity.toModel(): S3RemoteIndexEntry =
         etag = etag,
         remoteLastModified = remoteLastModified,
         size = size,
+        contentMd5 = contentMd5,
         lastSeenAt = lastSeenAt,
         lastVerifiedAt = lastVerifiedAt,
         scanBucket = scanBucket,
@@ -161,6 +163,7 @@ private fun S3RemoteIndexEntry.toEntity(workspaceGeneration: String): S3RemoteIn
         etag = etag,
         remoteLastModified = remoteLastModified,
         size = size,
+        contentMd5 = contentMd5,
         lastSeenAt = lastSeenAt,
         lastVerifiedAt = lastVerifiedAt,
         scanBucket = scanBucket,

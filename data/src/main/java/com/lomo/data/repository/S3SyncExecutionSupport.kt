@@ -28,6 +28,9 @@ internal data class PreparedS3Sync(
     val journalPathsById: Map<String, String> = emptyMap(),
     val clearableJournalIds: Set<String> = emptySet(),
     val localModeFingerprint: String? = null,
+    val localAuditRan: Boolean = false,
+    val nextLocalAuditCursor: String? = null,
+    val completedLocalAuditCycle: Boolean = false,
     val remoteReconcileState: PreparedRemoteReconcile? = null,
     val observedMissingRemotePaths: Set<String> = emptySet(),
     val conflictPreview: S3ConflictPreview = S3ConflictPreview(),
@@ -58,6 +61,7 @@ internal fun buildLocalOnlyPreparedSync(
     journalEntries: Map<String, S3LocalChangeJournalEntry>,
     localOnlyIncremental: S3IncrementalPreparation,
     conflictPaths: Set<String>,
+    localChangeSet: S3EffectiveLocalChangeSet = S3EffectiveLocalChangeSet(journalEntries = journalEntries),
 ): PreparedS3Sync =
     PreparedS3Sync(
         layout = layout,
@@ -82,6 +86,9 @@ internal fun buildLocalOnlyPreparedSync(
                 .map(S3LocalChangeJournalEntry::id)
                 .toSet(),
         localModeFingerprint = mode.fingerprint(),
+        localAuditRan = localChangeSet.localAuditRan,
+        nextLocalAuditCursor = localChangeSet.nextLocalAuditCursor,
+        completedLocalAuditCycle = localChangeSet.completedLocalAuditCycle,
     )
 
 internal fun canUseIncrementalSync(
@@ -102,7 +109,8 @@ internal fun shouldPerformFullLocalAudit(
 ): Boolean =
     mode is S3LocalSyncMode.VaultRoot &&
         (
-            protocolState.lastSuccessfulSyncAt == null ||
+            protocolState.localAuditCursor != null ||
+                protocolState.lastSuccessfulSyncAt == null ||
                 System.currentTimeMillis() - protocolState.lastSuccessfulSyncAt > S3_VAULT_ROOT_AUDIT_INTERVAL_MS
         )
 

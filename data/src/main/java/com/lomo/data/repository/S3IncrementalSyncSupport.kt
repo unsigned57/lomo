@@ -35,6 +35,7 @@ data class S3SyncProtocolState(
     val indexedLocalFileCount: Int = 0,
     val indexedRemoteFileCount: Int = 0,
     val localModeFingerprint: String? = null,
+    val localAuditCursor: String? = null,
     val remoteScanCursor: String? = null,
     val scanEpoch: Long = 0L,
 )
@@ -329,6 +330,7 @@ private fun S3SyncProtocolState.toEntity(workspaceGeneration: String): S3SyncPro
         indexedLocalFileCount = indexedLocalFileCount,
         indexedRemoteFileCount = indexedRemoteFileCount,
         localModeFingerprint = localModeFingerprint,
+        localAuditCursor = localAuditCursor,
         remoteScanCursor = remoteScanCursor,
         scanEpoch = scanEpoch,
     )
@@ -343,6 +345,7 @@ private fun S3SyncProtocolStateEntity.toModel(): S3SyncProtocolState =
         indexedLocalFileCount = indexedLocalFileCount,
         indexedRemoteFileCount = indexedRemoteFileCount,
         localModeFingerprint = localModeFingerprint,
+        localAuditCursor = localAuditCursor,
         remoteScanCursor = remoteScanCursor,
         scanEpoch = scanEpoch,
     )

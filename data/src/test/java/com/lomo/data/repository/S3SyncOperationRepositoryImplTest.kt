@@ -1,32 +1,17 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
+import com.lomo.data.sync.SyncExistingWorkPolicy
 import com.lomo.data.sync.SyncScheduledWork
+import com.lomo.data.sync.SyncWorkBackoffPolicy
 import com.lomo.data.sync.SyncWorkCadence
 import com.lomo.data.sync.SyncWorkDecision
 import com.lomo.data.sync.SyncWorkNetworkRequirement
 import com.lomo.data.sync.SyncWorkPayload
-import com.lomo.data.sync.SyncExistingWorkPolicy
+import com.lomo.data.sync.SyncWorkRetryPolicy
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.worker.S3SyncWorker
-import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.S3SyncResult
+import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
@@ -37,18 +22,38 @@ import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
+import java.time.Duration
 
 /*
  * Behavior Contract:
- * - Unit under test: S3SyncOperationRepositoryImpl
- * - Behavior focus: sync guard short-circuiting, failure recovery, and status/test-connection delegation.
- * - Observable outcomes: returned S3SyncResult/S3SyncStatus values and executor invocation counts.
- * - TDD proof: Fails before the fix because S3 sync still uses a placeholder repository implementation without executor/status-tester orchestration.
+ * - Unit under test: S3SyncOperationRepositoryImpl.
+ * - Owning layer: data.
+ * - Priority tier: P1.
+ * - Capability: coordinate S3 operation sync, status, test-connection, refresh policy, and deferred catch-up scheduling without opening duplicate sync paths.
+ *
+ * Scenarios:
+ * - Given sync or status is requested, when the repository delegates, then executor/status-tester results are returned and guarded against concurrent runs.
+ * - Given refresh policy emits foreground work and deferred catch-up work, when refresh sync completes, then deferred scheduled work is passed through the S3 scheduler boundary.
+ * - Given a coalesced refresh loop has an initial success and a later non-success, when the loop completes, then the non-success is the visible result and state.
+ *
+ * Observable outcomes:
+ * - returned S3SyncResult/S3SyncStatus values, state holder values, executor invocation counts, and captured scheduled catch-up work.
+ *
+ * TDD proof:
+ * - RED: fails before the repository orchestration fix because S3 sync still uses a placeholder repository implementation without executor/status-tester orchestration.
+ * - RED Report 10 refresh-loop follow-up: a second coalesced refresh returning Conflict/Review/Error was hidden by returning the first Success.
  * - Excludes: AWS transport behavior, file-bridge planning, conflict modeling internals, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3SyncOperationRepositoryImplTest : DataFunSpec() {
     init {
@@ -71,6 +76,10 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
         test("testConnection delegates to status tester") { `testConnection delegates to status tester`() }
 
         test("syncForRefresh runs resolved fast policy and schedules catch-up") { `syncForRefresh runs resolved fast policy and schedules catch-up`() }
+
+        test("syncForRefresh returns later conflict from coalesced refresh loop") {
+            `syncForRefresh returns later conflict from coalesced refresh loop`()
+        }
     }
 
 
@@ -246,6 +255,40 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
             coVerify(exactly = 1) { scheduledWorkEnqueuer.enqueue(listOf(catchUpWork)) }
         }
 
+    private fun `syncForRefresh returns later conflict from coalesced refresh loop`() =
+        runTest {
+            val firstSyncStarted = CompletableDeferred<Unit>()
+            val releaseFirstSync = CompletableDeferred<Unit>()
+            val conflict = conflictSet()
+            var syncAttempt = 0
+            coEvery { refreshPolicyPlanner.planRefreshSync(any()) } returns
+                refreshDecision(foregroundPolicy = S3SyncWorkIntent.FAST_ONLY)
+            coEvery { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) } coAnswers {
+                syncAttempt += 1
+                when (syncAttempt) {
+                    1 -> {
+                        firstSyncStarted.complete(Unit)
+                        releaseFirstSync.await()
+                        S3SyncResult.Success("first refresh")
+                    }
+                    2 -> S3SyncResult.Conflict("pending conflict", conflict)
+                    else -> error("Unexpected refresh sync attempt $syncAttempt")
+                }
+            }
+
+            val firstRefresh = async { repository.syncForRefresh() }
+            firstSyncStarted.await()
+            val coalescedRefresh = launch {
+                repository.syncForRefresh() shouldBe S3SyncResult.Success("S3 refresh sync already in progress")
+            }
+            releaseFirstSync.complete(Unit)
+
+            firstRefresh.await() shouldBe S3SyncResult.Conflict("pending conflict", conflict)
+            coalescedRefresh.join()
+            stateHolder.state.value shouldBe S3SyncState.ConflictDetected(conflict)
+            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncWorkIntent.FAST_ONLY) }
+        }
+
     private fun refreshDecision(
         foregroundPolicy: S3SyncWorkIntent,
         scheduledWork: List<SyncScheduledWork> = emptyList(),
@@ -268,6 +311,27 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
             cadence = SyncWorkCadence.OneTime,
             networkRequirement = SyncWorkNetworkRequirement.Connected,
             existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+            retryPolicy =
+                SyncWorkRetryPolicy(
+                    maxAttempts = 3,
+                    backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+                    backoffDelay = Duration.ofMinutes(30),
+                ),
             payload = SyncWorkPayload.ProviderParameters(mapOf(S3_SYNC_WORK_INTENT_PARAMETER to policy.name)),
+        )
+
+    private fun conflictSet(): SyncConflictSet =
+        SyncConflictSet(
+            source = SyncBackendType.S3,
+            files =
+                listOf(
+                    SyncConflictFile(
+                        relativePath = "lomo/memo/note.md",
+                        localContent = "local",
+                        remoteContent = "remote",
+                        isBinary = false,
+                    ),
+                ),
+            timestamp = 123L,
         )
 }

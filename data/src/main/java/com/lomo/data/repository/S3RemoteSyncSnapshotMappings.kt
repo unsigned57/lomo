@@ -7,6 +7,7 @@ internal fun LocalS3File.toRemoteSyncLocalSnapshot(): RemoteSyncLocalSnapshot =
         path = path,
         lastModified = lastModified,
         size = size,
+        localFingerprint = localFingerprint,
     )
 
 internal fun Map<String, LocalS3File>.toS3RemoteSyncLocalSnapshots():

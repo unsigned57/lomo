@@ -18,8 +18,7 @@ class S3SyncEncodingSupport
         fun remotePathFor(
             relativePath: String,
             config: S3ResolvedConfig,
-            existingRemotePath: String? = null,
-        ): String = existingRemotePath ?: remoteKeyPrefix(config) + encodeRelativePath(relativePath, config)
+        ): String = remoteKeyPrefix(config) + encodeRelativePath(relativePath, config)
 
         fun decodeRelativePath(
             remotePath: String,
@@ -145,15 +144,7 @@ class S3SyncEncodingSupport
         fun resolveRemoteLastModified(
             metadata: Map<String, String>,
             fallback: Long?,
-        ): Long? {
-            val raw = metadata[S3_MTIME_METADATA_KEY] ?: metadata[S3_MTIME_LEGACY_METADATA_KEY]
-            val parsed = raw?.toLongOrNull()
-            return when {
-                parsed == null -> fallback
-                parsed >= EPOCH_MILLIS_THRESHOLD -> parsed
-                else -> parsed * MILLIS_PER_SECOND
-            }
-        }
+        ): Long? = resolveRemoteObjectLastModified(metadata, fallback)
 
         private fun encodeRelativePath(
             relativePath: String,
@@ -188,6 +179,25 @@ private fun File.transferSuffix(defaultSuffix: String): String =
 private const val MILLIS_PER_SECOND = 1_000L
 private const val EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L
 private const val S3_MD5_METADATA_KEY = "md5"
+
+/**
+ * Canonical "remote last-modified" for change detection and index/baseline storage: the app-embedded
+ * mtime metadata when present (seconds or millis), otherwise the raw HTTP last-modified. Every path that
+ * captures remote state (verified remote files, the remote index, upload verification) must normalize
+ * through this so the planner does not compare a raw HTTP store time against an app-time baseline.
+ */
+internal fun resolveRemoteObjectLastModified(
+    metadata: Map<String, String>,
+    fallback: Long?,
+): Long? {
+    val raw = metadata[S3_MTIME_METADATA_KEY] ?: metadata[S3_MTIME_LEGACY_METADATA_KEY]
+    val parsed = raw?.toLongOrNull()
+    return when {
+        parsed == null -> fallback
+        parsed >= EPOCH_MILLIS_THRESHOLD -> parsed
+        else -> parsed * MILLIS_PER_SECOND
+    }
+}
 
 internal fun resolveRemoteContentMd5(
     metadata: Map<String, String>,

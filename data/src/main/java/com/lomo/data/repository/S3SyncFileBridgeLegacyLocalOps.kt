@@ -15,16 +15,25 @@ internal suspend fun legacyLocalFiles(
         runtime.markdownStorageDataSource
             .listMetadataIn(MemoDirectoryType.MAIN)
             .filter { it.filename.endsWith(S3_MEMO_SUFFIX) }
-            .associate { metadata ->
+            .mapNotNull { metadata ->
                 val path = "$memoPrefix${metadata.filename}"
-                path to LocalS3File(path, metadata.lastModified)
-            }
+                path to
+                    LocalS3File(
+                        path = path,
+                        lastModified = metadata.lastModified,
+                        size = metadata.size,
+                    )
+            }.toMap()
     val mediaFiles =
         runtime.localMediaSyncStore
             .listFiles(layout)
             .mapKeys { (path, _) -> "$S3_ROOT/$path" }
             .mapValues { (path, metadata) ->
-                LocalS3File(path, metadata.lastModified, metadata.size)
+                LocalS3File(
+                    path = path,
+                    lastModified = metadata.lastModified,
+                    size = metadata.size,
+                )
             }
     return memoFiles + mediaFiles
 }
@@ -54,15 +63,45 @@ internal suspend fun legacyLocalFile(
         runtime.markdownStorageDataSource
             .getFileMetadataIn(MemoDirectoryType.MAIN, legacyExtractMemoFilename(path, layout))
             ?.let { metadata ->
-                LocalS3File(path = path, lastModified = metadata.lastModified)
+                LocalS3File(
+                    path = path,
+                    lastModified = metadata.lastModified,
+                    size = metadata.size,
+                )
             }
     } else {
         legacyDirectMediaLocalFile(path, layout, mode)
             ?: runtime.localMediaSyncStore
                 .getFile(path, layout)
                 ?.let { metadata ->
-                    LocalS3File(path = path, lastModified = metadata.lastModified, size = metadata.size)
+                    LocalS3File(
+                        path = path,
+                        lastModified = metadata.lastModified,
+                        size = metadata.size,
+                    )
                 }
+    }
+
+internal suspend fun legacyComputeLocalFingerprint(
+    runtime: S3SyncRepositoryContext,
+    path: String,
+    layout: SyncDirectoryLayout,
+    mode: S3LocalSyncMode.Legacy,
+): String? =
+    if (legacyIsMemoPath(path, layout)) {
+        runtime.markdownStorageDataSource.fingerprintFileIn(
+            MemoDirectoryType.MAIN,
+            legacyExtractMemoFilename(path, layout),
+        )
+    } else {
+        legacyDirectMediaFile(path, layout, mode)
+            ?.takeIf { file -> file.exists() && file.isFile }
+            ?.md5Hex()
+            // behavior-contract: silent-result-ok: media store fingerprint is best-effort; planners
+            // treat a missing fingerprint as undecidable and keep the timestamp-based action.
+            ?: runNonFatalCatching {
+                runtime.localMediaSyncStore.md5Hex(path, layout)
+            }.getOrNull()
     }
 
 private fun legacyDirectMediaLocalFile(
@@ -72,7 +111,11 @@ private fun legacyDirectMediaLocalFile(
 ): LocalS3File? {
     val targetFile = legacyDirectMediaFile(path, layout, mode) ?: return null
     return if (targetFile.exists() && targetFile.isFile) {
-        LocalS3File(path = path, lastModified = targetFile.lastModified(), size = targetFile.length())
+        LocalS3File(
+            path = path,
+            lastModified = targetFile.lastModified(),
+            size = targetFile.length(),
+        )
     } else {
         null
     }

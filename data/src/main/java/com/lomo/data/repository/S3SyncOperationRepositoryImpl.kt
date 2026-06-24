@@ -151,7 +151,8 @@ class S3SyncOperationRepositoryImpl
                     firstResult = result
                 }
                 if (result !is S3SyncResult.Success) {
-                    return firstResult
+                    stateHolder.state.value = result.stateAfterRefresh(System.currentTimeMillis())
+                    return result
                 }
                 currentSignal = refreshCoalescer.consumePendingRefreshSignal() ?: return firstResult
             }
@@ -220,7 +221,10 @@ class S3SyncStatusTester
         private val protocolStateStore: S3SyncProtocolStateStore,
         private val localChangeJournalStore: S3LocalChangeJournalStore,
         private val remoteIndexStore: S3RemoteIndexStore,
+        private val remoteShardStateStore: S3RemoteShardStateStore,
     ) {
+        private val objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport)
+
         suspend fun getStatus(): S3SyncStatus {
             val config = support.resolveConfig() ?: return S3SyncStatus(0, 0, 0, null)
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
@@ -229,6 +233,7 @@ class S3SyncStatusTester
             return support.withClient(config) { client ->
                 runtime.stateHolder.state.value = S3SyncState.Listing
                 prepareIncrementalStatus(
+                    client = client,
                     layout = layout,
                     mode = mode,
                     fileBridgeScope = fileBridgeScope,
@@ -266,6 +271,7 @@ class S3SyncStatusTester
         }
 
         private suspend fun prepareIncrementalStatus(
+            client: com.lomo.data.s3.LomoS3Client,
             layout: SyncDirectoryLayout,
             mode: S3LocalSyncMode,
             fileBridgeScope: S3SyncFileBridgeScope,
@@ -278,8 +284,9 @@ class S3SyncStatusTester
                             localChangeJournalStore.incrementalSyncEnabled &&
                             it.protocolVersion == S3_INCREMENTAL_PROTOCOL_VERSION &&
                             it.localModeFingerprint.compatibleWith(mode)
-                    } ?: return null
+            } ?: return null
             val lastSyncTime = runtime.dataStore.s3LastSyncTime.first().takeIf { it > 0L }
+            val localAuditExpired = shouldPerformFullLocalAudit(mode, protocolState)
             val effectiveLocalChanges =
                 resolveEffectiveLocalChangeSet(
                     journalEntries = localChangeJournalStore.read(),
@@ -287,11 +294,22 @@ class S3SyncStatusTester
                     mode = mode,
                     fileBridgeScope = fileBridgeScope,
                     metadataDao = runtime.metadataDao,
+                    boundedLocalAudit = localAuditExpired,
+                    localAuditCursor = protocolState.localAuditCursor,
                 )
             val journalEntries = effectiveLocalChanges.journalEntries
-            val localAuditExpired = shouldPerformFullLocalAudit(mode, protocolState)
             if (!protocolState.hasFreshRemoteIndex(config) || localAuditExpired) {
-                return null
+                return prepareBoundedReconcileStatus(
+                    client = client,
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                    config = config,
+                    protocolState = protocolState,
+                    journalEntries = journalEntries,
+                    effectiveLocalChanges = effectiveLocalChanges,
+                    lastSyncTime = lastSyncTime,
+                )
             }
             if (journalEntries.isEmpty()) {
                 val indexedRemoteCount =
@@ -331,16 +349,82 @@ class S3SyncStatusTester
             )
         }
 
-        private fun shouldPerformFullLocalAudit(
+        private suspend fun prepareBoundedReconcileStatus(
+            client: com.lomo.data.s3.LomoS3Client,
+            layout: SyncDirectoryLayout,
             mode: S3LocalSyncMode,
+            fileBridgeScope: S3SyncFileBridgeScope,
+            config: S3ResolvedConfig,
             protocolState: S3SyncProtocolState,
-        ): Boolean =
-            mode is S3LocalSyncMode.VaultRoot &&
-                (
-                    protocolState.lastSuccessfulSyncAt == null ||
-                        System.currentTimeMillis() - protocolState.lastSuccessfulSyncAt >
-                        S3_VAULT_ROOT_AUDIT_INTERVAL_MS
+            journalEntries: Map<String, S3LocalChangeJournalEntry>,
+            effectiveLocalChanges: S3EffectiveLocalChangeSet,
+            lastSyncTime: Long?,
+        ): S3SyncStatus? {
+            val journalEntriesByPath = journalEntries.resolvePaths(layout, mode)
+            val remoteReconcileState =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = mode,
+                    protocolState = protocolState,
+                    encodingSupport = encodingSupport,
+                    objectKeyPolicy = objectKeyPolicy,
+                    metadataDao = runtime.metadataDao,
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = remoteShardStateStore,
                 )
+            val candidatePaths =
+                (journalEntriesByPath.keys + remoteReconcileState.candidatePaths).toSortedSet()
+            val reconcileInputs =
+                loadIncrementalReconcileInputs(
+                    runtime = runtime,
+                    candidatePaths = candidatePaths,
+                    journalEntriesByPath = journalEntriesByPath,
+                    remoteReconcileState = remoteReconcileState,
+                    remoteIndexStore = remoteIndexStore,
+                    fileBridgeScope = fileBridgeScope,
+                    layout = layout,
+                )
+            val plan =
+                runtime.planner.planPaths(
+                    paths = candidatePaths,
+                    localFiles = reconcileInputs.localFiles.toS3RemoteSyncLocalSnapshots(),
+                    remoteFiles = reconcileInputs.remoteFiles.toS3RemoteSyncRemoteSnapshots(),
+                    metadata = reconcileInputs.plannerMetadataByPath.toS3RemoteSyncMetadataSnapshots(),
+                    missingRemoteVerificationByPath =
+                        remoteReconcileState.missingRemotePaths.associateWith {
+                            S3RemoteVerificationLevel.VERIFIED_REMOTE
+                        }.toS3RemoteSyncRemoteAbsenceVerifications(),
+                    defaultMissingRemoteVerification =
+                        S3RemoteVerificationLevel.UNKNOWN_REMOTE.toRemoteSyncRemoteAbsenceVerification(),
+                )
+            return S3SyncStatus(
+                remoteFileCount = boundedStatusRemoteCount(protocolState, remoteReconcileState),
+                localFileCount = effectiveLocalChanges.currentLocalFileCount ?: protocolState.indexedLocalFileCount,
+                pendingChanges = plan.pendingChanges,
+                lastSyncTime = lastSyncTime,
+            )
+        }
+
+        private suspend fun boundedStatusRemoteCount(
+            protocolState: S3SyncProtocolState,
+            remoteReconcileState: PreparedRemoteReconcile,
+        ): Int {
+            val existingByPath =
+                remoteIndexStore
+                    .readByRelativePaths(remoteReconcileState.candidatePaths)
+                    .associateBy(S3RemoteIndexEntry::relativePath)
+            val observedNewCount =
+                remoteReconcileState.remoteFiles.keys.count { path ->
+                    existingByPath[path]?.missingOnLastScan != false
+                }
+            val missingKnownCount =
+                remoteReconcileState.missingRemotePaths.count { path ->
+                    existingByPath[path]?.missingOnLastScan == false
+                }
+            return (protocolState.indexedRemoteFileCount + observedNewCount - missingKnownCount).coerceAtLeast(0)
+        }
 
         suspend fun testConnection(): S3SyncResult {
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
@@ -384,9 +468,6 @@ class S3SyncStatusTester
                     message =
                         incompatibleEncryptedListingMessage(
                             config = config,
-                            prefix = prefix,
-                            sampleKey = analysis.firstInvalidKey,
-                            cause = analysis.lastDecodeError,
                         ),
                     cause = analysis.lastDecodeError,
                 )
@@ -394,7 +475,7 @@ class S3SyncStatusTester
             if (remoteKeys.isNotEmpty()) {
                 throw S3SyncFailureException(
                     code = S3SyncErrorCode.ENCRYPTION_FAILED,
-                    message = vaultRootMismatchMessage(prefix, analysis.ignoredExternalKeys),
+                    message = vaultRootMismatchMessage(),
                 )
             }
         }
@@ -408,7 +489,6 @@ class S3SyncStatusTester
         ): ListingCompatibilityAnalysis {
             var firstInvalidKey: String? = null
             var lastDecodeError: Throwable? = null
-            val ignoredExternalKeys = mutableListOf<String>()
             for (remoteKey in remoteKeys) {
                 val rawRelativePath = remoteKey.removePrefix(prefix)
                 val decoded =
@@ -419,16 +499,12 @@ class S3SyncStatusTester
                                 encodingSupport.decodeRelativePath(remoteKey, config)
                             }.onFailure { error ->
                                 val ignored =
-                                    runNonFatalCatching {
-                                        isObviousPlaintextExternalPathForEncryptedConnectionCheck(
-                                            rawRelativePath,
-                                            layout,
-                                            mode,
-                                        )
-                                    }.getOrDefault(false)
-                                if (ignored) {
-                                    ignoredExternalKeys += rawRelativePath
-                                } else if (firstInvalidKey == null) {
+                                    isObviousPlaintextExternalPathForEncryptedConnectionCheck(
+                                        rawRelativePath,
+                                        layout,
+                                        mode,
+                                    )
+                                if (!ignored && firstInvalidKey == null) {
                                     firstInvalidKey = remoteKey
                                 }
                                 lastDecodeError = error
@@ -438,15 +514,12 @@ class S3SyncStatusTester
                     !isIgnoredExternalPathForConnectionCheck(decoded, layout, mode)
                 ) {
                     return ListingCompatibilityAnalysis(hasCompatibleKey = true)
-                } else if (!decoded.isNullOrBlank()) {
-                    ignoredExternalKeys += decoded
                 }
             }
             return ListingCompatibilityAnalysis(
                 hasCompatibleKey = false,
                 firstInvalidKey = firstInvalidKey,
                 lastDecodeError = lastDecodeError,
-                ignoredExternalKeys = ignoredExternalKeys,
             )
         }
 
@@ -482,7 +555,7 @@ class S3SyncStatusTester
                 client.listKeys(prefix = prefix, maxKeys = maxKeys)
             } ?: throw S3SyncFailureException(
                 code = S3SyncErrorCode.CONNECTION_FAILED,
-                message = connectionTimeoutMessage(prefix, phase),
+                message = connectionTimeoutMessage(phase),
             )
 
         private suspend fun verifyAccessWithTimeout(
@@ -497,7 +570,7 @@ class S3SyncStatusTester
             if (completed != true) {
                 throw S3SyncFailureException(
                     code = S3SyncErrorCode.CONNECTION_FAILED,
-                    message = connectionTimeoutMessage(prefix, "verifying bucket access"),
+                    message = connectionTimeoutMessage("verifying bucket access"),
                 )
             }
         }
@@ -507,48 +580,26 @@ private data class ListingCompatibilityAnalysis(
     val hasCompatibleKey: Boolean,
     val firstInvalidKey: String? = null,
     val lastDecodeError: Throwable? = null,
-    val ignoredExternalKeys: List<String> = emptyList(),
 )
 
 private fun connectionTimeoutMessage(
-    prefix: String,
     phase: String,
 ): String =
     "S3 connection test timed out after " +
-        "${S3_CONNECTION_TEST_TIMEOUT_MS / MILLIS_PER_SECOND}s while $phase for prefix '$prefix'. " +
+        "${S3_CONNECTION_TEST_TIMEOUT_MS / MILLIS_PER_SECOND}s while $phase. " +
         "Check the endpoint URL, region, addressing style, and TLS/network connectivity."
 
 private fun incompatibleEncryptedListingMessage(
     config: S3ResolvedConfig,
-    prefix: String,
-    sampleKey: String?,
-    cause: Throwable?,
-): String {
-    val sampleDetail = sampleKey?.let { " Sample key: '$it'." }.orEmpty()
-    val decoderDetail = cause?.message?.takeIf(String::isNotBlank)?.let { " Decoder detail: $it." }.orEmpty()
-    return "No ${config.encryptionMode.name}-compatible object names were found under prefix '$prefix'.$sampleDetail " +
+): String =
+    "No ${config.encryptionMode.name}-compatible object names were found in the configured S3 sync scope. " +
         "Check the S3 prefix, encryption mode, and encryption password. " +
-        "If this bucket contains plaintext objects or data written by another tool/config, point Lomo at the exact Remotely Save prefix.$decoderDetail"
-}
+        "If this bucket contains plaintext objects or data written by another tool/config, point Lomo at the exact Remotely Save prefix."
 
-private fun vaultRootMismatchMessage(
-    prefix: String,
-    ignoredExternalKeys: List<String>,
-): String {
-    val rootLabel = prefix.takeIf(String::isNotBlank)?.let { "'$it'" } ?: "the bucket root"
-    val sample =
-        ignoredExternalKeys
-            .distinct()
-            .take(IGNORED_EXTERNAL_SAMPLE_LIMIT)
-            .takeIf(List<String>::isNotEmpty)
-            ?.joinToString()
-            ?.let { " Ignored samples: $it." }
-            .orEmpty()
-    return "The remote root $rootLabel does not appear to match Lomo's current content-only sync scope. " +
-        "Only markdown files and supported attachments are considered syncable; hidden paths such as .obsidian/ are ignored.$sample"
-}
+private fun vaultRootMismatchMessage(): String =
+    "The configured S3 remote root does not appear to match Lomo's current content sync scope. " +
+        "Only markdown files and supported attachments are considered syncable; hidden and system paths are ignored."
 
 private const val S3_CONNECTION_TEST_TIMEOUT_MS = 15_000L
 private const val S3_CONNECTION_TEST_SAMPLE_LIMIT = 32
-private const val IGNORED_EXTERNAL_SAMPLE_LIMIT = 3
 private const val MILLIS_PER_SECOND = 1_000L

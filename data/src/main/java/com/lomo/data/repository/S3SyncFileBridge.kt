@@ -75,11 +75,7 @@ class S3SyncFileBridge
                                 localFingerprint =
                                     syncedContentFingerprints[path]
                                         ?: normalizeSinglePartS3Md5(remote.etag)
-                                        ?: metadataByPath[path]
-                                            ?.takeIf { existing ->
-                                                existing.localLastModified == local.lastModified &&
-                                                    existing.localSize == local.size
-                                            }?.localFingerprint,
+                                        ?: metadataByPath[path]?.cachedLocalFingerprintFor(local),
                                 lastSyncedAt = now,
                                 lastResolvedDirection = outcome.first.name,
                                 lastResolvedReason = outcome.second.name,
@@ -145,15 +141,31 @@ class S3SyncFileBridge
     }
 
 internal class S3SyncFileBridgeScope(
-    private val runtime: S3SyncRepositoryContext,
+    internal val runtime: S3SyncRepositoryContext,
     private val encodingSupport: S3SyncEncodingSupport,
-    private val safTreeAccess: S3SafTreeAccess,
-    private val mode: S3LocalSyncMode,
+    internal val safTreeAccess: S3SafTreeAccess,
+    internal val mode: S3LocalSyncMode,
 ) {
     suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalS3File> =
         when (mode) {
             is S3LocalSyncMode.VaultRoot -> listVaultRootLocalFiles(mode, safTreeAccess)
             is S3LocalSyncMode.Legacy -> legacyLocalFiles(runtime, layout)
+        }
+
+    suspend fun localAuditPage(
+        afterRelativePath: String?,
+        limit: Int,
+    ): List<LocalS3File> =
+        when (mode) {
+            is S3LocalSyncMode.VaultRoot ->
+                getVaultRootLocalAuditPage(
+                    mode = mode,
+                    safTreeAccess = safTreeAccess,
+                    afterRelativePath = afterRelativePath,
+                    limit = limit,
+                )
+
+            is S3LocalSyncMode.Legacy -> emptyList()
         }
 
     suspend fun remoteFiles(
@@ -217,6 +229,7 @@ internal class S3SyncFileBridgeScope(
                         lastModified =
                             encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified),
                         size = remote.size,
+                        contentMd5 = resolveRemoteContentMd5(remote.metadata, remote.eTag),
                         remotePath = remote.key,
                     )
             }
@@ -241,7 +254,11 @@ internal class S3SyncFileBridgeScope(
             is S3LocalSyncMode.SafVaultRoot ->
                 resolveVaultRootPath(path, layout, mode)?.let { relativePath ->
                     safTreeAccess.getFile(mode.rootUriString, relativePath.value)?.let { metadata ->
-                        LocalS3File(path = path, lastModified = metadata.lastModified, size = metadata.size)
+                        LocalS3File(
+                            path = path,
+                            lastModified = metadata.lastModified,
+                            size = metadata.size,
+                        )
                     }
                 }
 
@@ -372,3 +389,17 @@ internal class S3SyncFileBridgeScope(
 
 private const val S3_FULL_SCAN_LIST_CONCURRENCY = 12
 private const val S3_FULL_SCAN_PAGE_SIZE = 1000
+private const val S3_LOCAL_STAT_CONCURRENCY = 8
+
+internal suspend fun resolveLocalS3FilesForPaths(
+    paths: Collection<String>,
+    stat: suspend (String) -> LocalS3File?,
+): Map<String, LocalS3File> =
+    coroutineScope {
+        val limiter = Semaphore(S3_LOCAL_STAT_CONCURRENCY)
+        paths
+            .map { path -> async { limiter.withPermit { path to stat(path) } } }
+            .awaitAll()
+            .mapNotNull { (path, file) -> file?.let { path to it } }
+            .toMap()
+    }

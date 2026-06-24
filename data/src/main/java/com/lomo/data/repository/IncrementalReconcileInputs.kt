@@ -85,7 +85,4 @@ internal suspend fun buildIncrementalReconcileLocalFiles(
     fileBridgeScope: S3SyncFileBridgeScope,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
 ): Map<String, LocalS3File> =
-    candidatePaths
-        .associateWith { path -> fileBridgeScope.localFile(path, layout) }
-        .mapNotNull { (path, file) -> file?.let { path to it } }
-        .toMap()
+    resolveLocalS3FilesForPaths(candidatePaths) { path -> fileBridgeScope.localFile(path, layout) }

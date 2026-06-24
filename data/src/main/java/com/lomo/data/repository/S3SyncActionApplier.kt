@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncState
 import timber.log.Timber
 import javax.inject.Inject
@@ -14,15 +15,10 @@ class S3SyncActionApplier
     constructor(
         private val runtime: S3SyncRepositoryContext,
         private val encodingSupport: S3SyncEncodingSupport,
+        private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
         fileBridge: S3SyncFileBridge,
         private val transferWorkspace: S3SyncTransferWorkspace,
     ) {
-        internal constructor(
-            runtime: S3SyncRepositoryContext,
-            encodingSupport: S3SyncEncodingSupport,
-            fileBridge: S3SyncFileBridge,
-        ) : this(runtime, encodingSupport, fileBridge, S3SyncTransferWorkspace.systemTemp())
-
         internal suspend fun applyAction(
             action: S3SyncAction,
             client: com.lomo.data.s3.LomoS3Client,
@@ -92,10 +88,89 @@ class S3SyncActionApplier
                     S3SyncDirection.CONFLICT,
                     -> S3ActionExecutionState.Skipped
                 }
+            }.onFailure { error ->
+                if (error is S3SyncFailureException) {
+                    throw error
+                }
             }.getOrElse { error ->
                 Timber.e(error, "Failed to %s %s", action.operationName(), sanitizePathForLog(action.path))
                 S3ActionExecutionState.Failed(action.path)
             }
+
+        internal suspend fun applyDeleteRemoteActions(
+            actions: List<S3SyncAction>,
+            client: com.lomo.data.s3.LomoS3Client,
+            config: S3ResolvedConfig,
+            remoteFiles: Map<String, RemoteS3File>,
+            metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+            verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String> = emptySet(),
+        ): Map<String, S3ActionExecutionState> {
+            if (actions.isEmpty()) {
+                return emptyMap()
+            }
+            runtime.stateHolder.state.value = S3SyncState.Deleting
+            val verifiedTargets = mutableListOf<DeleteRemoteBatchTarget>()
+            val states = linkedMapOf<String, S3ActionExecutionState>()
+            actions.forEach { action ->
+                val verification =
+                    runNonFatalCatching {
+                        verifyDeleteRemoteTarget(
+                            action = action,
+                            client = client,
+                            config = config,
+                            remoteFiles = remoteFiles,
+                            metadataByPath = metadataByPath,
+                            verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                            observedMissingRemotePaths = observedMissingRemotePaths,
+                        )
+                    }.onFailure { error ->
+                        if (error is S3SyncFailureException) {
+                            throw error
+                        }
+                    }.getOrElse { error ->
+                        Timber.e(error, "Failed to verify delete remote %s", sanitizePathForLog(action.path))
+                        states[action.path] = S3ActionExecutionState.Failed(action.path)
+                        return@forEach
+                    }
+                when (verification) {
+                    RemoteVerificationConflict ->
+                        states[action.path] = S3ActionExecutionState.Skipped
+
+                    is RemoteVerificationMissing ->
+                        states[action.path] = action.deletedRemoteApplied()
+
+                    is RemoteVerificationSuccess ->
+                        verifiedTargets += DeleteRemoteBatchTarget(action = action, remoteKey = verification.remoteKey)
+                }
+            }
+            if (verifiedTargets.isEmpty()) {
+                return states
+            }
+            val failedKeys =
+                runNonFatalCatching {
+                    client.deleteObjects(verifiedTargets.map { target -> target.remoteKey.value }).failedKeys
+                }.onFailure { error ->
+                    if (error is S3SyncFailureException) {
+                        throw error
+                    }
+                }.getOrElse { error ->
+                    Timber.e(error, "Failed to batch delete %d S3 object(s)", verifiedTargets.size)
+                    verifiedTargets.forEach { target ->
+                        states[target.action.path] = S3ActionExecutionState.Failed(target.action.path)
+                    }
+                    return states
+                }
+            verifiedTargets.forEach { target ->
+                states[target.action.path] =
+                    if (target.remoteKey.value in failedKeys) {
+                        S3ActionExecutionState.Failed(target.action.path)
+                    } else {
+                        target.action.deletedRemoteApplied()
+                    }
+            }
+            return states
+        }
 
         private suspend fun uploadAction(
             action: S3SyncAction,
@@ -129,14 +204,14 @@ class S3SyncActionApplier
                             return@withSession S3ActionExecutionState.Skipped
                         }
                 val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
-                val syncedContentFingerprint = uploadContentFingerprint(source.file)
+                val syncedContentFingerprint = source.file.md5Hex()
                 val ifNoneMatch = if (config.endpointProfile.conditionalWritesSupported &&
                     uploadTarget.remoteFile == null) "*" else null
                 val ifMatch = if (config.endpointProfile.conditionalWritesSupported &&
                     uploadTarget.remoteFile != null) uploadTarget.remoteFile.etag else null
                 val uploaded =
                     client.putObjectFile(
-                        key = uploadTarget.remotePath,
+                        key = uploadTarget.remoteKey.value,
                         file = uploadFile.file,
                         contentType = contentTypeForPath(action.path, layout, runtime, mode),
                         metadata =
@@ -161,7 +236,7 @@ class S3SyncActionApplier
                             lastModified = localFiles[action.path]?.lastModified,
                             size = localFiles[action.path]?.size ?: source.file.length(),
                             contentMd5 = syncedContentFingerprint,
-                            remotePath = uploadTarget.remotePath,
+                            remotePath = uploadTarget.remoteKey.value,
                         ),
                 )
             }
@@ -178,17 +253,17 @@ class S3SyncActionApplier
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Downloading
-            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val remoteKey = resolveRemoteKey(action.path, remoteFiles, metadataByPath, config)
             return transferWorkspace.withSession { session ->
                 val downloadedFile = session.createTempFile("s3-download-", action.path.transferSuffix())
-                client.getObjectToFile(remotePath, downloadedFile)
+                client.getObjectToFile(remoteKey.value, downloadedFile)
                 val decoded = encodingSupport.decodeDownloadedFile(downloadedFile, config, session)
                 fileBridgeScope.importLocalFile(action.path, decoded.file, layout)
                 val updatedLocalFile = fileBridgeScope.localFile(action.path, layout)
                 S3ActionExecutionState.Applied(
                     localChanged = true,
                     remoteChanged = false,
-                    syncedContentFingerprint = uploadContentFingerprint(decoded.file),
+                    syncedContentFingerprint = decoded.file.md5Hex(),
                     updatedLocalFile = updatedLocalFile,
                     memoRefreshPlan = buildMemoRefreshPlan(action.path, layout, mode),
                 )
@@ -208,10 +283,10 @@ class S3SyncActionApplier
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Deleting
-            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val remoteKey = resolveRemoteKey(action.path, remoteFiles, metadataByPath, config)
             val knownMissing =
                 action.path in verifiedMissingRemotePaths || action.path in observedMissingRemotePaths
-            if (!knownMissing && client.getObjectMetadata(remotePath) != null) {
+            if (!knownMissing && client.getObjectMetadata(remoteKey.value) != null) {
                 return S3ActionExecutionState.Skipped
             }
             fileBridgeScope.deleteLocalFile(action.path, layout)
@@ -246,31 +321,26 @@ class S3SyncActionApplier
             when (verification) {
                 RemoteVerificationConflict -> return S3ActionExecutionState.Skipped
                 is RemoteVerificationMissing ->
-                    return S3ActionExecutionState.Applied(
-                        localChanged = false,
-                        remoteChanged = true,
-                        deletedRemotePath = action.path,
-                    )
+                    return action.deletedRemoteApplied()
 
                 is RemoteVerificationSuccess ->
-                    client.deleteObject(verification.remotePath)
+                    client.deleteObject(verification.remoteKey.value)
             }
-            return S3ActionExecutionState.Applied(
-                localChanged = false,
-                remoteChanged = true,
-                deletedRemotePath = action.path,
-            )
+            return action.deletedRemoteApplied()
         }
 
-        private fun resolveRemotePath(
+        private fun resolveRemoteKey(
             relativePath: String,
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             config: S3ResolvedConfig,
-        ): String =
-            remoteFiles[relativePath]?.remotePath
-                ?: metadataByPath[relativePath]?.remotePath
-                ?: encodingSupport.remotePathFor(relativePath, config)
+        ): S3RemoteObjectKey =
+            objectKeyPolicy.resolveOperationKey(
+                relativePath = relativePath,
+                config = config,
+                remoteFile = remoteFiles[relativePath],
+                metadata = metadataByPath[relativePath],
+            )
 
         private suspend fun verifyUploadTarget(
             action: S3SyncAction,
@@ -281,37 +351,37 @@ class S3SyncActionApplier
             verifiedMissingRemotePaths: Set<String>,
             observedMissingRemotePaths: Set<String>,
         ): RemoteVerificationSuccess? {
-            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val remoteKey = resolveRemoteKey(action.path, remoteFiles, metadataByPath, config)
             val cachedRemote = remoteFiles[action.path]
             val metadataSnapshot = metadataByPath[action.path]
             return when {
                 action.path in verifiedMissingRemotePaths ||
                     action.path in observedMissingRemotePaths ->
-                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = null)
+                    RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = null)
 
                 cachedRemote?.verified == true ->
-                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+                    RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = cachedRemote)
 
                 config.endpointProfile.conditionalWritesSupported &&
                     cachedRemote != null ->
-                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+                    RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = cachedRemote)
 
                 config.endpointProfile.conditionalWritesSupported &&
                     cachedRemote == null &&
                     metadataSnapshot != null ->
                     RemoteVerificationSuccess(
-                        remotePath = remotePath,
+                        remoteKey = remoteKey,
                         remoteFile = metadataSnapshot.toConditionalWriteRemoteFile(action.path),
                     )
 
                 cachedRemote == null && metadataSnapshot == null ->
-                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = null)
+                    RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = null)
 
                 else ->
                     verifyUploadTargetAgainstRemote(
                         action = action,
                         client = client,
-                        remotePath = remotePath,
+                        remoteKey = remoteKey,
                         cachedRemote = cachedRemote,
                         metadataSnapshot = metadataSnapshot,
                     )
@@ -327,20 +397,20 @@ class S3SyncActionApplier
             verifiedMissingRemotePaths: Set<String>,
             observedMissingRemotePaths: Set<String>,
         ): RemoteVerificationResult {
-            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val remoteKey = resolveRemoteKey(action.path, remoteFiles, metadataByPath, config)
             val cachedRemote = remoteFiles[action.path]
             if (cachedRemote?.verified == true) {
-                return RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+                return RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = cachedRemote)
             }
             if (action.path in verifiedMissingRemotePaths || action.path in observedMissingRemotePaths) {
-                return RemoteVerificationMissing(remotePath)
+                return RemoteVerificationMissing(remoteKey)
             }
-            val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(action.path)
+            val verifiedRemote = client.getObjectMetadata(remoteKey.value)?.toVerifiedRemoteFile(action.path)
             return when {
-                verifiedRemote == null -> RemoteVerificationMissing(remotePath)
-                cachedRemote == null -> RemoteVerificationSuccess(remotePath = remotePath, remoteFile = verifiedRemote)
+                verifiedRemote == null -> RemoteVerificationMissing(remoteKey)
+                cachedRemote == null -> RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = verifiedRemote)
                 verifiedRemote.matchesCached(cachedRemote) ->
-                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = verifiedRemote)
+                    RemoteVerificationSuccess(remoteKey = remoteKey, remoteFile = verifiedRemote)
 
                 else -> RemoteVerificationConflict
             }
@@ -363,7 +433,6 @@ class S3SyncActionApplier
             resolveMemoRefreshTarget(path, layout, mode)?.let(S3MemoRefreshPlan::Targets)
                 ?: S3MemoRefreshPlan.None
 
-        private fun uploadContentFingerprint(file: java.io.File): String = file.md5Hex()
     }
 
 internal sealed interface S3ActionExecutionState {
@@ -414,21 +483,33 @@ private fun S3SyncAction.operationName(): String =
 private sealed interface RemoteVerificationResult
 
 private data class RemoteVerificationSuccess(
-    val remotePath: String,
+    val remoteKey: S3RemoteObjectKey,
     val remoteFile: RemoteS3File?,
 ) : RemoteVerificationResult
 
 private data class RemoteVerificationMissing(
-    val remotePath: String,
+    val remoteKey: S3RemoteObjectKey,
 ) : RemoteVerificationResult
 
 private data object RemoteVerificationConflict : RemoteVerificationResult
+
+private data class DeleteRemoteBatchTarget(
+    val action: S3SyncAction,
+    val remoteKey: S3RemoteObjectKey,
+)
+
+private fun S3SyncAction.deletedRemoteApplied(): S3ActionExecutionState.Applied =
+    S3ActionExecutionState.Applied(
+        localChanged = false,
+        remoteChanged = true,
+        deletedRemotePath = path,
+    )
 
 private fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(path: String): RemoteS3File =
     RemoteS3File(
         path = path,
         etag = eTag,
-        lastModified = lastModified,
+        lastModified = resolveRemoteObjectLastModified(metadata, lastModified),
         contentMd5 = null,
         remotePath = key,
         verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
@@ -461,27 +542,27 @@ private fun com.lomo.data.local.entity.S3SyncMetadataEntity.toConditionalWriteRe
 private suspend fun verifyUploadTargetAgainstRemote(
     action: S3SyncAction,
     client: com.lomo.data.s3.LomoS3Client,
-    remotePath: String,
+    remoteKey: S3RemoteObjectKey,
     cachedRemote: RemoteS3File?,
     metadataSnapshot: com.lomo.data.local.entity.S3SyncMetadataEntity?,
 ): RemoteVerificationSuccess? {
-    val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(action.path)
+    val verifiedRemote = client.getObjectMetadata(remoteKey.value)?.toVerifiedRemoteFile(action.path)
     return when {
         verifiedRemote == null ->
             RemoteVerificationSuccess(
-                remotePath = remotePath,
+                remoteKey = remoteKey,
                 remoteFile = null,
             )
 
         cachedRemote != null && verifiedRemote.matchesCached(cachedRemote) ->
             RemoteVerificationSuccess(
-                remotePath = remotePath,
+                remoteKey = remoteKey,
                 remoteFile = verifiedRemote,
             )
 
         metadataSnapshot != null && verifiedRemote.matchesMetadataSnapshot(metadataSnapshot) ->
             RemoteVerificationSuccess(
-                remotePath = remotePath,
+                remoteKey = remoteKey,
                 remoteFile = verifiedRemote,
             )
 

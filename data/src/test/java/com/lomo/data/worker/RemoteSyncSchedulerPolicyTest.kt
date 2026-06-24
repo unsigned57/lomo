@@ -5,9 +5,11 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.GitSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncExistingWorkPolicy
 import com.lomo.data.sync.SyncScheduledWork
+import com.lomo.data.sync.SyncWorkBackoffPolicy
 import com.lomo.data.sync.SyncWorkCadence
 import com.lomo.data.sync.SyncWorkNetworkRequirement
 import com.lomo.data.sync.SyncWorkPayload
+import com.lomo.data.sync.SyncWorkRetryPolicy
 import com.lomo.data.sync.SyncWorkTrigger
 import com.lomo.data.sync.WebDavSyncWorkPolicyPlanner
 import com.lomo.data.testing.DataFunSpec
@@ -26,20 +28,27 @@ import java.time.Duration
  * - Unit under test: WebDAV and Git sync schedulers with production SyncWorkPolicy planners.
  * - Owning layer: data.
  * - Priority tier: P1.
- * - Capability: schedule remote auto-sync by enqueueing backend-neutral SyncScheduledWork decisions instead of locally computing WorkManager cadence, constraints, work name, and existing-work policy.
+ * - Capability: schedule remote auto-sync by enqueueing backend-neutral SyncScheduledWork decisions instead of locally computing WorkManager cadence, constraints, work name, existing-work policy, or retry/backoff budget.
  *
  * Scenarios:
- * - Given WebDAV sync and auto-sync are enabled, when reschedule runs, then the enqueued work carries WebDAV backend, worker lane, periodic cadence, connected-network requirement, replace policy, and standard remote payload from SyncWorkPolicy.
- * - Given Git sync and auto-sync are enabled, when reschedule runs, then the enqueued work carries Git backend, worker lane, periodic cadence, connected-network requirement, replace policy, and standard remote payload from SyncWorkPolicy.
+ * - Given WebDAV sync and auto-sync are enabled, when reschedule runs, then the enqueued work carries WebDAV backend, worker lane, periodic cadence, connected-network requirement, replace policy, retry/backoff budget, and standard remote payload from SyncWorkPolicy.
+ * - Given Git sync and auto-sync are enabled, when reschedule runs, then the enqueued work carries Git backend, worker lane, periodic cadence, connected-network requirement, replace policy, retry/backoff budget, and standard remote payload from SyncWorkPolicy.
  *
  * Observable outcomes:
- * - SyncScheduledWork captured at the scheduler/enqueuer boundary: backend, trigger, unique work name, cadence, network requirement, existing-work policy, payload, and coalescing key.
+ * - SyncScheduledWork captured at the scheduler/enqueuer boundary: backend, trigger, unique work name, cadence, network requirement, existing-work policy, retry/backoff policy, payload, and coalescing key.
  *
  * TDD proof:
- * - RED: before the fix, this spec would not compile because WebDavSyncScheduler/GitSyncScheduler did not accept SyncWorkPolicy planners or scheduled-work enqueuer seams, and WebDAV/Git scheduled work was computed directly inside the scheduler.
+ * - RED: before the retry/backoff fix, this spec fails to compile because SyncScheduledWork does not carry the WebDAV/Git policy-owned retry/backoff budget.
  *
  * Excludes:
  * - Android WorkManager request construction, worker execution, repository sync transport, and disabled-state cancellation.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class RemoteSyncSchedulerPolicyTest : DataFunSpec() {
     init {
@@ -70,6 +79,12 @@ class RemoteSyncSchedulerPolicyTest : DataFunSpec() {
                             cadence = SyncWorkCadence.Periodic(Duration.ofHours(12)),
                             networkRequirement = SyncWorkNetworkRequirement.Connected,
                             existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+                            retryPolicy =
+                                SyncWorkRetryPolicy(
+                                    maxAttempts = 3,
+                                    backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+                                    backoffDelay = Duration.ofMinutes(15),
+                                ),
                             payload = SyncWorkPayload.StandardRemoteSync,
                         ),
                     )
@@ -102,6 +117,12 @@ class RemoteSyncSchedulerPolicyTest : DataFunSpec() {
                     cadence shouldBe SyncWorkCadence.Periodic(Duration.ofMinutes(30))
                     networkRequirement shouldBe SyncWorkNetworkRequirement.Connected
                     existingWorkPolicy shouldBe SyncExistingWorkPolicy.Replace
+                    retryPolicy shouldBe
+                        SyncWorkRetryPolicy(
+                            maxAttempts = 3,
+                            backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+                            backoffDelay = Duration.ofMinutes(15),
+                        )
                     payload shouldBe SyncWorkPayload.StandardRemoteSync
                     coalescingKey.backend shouldBe SyncBackendType.GIT
                     coalescingKey.uniqueWorkName shouldBe GitSyncWorker.WORK_NAME

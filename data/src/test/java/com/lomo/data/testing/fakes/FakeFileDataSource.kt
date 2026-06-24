@@ -92,6 +92,15 @@ class FakeFileDataSource : FileDataSource {
         return files[Pair(directory, filename)] ?: readFileInResult?.invoke(directory, filename)
     }
 
+    val fingerprintFileInCalls = mutableListOf<Pair<MemoDirectoryType, String>>()
+    var fingerprintFileInResult: (suspend (MemoDirectoryType, String) -> String?)? = null
+
+    override suspend fun fingerprintFileIn(directory: MemoDirectoryType, filename: String): String? {
+        fingerprintFileInCalls += Pair(directory, filename)
+        return fingerprintFileInResult?.invoke(directory, filename)
+            ?: files[Pair(directory, filename)]?.toByteArray(Charsets.UTF_8)?.md5Hex()
+    }
+
     override suspend fun readFile(uri: Uri): String? {
         val key = fileUris.entries.firstOrNull { it.value == uri }?.key
         return key?.let { files[it] }
@@ -172,3 +181,9 @@ class FakeFileDataSource : FileDataSource {
         deletedVoiceFiles += filename
     }
 }
+
+private fun ByteArray.md5Hex(): String =
+    java.security.MessageDigest
+        .getInstance("MD5")
+        .digest(this)
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
