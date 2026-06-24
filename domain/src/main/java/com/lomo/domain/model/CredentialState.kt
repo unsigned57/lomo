@@ -82,6 +82,9 @@ data class CredentialState(
 
     val isConfigured: Boolean = readinessStatus.isConfigured
 
+    fun statusFor(field: CredentialField): StoredCredentialStatus =
+        fields.firstOrNull { state -> state.field == field }?.status ?: StoredCredentialStatus.Missing
+
     private fun aggregateReadinessStatus(): StoredCredentialStatus {
         if (fields.isEmpty()) {
             return StoredCredentialStatus.Missing
