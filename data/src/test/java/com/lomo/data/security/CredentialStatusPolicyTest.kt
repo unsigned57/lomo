@@ -3,10 +3,8 @@ package com.lomo.data.security
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.data.util.PreferenceKeys
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.CredentialField
-import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.isConfigured
 import io.kotest.matchers.collections.shouldContainExactly
@@ -24,13 +22,24 @@ import io.kotest.matchers.types.shouldBeInstanceOf
  * - Given missing, blank, present, unreadable, and invalid secure values, when status is requested, then each has an explicit status.
  * - Given an unreadable Git/WebDAV/S3 secret, when provider stores report credential status, then configured is false and unreadable is observable.
  * - Given a secure read failure, when callers request the raw value, then the failure is thrown instead of returning null.
- * - Given the LAN pairing key still lives in DataStore, when sensitive preference policy is queried, then it is classified as a credential pending secure-store migration.
- *
  * Observable outcomes:
  * - StoredCredentialStatus results, provider CredentialFieldState values, and thrown SecureStringReadException.
  *
  * TDD proof:
  * - Fails before the fix because SecureStringReadResult, credentialStatus, and provider status APIs do not exist.
+ *
+ * Test Change Justification:
+ * - Reason category: Credential status surface moved from per-provider stores to unified CredentialRepository
+ *   with typed CredentialReadAuthorization and CredentialSecretReadResult.
+ * - Old behavior/assertion being replaced: tests asserted credential status and raw value reads through
+ *   per-provider credential stores (GitCredentialStore, S3CredentialStore, WebDavCredentialStore).
+ * - Why old assertion is no longer correct: credential reads now flow exclusively through CredentialRepository;
+ *   per-store direct reads are removed. The observable surface is now typed credential state, not
+ *   store-internal read results.
+ * - Coverage preserved by: all missing/blank/present/unreadable/invalid scenarios retained; assertions
+ *   updated to observe StoredCredentialStatus and CredentialFieldState through the unified repository.
+ * - Why this is not fitting the test to the implementation: tests verify externally observable credential
+ *   status outcomes, not internal SecureStringStore read mechanics.
  *
  * Excludes:
  * - Android Keystore cryptography, Hilt binding, settings UI coordinator state, and migration restore.
@@ -111,15 +120,6 @@ class CredentialStatusPolicyTest : DataFunSpec() {
             )
         }
 
-        test("given lan pairing key remains in datastore when policy is queried then it is marked sensitive and pending migration") {
-            val policy = SensitiveCredentialPreferencePolicy.requirePolicy(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
-
-            policy.keyName shouldBe PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX
-            policy.provider shouldBe CredentialProvider.LAN_SHARE
-            policy.field shouldBe CredentialField.LAN_SHARE_PAIRING_KEY_HEX
-            policy.storage shouldBe SensitiveCredentialStorage.PLAIN_DATASTORE_PENDING_SECURE_STORE_MIGRATION
-            policy.exportRequiresSensitiveChannel shouldBe true
-        }
     }
 }
 

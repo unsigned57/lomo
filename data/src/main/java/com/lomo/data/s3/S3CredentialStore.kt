@@ -3,6 +3,7 @@ package com.lomo.data.s3
 import android.content.Context
 import com.lomo.data.security.KeystoreBackedPreferences
 import com.lomo.data.security.SecureStringStore
+import com.lomo.data.security.SecureStringReadResult
 import com.lomo.data.security.credentialStatus
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
@@ -12,6 +13,12 @@ import com.lomo.domain.model.StoredCredentialStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val KEY_ACCESS_KEY_ID = "s3_access_key_id"
+private const val KEY_SECRET_ACCESS_KEY = "s3_secret_access_key"
+private const val KEY_SESSION_TOKEN = "s3_session_token"
+private const val KEY_ENCRYPTION_PASSWORD = "s3_encryption_password"
+private const val KEY_ENCRYPTION_PASSWORD2 = "s3_encryption_password2"
 
 @Singleton
 class S3CredentialStore private constructor(
@@ -34,70 +41,50 @@ class S3CredentialStore private constructor(
 
     private val prefs: SecureStringStore by lazy(secureStringStoreFactory)
 
-    fun getAccessKeyId(): String? = prefs.getString(KEY_ACCESS_KEY_ID)
+    internal fun getSecret(field: CredentialField): String? =
+        prefs.getString(field.preferenceKey())
 
-    val accessKeyIdStatus: StoredCredentialStatus
-        get() = prefs.credentialStatus(KEY_ACCESS_KEY_ID)
+    internal fun readSecret(field: CredentialField): SecureStringReadResult =
+        prefs.readString(field.preferenceKey())
 
-    fun setAccessKeyId(accessKeyId: String?) {
-        prefs.putString(KEY_ACCESS_KEY_ID, accessKeyId)
+    internal fun secretStatus(field: CredentialField): StoredCredentialStatus =
+        prefs.credentialStatus(field.preferenceKey())
+
+    internal fun setSecret(
+        field: CredentialField,
+        value: String?,
+    ) {
+        prefs.putString(field.preferenceKey(), value)
     }
 
-    fun getSecretAccessKey(): String? = prefs.getString(KEY_SECRET_ACCESS_KEY)
-
-    val secretAccessKeyStatus: StoredCredentialStatus
-        get() = prefs.credentialStatus(KEY_SECRET_ACCESS_KEY)
-
-    fun setSecretAccessKey(secretAccessKey: String?) {
-        prefs.putString(KEY_SECRET_ACCESS_KEY, secretAccessKey)
-    }
-
-    fun getSessionToken(): String? = prefs.getString(KEY_SESSION_TOKEN)
-
-    val sessionTokenStatus: StoredCredentialStatus
-        get() = prefs.credentialStatus(KEY_SESSION_TOKEN)
-
-    fun setSessionToken(sessionToken: String?) {
-        prefs.putString(KEY_SESSION_TOKEN, sessionToken)
-    }
-
-    fun getEncryptionPassword(): String? = prefs.getString(KEY_ENCRYPTION_PASSWORD)
-
-    val encryptionPasswordStatus: StoredCredentialStatus
-        get() = prefs.credentialStatus(KEY_ENCRYPTION_PASSWORD)
-
-    fun setEncryptionPassword(password: String?) {
-        prefs.putString(KEY_ENCRYPTION_PASSWORD, password)
-    }
-
-    fun getEncryptionPassword2(): String? = prefs.getString(KEY_ENCRYPTION_PASSWORD2)
-
-    val encryptionPassword2Status: StoredCredentialStatus
-        get() = prefs.credentialStatus(KEY_ENCRYPTION_PASSWORD2)
-
-    val credentialState: CredentialState
+    internal val credentialState: CredentialState
         get() =
             CredentialState(
                 provider = CredentialProvider.S3,
                 fields =
-                    listOf(
-                        CredentialFieldState(CredentialField.S3_ACCESS_KEY_ID, accessKeyIdStatus),
-                        CredentialFieldState(CredentialField.S3_SECRET_ACCESS_KEY, secretAccessKeyStatus),
-                        CredentialFieldState(CredentialField.S3_SESSION_TOKEN, sessionTokenStatus),
-                        CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD, encryptionPasswordStatus),
-                        CredentialFieldState(CredentialField.S3_ENCRYPTION_PASSWORD2, encryptionPassword2Status),
-                    ),
+                    S3_CREDENTIAL_FIELDS.map { field ->
+                        CredentialFieldState(field, secretStatus(field))
+                    },
             )
 
-    fun setEncryptionPassword2(password: String?) {
-        prefs.putString(KEY_ENCRYPTION_PASSWORD2, password)
-    }
-
     private companion object {
-        const val KEY_ACCESS_KEY_ID = "s3_access_key_id"
-        const val KEY_SECRET_ACCESS_KEY = "s3_secret_access_key"
-        const val KEY_SESSION_TOKEN = "s3_session_token"
-        const val KEY_ENCRYPTION_PASSWORD = "s3_encryption_password"
-        const val KEY_ENCRYPTION_PASSWORD2 = "s3_encryption_password2"
+        val S3_CREDENTIAL_FIELDS =
+            listOf(
+                CredentialField.S3_ACCESS_KEY_ID,
+                CredentialField.S3_SECRET_ACCESS_KEY,
+                CredentialField.S3_SESSION_TOKEN,
+                CredentialField.S3_ENCRYPTION_PASSWORD,
+                CredentialField.S3_ENCRYPTION_PASSWORD2,
+            )
     }
 }
+
+private fun CredentialField.preferenceKey(): String =
+    when (this) {
+        CredentialField.S3_ACCESS_KEY_ID -> KEY_ACCESS_KEY_ID
+        CredentialField.S3_SECRET_ACCESS_KEY -> KEY_SECRET_ACCESS_KEY
+        CredentialField.S3_SESSION_TOKEN -> KEY_SESSION_TOKEN
+        CredentialField.S3_ENCRYPTION_PASSWORD -> KEY_ENCRYPTION_PASSWORD
+        CredentialField.S3_ENCRYPTION_PASSWORD2 -> KEY_ENCRYPTION_PASSWORD2
+        else -> error("Credential field $this is not owned by the S3 credential store")
+    }

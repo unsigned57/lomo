@@ -2,11 +2,19 @@ package com.lomo.data.share
 
 import android.os.Build
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.model.CredentialField
+import com.lomo.domain.model.CredentialProvider
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadException
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -15,13 +23,22 @@ class SharePairingConfig
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         private val pairingCodeInputState = MutableStateFlow("")
 
         val lanShareEnabled: Flow<Boolean> = dataStore.lanShareEnabled
         val lanShareE2eEnabled: Flow<Boolean> = dataStore.lanShareE2eEnabled
         val lanSharePairingConfigured: Flow<Boolean> =
-            dataStore.lanSharePairingKeyHex.map(::isValidKeyHex)
+            flow {
+                migrateLegacyPairingKeyIfPresent()
+                emitAll(
+                    credentialRepository
+                        .observeCredentialState(CredentialProvider.LAN_SHARE)
+                        .map { state -> state.isConfigured },
+                )
+            }
         val lanSharePairingCode: StateFlow<String> = pairingCodeInputState.asStateFlow()
         val lanShareDeviceName: Flow<String> =
             dataStore.lanShareDeviceName.map {
@@ -42,12 +59,12 @@ class SharePairingConfig
             val keyMaterial =
                 ShareAuthUtils.deriveKeyMaterialFromPairingCode(normalized)
                     ?: throw IllegalStateException("Failed to derive pairing key material")
-            dataStore.updateLanSharePairingKeyHex(keyMaterial)
+            credentialRepository.writeSecret(CredentialField.LAN_SHARE_PAIRING_KEY_HEX, keyMaterial)
             pairingCodeInputState.value = normalized
         }
 
         suspend fun clearLanSharePairingCode() {
-            dataStore.updateLanSharePairingKeyHex(null)
+            credentialRepository.writeSecret(CredentialField.LAN_SHARE_PAIRING_KEY_HEX, null)
             pairingCodeInputState.value = ""
         }
 
@@ -59,10 +76,26 @@ class SharePairingConfig
         suspend fun requiresPairingBeforeSend(): Boolean {
             val e2eEnabled = dataStore.lanShareE2eEnabled.first()
             if (!e2eEnabled) return false
-            return !isValidKeyHex(dataStore.lanSharePairingKeyHex.first())
+            return !isValidKeyHex(getEffectivePairingKeyHex())
         }
 
-        suspend fun getEffectivePairingKeyHex(): String? = dataStore.lanSharePairingKeyHex.first()
+        suspend fun getEffectivePairingKeyHex(): String? {
+            migrateLegacyPairingKeyIfPresent()
+            return when (
+                val result =
+                    credentialRepository.readSecret(
+                        field = CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
+                        authorization = securitySessionPolicy.authorizeCredentialRead(),
+                    )
+            ) {
+                CredentialSecretReadResult.Missing -> null
+                is CredentialSecretReadResult.Present -> result.value
+                CredentialSecretReadResult.Unreadable ->
+                    throw CredentialSecretReadException(result)
+                is CredentialSecretReadResult.Unauthorized ->
+                    throw CredentialSecretReadException(result)
+            }
+        }
 
         suspend fun resolveDeviceName(): String {
             val custom = dataStore.lanShareDeviceName.first()
@@ -72,6 +105,13 @@ class SharePairingConfig
         suspend fun isLanShareEnabled(): Boolean = dataStore.lanShareEnabled.first()
 
         suspend fun isE2eEnabled(): Boolean = dataStore.lanShareE2eEnabled.first()
+
+        private suspend fun migrateLegacyPairingKeyIfPresent() {
+            val legacyKey = dataStore.drainLegacyLanSharePairingKeyHex()
+            if (legacyKey != null) {
+                credentialRepository.writeSecret(CredentialField.LAN_SHARE_PAIRING_KEY_HEX, legacyKey)
+            }
+        }
 
         companion object {
             private const val MAX_DEVICE_NAME_CHARS = 32

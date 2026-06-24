@@ -41,11 +41,14 @@ import com.lomo.data.local.dao.WebDavLocalFingerprintDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.s3.AwsSdkS3ClientFactory
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
 import com.lomo.data.repository.AppUpdateApkDownloader
 import com.lomo.data.repository.AppUpdateApkVerifier
 import com.lomo.data.repository.AppUpdateInstallerResultObserver
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateDownloadRepositoryImpl
+import com.lomo.data.repository.AppUpdateInstallAttemptStore
+import com.lomo.data.repository.AppUpdateInstallerLauncher
 import com.lomo.data.repository.AppUpdateTransportOwner
 import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
@@ -68,11 +71,15 @@ import com.lomo.data.repository.MemoSearchRepositoryImpl
 import com.lomo.data.repository.MemoStatisticsRepositoryImpl
 import com.lomo.data.repository.MemoTrashRepositoryImpl
 import com.lomo.data.repository.MigrationArchiveRepositoryImpl
+import com.lomo.data.repository.FileMigrationArchiveStagingWorkspaceFactory
+import com.lomo.data.repository.MigrationArchiveStagingWorkspaceFactory
 import com.lomo.data.repository.MigrationSettingsStore
 import com.lomo.data.repository.MemoWorkspaceProjector
 import com.lomo.data.repository.MemoWorkspaceReader
 import com.lomo.data.repository.MemoWorkspaceStore
 import com.lomo.data.repository.PackageManagerAppUpdateApkVerifier
+import com.lomo.data.repository.FileProviderAppUpdateInstallerLauncher
+import com.lomo.data.repository.JsonFileAppUpdateInstallAttemptStore
 import com.lomo.data.repository.PendingSyncConflictStore
 import com.lomo.data.repository.PendingSyncReviewStore
 import com.lomo.data.repository.RoomPendingSyncConflictStore
@@ -92,12 +99,16 @@ import com.lomo.data.repository.WorkspaceMediaAccess
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
+import com.lomo.data.security.DefaultCredentialRepository
+import com.lomo.data.security.DataStoreSecuritySessionPolicy
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppUpdateTransportLifecycleRepository
 import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
@@ -115,6 +126,8 @@ import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SecuritySessionController
+import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
@@ -541,6 +554,12 @@ object CoreRepositoryModule {
 
     @Provides
     @Singleton
+    fun provideAppPreferencesSnapshotRepository(
+        impl: AppPreferencesSnapshotRepositoryImpl,
+    ): AppPreferencesSnapshotRepository = impl
+
+    @Provides
+    @Singleton
     fun provideCustomFontStore(
         impl: com.lomo.data.repository.CustomFontStoreImpl,
     ): com.lomo.domain.repository.CustomFontStore = impl
@@ -574,6 +593,22 @@ object CoreRepositoryModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
+object CredentialRepositoryModule {
+    @Provides
+    @Singleton
+    fun provideCredentialRepository(impl: DefaultCredentialRepository): CredentialRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSecuritySessionPolicy(impl: DataStoreSecuritySessionPolicy): SecuritySessionPolicy = impl
+
+    @Provides
+    @Singleton
+    fun provideSecuritySessionController(impl: DataStoreSecuritySessionPolicy): SecuritySessionController = impl
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
 object AppUpdateRepositoryModule {
     @Provides
     @Singleton
@@ -588,6 +623,19 @@ object AppUpdateRepositoryModule {
     @Provides
     @Singleton
     fun provideAppRuntimeInfoRepository(impl: AppRuntimeInfoRepositoryImpl): AppRuntimeInfoRepository = impl
+
+    @Provides
+    @Singleton
+    internal fun provideAppUpdateInstallAttemptStore(
+        @ApplicationContext context: Context,
+    ): AppUpdateInstallAttemptStore =
+        JsonFileAppUpdateInstallAttemptStore(File(context.filesDir, "update-install/attempt.json"))
+
+    @Provides
+    @Singleton
+    internal fun provideAppUpdateInstallerLauncher(
+        @ApplicationContext context: Context,
+    ): AppUpdateInstallerLauncher = FileProviderAppUpdateInstallerLauncher(context)
 }
 
 @Module
@@ -634,6 +682,12 @@ object MigrationRepositoryModule {
     @Provides
     @Singleton
     fun provideMigrationSettingsStore(impl: DataStoreMigrationSettingsStore): MigrationSettingsStore = impl
+
+    @Provides
+    @Singleton
+    fun provideMigrationArchiveStagingWorkspaceFactory(
+        impl: FileMigrationArchiveStagingWorkspaceFactory,
+    ): MigrationArchiveStagingWorkspaceFactory = impl
 
     @Provides
     @Singleton
