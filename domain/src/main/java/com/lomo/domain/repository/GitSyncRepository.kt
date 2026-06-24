@@ -39,14 +39,7 @@ interface GitSyncConnectionMutationRepository {
 interface GitSyncCredentialMutationRepository {
     suspend fun setToken(token: String)
 
-    suspend fun getToken(): String?
-
-    suspend fun getTokenStatus(): StoredCredentialStatus =
-        if (getToken()?.isNotBlank() == true) {
-            StoredCredentialStatus.Present
-        } else {
-            StoredCredentialStatus.Missing
-        }
+    suspend fun getTokenStatus(): StoredCredentialStatus
 
     suspend fun isTokenConfigured(): Boolean = getTokenStatus().isConfigured
 }

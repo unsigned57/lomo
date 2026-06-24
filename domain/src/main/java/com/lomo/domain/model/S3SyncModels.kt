@@ -7,6 +7,7 @@ enum class S3SyncErrorCode {
     CONNECTION_FAILED,
     AUTH_FAILED,
     BUCKET_ACCESS_FAILED,
+    REMOTE_LAYOUT_VIOLATION,
     ENCRYPTION_FAILED,
     UNKNOWN,
 }
@@ -175,6 +176,7 @@ private fun s3SyncErrorCodeFromMessage(rawMessage: String?): S3SyncErrorCode {
         normalized.contains("credential", ignoreCase = true) -> S3SyncErrorCode.AUTH_FAILED
         normalized.contains("auth", ignoreCase = true) -> S3SyncErrorCode.AUTH_FAILED
         normalized.contains("bucket", ignoreCase = true) -> S3SyncErrorCode.BUCKET_ACCESS_FAILED
+        normalized.contains("layout", ignoreCase = true) -> S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
         normalized.contains("encrypt", ignoreCase = true) -> S3SyncErrorCode.ENCRYPTION_FAILED
         normalized.contains("decrypt", ignoreCase = true) -> S3SyncErrorCode.ENCRYPTION_FAILED
         normalized.contains("connection", ignoreCase = true) -> S3SyncErrorCode.CONNECTION_FAILED

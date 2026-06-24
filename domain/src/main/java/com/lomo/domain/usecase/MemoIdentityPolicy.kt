@@ -1,33 +1,22 @@
 package com.lomo.domain.usecase
 
-import kotlin.math.abs
-
+/**
+ * Single owner of memo identity.
+ *
+ * A memo id is content-independent and positional:
+ * `"${dateKey}_${timePart}_${ordinal}"`, where `ordinal` is the 0-based position among
+ * memos sharing the same `(dateKey, timePart)` in file/append order.
+ *
+ * Because the id never embeds the content, editing a memo's body does not change its id.
+ * The DB projection and the source `.md` file therefore stay aligned: block lookups,
+ * outbox file flush, and reconcile all match a memo to its file block by this stable id.
+ */
 class MemoIdentityPolicy {
-    fun buildBaseId(
+    fun buildId(
         dateKey: String,
         timePart: String,
-        content: String,
-    ): String {
-        val contentHash = contentHashHex(content)
-        return "${dateKey}_${timePart}_$contentHash"
-    }
-
-    fun applyCollisionSuffix(
-        baseId: String,
-        collisionIndex: Int,
-    ): String = if (collisionIndex <= 0) baseId else "${baseId}_$collisionIndex"
-
-    fun nextCollisionIndex(
-        existingIds: Set<String>,
-        baseId: String,
-    ): Int {
-        if (baseId !in existingIds) return 0
-        var index = 1
-        while (applyCollisionSuffix(baseId, index) in existingIds) {
-            index++
-        }
-        return index
-    }
+        ordinal: Int,
+    ): String = "${dateKey}_${timePart}_${ordinal.coerceAtLeast(0)}"
 
     fun applyTimestampOffset(
         baseTimestampMillis: Long,
@@ -37,16 +26,7 @@ class MemoIdentityPolicy {
         return baseTimestampMillis + safeOffset
     }
 
-    fun matchesBaseOrCollision(
-        memoId: String,
-        baseId: String,
-    ): Boolean = memoId == baseId || memoId.startsWith("${baseId}_")
-
     companion object {
         private const val MAX_TIMESTAMP_OFFSET_MS = 999
-        private const val HEX_RADIX = 16
-
-        fun contentHashHex(content: String): String =
-            abs(content.trim().hashCode()).toString(HEX_RADIX)
     }
 }

@@ -69,11 +69,7 @@ class StartupMaintenanceUseCase
             if (lastVersion == currentVersion) return
 
             if (rootDir != null) {
-                try {
-                    syncAndRebuildUseCase(forceSync = false)
-                } catch (_: Exception) {
-                    // Best-effort refresh.
-                }
+                syncAndRebuildUseCase(forceSync = false)
 
                 try {
                     mediaRepository.refreshImageLocations()
