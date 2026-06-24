@@ -16,6 +16,7 @@ import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewSession
@@ -159,6 +160,12 @@ private fun hasConflictOrReviewMaterialized(stagePayload: Any): Boolean {
 }
 
 private fun materializedConflictCount(stagePayload: Any): Int {
+    stagePayload.fieldValue("conflict")?.let { materialized ->
+        return materializedConflictCount(materialized)
+    }
+    stagePayload.fieldValue("review")?.let { materialized ->
+        return materializedConflictCount(materialized)
+    }
     val conflictSet = stagePayload.fieldValue("conflictSet") as? SyncConflictSet
     val reviewSession = stagePayload.fieldValue("reviewSession") as? SyncReviewSession
     return conflictSet?.files?.size ?: reviewSession?.items?.size ?: 0
@@ -192,11 +199,11 @@ private fun createBoundaryExecutor(
 ): S3SyncExecutor {
     val dataStore = configuredBoundaryDataStore(localRoot)
     val credentialStore = mockk<S3CredentialStore>()
-    every { credentialStore.getAccessKeyId() } returns "access"
-    every { credentialStore.getSecretAccessKey() } returns "secret"
-    every { credentialStore.getSessionToken() } returns null
-    every { credentialStore.getEncryptionPassword() } returns null
-    every { credentialStore.getEncryptionPassword2() } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+    every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+    every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+    every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
     val runtime =
         S3SyncRepositoryContext(
             dataStore = dataStore,
@@ -215,10 +222,22 @@ private fun createBoundaryExecutor(
     val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
     return S3SyncExecutor(
         runtime = runtime,
-        support = S3SyncRepositorySupport(runtime),
+        support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+        ),
         encodingSupport = encodingSupport,
+        objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
         fileBridge = fileBridge,
-        actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+        actionApplier =
+            S3SyncActionApplier(
+                runtime = runtime,
+                encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                fileBridge = fileBridge,
+                transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+            ),
         lifecycleRunner = lifecycleRunner,
         protocolStateStore = DisabledS3SyncProtocolStateStore,
         localChangeJournalStore = DisabledS3LocalChangeJournalStore,

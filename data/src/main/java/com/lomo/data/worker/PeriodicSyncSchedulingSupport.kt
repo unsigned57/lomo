@@ -1,5 +1,6 @@
 package com.lomo.data.worker
 
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -13,9 +14,11 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.data.sync.SyncExistingWorkPolicy
 import com.lomo.data.sync.SyncScheduledWork
+import com.lomo.data.sync.SyncWorkBackoffPolicy
 import com.lomo.data.sync.SyncWorkCadence
 import com.lomo.data.sync.SyncWorkNetworkRequirement
-import java.time.Duration
+
+internal const val SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY = "sync_work_max_retry_attempts"
 
 internal fun connectedNetworkConstraints(): Constraints =
     Constraints
@@ -31,15 +34,18 @@ internal fun unmeteredChargingConstraints(): Constraints =
         .build()
 
 internal inline fun <reified T : ListenableWorker> buildPeriodicSyncWorkRequest(
-    interval: Duration,
-    constraints: Constraints,
+    scheduledWork: SyncScheduledWork,
     inputData: Data? = null,
-): PeriodicWorkRequest =
-    PeriodicWorkRequestBuilder<T>(interval)
-        .apply {
-            inputData?.let(::setInputData)
-            setConstraints(constraints)
-        }.build()
+): PeriodicWorkRequest {
+    val cadence =
+        scheduledWork.cadence as? SyncWorkCadence.Periodic
+            ?: error("Periodic sync WorkRequest requires periodic scheduled work")
+    return PeriodicWorkRequestBuilder<T>(cadence.interval)
+        .applyScheduledWorkPolicy(
+            scheduledWork = scheduledWork,
+            inputData = inputData,
+        ).build()
+}
 
 internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncScheduledWork(
     scheduledWork: SyncScheduledWork,
@@ -51,8 +57,7 @@ internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncSchedu
                 scheduledWork.uniqueWorkName,
                 scheduledWork.existingWorkPolicy.toPeriodicWorkPolicy(),
                 buildPeriodicSyncWorkRequest<T>(
-                    interval = cadence.interval,
-                    constraints = scheduledWork.networkRequirement.toWorkConstraints(),
+                    scheduledWork = scheduledWork,
                     inputData = inputData,
                 ),
             )
@@ -62,7 +67,7 @@ internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncSchedu
                 scheduledWork.uniqueWorkName,
                 scheduledWork.existingWorkPolicy.toOneTimeWorkPolicy(),
                 buildOneTimeSyncWorkRequest<T>(
-                    constraints = scheduledWork.networkRequirement.toWorkConstraints(),
+                    scheduledWork = scheduledWork,
                     inputData = inputData,
                 ),
             )
@@ -86,11 +91,38 @@ private fun SyncWorkNetworkRequirement.toWorkConstraints(): Constraints =
     }
 
 internal inline fun <reified T : ListenableWorker> buildOneTimeSyncWorkRequest(
-    constraints: Constraints,
+    scheduledWork: SyncScheduledWork,
     inputData: Data? = null,
 ): OneTimeWorkRequest =
     OneTimeWorkRequestBuilder<T>()
+        .applyScheduledWorkPolicy(
+            scheduledWork = scheduledWork,
+            inputData = inputData,
+        ).build()
+
+private fun <BuilderT : androidx.work.WorkRequest.Builder<BuilderT, *>> BuilderT.applyScheduledWorkPolicy(
+    scheduledWork: SyncScheduledWork,
+    inputData: Data?,
+): BuilderT {
+    setInputData(inputData.withRetryPolicy(scheduledWork))
+    setConstraints(scheduledWork.networkRequirement.toWorkConstraints())
+    setBackoffCriteria(
+        scheduledWork.retryPolicy.backoffPolicy.toWorkBackoffPolicy(),
+        scheduledWork.retryPolicy.backoffDelay,
+    )
+    return this
+}
+
+private fun Data?.withRetryPolicy(scheduledWork: SyncScheduledWork): Data =
+    Data
+        .Builder()
         .apply {
-            inputData?.let(::setInputData)
-            setConstraints(constraints)
+            this@withRetryPolicy?.let(::putAll)
+            putInt(SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY, scheduledWork.retryPolicy.maxAttempts)
         }.build()
+
+private fun SyncWorkBackoffPolicy.toWorkBackoffPolicy(): BackoffPolicy =
+    when (this) {
+        SyncWorkBackoffPolicy.Exponential -> BackoffPolicy.EXPONENTIAL
+        SyncWorkBackoffPolicy.Linear -> BackoffPolicy.LINEAR
+    }

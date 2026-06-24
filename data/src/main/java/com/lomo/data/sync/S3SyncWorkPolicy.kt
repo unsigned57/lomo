@@ -8,13 +8,19 @@ import com.lomo.data.repository.S3_SYNC_WORK_INTENT_PARAMETER
 import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.data.repository.S3SyncProtocolStateStore
 import com.lomo.data.repository.S3SyncRepositorySupport
-import com.lomo.data.repository.S3_RECENT_CHANGE_WINDOW_DIVISOR
 import com.lomo.data.worker.S3SyncWorker
 import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.SyncBackendType
 import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val MINIO_RECONCILE_RETRY_MAX_ATTEMPTS = 3
+private const val MINIO_RECONCILE_RETRY_BACKOFF_MINUTES = 45L
+private const val STANDARD_RECONCILE_RETRY_MAX_ATTEMPTS = 4
+private const val STANDARD_RECONCILE_RETRY_BACKOFF_MINUTES = 30L
+private const val FAST_SYNC_RETRY_MAX_ATTEMPTS = 2
+private const val FAST_SYNC_RETRY_BACKOFF_MINUTES = 10L
 
 @Singleton
 class S3SyncWorkPolicyPlanner
@@ -68,8 +74,13 @@ class S3SyncWorkPolicyPlanner
             )
         }
 
-        fun planCatchUp(policy: S3SyncWorkIntent): SyncWorkDecision =
-            this.policy.plan(S3SyncWorkPolicyInput.CatchUp(policy))
+        suspend fun planCatchUp(policy: S3SyncWorkIntent): SyncWorkDecision =
+            this.policy.plan(
+                S3SyncWorkPolicyInput.CatchUp(
+                    policy = policy,
+                    endpointProfile = resolveEndpointProfile(),
+                ),
+            )
 
         private suspend fun loadState(
             reconcileInterval: Duration,
@@ -96,7 +107,7 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
         when (input) {
             is S3SyncWorkPolicyInput.AutoSchedule -> planAutoSchedule(input)
             is S3SyncWorkPolicyInput.Refresh -> planRefresh(input)
-            is S3SyncWorkPolicyInput.CatchUp -> planCatchUp(input.policy)
+            is S3SyncWorkPolicyInput.CatchUp -> planCatchUp(input.policy, input.endpointProfile)
         }
 
     private fun planAutoSchedule(input: S3SyncWorkPolicyInput.AutoSchedule): SyncWorkDecision =
@@ -111,6 +122,7 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
                             cadence = SyncWorkCadence.Periodic(input.fastInterval),
                             networkRequirement = SyncWorkNetworkRequirement.Connected,
                             existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+                            retryPolicy = S3SyncWorkIntent.FAST_ONLY.retryPolicy(input.state.endpointProfile),
                             payload = S3SyncWorkIntent.FAST_ONLY.toSyncWorkPayload(),
                         ),
                     )
@@ -122,11 +134,12 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
                             cadence = SyncWorkCadence.Periodic(input.state.reconcileInterval),
                             networkRequirement = SyncWorkNetworkRequirement.UnmeteredCharging,
                             existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+                            retryPolicy = S3SyncWorkIntent.FULL_RECONCILE.retryPolicy(input.state.endpointProfile),
                             payload = S3SyncWorkIntent.FULL_RECONCILE.toSyncWorkPayload(),
                         ),
                     )
                     resolveCatchUpPolicy(input.state)?.let { catchUpPolicy ->
-                        add(catchUpWork(catchUpPolicy))
+                        add(catchUpWork(catchUpPolicy, input.state.endpointProfile))
                     }
                 },
         )
@@ -143,7 +156,7 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
                 ),
             scheduledWork =
                 catchUpPolicy
-                    ?.let { listOf(catchUpWork(it)) }
+                    ?.let { listOf(catchUpWork(it, input.state.endpointProfile)) }
                     .orEmpty(),
         )
     }
@@ -173,10 +186,16 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
             else -> null
         }
 
-    private fun planCatchUp(policy: S3SyncWorkIntent): SyncWorkDecision =
-        SyncWorkDecision(scheduledWork = listOf(catchUpWork(policy)))
+    private fun planCatchUp(
+        policy: S3SyncWorkIntent,
+        endpointProfile: S3EndpointProfile,
+    ): SyncWorkDecision =
+        SyncWorkDecision(scheduledWork = listOf(catchUpWork(policy, endpointProfile)))
 
-    private fun catchUpWork(policy: S3SyncWorkIntent): SyncScheduledWork =
+    private fun catchUpWork(
+        policy: S3SyncWorkIntent,
+        endpointProfile: S3EndpointProfile,
+    ): SyncScheduledWork =
         SyncScheduledWork(
             backend = SyncBackendType.S3,
             trigger = SyncWorkTrigger.CATCH_UP,
@@ -184,6 +203,7 @@ class S3SyncWorkPolicy : SyncWorkPolicy<S3SyncWorkPolicyInput> {
             cadence = SyncWorkCadence.OneTime,
             networkRequirement = policy.catchUpNetworkRequirement(),
             existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+            retryPolicy = policy.retryPolicy(endpointProfile),
             payload = policy.toSyncWorkPayload(),
         )
 }
@@ -204,6 +224,7 @@ sealed interface S3SyncWorkPolicyInput {
 
     data class CatchUp(
         val policy: S3SyncWorkIntent,
+        val endpointProfile: S3EndpointProfile,
     ) : S3SyncWorkPolicyInput
 }
 
@@ -295,40 +316,44 @@ private fun S3SyncWorkIntent.catchUpNetworkRequirement(): SyncWorkNetworkRequire
         -> SyncWorkNetworkRequirement.Connected
     }
 
-internal fun List<S3RemoteShardState>.toScheduleTelemetry(
-    now: Long,
-    reconcileInterval: Duration,
-    endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
-): S3RemoteShardScheduleTelemetry =
-    S3RemoteShardScheduleTelemetry(
-        shardCount = size,
-        oldestScanAt = minOfOrNull(S3RemoteShardState::lastScannedAt),
-        hasElevatedChangePressure =
-            any { state ->
-                state.idleScanStreak == 0 &&
-                    state.scanAgeMillis(now) <= reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR &&
-                    state.changeRate() >= endpointProfile.changePressureThreshold
-            },
-        hasHighVerificationUncertainty =
-            any { state ->
-                state.scanAgeMillis(now) <= reconcileInterval.toMillis() &&
-                    state.lastVerificationAttemptCount >= endpointProfile.minUncertaintyAttempts &&
-                    state.lastVerificationFailureCount >= endpointProfile.minUncertaintyFailures &&
-                    state.lastVerificationFailureCount.toDouble() /
-                    state.lastVerificationAttemptCount.coerceAtLeast(1).toDouble() >=
-                    endpointProfile.verificationFailureThreshold
-            },
+private fun S3SyncWorkIntent.retryPolicy(endpointProfile: S3EndpointProfile): SyncWorkRetryPolicy =
+    when (this) {
+        S3SyncWorkIntent.FAST_ONLY -> S3_FAST_SYNC_RETRY_POLICY
+        S3SyncWorkIntent.FAST_THEN_RECONCILE,
+        S3SyncWorkIntent.FULL_RECONCILE,
+        -> endpointProfile.reconcileRetryPolicy()
+    }
+
+private fun S3EndpointProfile.reconcileRetryPolicy(): SyncWorkRetryPolicy =
+    when (this) {
+        S3EndpointProfile.MINIO_COMPAT ->
+            SyncWorkRetryPolicy(
+                maxAttempts = MINIO_RECONCILE_RETRY_MAX_ATTEMPTS,
+                backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+                backoffDelay = Duration.ofMinutes(MINIO_RECONCILE_RETRY_BACKOFF_MINUTES),
+            )
+
+        S3EndpointProfile.AWS_S3,
+        S3EndpointProfile.CLOUDFLARE_R2,
+        S3EndpointProfile.GENERIC_S3,
+        ->
+            SyncWorkRetryPolicy(
+                maxAttempts = STANDARD_RECONCILE_RETRY_MAX_ATTEMPTS,
+                backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+                backoffDelay = Duration.ofMinutes(STANDARD_RECONCILE_RETRY_BACKOFF_MINUTES),
+            )
+    }
+
+private val S3_FAST_SYNC_RETRY_POLICY =
+    SyncWorkRetryPolicy(
+        maxAttempts = FAST_SYNC_RETRY_MAX_ATTEMPTS,
+        backoffPolicy = SyncWorkBackoffPolicy.Linear,
+        backoffDelay = Duration.ofMinutes(FAST_SYNC_RETRY_BACKOFF_MINUTES),
     )
 
 private fun S3RemoteShardScheduleTelemetry.oldestScanAgeMillis(now: Long): Long? {
     val oldestScanAtValue = oldestScanAt ?: return null
     return (now - oldestScanAtValue).coerceAtLeast(0L)
 }
-
-private fun S3RemoteShardState.scanAgeMillis(now: Long): Long =
-    (now - lastScannedAt).coerceAtLeast(0L)
-
-private fun S3RemoteShardState.changeRate(): Double =
-    lastChangeCount.toDouble() / lastObjectCount.coerceAtLeast(1).toDouble()
 
 internal const val FULL_RECONCILE_STALE_MULTIPLIER = 2L

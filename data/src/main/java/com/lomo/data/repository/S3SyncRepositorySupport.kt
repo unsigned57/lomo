@@ -1,11 +1,15 @@
 package com.lomo.data.repository
 
 import com.lomo.data.s3.LomoS3Client
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3RcloneCryptConfig
+import com.lomo.domain.repository.CredentialRepository
+import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.repository.SecuritySessionPolicy
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,36 +22,43 @@ class S3SyncRepositorySupport
     @Inject
     constructor(
         private val runtime: S3SyncRepositoryContext,
+        private val credentialRepository: CredentialRepository,
+        private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         suspend fun <T> runS3Io(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
 
         suspend fun resolveConfig(): S3ResolvedConfig? {
+            val enabled = runtime.dataStore.s3SyncEnabled.first()
             val endpointUrl = runtime.dataStore.s3EndpointUrl.first()?.trim().orEmpty()
             val region = runtime.dataStore.s3Region.first()?.trim().orEmpty()
             val bucket = runtime.dataStore.s3Bucket.first()?.trim().orEmpty()
             val prefix = runtime.dataStore.s3Prefix.first()?.trim().orEmpty()
-            val accessKeyId = runtime.credentialStore.getAccessKeyId()?.trim().orEmpty()
-            val secretAccessKey = runtime.credentialStore.getSecretAccessKey()?.trim().orEmpty()
-            val sessionToken = runtime.credentialStore.getSessionToken()?.trim()?.takeIf(String::isNotBlank)
-            val encryptionPassword = runtime.credentialStore.getEncryptionPassword()?.takeIf(String::isNotBlank)
-            val encryptionPassword2 = runtime.credentialStore.getEncryptionPassword2()?.takeIf(String::isNotBlank)
-            val enabled = runtime.dataStore.s3SyncEnabled.first()
-            if (!enabled || !s3ConfigHasRequiredFields(endpointUrl, region, bucket, accessKeyId, secretAccessKey)) {
+            if (!enabled || !s3ConfigHasRequiredFields(endpointUrl, region, bucket)) {
                 return null
             }
+            val accessKeyId =
+                credentialRepository.readS3RequiredCredential(CredentialField.S3_ACCESS_KEY_ID)
+            val secretAccessKey =
+                credentialRepository.readS3RequiredCredential(CredentialField.S3_SECRET_ACCESS_KEY)
+            val sessionToken =
+                credentialRepository.readS3OptionalCredential(CredentialField.S3_SESSION_TOKEN, trim = true)
+            val encryptionPassword =
+                credentialRepository.readS3OptionalCredential(CredentialField.S3_ENCRYPTION_PASSWORD, trim = false)
+            val encryptionPassword2 =
+                credentialRepository.readS3OptionalCredential(CredentialField.S3_ENCRYPTION_PASSWORD2, trim = false)
             return S3ResolvedConfig(
                 endpointUrl = endpointUrl,
                 region = region,
                 bucket = bucket,
                 prefix = prefix,
-                accessKeyId = accessKeyId,
-                secretAccessKey = secretAccessKey,
-                sessionToken = sessionToken,
+                accessKeyId = accessKeyId.value,
+                secretAccessKey = secretAccessKey.value,
+                sessionToken = sessionToken.valueOrNull(),
                 pathStyle = s3PathStyleFromPreference(runtime.dataStore.s3PathStyle.first()),
                 encryptionMode = s3EncryptionModeFromPreference(runtime.dataStore.s3EncryptionMode.first()),
-                encryptionPassword = encryptionPassword,
+                encryptionPassword = encryptionPassword.valueOrNull(),
                 endpointProfile = inferS3EndpointProfile(endpointUrl),
-                encryptionPassword2 = encryptionPassword2,
+                encryptionPassword2 = encryptionPassword2.valueOrNull(),
                 rcloneCryptConfig =
                     S3RcloneCryptConfig(
                         filenameEncryption =
@@ -115,9 +126,66 @@ class S3SyncRepositorySupport
             )
         }
 
+        private suspend fun CredentialRepository.readS3RequiredCredential(
+            field: CredentialField,
+        ): RequiredCredentialRead =
+            readRequiredCredential(
+                field = field,
+                securitySessionPolicy = securitySessionPolicy,
+                onMissing = {
+                    throw S3SyncFailureException(
+                        code = S3SyncErrorCode.AUTH_FAILED,
+                        message = "S3 credential ${field.name} is missing",
+                    )
+                },
+                onUnreadable = {
+                    throw S3SyncFailureException(
+                        code = S3SyncErrorCode.AUTH_FAILED,
+                        message = "S3 credential ${field.name} is unreadable",
+                    )
+                },
+                onUnauthorized = { denied ->
+                    throw S3SyncFailureException(
+                        code = S3SyncErrorCode.AUTH_FAILED,
+                        message = s3CredentialDeniedMessage(denied),
+                    )
+                },
+            )
+
+        private suspend fun CredentialRepository.readS3OptionalCredential(
+            field: CredentialField,
+            trim: Boolean,
+        ): OptionalCredentialRead =
+            readOptionalCredential(
+                field = field,
+                securitySessionPolicy = securitySessionPolicy,
+                trim = trim,
+                onUnreadable = {
+                    throw S3SyncFailureException(
+                        code = S3SyncErrorCode.AUTH_FAILED,
+                        message = "S3 credential ${field.name} is unreadable",
+                    )
+                },
+                onUnauthorized = { denied ->
+                    throw S3SyncFailureException(
+                        code = S3SyncErrorCode.AUTH_FAILED,
+                        message = s3CredentialDeniedMessage(denied),
+                    )
+                },
+            )
+
     }
 
 private fun s3ConfigHasRequiredFields(vararg values: String): Boolean = values.all(String::isNotBlank)
+
+private fun OptionalCredentialRead.valueOrNull(): String? =
+    when (this) {
+        OptionalCredentialRead.Missing -> null
+        is OptionalCredentialRead.Present -> value
+    }
+
+private fun s3CredentialDeniedMessage(denied: CredentialSecretReadResult.Unauthorized): String =
+    "S3 credential read denied: ${denied.reason}"
 
 private fun validateS3EncryptionSupport(config: S3ResolvedConfig) {
     if (config.encryptionMode != com.lomo.domain.model.S3EncryptionMode.NONE) {

@@ -8,7 +8,10 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncReviewItem
+import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.SyncReviewSessionKind
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,7 +19,17 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
-internal suspend fun buildS3ConflictSet(
+internal data class S3PendingConflictMaterialization(
+    val conflictSet: SyncConflictSet,
+    val descriptor: PendingSyncConflictDescriptor,
+)
+
+internal data class S3PendingReviewMaterialization(
+    val reviewSession: SyncReviewSession,
+    val descriptor: PendingSyncReviewDescriptor,
+)
+
+internal suspend fun buildS3PendingConflictMaterialization(
     actions: List<S3SyncAction>,
     client: com.lomo.data.s3.LomoS3Client,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
@@ -25,29 +38,44 @@ internal suspend fun buildS3ConflictSet(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
+    objectKeyPolicy: S3RemoteObjectKeyPolicy,
     actionConcurrency: Int = S3_ACTION_CONCURRENCY,
     lightweightPreview: Boolean = false,
-): SyncConflictSet? {
+): S3PendingConflictMaterialization? {
     val concurrencyLimiter = Semaphore(actionConcurrency.coercePositiveConcurrency())
-    val conflictFiles =
+    val materializedFiles =
         coroutineScope {
             actions.map { action ->
                 async {
                     concurrencyLimiter.withPermit {
                         if (lightweightPreview) {
-                            val localFile = fileBridgeScope.localFile(action.path, layout)
+                            val localFile =
+                                fileBridgeScope.pendingValidationLocalFile(
+                                    path = action.path,
+                                    layout = layout,
+                                    requireContentFingerprint = true,
+                                )
                             val remoteFile = remoteFiles[action.path]
-                            return@withPermit SyncConflictFile(
-                                relativePath = action.path,
+                            remoteFile?.let { file -> objectKeyPolicy.validatedExistingKey(file.remotePath, config) }
+                            return@withPermit buildS3PendingConflictFileMaterialization(
+                                path = action.path,
+                                localFile = localFile,
+                                remoteFile = remoteFile,
                                 localContent = null,
                                 remoteContent = null,
-                                isBinary = !action.path.endsWith(S3_MEMO_SUFFIX),
-                                localLastModified = localFile?.lastModified,
-                                remoteLastModified = remoteFile?.lastModified,
                             )
                         }
-                        val localFile = fileBridgeScope.localFile(action.path, layout)
+                        val localFile =
+                            fileBridgeScope.pendingValidationLocalFile(
+                                path = action.path,
+                                layout = layout,
+                                requireContentFingerprint = true,
+                            )
                         val remoteFile = remoteFiles[action.path]
+                        val remoteKey =
+                            remoteFile?.let { file ->
+                                objectKeyPolicy.validatedExistingKey(file.remotePath, config)
+                            }
                         val localContent =
                             if (isMemoPath(action.path, layout, mode)) {
                                 fileBridgeScope.readLocalText(action.path, layout)
@@ -55,36 +83,143 @@ internal suspend fun buildS3ConflictSet(
                                 null
                             }
                         val remoteContent =
-                            runNonFatalCatching {
-                                val remotePath = remoteFiles[action.path]?.remotePath ?: return@withPermit null
-                                val payload = client.getSmallObject(remotePath)
-                                String(
-                                    encodingSupport.decodeContent(payload.bytes, config),
-                                    StandardCharsets.UTF_8,
-                                )
-                            }.getOrNull()
-                        SyncConflictFile(
-                            relativePath = action.path,
+                            if (isMemoPath(action.path, layout, mode)) {
+                                val key = remoteKey ?: return@withPermit null
+                                runNonFatalCatching {
+                                    val payload = client.getSmallObject(key.value)
+                                    String(
+                                        encodingSupport.decodeContent(payload.bytes, config),
+                                        StandardCharsets.UTF_8,
+                                    )
+                                }.getOrNull()
+                            } else {
+                                null
+                            }
+                        buildS3PendingConflictFileMaterialization(
+                            path = action.path,
+                            localFile = localFile,
+                            remoteFile = remoteFile,
                             localContent = localContent,
                             remoteContent = remoteContent,
-                            isBinary = !action.path.endsWith(S3_MEMO_SUFFIX),
-                            localLastModified = localFile?.lastModified,
-                            remoteLastModified = remoteFile?.lastModified,
                         )
                     }
                 }
             }.awaitAll().filterNotNull()
         }
-    return conflictFiles
-        .takeIf(List<SyncConflictFile>::isNotEmpty)
-        ?.let { files ->
+    if (materializedFiles.isEmpty()) return null
+    val timestamp = System.currentTimeMillis()
+    return S3PendingConflictMaterialization(
+        conflictSet =
             SyncConflictSet(
                 source = SyncBackendType.S3,
-                files = files,
-                timestamp = System.currentTimeMillis(),
-            )
-        }
+                files = materializedFiles.map(S3PendingConflictFileMaterialization::file),
+                timestamp = timestamp,
+            ),
+        descriptor =
+            PendingSyncConflictDescriptor(
+                source = SyncBackendType.S3,
+                workspaceGeneration = "",
+                files = materializedFiles.map(S3PendingConflictFileMaterialization::descriptor),
+                timestamp = timestamp,
+                validationStatus = PendingSyncValidationStatus.PENDING_RELOAD,
+            ),
+    )
 }
+
+internal fun S3PendingConflictMaterialization.toInitialImportReviewMaterialization(): S3PendingReviewMaterialization =
+    S3PendingReviewMaterialization(
+        reviewSession =
+            SyncReviewSession(
+                source = conflictSet.source,
+                items =
+                    conflictSet.files.map { file ->
+                        SyncReviewItem(
+                            relativePath = file.relativePath,
+                            localContent = file.localContent,
+                            incomingContent = file.remoteContent,
+                            isBinary = file.isBinary,
+                            localLastModified = file.localLastModified,
+                            incomingLastModified = file.remoteLastModified,
+                        )
+                    },
+                timestamp = conflictSet.timestamp,
+                kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+            ),
+        descriptor =
+            PendingSyncReviewDescriptor(
+                source = descriptor.source,
+                workspaceGeneration = descriptor.workspaceGeneration,
+                kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
+                items =
+                    descriptor.files.map { file ->
+                        PendingSyncReviewItemDescriptor(
+                            relativePath = file.relativePath,
+                            isBinary = file.isBinary,
+                            local = file.local,
+                            incoming = file.remote,
+                            state = SyncReviewItemState.CONTENT_DIFFERENCE,
+                        )
+                    },
+                timestamp = descriptor.timestamp,
+                validationStatus = descriptor.validationStatus,
+            ),
+    )
+
+private data class S3PendingConflictFileMaterialization(
+    val file: SyncConflictFile,
+    val descriptor: PendingSyncConflictFileDescriptor,
+)
+
+private fun buildS3PendingConflictFileMaterialization(
+    path: String,
+    localFile: LocalS3File?,
+    remoteFile: RemoteS3File?,
+    localContent: String?,
+    remoteContent: String?,
+): S3PendingConflictFileMaterialization {
+    val isBinary = !path.endsWith(S3_MEMO_SUFFIX)
+    val localContentHash = localContent?.pendingContentHash()
+    val remoteContentHash = remoteContent?.pendingContentHash()
+    val discoveredRemoteFile =
+        requireNotNull(remoteFile) {
+            "S3 pending materialization requires a discovered remote locator for $path"
+        }
+    return S3PendingConflictFileMaterialization(
+        file =
+            SyncConflictFile(
+                relativePath = path,
+                localContent = localContent,
+                remoteContent = remoteContent,
+                isBinary = isBinary,
+                localLastModified = localFile?.lastModified,
+                remoteLastModified = discoveredRemoteFile.lastModified,
+            ),
+        descriptor =
+            PendingSyncConflictFileDescriptor(
+                relativePath = path,
+                isBinary = isBinary,
+                local =
+                    PendingSyncSideMetadata(
+                        locator = path,
+                        contentHash = localFile?.localFingerprint ?: localContentHash,
+                        lastModified = localFile?.lastModified,
+                        size = localFile?.size ?: localContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                        etag = localFile?.localFingerprint ?: localContentHash,
+                    ),
+                remote =
+                    PendingSyncSideMetadata(
+                        locator = discoveredRemoteFile.remotePath,
+                        contentHash = discoveredRemoteFile.contentMd5 ?: remoteContentHash,
+                        lastModified = discoveredRemoteFile.lastModified,
+                        size = discoveredRemoteFile.size ?: remoteContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                        etag = discoveredRemoteFile.etag ?: remoteContentHash,
+                    ),
+            ),
+    )
+}
+
+private fun String.pendingContentHash(): String =
+    toByteArray(Charsets.UTF_8).md5Hex()
 
 internal suspend fun finalizeAfterS3Sync(
     runtime: S3SyncRepositoryContext,
@@ -180,6 +315,12 @@ internal suspend fun commitIncrementalS3StateIfNeeded(
             indexedLocalFileCount = indexedCounts.first,
             indexedRemoteFileCount = indexedRemoteCount,
             localModeFingerprint = prepared.localModeFingerprint,
+            localAuditCursor =
+                when {
+                    prepared.completeSnapshot -> null
+                    prepared.localAuditRan -> prepared.nextLocalAuditCursor
+                    else -> previousState?.localAuditCursor
+                },
             remoteScanCursor =
                 when {
                     prepared.completeSnapshot -> null

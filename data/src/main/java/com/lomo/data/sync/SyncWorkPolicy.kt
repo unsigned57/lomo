@@ -29,9 +29,26 @@ data class SyncScheduledWork(
     val cadence: SyncWorkCadence,
     val networkRequirement: SyncWorkNetworkRequirement,
     val existingWorkPolicy: SyncExistingWorkPolicy,
+    val retryPolicy: SyncWorkRetryPolicy,
     val payload: SyncWorkPayload,
 ) {
     val coalescingKey: SyncWorkCoalescingKey = SyncWorkCoalescingKey(backend, uniqueWorkName)
+}
+
+data class SyncWorkRetryPolicy(
+    val maxAttempts: Int,
+    val backoffPolicy: SyncWorkBackoffPolicy,
+    val backoffDelay: Duration,
+) {
+    init {
+        require(maxAttempts > 0) { "Sync work retry maxAttempts must be positive" }
+        require(!backoffDelay.isNegative && !backoffDelay.isZero) { "Sync work backoffDelay must be positive" }
+    }
+}
+
+enum class SyncWorkBackoffPolicy {
+    Exponential,
+    Linear,
 }
 
 data class SyncWorkCoalescingKey(
@@ -81,6 +98,7 @@ class RemoteAutoSyncWorkPolicy(
     private val backend: SyncBackendType,
     private val uniqueWorkName: String,
     private val workPayload: SyncWorkPayload,
+    private val retryPolicy: SyncWorkRetryPolicy,
 ) : SyncWorkPolicy<RemoteAutoSyncWorkInput> {
     override fun plan(input: RemoteAutoSyncWorkInput): SyncWorkDecision =
         SyncWorkDecision(
@@ -93,6 +111,7 @@ class RemoteAutoSyncWorkPolicy(
                         cadence = SyncWorkCadence.Periodic(input.requestedInterval),
                         networkRequirement = SyncWorkNetworkRequirement.Connected,
                         existingWorkPolicy = SyncExistingWorkPolicy.Replace,
+                        retryPolicy = retryPolicy,
                         payload = workPayload,
                     ),
                 ),
@@ -108,6 +127,7 @@ class WebDavSyncWorkPolicyPlanner
                 backend = SyncBackendType.WEBDAV,
                 uniqueWorkName = WebDavSyncWorker.WORK_NAME,
                 workPayload = SyncWorkPayload.StandardRemoteSync,
+                retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
             )
 
         fun planAutoSchedule(interval: String): SyncWorkDecision =
@@ -128,6 +148,7 @@ class GitSyncWorkPolicyPlanner
                 backend = SyncBackendType.GIT,
                 uniqueWorkName = GitSyncWorker.WORK_NAME,
                 workPayload = SyncWorkPayload.StandardRemoteSync,
+                retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
             )
 
         fun planAutoSchedule(interval: String): SyncWorkDecision =
@@ -140,6 +161,13 @@ class GitSyncWorkPolicyPlanner
     }
 
 internal val DEFAULT_REMOTE_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(REMOTE_AUTO_SYNC_HOURS_1)
+
+internal val REMOTE_AUTO_SYNC_RETRY_POLICY =
+    SyncWorkRetryPolicy(
+        maxAttempts = 3,
+        backoffPolicy = SyncWorkBackoffPolicy.Exponential,
+        backoffDelay = Duration.ofMinutes(15),
+    )
 
 private const val REMOTE_AUTO_SYNC_MINUTES_30 = 30L
 private const val REMOTE_AUTO_SYNC_HOURS_1 = 1L

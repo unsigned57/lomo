@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -33,6 +15,7 @@ import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncStatus
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -47,10 +30,26 @@ import io.kotest.matchers.shouldBe
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncStatusTester
- * - Behavior focus: manifest-free status checks should reuse a fresh local remote index, derive pending local changes from the journal without whole-bucket probes, and reconcile with a full remote listing when the cached index is stale.
- * - Observable outcomes: returned S3SyncStatus, remote list/head invocation counts, and local metadata lookup scope.
- * - TDD proof: Fails before the fix because status still depends on manifest probing and cannot answer fast-path status queries from the cached remote index alone.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: report S3 sync status from bounded incremental progress instead of escaping stale optimization state into full snapshots.
+ *
+ * Scenarios:
+ * - Given a fresh cached index, when status is requested, then no remote probes run.
+ * - Given fresh cached state with journal changes, when status is requested, then pending changes are derived from targeted local metadata.
+ * - Given stale cached state, when status is requested, then bounded reconcile uses a paged remote candidate set.
+ * - Given stale cached state but no durable remote-index store, when status is requested, then status is still explicit and bounded instead of falling through to local/remote/metadata snapshots.
+ *
+ * - Observable outcomes: returned S3SyncStatus, remote paged-list/list/head invocation counts, and local metadata lookup scope.
+ * - TDD proof: RED Report 10 item 5: stale bounded status with remote-index storage disabled returned null and entered the full local/remote/metadata snapshot path.
  * - Excludes: AWS transport behavior, metadata persistence mutations, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
     init {
@@ -62,7 +61,11 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
 
         test("getStatus derives pending journal changes without remote probes when cache is fresh") { `getStatus derives pending journal changes without remote probes when cache is fresh`() }
 
-        test("getStatus reconciles with full remote listing when cached index is stale") { `getStatus reconciles with full remote listing when cached index is stale`() }
+        test("getStatus uses bounded reconcile when cached index is stale") { `getStatus uses bounded reconcile when cached index is stale`() }
+
+        test("getStatus returns bounded stale status when remote index store is unavailable") {
+            `getStatus returns bounded stale status when remote index store is unavailable`()
+        }
     }
 
 
@@ -110,11 +113,11 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
         every { dataStore.voiceDirectory } returns flowOf("/voice")
         every { dataStore.voiceUri } returns flowOf(null)
         every { dataStore.s3LastSyncTime } returns flowOf(123L)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
 
         protocolStateStore = InMemoryS3SyncProtocolStateStore()
@@ -143,6 +146,51 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
             val status = tester.getStatus()
 
             status shouldBe S3SyncStatus(remoteFileCount = 3, localFileCount = 2, pendingChanges = 0, lastSyncTime = 123L)
+            client.listCalls shouldBe 0
+            client.headCalls shouldBe 0
+        }
+
+    private fun `getStatus returns bounded stale status when remote index store is unavailable`() =
+        runTest {
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = 1L,
+                    lastFullRemoteScanAt = 1L,
+                    indexedLocalFileCount = 0,
+                    indexedRemoteFileCount = 0,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN)
+            } throws AssertionError("bounded stale status must not list all local memo metadata")
+            val client =
+                ProbeStatusS3Client(
+                    onList = { throw AssertionError("bounded stale status must not use legacy full list") },
+                    onListPage = { prefix, continuationToken, maxKeys ->
+                        prefix shouldBe "lomo/memo/"
+                        continuationToken shouldBe null
+                        maxKeys shouldBe 256
+                        com.lomo.data.s3.S3RemoteListPage(
+                            objects =
+                                listOf(
+                                    S3RemoteObject(
+                                        key = "lomo/memo/remote.md",
+                                        eTag = "etag-remote",
+                                        lastModified = 40L,
+                                        metadata = emptyMap(),
+                                    ),
+                                ),
+                            nextContinuationToken = null,
+                        )
+                    },
+                    onGetObjectMetadata = { null },
+                )
+            val tester = createTester(client = client, metadataDao = RecordingStatusMetadataDao())
+
+            val status = tester.getStatus()
+
+            status shouldBe S3SyncStatus(remoteFileCount = 1, localFileCount = 0, pendingChanges = 1, lastSyncTime = 123L)
+            client.listPageCalls shouldBe 1
             client.listCalls shouldBe 0
             client.headCalls shouldBe 0
         }
@@ -185,7 +233,7 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
             client.headCalls shouldBe 0
         }
 
-    private fun `getStatus reconciles with full remote listing when cached index is stale`() =
+    private fun `getStatus uses bounded reconcile when cached index is stale`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -198,30 +246,45 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
             coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
             val client =
                 ProbeStatusS3Client(
-                    onList = {
-                        listOf(
-                            S3RemoteObject(
-                                key = "lomo/memo/remote.md",
-                                eTag = "etag-remote",
-                                lastModified = 40L,
-                                metadata = emptyMap(),
-                            ),
+                    onList = { throw AssertionError("stale status must not fall back to full remote snapshot") },
+                    onListPage = { prefix, continuationToken, maxKeys ->
+                        prefix shouldBe "lomo/memo/"
+                        continuationToken shouldBe null
+                        maxKeys shouldBe 256
+                        com.lomo.data.s3.S3RemoteListPage(
+                            objects =
+                                listOf(
+                                    S3RemoteObject(
+                                        key = "lomo/memo/remote.md",
+                                        eTag = "etag-remote",
+                                        lastModified = 40L,
+                                        metadata = emptyMap(),
+                                    ),
+                                ),
+                            nextContinuationToken = null,
                         )
                     },
                     onGetObjectMetadata = { null },
                 )
-            val tester = createTester(client = client, metadataDao = RecordingStatusMetadataDao())
+            val tester =
+                createTester(
+                    client = client,
+                    metadataDao = RecordingStatusMetadataDao(),
+                    remoteIndexStore = InMemoryS3RemoteIndexStore(),
+                )
 
             val status = tester.getStatus()
 
             status shouldBe S3SyncStatus(remoteFileCount = 1, localFileCount = 0, pendingChanges = 1, lastSyncTime = 123L)
-            client.listCalls shouldBe 3
+            client.listPageCalls shouldBe 1
+            client.listCalls shouldBe 0
             client.headCalls shouldBe 0
         }
 
     private fun createTester(
         client: ProbeStatusS3Client,
         metadataDao: RecordingStatusMetadataDao,
+        remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
     ): S3SyncStatusTester {
         every { clientFactory.create(any()) } returns client
         val runtime =
@@ -241,12 +304,17 @@ class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
         val encodingSupport = S3SyncEncodingSupport()
         return S3SyncStatusTester(
             runtime = runtime,
-            support = S3SyncRepositorySupport(runtime),
+            support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
             encodingSupport = encodingSupport,
             fileBridge = S3SyncFileBridge(runtime, encodingSupport),
             protocolStateStore = protocolStateStore,
             localChangeJournalStore = journalStore,
-            remoteIndexStore = DisabledS3RemoteIndexStore,
+            remoteIndexStore = remoteIndexStore,
+            remoteShardStateStore = DisabledS3RemoteShardStateStore,
         )
     }
 }
@@ -300,15 +368,20 @@ private class RecordingStatusMetadataDao(
 
 private class ProbeStatusS3Client(
     private val onList: suspend () -> List<S3RemoteObject> = { emptyList() },
+    private val onListPage: (suspend (String, String?, Int) -> com.lomo.data.s3.S3RemoteListPage)? = null,
     private val onGetObjectMetadata: suspend (String) -> S3RemoteObject? = {
         throw AssertionError("Unexpected headObject for $it")
     },
 ) : LomoS3Client {
     private val listCallCounter = AtomicInteger(0)
+    private val listPageCallCounter = AtomicInteger(0)
     private val headCallCounter = AtomicInteger(0)
 
     val listCalls: Int
         get() = listCallCounter.get()
+
+    val listPageCalls: Int
+        get() = listPageCallCounter.get()
 
     val headCalls: Int
         get() = headCallCounter.get()
@@ -326,6 +399,21 @@ private class ProbeStatusS3Client(
     ): List<S3RemoteObject> {
         listCallCounter.incrementAndGet()
         return onList()
+    }
+
+    override suspend fun listPage(
+        prefix: String,
+        continuationToken: String?,
+        maxKeys: Int,
+    ): com.lomo.data.s3.S3RemoteListPage {
+        listPageCallCounter.incrementAndGet()
+        return onListPage?.invoke(prefix, continuationToken, maxKeys)
+            ?: if (continuationToken == null) {
+                listCallCounter.incrementAndGet()
+                com.lomo.data.s3.S3RemoteListPage(objects = onList(), nextContinuationToken = null)
+            } else {
+                com.lomo.data.s3.S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+            }
     }
 
     override suspend fun getSmallObject(key: String): S3SmallObjectPayload {

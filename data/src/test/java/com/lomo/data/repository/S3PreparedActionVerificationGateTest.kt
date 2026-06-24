@@ -29,13 +29,28 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.mockk.mockk
 
 /*
  * Behavior Contract:
  * - Unit under test: S3 prepared-action verification gate
- * - Behavior focus: destructive or overwrite-capable actions should be re-planned after targeted HeadObject verification so stale cached remote state cannot survive into apply-time as a skipped destructive action.
- * - Observable outcomes: rewritten S3SyncPlan action direction/reason, verified remote file state, and confirmed-missing path set.
- * - TDD proof: Fails before the fix because the executor verification phase is a no-op, leaving stale cached DELETE_REMOTE / UPLOAD actions to be skipped later during apply while the sync result still reports the original destructive outcome.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: destructive or overwrite-capable actions should be re-planned after targeted HeadObject verification so stale cached remote state cannot survive into apply-time as a skipped destructive action, and HeadObject metadata fingerprints remain available to the replan.
+ *
+ * Scenarios:
+ * - Given a stale cached remote delete candidate, when HEAD observes a newer remote object, then the gate rewrites the action to download before apply.
+ * - Given HEAD returns size and metadata md5 for a tracked memo, when verification replans, then the verified remote snapshot preserves size/content fingerprint and no remote body read is needed.
+ * - Given stable missing evidence, when verification runs, then the gate can skip redundant HEAD and preserve delete-local.
+ * - Given stale indexed keys outside the configured prefix, when verification starts, then layout violation is raised before HEAD.
+ *
+ * Observable outcomes:
+ * - rewritten S3SyncPlan action direction/reason, verified remote file size/fingerprint/verification level, confirmed-missing path set, and HEAD key list.
+ *
+ * TDD proof:
+ * - Fails before the fix because the executor verification phase is a no-op, leaving stale cached DELETE_REMOTE / UPLOAD actions to be skipped later during apply while the sync result still reports the original destructive outcome.
+ * - RED Report 10 item 6: HEAD verification maps S3RemoteObject through a private helper that drops size/contentMd5 before replanning.
+ *
  * - Excludes: conflict payload downloads, Room persistence, and WorkManager scheduling.
  */
 class S3PreparedActionVerificationGateTest : DataFunSpec() {
@@ -56,6 +71,14 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
 
         test("verify performs head request when remote index is expired or scanEpoch mismatches") {
             `verify performs head request when remote index is expired or scanEpoch mismatches`()
+        }
+
+        test("verify rejects stale remote index key outside configured prefix before HEAD") {
+            `verify rejects stale remote index key outside configured prefix before HEAD`()
+        }
+
+        test("verify preserves head size and content md5 for tracked memo fingerprint replan") {
+            `verify preserves head size and content md5 for tracked memo fingerprint replan`()
         }
     }
 
@@ -78,7 +101,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
 
     private fun `verify rewrites stale cached delete-remote candidate into download before apply`() =
         runTest {
-            val path = "lomo/memo/note.md"
+            val path = "memo/note.md"
             val metadata =
                 S3SyncMetadataEntity(
                     relativePath = path,
@@ -117,9 +140,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     remoteFileCountHint = 1,
                 )
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = DisabledS3RemoteIndexStore,
                 )
             val client =
@@ -146,7 +167,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
 
     private fun `verify does not delete local file on first observed remote miss outside reconcile evidence`() =
         runTest {
-            val path = "lomo/memo/note.md"
+            val path = "memo/note.md"
             val metadata =
                 S3SyncMetadataEntity(
                     relativePath = path,
@@ -175,9 +196,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     remoteFileCountHint = 0,
                 )
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = InMemoryS3RemoteIndexStore(),
                 )
             val client = VerificationProbeS3Client(onHead = { null })
@@ -234,9 +253,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     )
                 }
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = remoteIndexStore,
                 )
             val client = VerificationProbeS3Client(onHead = { null })
@@ -293,9 +310,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     )
                 }
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = remoteIndexStore,
                 )
             val client =
@@ -376,9 +391,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
                     },
                 )
 
-            S3PreparedActionVerificationGate(
-                planner = planner,
-                encodingSupport = encodingSupport,
+            verifier(
                 remoteIndexStore = DisabledS3RemoteIndexStore,
             )
                 .verify(prepared = prepared, client = client, config = config)
@@ -451,9 +464,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
             }
 
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = remoteIndexStore,
                 )
 
@@ -530,9 +541,7 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
             }
 
             val verifier =
-                S3PreparedActionVerificationGate(
-                    planner = planner,
-                    encodingSupport = encodingSupport,
+                verifier(
                     remoteIndexStore = remoteIndexStore,
                 )
 
@@ -553,6 +562,200 @@ class S3PreparedActionVerificationGateTest : DataFunSpec() {
 
             client.headKeys shouldBe listOf(path)
         }
+
+    private fun `verify rejects stale remote index key outside configured prefix before HEAD`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = "current/lomo/memo/note.md",
+                    etag = "etag-old",
+                    remoteLastModified = 10L,
+                    localLastModified = 10L,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout = com.lomo.data.sync.SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false),
+                    localFiles = emptyMap(),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    remotePath = "current/lomo/memo/note.md",
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                    completeSnapshot = false,
+                    protocolState =
+                        S3SyncProtocolState(
+                            scanEpoch = 7L,
+                            lastFullRemoteScanAt = System.currentTimeMillis(),
+                        ),
+                    remoteFileCountHint = 1,
+                )
+            val remoteIndexStore =
+                InMemoryS3RemoteIndexStore().apply {
+                    upsert(
+                        listOf(
+                            S3RemoteIndexEntry(
+                                relativePath = path,
+                                remotePath = "old-prefix/opaque-note",
+                                etag = "etag-old",
+                                remoteLastModified = 10L,
+                                size = 100L,
+                                lastSeenAt = System.currentTimeMillis(),
+                                lastVerifiedAt = System.currentTimeMillis(),
+                                scanBucket = S3_SCAN_BUCKET_MEMO,
+                                scanEpoch = 7L,
+                                missingOnLastScan = false,
+                            ),
+                        ),
+                    )
+                }
+            val verifier =
+                verifier(
+                    remoteIndexStore = remoteIndexStore,
+                )
+            val client = VerificationProbeS3Client(onHead = { error("stale remote index must fail before HEAD") })
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<com.lomo.domain.model.S3SyncFailureException> {
+                    verifier.verify(
+                        prepared = prepared,
+                        client = client,
+                        config = config.copy(prefix = "current"),
+                    )
+                }
+
+            error.code shouldBe com.lomo.domain.model.S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
+            client.headKeys shouldBe emptyList()
+        }
+
+    private fun `verify preserves head size and content md5 for tracked memo fingerprint replan`() =
+        runTest {
+            val path = "memo/note.md"
+            val fingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = path,
+                    etag = "etag-old",
+                    remoteLastModified = 10L,
+                    localLastModified = 20L,
+                    localSize = 42L,
+                    remoteSize = 42L,
+                    localFingerprint = fingerprint,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout =
+                        com.lomo.data.sync.SyncDirectoryLayout(
+                            memoFolder = "memo",
+                            imageFolder = "images",
+                            voiceFolder = "voice",
+                            allSameDirectory = false,
+                        ),
+                    localFiles =
+                        mapOf(
+                            path to
+                                LocalS3File(
+                                    path = path,
+                                    lastModified = 20L,
+                                    size = 42L,
+                                    localFingerprint = fingerprint,
+                                ),
+                        ),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-old",
+                                    lastModified = 10L,
+                                    size = 42L,
+                                    remotePath = path,
+                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER)),
+                    completeSnapshot = false,
+                    protocolState =
+                        S3SyncProtocolState(
+                            scanEpoch = 7L,
+                            lastFullRemoteScanAt = System.currentTimeMillis() - 2 * S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS,
+                        ),
+                    remoteFileCountHint = 1,
+                )
+            val client =
+                VerificationProbeS3Client(
+                    onHead = { key ->
+                        key shouldBe path
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "multipart-2",
+                            lastModified = 10L,
+                            size = 42L,
+                            metadata = mapOf("md5" to fingerprint),
+                        )
+                    },
+                )
+
+            val verified =
+                verifier(remoteIndexStore = DisabledS3RemoteIndexStore)
+                    .verify(
+                        prepared = prepared,
+                        client = client,
+                    config = config,
+                    layout = prepared.layout,
+                    // strict mock: any attempt to compute a local fingerprint (content read) throws,
+                    // proving the replan is satisfied by provided fingerprints alone
+                    fileBridgeScope = mockk(),
+                    mode =
+                        S3LocalSyncMode.FileVaultRoot(
+                            rootDir = java.io.File("/tmp/s3-prepared-verification-gate"),
+                            memoRelativeDir = "memo",
+                            imageRelativeDir = "images",
+                            voiceRelativeDir = "voice",
+                            legacyRemoteCompatibility = false,
+                        ),
+                )
+
+            verified.prepared.remoteFiles.getValue(path).size shouldBe 42L
+            verified.prepared.remoteFiles.getValue(path).contentMd5 shouldBe fingerprint
+            verified.prepared.plan.actions shouldBe emptyList<S3SyncAction>()
+            client.headKeys shouldBe listOf(path)
+        }
+
+    private fun verifier(remoteIndexStore: S3RemoteIndexStore): S3PreparedActionVerificationGate =
+        S3PreparedActionVerificationGate(
+            planner = planner,
+            encodingSupport = encodingSupport,
+            objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+            remoteIndexStore = remoteIndexStore,
+        )
 }
 
 private class VerificationProbeS3Client(

@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -38,10 +20,41 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 /*
  * Behavior Contract:
  * - Unit under test: S3 remote reconcile support
- * - Behavior focus: reconcile should derive finer hot-prefix shards from the local remote index, verify indexed files that disappear from a fully scanned shard, and keep dirty/missing index state instead of dropping it on the floor.
- * - Observable outcomes: generated scan prefixes, reconcile candidate and missing path sets, targeted head requests, and persisted dirty/missing remote-index flags.
- * - TDD proof: Fails before the fix because scan planning only rotates coarse memo/images/voice shards, reconcile never re-checks indexed entries hidden from a shard listing, and remote-index updates delete missing entries instead of retaining actionable missing/dirty state.
- * - Excludes: AWS SDK transport internals, Room generated DAO SQL, WorkManager execution, and UI rendering.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: reconcile derives finer hot-prefix shards from the local remote index, verifies indexed
+ *   files that disappear from a fully scanned shard, keeps dirty/missing index state, and replans only
+ *   listed objects that diverge from the persisted sync baseline.
+ *
+ * Scenarios:
+ * - Given hot prefixes in the index, when a scan plan is built, then finer shards run before cold fallbacks.
+ * - Given an indexed file missing from a fully scanned shard, when reconcile runs, then it is HEAD-verified.
+ * - Given a listed object whose etag matches the persisted baseline (with drifted server listing time)
+ *   and a clean index entry, when reconcile prepares candidates, then the path stays out of replanning
+ *   while its index entry still refreshes for the scan epoch.
+ * - Given a listed object with a changed etag or a dirty index entry, when reconcile prepares candidates,
+ *   then the path replans.
+ * - Given unresolved/missing outcomes, when index updates apply, then dirty/missing state is retained.
+ * - Given shard telemetry, when pages are scanned, then stats, budgets, and idle streaks adjust.
+ *
+ * Observable outcomes:
+ * - generated scan prefixes, reconcile candidate and missing path sets, targeted head requests,
+ *   observed index entries, and persisted dirty/missing remote-index flags.
+ *
+ * TDD proof:
+ * - Original suite: fails before the fix because scan planning only rotated coarse shards, hidden indexed
+ *   entries were never re-checked, and missing entries were deleted instead of retained.
+ * - Baseline-filter scenario: with the candidate filter disabled, "keeps baseline-matching listed paths
+ *   out of replanning candidates" fails because every listed page path re-entered planning.
+ *
+ * Excludes: AWS SDK transport internals, Room generated DAO SQL, WorkManager execution, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3RemoteReconcileSupportTest : DataFunSpec() {
     init {
@@ -58,6 +71,14 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
         test("prepareRemoteReconcile reads root fallback candidates without full index scan") { `prepareRemoteReconcile reads root fallback candidates without full index scan`() }
 
         test("prepareRemoteReconcile records shard scan stats after listing a page") { `prepareRemoteReconcile records shard scan stats after listing a page`() }
+
+        test("prepareRemoteReconcile keeps baseline-matching listed paths out of replanning candidates") {
+            `prepareRemoteReconcile keeps baseline-matching listed paths out of replanning candidates`()
+        }
+
+        test("prepareRemoteReconcile keeps listed paths with changed etag or dirty index state as candidates") {
+            `prepareRemoteReconcile keeps listed paths with changed etag or dirty index state as candidates`()
+        }
 
         test("prepareRemoteReconcile records idle streak and verification failures for shard state") { `prepareRemoteReconcile records idle streak and verification failures for shard state`() }
 
@@ -228,8 +249,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                             lastSuccessfulSyncAt = System.currentTimeMillis(),
                             lastFullRemoteScanAt = System.currentTimeMillis(),
                             remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard.bucketId)),
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = DisabledS3RemoteShardStateStore,
                 )
@@ -337,8 +360,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                             lastSuccessfulSyncAt = System.currentTimeMillis(),
                             lastFullRemoteScanAt = System.currentTimeMillis(),
                             remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = rootShard.bucketId)),
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = DisabledS3RemoteShardStateStore,
                 )
@@ -346,6 +371,157 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
             (rootPath in prepared.missingRemotePaths).shouldBeTrue()
             (rootPath in client.headKeys).shouldBeTrue()
         }
+
+    private fun `prepareRemoteReconcile keeps baseline-matching listed paths out of replanning candidates`() =
+        runTest {
+            val syncedPath = "lomo/memo/synced.md"
+            val externalPath = "lomo/memo/external.md"
+            val remoteIndexStore = InMemoryS3RemoteIndexStore()
+            remoteIndexStore.upsert(
+                listOf(remoteIndexEntry(path = syncedPath, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 10)),
+            )
+            val client =
+                ReconcileProbeClient(
+                    onListPage = { _, _, _ ->
+                        S3RemoteListPage(
+                            objects =
+                                listOf(
+                                    S3RemoteObject(
+                                        key = syncedPath,
+                                        eTag = "etag-stable",
+                                        // listing reports the server upload time, far from the
+                                        // rclone-style mtime persisted in the baseline
+                                        lastModified = 999_000L,
+                                        size = 5L,
+                                        metadata = emptyMap(),
+                                    ),
+                                    S3RemoteObject(
+                                        key = externalPath,
+                                        eTag = "etag-external",
+                                        lastModified = 50L,
+                                        size = 7L,
+                                        metadata = emptyMap(),
+                                    ),
+                                ),
+                            nextContinuationToken = null,
+                        )
+                    },
+                )
+
+            val prepared =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = S3LocalSyncMode.Legacy(),
+                    protocolState =
+                        S3SyncProtocolState(
+                            lastSuccessfulSyncAt = 1L,
+                            lastFullRemoteScanAt = 1L,
+                    ),
+                    encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(syncedMetadata(syncedPath, etag = "etag-stable")),
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = DisabledS3RemoteShardStateStore,
+                )
+
+            withClue("baseline-matching listed path must not re-enter planning") {
+                (syncedPath in prepared.candidatePaths).shouldBeFalse()
+            }
+            withClue("externally added path must stay a planning candidate") {
+                (externalPath in prepared.candidatePaths).shouldBeTrue()
+            }
+            withClue("baseline-matching listed path must still refresh the remote index scan epoch") {
+                (syncedPath in prepared.observedRemoteEntries).shouldBeTrue()
+            }
+        }
+
+    private fun `prepareRemoteReconcile keeps listed paths with changed etag or dirty index state as candidates`() =
+        runTest {
+            val changedPath = "lomo/memo/changed.md"
+            val dirtyPath = "lomo/memo/dirty.md"
+            val remoteIndexStore = InMemoryS3RemoteIndexStore()
+            remoteIndexStore.upsert(
+                listOf(
+                    remoteIndexEntry(path = changedPath, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 10),
+                    remoteIndexEntry(path = dirtyPath, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 10)
+                        .copy(dirtySuspect = true),
+                ),
+            )
+            val client =
+                ReconcileProbeClient(
+                    onListPage = { _, _, _ ->
+                        S3RemoteListPage(
+                            objects =
+                                listOf(
+                                    S3RemoteObject(
+                                        key = changedPath,
+                                        eTag = "etag-rewritten",
+                                        lastModified = 70L,
+                                        size = 9L,
+                                        metadata = emptyMap(),
+                                    ),
+                                    S3RemoteObject(
+                                        key = dirtyPath,
+                                        eTag = "etag-stable",
+                                        lastModified = 70L,
+                                        size = 9L,
+                                        metadata = emptyMap(),
+                                    ),
+                                ),
+                            nextContinuationToken = null,
+                        )
+                    },
+                )
+
+            val prepared =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = S3LocalSyncMode.Legacy(),
+                    protocolState =
+                        S3SyncProtocolState(
+                            lastSuccessfulSyncAt = 1L,
+                            lastFullRemoteScanAt = 1L,
+                    ),
+                    encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao =
+                        InMemoryReconcileMetadataDao(
+                            syncedMetadata(changedPath, etag = "etag-stable"),
+                            syncedMetadata(dirtyPath, etag = "etag-stable"),
+                        ),
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = DisabledS3RemoteShardStateStore,
+                )
+
+            withClue("etag drift against the baseline must replan the path") {
+                (changedPath in prepared.candidatePaths).shouldBeTrue()
+            }
+            withClue("dirty index entries must replan even when the etag matches the baseline") {
+                (dirtyPath in prepared.candidatePaths).shouldBeTrue()
+            }
+        }
+
+    private fun syncedMetadata(
+        path: String,
+        etag: String,
+    ): com.lomo.data.local.entity.S3SyncMetadataEntity =
+        com.lomo.data.local.entity.S3SyncMetadataEntity(
+            relativePath = path,
+            remotePath = path,
+            etag = etag,
+            remoteLastModified = 10L,
+            localLastModified = 10L,
+            localSize = 5L,
+            remoteSize = 5L,
+            localFingerprint = null,
+            lastSyncedAt = 10L,
+            lastResolvedDirection = com.lomo.data.local.entity.S3SyncMetadataEntity.NONE,
+            lastResolvedReason = com.lomo.data.local.entity.S3SyncMetadataEntity.UNCHANGED,
+        )
 
     private fun `prepareRemoteReconcile records shard scan stats after listing a page`() =
         runTest {
@@ -385,8 +561,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         S3SyncProtocolState(
                             lastSuccessfulSyncAt = 1L,
                             lastFullRemoteScanAt = 1L,
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = shardStateStore,
                 )
@@ -448,8 +626,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                             lastSuccessfulSyncAt = 1L,
                             lastFullRemoteScanAt = 1L,
                             remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard.bucketId)),
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = shardStateStore,
                 )
@@ -534,8 +714,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                             lastSuccessfulSyncAt = 1L,
                             lastFullRemoteScanAt = 1L,
                             remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard.bucketId)),
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = shardStateStore,
                 )
@@ -854,8 +1036,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                     S3SyncProtocolState(
                         lastSuccessfulSyncAt = 1L,
                         lastFullRemoteScanAt = 1L,
-                    ),
+                ),
                 encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                metadataDao = InMemoryReconcileMetadataDao(),
                 remoteIndexStore = InMemoryS3RemoteIndexStore(),
                 shardStateStore = shardStateStore,
             )
@@ -947,8 +1131,10 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
                         S3SyncProtocolState(
                             lastSuccessfulSyncAt = 1L,
                             lastFullRemoteScanAt = 1L,
-                        ),
+                    ),
                     encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    metadataDao = InMemoryReconcileMetadataDao(),
                     remoteIndexStore = remoteIndexStore,
                     shardStateStore = shardStateStore,
                 )
@@ -975,6 +1161,40 @@ class S3RemoteReconcileSupportTest : DataFunSpec() {
         missingOnLastScan = false,
         scanEpoch = 1L,
     )
+}
+
+private class InMemoryReconcileMetadataDao(
+    vararg entities: com.lomo.data.local.entity.S3SyncMetadataEntity,
+) : com.lomo.data.local.dao.S3SyncMetadataDao {
+    private val rows = entities.associateBy { entity -> entity.relativePath }.toMutableMap()
+
+    override suspend fun getAll(): List<com.lomo.data.local.entity.S3SyncMetadataEntity> = rows.values.toList()
+
+    override suspend fun getAllPlannerMetadataSnapshots(): List<com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot> =
+        error("reconcile preparation must not load the full planner metadata table")
+
+    override suspend fun getAllRemoteMetadataSnapshots(): List<com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot> =
+        error("reconcile preparation must not load the full remote metadata table")
+
+    override suspend fun getByRelativePaths(
+        relativePaths: List<String>,
+    ): List<com.lomo.data.local.entity.S3SyncMetadataEntity> = relativePaths.mapNotNull(rows::get)
+
+    override suspend fun upsertAll(entities: List<com.lomo.data.local.entity.S3SyncMetadataEntity>) {
+        entities.forEach { entity -> rows[entity.relativePath] = entity }
+    }
+
+    override suspend fun deleteByRelativePath(relativePath: String) {
+        rows.remove(relativePath)
+    }
+
+    override suspend fun deleteByRelativePaths(relativePaths: List<String>) {
+        relativePaths.forEach(rows::remove)
+    }
+
+    override suspend fun clearAll() {
+        rows.clear()
+    }
 }
 
 private class ReconcileProbeClient(

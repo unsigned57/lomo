@@ -59,6 +59,10 @@ data class S3PutObjectResult(
     val conditionalWriteFailed: Boolean = false,
 )
 
+data class S3DeleteObjectsResult(
+    val failedKeys: Set<String> = emptySet(),
+)
+
 data class S3RemoteListPage(
     val objects: List<S3RemoteObject>,
     val nextContinuationToken: String?,
@@ -140,11 +144,11 @@ interface LomoS3ObjectWriter {
 
     suspend fun deleteObject(key: String)
 
-    suspend fun deleteObjects(keys: List<String>) {
-        for (key in keys) {
-            deleteObject(key)
-        }
-    }
+    suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult =
+        error(
+            "S3 batch delete is required at this client boundary; " +
+                "implement deleteObjects without per-object fallback.",
+        )
 }
 
 interface LomoS3Client : LomoS3ObjectReader, LomoS3ObjectWriter, AutoCloseable {
@@ -518,19 +522,21 @@ internal class AwsSdkS3Client(
         )
     }
 
-    override suspend fun deleteObjects(keys: List<String>) {
-        if (keys.isEmpty()) return
+    override suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult {
+        if (keys.isEmpty()) return S3DeleteObjectsResult()
+        val failedKeys = mutableSetOf<String>()
         for (chunk in keys.chunked(S3_BULK_DELETE_BATCH_SIZE)) {
-            submitDeleteBatch(chunk)
+            failedKeys += submitDeleteBatch(chunk).failedKeys
         }
+        return S3DeleteObjectsResult(failedKeys = failedKeys)
     }
 
     override fun close() {
         client.close()
     }
 
-    private suspend fun submitDeleteBatch(keys: List<String>) {
-        if (keys.isEmpty()) return
+    private suspend fun submitDeleteBatch(keys: List<String>): S3DeleteObjectsResult {
+        if (keys.isEmpty()) return S3DeleteObjectsResult()
         if (keys.size == 1) {
             client.deleteObject(
                 DeleteObjectRequest {
@@ -538,9 +544,10 @@ internal class AwsSdkS3Client(
                     this.key = keys.single()
                 },
             )
-            return
+            return S3DeleteObjectsResult()
         }
-        client.deleteObjects(
+        val response =
+            client.deleteObjects(
             DeleteObjectsRequest {
                 bucket = config.bucket
                 delete =
@@ -554,6 +561,9 @@ internal class AwsSdkS3Client(
                             }
                     }
             },
+        )
+        return S3DeleteObjectsResult(
+            failedKeys = response.errors.orEmpty().mapNotNull { error -> error.key }.toSet(),
         )
     }
 

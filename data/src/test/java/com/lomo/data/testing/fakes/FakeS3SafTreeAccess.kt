@@ -35,6 +35,10 @@ class FakeS3SafTreeAccess : S3SafTreeAccess {
         return readBytes(rootUriString, relativePath)?.toString(Charsets.UTF_8)
     }
 
+    override suspend fun md5Hex(rootUriString: String, relativePath: String): String? {
+        return readBytes(rootUriString, relativePath)?.md5Hex()
+    }
+
     override suspend fun exportToFile(
         rootUriString: String,
         relativePath: String,
@@ -59,3 +63,9 @@ class FakeS3SafTreeAccess : S3SafTreeAccess {
         files.remove(relativePath)
     }
 }
+
+private fun ByteArray.md5Hex(): String =
+    java.security.MessageDigest
+        .getInstance("MD5")
+        .digest(this)
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }

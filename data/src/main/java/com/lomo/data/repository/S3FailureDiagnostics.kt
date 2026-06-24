@@ -7,26 +7,35 @@ import com.lomo.domain.model.S3SyncFailureException
 
 internal fun Throwable.toS3Failure(fallbackMessage: String): S3SyncFailureException =
     when (this) {
-        is S3SyncFailureException ->
+        is S3SyncFailureException -> {
+            val classifiedCode =
+                code.takeUnless { it == S3SyncErrorCode.UNKNOWN }
+                    ?: classifyS3ErrorCode()
+            val publicMessage =
+                message
+                    ?.trim()
+                    ?.takeIf(::isSafePublicS3DiagnosticMessage)
+                    ?: safeS3DiagnosticMessage(classifiedCode, fallbackMessage)
             S3SyncFailureException(
-                code =
-                    code.takeUnless { it == S3SyncErrorCode.UNKNOWN }
-                        ?: classifyS3ErrorCode(),
-                message = diagnosticMessage(fallbackMessage),
+                code = classifiedCode,
+                message = publicMessage,
                 cause = cause,
             )
+        }
         is IllegalArgumentException ->
             S3SyncFailureException(
                 code = S3SyncErrorCode.ENCRYPTION_FAILED,
-                message = diagnosticMessage("S3 encryption failed"),
+                message = safeS3DiagnosticMessage(S3SyncErrorCode.ENCRYPTION_FAILED, "S3 encryption failed"),
                 cause = this,
             )
-        else ->
+        else -> {
+            val classifiedCode = classifyS3ErrorCode()
             S3SyncFailureException(
-                code = classifyS3ErrorCode(),
-                message = diagnosticMessage(fallbackMessage),
+                code = classifiedCode,
+                message = safeS3DiagnosticMessage(classifiedCode, fallbackMessage),
                 cause = this,
             )
+        }
     }
 
 private fun Throwable.classifyS3ErrorCode(): S3SyncErrorCode {
@@ -53,11 +62,60 @@ private fun Throwable.classifyS3ErrorCode(): S3SyncErrorCode {
     }
 }
 
-private fun Throwable.diagnosticMessage(fallbackMessage: String): String =
-    diagnosticMessages().firstOrNull(::isActionableS3DiagnosticMessage)
-        ?: diagnosticMessages().firstOrNull()
-        ?: diagnosticTypeSummary()
-        ?: fallbackMessage
+private fun safeS3DiagnosticMessage(
+    code: S3SyncErrorCode,
+    fallbackMessage: String,
+): String =
+    when (code) {
+        S3SyncErrorCode.CONNECTION_FAILED ->
+            "S3 connection failed or timed out. Check the endpoint URL, region, addressing style, and network/TLS connectivity."
+        S3SyncErrorCode.AUTH_FAILED ->
+            "S3 credential or permission check failed. Check credentials and bucket permissions."
+        S3SyncErrorCode.BUCKET_ACCESS_FAILED ->
+            "S3 bucket access failed. Check the bucket name, region, endpoint, and permissions."
+        S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION ->
+            "S3 remote layout is incompatible with the configured sync scope. Check the configured prefix and rebuild the pending sync session."
+        S3SyncErrorCode.ENCRYPTION_FAILED ->
+            "S3 encryption compatibility failed. Check the S3 prefix, encryption mode, and encryption password."
+        S3SyncErrorCode.NOT_CONFIGURED ->
+            "S3 sync is not configured. Configure endpoint, region, bucket, and credentials before syncing."
+        S3SyncErrorCode.UNKNOWN ->
+            safeUnknownS3DiagnosticMessage(fallbackMessage)
+    }
+
+private fun safeUnknownS3DiagnosticMessage(fallbackMessage: String): String =
+    when {
+        fallbackMessage.contains("connection", ignoreCase = true) ->
+            "S3 connection could not be verified. Check endpoint, credentials, bucket access, and encryption settings."
+        fallbackMessage.contains("sync", ignoreCase = true) ->
+            "S3 sync failed. Check endpoint, credentials, bucket access, and encryption settings."
+        else ->
+            "S3 operation failed. Check endpoint, credentials, bucket access, and encryption settings."
+    }
+
+private fun isSafePublicS3DiagnosticMessage(message: String): Boolean {
+    val normalized = message.trim()
+    if (normalized.isBlank()) return false
+    val lower = normalized.lowercase()
+    val rawMarkers =
+        listOf(
+            "http://",
+            "https://",
+            "request url",
+            "request id",
+            "sample key",
+            "decoder detail",
+            "for prefix '",
+            "under prefix '",
+            "ignored samples",
+            "key '",
+            "prefix/",
+            "httpresponseexception",
+        )
+    return rawMarkers.none(lower::contains) &&
+        !RAW_PROVIDER_NAME_PATTERN.containsMatchIn(normalized) &&
+        !RAW_HTTP_STATUS_PATTERN.containsMatchIn(normalized)
+}
 
 private fun Throwable.diagnosticText(): String =
     diagnosticMessages()
@@ -74,17 +132,6 @@ private fun Throwable.diagnosticMessages(): List<String> =
         .filter(String::isNotBlank)
         .distinct()
         .toList()
-
-private fun Throwable.diagnosticTypeSummary(): String? =
-    generateSequence(this) { it.cause }
-        .mapNotNull { throwable ->
-            throwable::class.simpleName
-                ?: throwable::class.qualifiedName?.substringAfterLast('.')
-        }.filter(String::isNotBlank)
-        .distinct()
-        .toList()
-        .takeIf(List<String>::isNotEmpty)
-        ?.joinToString(separator = " <- ")
 
 private fun Throwable.diagnosticCandidates(): List<String> =
     buildList {
@@ -109,18 +156,12 @@ private fun Throwable.sdkServiceDiagnosticMessage(): String? {
 private fun Throwable.httpResponseDiagnosticMessage(): String? {
     val responseException = this as? HttpResponseException ?: return null
     val status = responseException.statusCode?.toString()?.trim()?.takeIf(String::isNotBlank)
-    val requestUrl = responseException.request?.url?.toString()?.trim()?.takeIf(String::isNotBlank)
     val parts =
         listOfNotNull(
             status?.let { "HTTP $it" },
-            requestUrl?.let { "Request URL: $it" },
         )
     return parts.takeIf(List<String>::isNotEmpty)?.joinToString(". ")
 }
 
-private fun isActionableS3DiagnosticMessage(message: String): Boolean {
-    val normalized = message.trim()
-    return normalized.isNotBlank() &&
-        !normalized.equals("S3 sync failed", ignoreCase = true) &&
-        !normalized.equals("S3 connection failed", ignoreCase = true)
-}
+private val RAW_PROVIDER_NAME_PATTERN = Regex("""\b(?:AWS|MinIO|Wasabi|Backblaze|Cloudflare R2)\b""")
+private val RAW_HTTP_STATUS_PATTERN = Regex("""\b[45]\d{2}\b""")

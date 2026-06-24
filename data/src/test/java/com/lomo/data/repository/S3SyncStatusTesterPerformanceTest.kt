@@ -30,6 +30,7 @@ import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncStatus
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -105,11 +106,11 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
         every { dataStore.voiceDirectory } returns flowOf("/voice")
         every { dataStore.voiceUri } returns flowOf(null)
         every { dataStore.s3LastSyncTime } returns flowOf(0L)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
         coEvery { metadataDao.getAll() } returns emptyList()
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
     }
@@ -189,12 +190,17 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
             val tester =
                 S3SyncStatusTester(
                     runtime = runtime,
-                    support = S3SyncRepositorySupport(runtime),
+                    support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
                     encodingSupport = S3SyncEncodingSupport(),
                     fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
                     protocolStateStore = DisabledS3SyncProtocolStateStore,
                     localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                     remoteIndexStore = DisabledS3RemoteIndexStore,
+                    remoteShardStateStore = DisabledS3RemoteShardStateStore,
                 )
 
             val status = tester.getStatus()
@@ -282,12 +288,17 @@ class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
             val tester =
                 S3SyncStatusTester(
                     runtime = runtime,
-                    support = S3SyncRepositorySupport(runtime),
+                    support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
                     encodingSupport = S3SyncEncodingSupport(),
                     fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
                     protocolStateStore = DisabledS3SyncProtocolStateStore,
                     localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                     remoteIndexStore = DisabledS3RemoteIndexStore,
+                    remoteShardStateStore = DisabledS3RemoteShardStateStore,
                 )
 
             val status = tester.getStatus()

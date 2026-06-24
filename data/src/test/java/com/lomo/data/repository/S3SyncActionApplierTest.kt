@@ -19,6 +19,7 @@ package com.lomo.data.repository
 
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -31,7 +32,9 @@ import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncReason
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -42,6 +45,7 @@ import kotlinx.coroutines.test.runTest
 import java.io.File
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -53,6 +57,8 @@ import io.kotest.matchers.nulls.shouldNotBeNull
  * - Behavior focus: (1) large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs; (2) every object upload — including non-memo media — should record a content md5 in the S3 object metadata and report the same fingerprint on downloads so classifiers can skip full GETs when ETags are multipart; (3) when the verification gate has already observed that a remote object is missing (observedMissingRemotePaths), upload / delete-remote / delete-local actions must trust that observation and not re-issue HEAD requests for the same key; (4) conditional-write-capable endpoints should receive If-None-Match / If-Match guards, while generic endpoints keep the HEAD-before-write compatibility path.
  * - Observable outcomes: Applied or Conflict results, uploaded bytes/metadata/conditional headers captured at the S3 client boundary, downloaded file contents, absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads, syncedContentFingerprint presence for media downloads, and HEAD call count on the S3 client for gate-observed-missing paths.
  * - TDD proof: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing; and (4) conditional-write headers / precondition failures are not locked by behavior tests.
+ * - TDD proof: RED Report 10 command: ./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.repository.S3SyncActionApplierTest'
+ * - TDD proof: RED Report 10 symptom: upload with persisted old-prefix remotePath returned Applied and called putObjectFile("old-prefix/lomo/images/stale.png") instead of failing before the S3 client boundary.
  * - Excludes: AWS SDK transport internals, planner action selection, metadata persistence, and reconcile behavior.
  */
 class S3SyncActionApplierTest : DataFunSpec() {
@@ -88,6 +94,10 @@ class S3SyncActionApplierTest : DataFunSpec() {
 
         test("upload omits conditional headers for generic endpoint compatibility path") {
             `upload omits conditional headers for generic endpoint compatibility path`()
+        }
+
+        test("upload rejects stale persisted metadata key outside configured prefix before S3 client call") {
+            `upload rejects stale persisted metadata key outside configured prefix before S3 client call`()
         }
     }
 
@@ -172,7 +182,14 @@ class S3SyncActionApplierTest : DataFunSpec() {
             )
         encodingSupport = S3SyncEncodingSupport()
         fileBridge = S3SyncFileBridge(runtime, encodingSupport)
-        applier = S3SyncActionApplier(runtime, encodingSupport, fileBridge)
+        applier =
+            S3SyncActionApplier(
+                runtime = runtime,
+                encodingSupport = encodingSupport,
+                objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                fileBridge = fileBridge,
+                transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+            )
     }
 
     private fun `large direct media upload bypasses local media byte reads`() =
@@ -678,6 +695,49 @@ class S3SyncActionApplierTest : DataFunSpec() {
             client.headCalls[path] shouldBe 1
             client.uploadedIfMatch[path] shouldBe null
             client.uploadedIfNoneMatch[path] shouldBe null
+        }
+
+    private fun `upload rejects stale persisted metadata key outside configured prefix before S3 client call`() =
+        runTest {
+            val path = "lomo/images/stale.png"
+            val staleRemotePath = "old-prefix/lomo/images/stale.png"
+            val localFile = File(imageRoot, "stale.png").apply { writeBytes(byteArrayOf(1, 3, 5, 7)) }
+            val client = RecordingS3Client()
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val error =
+                shouldThrow<S3SyncFailureException> {
+                applier.applyAction(
+                    action = S3SyncAction(path, S3SyncDirection.UPLOAD, S3SyncReason.LOCAL_NEWER),
+                    client = client,
+                    layout = layout,
+                    config = config.copy(prefix = "current-prefix"),
+                    localFiles = mapOf(path to LocalS3File(path, localFile.lastModified(), localFile.length())),
+                    remoteFiles = emptyMap(),
+                    metadataByPath =
+                        mapOf(
+                            path to
+                                S3SyncMetadataEntity(
+                                    relativePath = path,
+                                    remotePath = staleRemotePath,
+                                    etag = "etag-old",
+                                    remoteLastModified = 10L,
+                                    remoteSize = localFile.length(),
+                                    localLastModified = 10L,
+                                    lastSyncedAt = 10L,
+                                    lastResolvedDirection = "NONE",
+                                    lastResolvedReason = "UNCHANGED",
+                                ),
+                        ),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+            }
+
+            error.code shouldBe S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
+            client.headCalls shouldBe emptyMap()
+            client.uploadedBytes shouldBe emptyMap()
         }
 
     private fun largePayload(seed: Int): ByteArray =

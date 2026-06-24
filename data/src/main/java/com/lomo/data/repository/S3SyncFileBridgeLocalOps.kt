@@ -15,11 +15,37 @@ internal suspend fun listVaultRootLocalFiles(
                 .listFiles(mode.rootUriString)
                 .mapNotNull { file ->
                     VaultRootPath.from(file.relativePath)
-                        ?.takeIf { path -> isSyncableContentPath(path.value) }
+                        ?.takeIf { path -> mode.acceptsWorkspacePath(path.value) }
                         ?.let { path ->
                             path.value to LocalS3File(path.value, file.lastModified, file.size)
                         }
                 }.toMap()
+    }
+
+internal suspend fun getVaultRootLocalAuditPage(
+    mode: S3LocalSyncMode.VaultRoot,
+    safTreeAccess: S3SafTreeAccess,
+    afterRelativePath: String?,
+    limit: Int,
+): List<LocalS3File> =
+    when (mode) {
+        is S3LocalSyncMode.FileVaultRoot ->
+            getFileVaultRootLocalAuditPage(
+                mode = mode,
+                afterRelativePath = afterRelativePath,
+                limit = limit,
+            )
+
+        is S3LocalSyncMode.SafVaultRoot ->
+            safTreeAccess
+                .listFiles(mode.rootUriString)
+                .mapNotNull { file ->
+                    VaultRootPath.from(file.relativePath)
+                        ?.takeIf { path -> mode.acceptsWorkspacePath(path.value) }
+                        ?.let { path -> LocalS3File(path.value, file.lastModified, file.size) }
+                }.filter { file -> afterRelativePath == null || file.path > afterRelativePath }
+                .sortedBy(LocalS3File::path)
+                .take(limit)
     }
 
 internal suspend fun readVaultRootBytes(

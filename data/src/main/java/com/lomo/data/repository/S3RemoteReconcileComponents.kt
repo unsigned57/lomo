@@ -186,6 +186,8 @@ internal class S3RemoteVerificationGate {
         remoteIndexStore: S3RemoteIndexStore,
         activeShardCandidates: List<S3RemoteIndexEntry>,
         listedRemoteFiles: Map<String, RemoteS3File>,
+        config: S3ResolvedConfig,
+        objectKeyPolicy: S3RemoteObjectKeyPolicy,
         now: Long,
         scanEpoch: Long,
         tuning: S3RemoteReconcileTuning = S3RemoteReconcileTuning(),
@@ -209,9 +211,10 @@ internal class S3RemoteVerificationGate {
                 val limiter = Semaphore(tuning.headConcurrency)
                 hotCandidates.map { entry ->
                     async {
+                        val remoteKey = objectKeyPolicy.validatedExistingKey(entry.remotePath, config)
                         limiter.withPermit {
                             entry.relativePath to
-                                client.getObjectMetadata(entry.remotePath)?.toRemoteIndexEntry(
+                                client.getObjectMetadata(remoteKey.value)?.toRemoteIndexEntry(
                                     relativePath = entry.relativePath,
                                     now = now,
                                     scanEpoch = scanEpoch,

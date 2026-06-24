@@ -82,6 +82,16 @@ class RoomBackedS3SyncMetadataStore
                 dao.getByRelativePaths(relativePaths = relativePaths, workspaceGeneration = activeGeneration())
             }
 
+        override suspend fun getLocalAuditPage(
+            afterRelativePath: String?,
+            limit: Int,
+        ): List<S3SyncMetadataEntity> =
+            dao.getLocalAuditPage(
+                afterRelativePath = afterRelativePath,
+                limit = limit,
+                workspaceGeneration = activeGeneration(),
+            )
+
         override suspend fun upsertAll(entities: List<S3SyncMetadataEntity>) {
             if (entities.isEmpty()) return
             val generation = activeGeneration()

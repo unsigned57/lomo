@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -32,6 +14,7 @@ import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
@@ -55,10 +38,27 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncExecutor
- * - Behavior focus: initial S3 sync should fast-classify overlapping files so empty-local snapshots download directly, equivalent local/remote files avoid redundant transfer and seed metadata, clear one-sided changes auto-sync, and irreconcilable overlaps stay in preview conflict.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: initial S3 sync should fingerprint-classify overlapping files so empty-local snapshots download directly, equivalent local/remote files avoid redundant transfer and seed metadata, clear one-sided changes auto-sync, and irreconcilable overlaps stay in preview conflict.
+ *
+ * Scenarios:
+ * - Given the local vault is empty, when remote files are listed, then files download directly.
+ * - Given overlapping local/remote memos expose matching fingerprints, when initial sync plans, then metadata is seeded without a transfer.
+ * - Given overlapping local/remote memos expose differing fingerprints and one side is clearly newer, when initial sync plans, then the newer side is selected.
+ * - Given overlapping memos do not expose enough fingerprint identity, when initial sync plans, then they remain in import review instead of routine ByteArray comparison.
+ * - Given many unresolved initial overlaps, when preview is built, then planner avoids fetching every remote body for classification.
+ *
  * - Observable outcomes: returned S3SyncResult outcomes, remote get/put/delete/head invocation counts, local file contents after sync, and metadata rows persisted for initial equivalence.
- * - TDD proof: Fails before the fix because initial sync treats every overlapping path without metadata as a conflict, so identical files do not seed metadata, clear newer-side changes do not auto-sync, and the initial overlap path never reaches the optimized fast path.
+ * - TDD proof: Fails before Report 10 item 6 because initial overlap reads memo ByteArrays for routine same/changed decisions instead of local and remote fingerprints.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3InitialSyncOptimizationTest : DataFunSpec() {
     init {
@@ -81,9 +81,9 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
 
         test("performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side") { `performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side`() }
 
-        test("performSync treats identical memo with unusable etag as up to date by reading content on demand") { `performSync treats identical memo with unusable etag as up to date by reading content on demand`() }
+        test("performSync treats identical memo with unusable etag as up to date from metadata fingerprint") { `performSync treats identical memo with unusable etag as up to date from metadata fingerprint`() }
 
-        test("performSync uploads newer memo when etag is unusable but content comparison proves drift") { `performSync uploads newer memo when etag is unusable but content comparison proves drift`() }
+        test("performSync uploads newer memo when etag is unusable but metadata fingerprint proves drift") { `performSync uploads newer memo when etag is unusable but metadata fingerprint proves drift`() }
 
         test("performSync avoids fetching every remote memo body for high-conflict initial preview") { `performSync avoids fetching every remote memo body for high-conflict initial preview`() }
     }
@@ -137,11 +137,11 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf(File(vaultRoot, "voice").absolutePath)
         every { dataStore.voiceUri } returns flowOf(null)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
 
         coEvery { dataStore.updateS3LastSyncTime(any()) } returns Unit
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
@@ -292,7 +292,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
             review.review.items.single().state shouldBe SyncReviewItemState.CONTENT_DIFFERENCE
         }
 
-    private fun `performSync treats identical memo with unusable etag as up to date by reading content on demand`() =
+    private fun `performSync treats identical memo with unusable etag as up to date from metadata fingerprint`() =
         runTest {
             val sharedBytes = "# same".toByteArray(StandardCharsets.UTF_8)
             writeLocalFile("memo/note.md", sharedBytes, lastModified = 100L)
@@ -306,6 +306,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
                                 bytes = sharedBytes,
                                 lastModified = 100L,
                                 eTag = "multipart-2",
+                                metadata = mapOf("md5" to md5Hex(sharedBytes)),
                             ),
                         ),
                 )
@@ -313,7 +314,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
             val result = createExecutor(client = client, metadataDao = metadataDao).performSync()
 
             result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
-            client.getObjectCalls shouldBe 1
+            client.getObjectCalls shouldBe 0
             client.putObjectCalls shouldBe 0
             metadataDao.paths() shouldBe listOf("memo/note.md")
             val persisted = metadataDao.getAll().single()
@@ -322,8 +323,9 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
             persisted.localFingerprint shouldBe md5Hex(sharedBytes)
         }
 
-    private fun `performSync uploads newer memo when etag is unusable but content comparison proves drift`() =
+    private fun `performSync uploads newer memo when etag is unusable but metadata fingerprint proves drift`() =
         runTest {
+            val remoteBytes = "REMOTE".toByteArray(StandardCharsets.UTF_8)
             writeLocalFile(
                 relativePath = "memo/note.md",
                 bytes = "LOCAL1".toByteArray(StandardCharsets.UTF_8),
@@ -335,9 +337,10 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
                         listOf(
                             remoteFixture(
                                 key = "memo/note.md",
-                                bytes = "REMOTE".toByteArray(StandardCharsets.UTF_8),
+                                bytes = remoteBytes,
                                 lastModified = 100L,
                                 eTag = null,
+                                metadata = mapOf("md5" to md5Hex(remoteBytes)),
                             ),
                         ),
                 )
@@ -347,7 +350,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
             withClue("Expected success, got $result") { (result is S3SyncResult.Success).shouldBeTrue() }
             val success = result as S3SyncResult.Success
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
-            client.getObjectCalls shouldBe 1
+            client.getObjectCalls shouldBe 0
             client.putObjectCalls shouldBe 1
         }
 
@@ -406,10 +409,22 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
         val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
         return S3SyncExecutor(
             runtime = runtime,
-            support = S3SyncRepositorySupport(runtime),
+            support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
             encodingSupport = encodingSupport,
+            objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
             fileBridge = fileBridge,
-            actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            actionApplier =
+                S3SyncActionApplier(
+                    runtime = runtime,
+                    encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    fileBridge = fileBridge,
+                    transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+                ),
             lifecycleRunner = testRemoteSyncLifecycleRunner(),
             protocolStateStore = DisabledS3SyncProtocolStateStore,
             localChangeJournalStore = DisabledS3LocalChangeJournalStore,
@@ -436,6 +451,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
         bytes: ByteArray,
         lastModified: Long,
         eTag: String? = md5Hex(bytes),
+        metadata: Map<String, String> = emptyMap(),
     ): InitialRemoteFixture =
         InitialRemoteFixture(
             objectSummary =
@@ -444,14 +460,14 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
                     eTag = eTag,
                     lastModified = lastModified,
                     size = bytes.size.toLong(),
-                    metadata = emptyMap(),
+                    metadata = metadata,
                 ),
             payload =
                 S3SmallObjectPayload(
                     key = key,
                     eTag = eTag,
                     lastModified = lastModified,
-                    metadata = emptyMap(),
+                    metadata = metadata,
                     bytes = bytes,
                 ),
         )

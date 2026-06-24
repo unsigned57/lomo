@@ -277,6 +277,15 @@ open class FakeS3SyncMetadataDao : S3SyncMetadataDao {
         return allEntities.filter { it.relativePath in relativePaths }
     }
 
+    override suspend fun getLocalAuditPage(
+        afterRelativePath: String?,
+        limit: Int,
+    ): List<S3SyncMetadataEntity> =
+        allEntities
+            .filter { entity -> afterRelativePath == null || entity.relativePath > afterRelativePath }
+            .sortedBy(S3SyncMetadataEntity::relativePath)
+            .take(limit)
+
     override suspend fun upsertAll(entities: List<S3SyncMetadataEntity>) {
         entities.forEach { entity ->
             allEntities.removeAll { it.relativePath == entity.relativePath }

@@ -114,7 +114,7 @@ internal fun resolveVaultRootPath(
         } else {
             sanitized.takeUnless { isLegacyVaultRootCompatibilityPath(it, layout) } ?: return null
         }
-    return VaultRootPath.from(normalized)?.takeIf { path -> isSyncableContentPath(path.value) }
+    return VaultRootPath.from(normalized)?.takeIf { path -> mode.acceptsWorkspacePath(path.value) }
 }
 
 internal fun legacyIsMemoPath(

@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
-import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 
@@ -10,16 +9,11 @@ internal suspend fun refineTrackedMemoPlanWithContent(
     localFiles: Map<String, LocalS3File>,
     remoteFiles: Map<String, RemoteS3File>,
     metadataByPath: Map<String, S3SyncMetadataEntity>,
-    client: com.lomo.data.s3.LomoS3Client,
-    config: S3ResolvedConfig,
-    encodingSupport: S3SyncEncodingSupport,
-    fileBridgeScope: S3SyncFileBridgeScope,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
     mode: S3LocalSyncMode,
+    localFingerprintSource: S3LocalFingerprintSource,
 ): S3SyncPlan {
     val refinedActionsByPath = plan.actions.associateBy(S3SyncAction::path).toMutableMap()
-    val localFingerprintCache = mutableMapOf<String, String?>()
-    val remoteFingerprintCache = mutableMapOf<String, String?>()
     plan.actions
         .asSequence()
         .filter { action ->
@@ -32,15 +26,10 @@ internal suspend fun refineTrackedMemoPlanWithContent(
             when (
                 resolveTrackedMemoActionWithContent(
                     path = action.path,
+                    local = requireNotNull(localFiles[action.path]),
                     remote = requireNotNull(remoteFiles[action.path]),
-                    baselineFingerprint = requireNotNull(metadataByPath[action.path]?.localFingerprint),
-                    client = client,
-                    config = config,
-                    encodingSupport = encodingSupport,
-                    fileBridgeScope = fileBridgeScope,
-                    layout = layout,
-                    localFingerprintCache = localFingerprintCache,
-                    remoteFingerprintCache = remoteFingerprintCache,
+                    metadata = requireNotNull(metadataByPath[action.path]),
+                    localFingerprintSource = localFingerprintSource,
                 )
             ) {
                 null -> Unit
@@ -79,45 +68,20 @@ internal suspend fun refineTrackedMemoPlanWithContent(
 
 private suspend fun resolveTrackedMemoActionWithContent(
     path: String,
+    local: LocalS3File,
     remote: RemoteS3File,
-    baselineFingerprint: String,
-    client: com.lomo.data.s3.LomoS3Client,
-    config: S3ResolvedConfig,
-    encodingSupport: S3SyncEncodingSupport,
-    fileBridgeScope: S3SyncFileBridgeScope,
-    layout: com.lomo.data.sync.SyncDirectoryLayout,
-    localFingerprintCache: MutableMap<String, String?>,
-    remoteFingerprintCache: MutableMap<String, String?>,
+    metadata: S3SyncMetadataEntity,
+    localFingerprintSource: S3LocalFingerprintSource,
 ): TrackedMemoResolution? {
+    val baselineFingerprint = requireNotNull(metadata.localFingerprint)
+    val remoteFingerprint = remote.memoContentFingerprint() ?: return null
     val localFingerprint =
-        localFingerprintCache.getOrPut(path) {
-            fileBridgeScope.readLocalBytes(path, layout)?.md5Hex()
-        } ?: return null
-    val remoteFingerprint =
-        remoteFingerprintCache.getOrPut(path) {
-            val fastFingerprint =
-                remote.contentMd5 ?: resolveRemoteContentMd5(emptyMap(), remote.etag)
-            if (fastFingerprint != null) {
-                fastFingerprint
-            } else if (remote.verified) {
-                runNonFatalCatching {
-                    val payload = client.getSmallObject(remote.remotePath)
-                    resolveRemoteContentMd5(payload.metadata, payload.eTag)
-                        ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
-                }.getOrNull()
-            } else {
-                runNonFatalCatching {
-                    client.getObjectMetadata(remote.remotePath)?.let { metadata ->
-                        resolveRemoteContentMd5(metadata.metadata, metadata.eTag)
-                    }
-                }.getOrNull()
-                    ?: runNonFatalCatching {
-                        val payload = client.getSmallObject(remote.remotePath)
-                        resolveRemoteContentMd5(payload.metadata, payload.eTag)
-                            ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
-                    }.getOrNull()
-            }
-        } ?: return null
+        resolveLocalContentFingerprint(
+            path = path,
+            local = local,
+            metadata = metadata,
+            source = localFingerprintSource,
+        ) ?: return null
     return when {
         localFingerprint == remoteFingerprint -> TrackedMemoResolution.EQUIVALENT
         localFingerprint == baselineFingerprint -> TrackedMemoResolution.REMOTE_NEWER

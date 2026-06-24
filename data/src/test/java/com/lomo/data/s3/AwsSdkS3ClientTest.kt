@@ -46,8 +46,8 @@ import io.kotest.matchers.shouldBe
  * Behavior Contract:
  * - Unit under test: AwsSdkS3Client
  * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, conditional write guards should reach both single-request and multipart upload paths, object metadata reads should use HEAD without downloading bodies, and deletions must hit the SDK synchronously so the sync state machine cannot record success before the network call confirms.
- * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, conditional request headers, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, and multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns.
- * - TDD proof: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, multipart upload drops conditional headers before CompleteMultipartUpload, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
+ * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, conditional request headers, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns, and per-key DeleteObjects failures returned to the caller.
+ * - TDD proof: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, multipart upload drops conditional headers before CompleteMultipartUpload, deleteObject / deleteObjects only enqueue the keys until close() flushes them, and batch delete errors are not mapped back to failed keys.
  * - Excludes: live AWS transport behavior, sync planner logic, and repository orchestration.
  */
 /*
@@ -92,6 +92,8 @@ class AwsSdkS3ClientTest : DataFunSpec() {
         test("deleteObject propagates SDK errors before returning so callers do not record success") { `deleteObject propagates SDK errors before returning so callers do not record success`() }
 
         test("deleteObjects sends a single batched DeleteObjects request synchronously") { `deleteObjects sends a single batched DeleteObjects request synchronously`() }
+
+        test("deleteObjects returns failed keys from the batch response") { `deleteObjects returns failed keys from the batch response`() }
     }
 
 
@@ -474,6 +476,26 @@ class AwsSdkS3ClientTest : DataFunSpec() {
                     },
                 )
             }
+        }
+
+    private fun `deleteObjects returns failed keys from the batch response`() =
+        runTest {
+            coEvery { sdkClient.deleteObjects(any()) } returns
+                aws.sdk.kotlin.services.s3.model.DeleteObjectsResponse {
+                    errors =
+                        listOf(
+                            aws.sdk.kotlin.services.s3.model.Error {
+                                key = "vault/b.md"
+                                code = "AccessDenied"
+                            },
+                        )
+                }
+
+            val client = AwsSdkS3Client(config = config, client = sdkClient)
+
+            val result = client.deleteObjects(listOf("vault/a.md", "vault/b.md"))
+
+            result.failedKeys shouldBe setOf("vault/b.md")
         }
 
     private fun listResponse(

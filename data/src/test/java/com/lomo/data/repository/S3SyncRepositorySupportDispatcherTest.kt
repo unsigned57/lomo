@@ -86,7 +86,7 @@ class S3SyncRepositorySupportDispatcherTest : DataFunSpec() {
         every { client.close() } returns Unit
         support =
             S3SyncRepositorySupport(
-                S3SyncRepositoryContext(
+                runtime = S3SyncRepositoryContext(
                     dataStore = dataStore,
                     credentialStore = credentialStore,
                     clientFactory = clientFactory,
@@ -99,6 +99,8 @@ class S3SyncRepositorySupportDispatcherTest : DataFunSpec() {
                     performanceTuner = DisabledSyncPerformanceTuner,
                     transactionRunner = NoOpS3SyncTransactionRunner,
                 ),
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
             )
     }
 

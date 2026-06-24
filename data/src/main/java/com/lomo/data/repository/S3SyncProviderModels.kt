@@ -8,6 +8,7 @@ data class LocalS3File(
     val path: String,
     val lastModified: Long,
     val size: Long? = null,
+    val localFingerprint: String? = null,
 )
 
 data class RemoteS3File(
@@ -25,6 +26,9 @@ val RemoteS3File.verified: Boolean
 
 val RemoteS3File.cached: Boolean
     get() = verificationLevel == S3RemoteVerificationLevel.INDEX_CACHED_REMOTE
+
+internal fun RemoteS3File.memoContentFingerprint(): String? =
+    contentMd5 ?: normalizeSinglePartS3Md5(etag)
 
 data class S3SyncAction(
     val path: String,

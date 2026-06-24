@@ -1,23 +1,5 @@
 package com.lomo.data.s3
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
@@ -25,10 +7,35 @@ import io.kotest.matchers.shouldBe
 /*
  * Behavior Contract:
  * - Unit under test: S3RcloneCryptCompatCodec
- * - Behavior focus: Remotely Save-compatible rclone filename encoding plus backward-compatible decryption for legacy base32hex names and payloads.
- * - Observable outcomes: exact Remotely Save base64url filename vectors, successful decryption of both base64url and legacy base32hex names, exact content vectors, and tamper rejection.
- * - TDD proof: Fails before the fix because Remotely Save base64url rclone object names are rejected as invalid base32hex filenames.
- * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: Remotely Save-compatible rclone filename encoding plus backward-compatible decryption
+ *   for legacy base32hex names and payloads, with scrypt key material derived once per password pair.
+ *
+ * Scenarios:
+ * - Given official rclone/Remotely Save vectors, when keys and payloads are encoded or decoded, then
+ *   outputs match the vectors exactly and tampered payloads are rejected.
+ * - Given repeated codec operations with one password pair, when keys and payloads are encoded or
+ *   decoded, then expensive key material derivation runs exactly once for that pair.
+ * - Given a second distinct password pair, when it is used, then it derives its own key material once.
+ *
+ * Observable outcomes: exact filename/content vectors, successful round-trips, tamper rejection, and
+ * the number of key material derivation executions observed through the derivation boundary.
+ *
+ * TDD proof:
+ * - Fails before the fix because Remotely Save base64url rclone object names are rejected as invalid
+ *   base32hex filenames.
+ * - Derivation-count scenario fails before key material caching because every encode/decode re-runs
+ *   the scrypt derivation (observed 4 executions for one password pair instead of 1).
+ *
+ * Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3RcloneCryptCompatCodecTest : DataFunSpec() {
     init {
@@ -49,6 +56,8 @@ class S3RcloneCryptCompatCodecTest : DataFunSpec() {
         test("encryptBytes round-trips with non-empty password") { `encryptBytes round-trips with non-empty password`() }
 
         test("decryptBytes recovers remotely save rclone crypt vector with non-empty password") { `decryptBytes recovers remotely save rclone crypt vector with non-empty password`() }
+
+        test("repeated operations derive scrypt key material once per password pair") { `repeated operations derive scrypt key material once per password pair`() }
     }
 
 
@@ -177,6 +186,30 @@ class S3RcloneCryptCompatCodecTest : DataFunSpec() {
 
     private fun `decryptBytes recovers remotely save rclone crypt vector with non-empty password`() {
         codec.decryptBytes(remotelySaveHelloPayload, password = "secret-pass") shouldBe "hello".toByteArray()
+    }
+
+    private fun `repeated operations derive scrypt key material once per password pair`() {
+        var derivations = 0
+        val countingCodec =
+            S3RcloneCryptCompatCodec(
+                nonceGenerator = { nonce.copyOf() },
+                keyMaterialDerivation = { password, password2 ->
+                    derivations += 1
+                    deriveRcloneKeyMaterial(password, password2)
+                },
+            )
+
+        val encryptedKey = countingCodec.encryptKey("lomo/memo/note.md", password = "secret-pass")
+        countingCodec.decryptKey(encryptedKey, password = "secret-pass") shouldBe "lomo/memo/note.md"
+        val encryptedBytes = countingCodec.encryptBytes("hello".toByteArray(), password = "secret-pass")
+        countingCodec.decryptBytes(encryptedBytes, password = "secret-pass") shouldBe "hello".toByteArray()
+        derivations shouldBe 1
+
+        countingCodec.decryptKey(
+            "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0",
+            password = "",
+        ) shouldBe "1/12/123"
+        derivations shouldBe 2
     }
 
     private companion object {

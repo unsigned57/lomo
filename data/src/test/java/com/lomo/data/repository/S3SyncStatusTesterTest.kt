@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -26,8 +8,10 @@ import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.s3.S3RcloneCryptCompatCodec
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncResult
+import com.lomo.domain.model.CredentialSecretReadResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -44,10 +28,26 @@ import io.kotest.matchers.booleans.shouldBeFalse
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncStatusTester
- * - Behavior focus: S3 connection checks should validate access without failing on unrelated remote keys, accept Remotely Save rclone base64url object names, ignore unsupported external objects, and fail with actionable vault-root mismatch details only when scanned objects contain no syncable content.
+ * - Owning layer: data
+ * - Priority tier: P1
+ * - Capability: validate S3 connection compatibility while publishing only safe diagnostic categories and setup guidance.
+ *
+ * Scenarios:
+ * - Given compatible encrypted or plaintext remote objects, when the connection check runs, then it succeeds.
+ * - Given encrypted listing samples are incompatible, when the connection check returns an error, then the message explains the encryption/prefix setup category without raw prefix or sample object keys.
+ * - Given access verification stalls, when the connection check returns an error, then the message explains the connection category without raw prefix.
+ * - Given ignored external objects are the only scanned objects, when the connection check returns an error, then the message explains the remote-root scope category without raw object samples.
+ *
  * - Observable outcomes: returned S3SyncResult and client verification/listing calls.
- * - TDD proof: Fails before the fix because testConnection rejects Remotely Save base64url rclone object names as invalid base32hex and treats them as incompatible encrypted objects.
+ * - TDD proof: Fails before the fix because encrypted-listing, timeout, and remote-root messages include raw prefix and sample key details.
  * - Excludes: AWS SDK transport behavior, full sync planning, metadata persistence, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3SyncStatusTesterTest : DataFunSpec() {
     init {
@@ -127,11 +127,11 @@ class S3SyncStatusTesterTest : DataFunSpec() {
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf("/vault/voice")
         every { dataStore.voiceUri } returns flowOf(null)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns "secret-pass"
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns "secret-pass"
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
         every { clientFactory.create(any()) } returns client
 
         val runtime =
@@ -151,12 +151,20 @@ class S3SyncStatusTesterTest : DataFunSpec() {
         tester =
             S3SyncStatusTester(
                 runtime = runtime,
-                support = S3SyncRepositorySupport(runtime),
+                support = S3SyncRepositorySupport(
+                    runtime = runtime,
+                    credentialRepository =
+                        testS3CredentialRepository(
+                            encryptionPassword = CredentialSecretReadResult.Present("secret-pass"),
+                        ),
+                    securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+                ),
                 encodingSupport = S3SyncEncodingSupport(),
                 fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                 remoteIndexStore = DisabledS3RemoteIndexStore,
+                remoteShardStateStore = DisabledS3RemoteShardStateStore,
             )
     }
 
@@ -233,9 +241,9 @@ class S3SyncStatusTesterTest : DataFunSpec() {
 
             val error = result as S3SyncResult.Error
             error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
-            (error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'")).shouldBeTrue()
-            (error.message.contains("prefix/plaintext-file.md")).shouldBeTrue()
+            (error.message.contains("RCLONE_CRYPT-compatible object names")).shouldBeTrue()
             (error.message.contains("Check the S3 prefix, encryption mode, and encryption password")).shouldBeTrue()
+            assertNoRawS3ConnectionDiagnosticLeak(error.message)
         }
 
     private fun `testConnection treats undecodable ciphertext-like keys as encryption mismatch instead of external root mismatch`() =
@@ -252,9 +260,9 @@ class S3SyncStatusTesterTest : DataFunSpec() {
 
             val error = result as S3SyncResult.Error
             error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
-            (error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'")).shouldBeTrue()
-            (error.message.contains("ZmFrZV9lbmNyeXB0ZWRfcm9vdA")).shouldBeTrue()
+            (error.message.contains("RCLONE_CRYPT-compatible object names")).shouldBeTrue()
             (error.message.contains("Check the S3 prefix, encryption mode, and encryption password")).shouldBeTrue()
+            assertNoRawS3ConnectionDiagnosticLeak(error.message)
             (error.message.contains("remote root", ignoreCase = true)).shouldBeFalse()
         }
 
@@ -309,7 +317,7 @@ class S3SyncStatusTesterTest : DataFunSpec() {
             error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
             (error.message.contains("remote root")).shouldBeTrue()
             (error.message.contains("content")).shouldBeTrue()
-            (error.message.contains(".obsidian")).shouldBeTrue()
+            assertNoRawS3ConnectionDiagnosticLeak(error.message)
         }
 
     private fun `testConnection returns vault root mismatch when sampled objects contain only ignored external files`() =
@@ -328,7 +336,7 @@ class S3SyncStatusTesterTest : DataFunSpec() {
             error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
             (error.message.contains("remote root")).shouldBeTrue()
             (error.message.contains("content")).shouldBeTrue()
-            (error.message.contains(".obsidian")).shouldBeTrue()
+            assertNoRawS3ConnectionDiagnosticLeak(error.message)
         }
 
     private fun `testConnection returns timeout error when access verification stalls`() =
@@ -343,6 +351,17 @@ class S3SyncStatusTesterTest : DataFunSpec() {
             val error = result as S3SyncResult.Error
             error.code shouldBe S3SyncErrorCode.CONNECTION_FAILED
             (error.message.contains("timed out", ignoreCase = true)).shouldBeTrue()
+            assertNoRawS3ConnectionDiagnosticLeak(error.message)
             coVerify(exactly = 0) { client.listKeys(any(), any()) }
         }
+
+    private fun assertNoRawS3ConnectionDiagnosticLeak(message: String) {
+        (message.contains("prefix/")).shouldBeFalse()
+        (message.contains("prefix/plaintext-file.md")).shouldBeFalse()
+        (message.contains("prefix/notes/readme.md")).shouldBeFalse()
+        (message.contains("ZmFrZV9lbmNyeXB0ZWRfcm9vdA")).shouldBeFalse()
+        (message.contains(".obsidian")).shouldBeFalse()
+        (message.contains(".hidden/file.md")).shouldBeFalse()
+        (message.contains("plugins/plugin-data.json")).shouldBeFalse()
+    }
 }

@@ -1,23 +1,5 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -26,6 +8,7 @@ import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
+import com.lomo.data.s3.S3DeleteObjectsResult
 import com.lomo.data.s3.S3PutObjectResult
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
@@ -33,8 +16,11 @@ import com.lomo.data.s3.S3SmallObjectPayload
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
+import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.data.repository.S3SyncWorkIntent
@@ -44,6 +30,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import java.util.Collections
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -57,10 +44,45 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: S3SyncExecutor
- * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, verify destructive local-delete candidates without scanning the whole bucket, use content fingerprints to resolve tracked memo drift when etags are unreliable, and rely on conditional writes instead of HEAD-before-PUT when a fresh index makes the cached remote version trustworthy.
- * - Observable outcomes: returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys, conditional write headers, metadata fingerprint persistence, conflict materialization, and local journal drain behavior.
- * - TDD proof: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints, heads fresh-index local-only upload candidates before writing, and reports conditional-write precondition failures as a successful sync instead of a materialized conflict.
- * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: run manifest-free S3 incremental sync while enforcing configured remote object-key ownership, fingerprint-first planning, bounded reconcile/audit, and batched compatible S3 remote delete execution.
+ *
+ * Scenarios:
+ * - Given a fresh local remote index, when fast sync runs without changes, then it avoids remote probing.
+ * - Given a fresh vault-root index, no journal, and local audit is not expired, when fast sync runs, then it avoids full local/remote scanning and does not discover unjournaled files until audit is due.
+ * - Given local-only incremental verification uses metadata or remote-index keys, when a key is outside the configured prefix, then sync fails before HEAD.
+ * - Given tracked memo refinement needs remote HEAD or GET, when the tracked remote key is outside the configured prefix, then sync fails before HEAD/GET.
+ * - Given stale optimization state, when sync runs, then bounded reconcile discovers remote changes without a full snapshot fallback.
+ * - Given vault-root audit is expired, when a new local file has no journal or metadata row, then bounded audit discovers and uploads it while advancing audit progress.
+ * - Given nested vault-root files would be visited before earlier lexical siblings by DFS, when bounded audit spans multiple pages, then no local file is skipped.
+ * - Given tracked memo content still matches the baseline, when etags are unreliable, then content refinement suppresses a false conflict.
+ * - Given tracked memo fingerprints are available from local state and remote metadata, when refinement resolves same/changed state, then it avoids remote body reads.
+ * - Given an initial legacy memo overlap has local and remote fingerprints, when full snapshot planning classifies it, then it avoids local content reads and remote body reads.
+ * - Given tracked memo fingerprints are available in production legacy local storage, when executor planning resolves same/changed state, then it calls fingerprintFileIn and avoids readFileIn for routine planning.
+ * - Given conditional writes are supported, when a fresh cached remote version is trustworthy, then upload uses conditional writes instead of HEAD-before-PUT.
+ * - Given multiple compatible remote delete actions survive verification, when execution applies them, then it uses the S3 batch-delete boundary once while preserving per-path outcomes, metadata deletion, and journal drain.
+ * - Given one delete in a batch fails at the transport boundary, when execution commits outcomes, then the failed path keeps metadata and journal state while successful paths are removed.
+ *
+ * Observable outcomes:
+ * - Returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys and delete batches, conditional write headers, metadata fingerprint persistence, conflict materialization, protocol cursor progress, metadata removal, and local journal drain behavior.
+ *
+ * TDD proof:
+ * - RED Report 10 item 5: expired vault-root audit ignored unjournaled local additions and only scheduled metadata-page deletes.
+ * - RED Report 10 item 5 follow-up: DFS-ordered local audit advanced the cursor past an unvisited lexical sibling, so the second audit page missed `a-.md`.
+ * - RED Report 10 item 6: tracked memo refinement fetched and decoded remote memo bodies when fingerprint metadata was sufficient.
+ * - RED Report 10 item 6 audit follow-up: production executor tests did not prove the MarkdownStorageDataSource fingerprint boundary, and FakeFileDataSource fingerprinting still delegated through readFileIn.
+ * - RED Report 10 item 7: two compatible delete-remote actions called per-object deleteObject(...) instead of one deleteObjects(listOf(...)) batch.
+ * - RED Report 10 follow-up: a clean vault-root incremental sync still performed a full local file scan and uploaded unjournaled files even though local audit was not due.
+ *
+ * Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: S3 sync module gained remote object key policy, reconcile preparation, file bridge fingerprint ops, work telemetry, and streaming markdown; existing tests need updated assertions.
+ * - Old behavior/assertion being replaced: previous sync tests relied on older file bridge, reconcile, and work policy contracts before these modules were added.
+ * - Why old assertion is no longer correct: new modules introduce typed remote object key policy, reconcile preparation phases, and file bridge fingerprint verification that change the observable sync behavior.
+ * - Coverage preserved by: all existing sync scenarios retained; new scenarios added for key policy, fingerprint ops, reconcile prep, and work telemetry.
+ * - Why this is not fitting the test to the implementation: tests verify observable sync state transitions and file bridge outcomes, not internal implementation details.
  */
 class S3SyncIncrementalExecutorTest : DataFunSpec() {
     init {
@@ -69,6 +91,10 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
         }
 
         test("performSync skips remote probing when cached index is fresh and journal is empty") { `performSync skips remote probing when cached index is fresh and journal is empty`() }
+
+        test("performSync keeps clean fresh vault root sync journal-only until audit expires") {
+            `performSync keeps clean fresh vault root sync journal-only until audit expires`()
+        }
 
         test("performSync uploads local journal change from cached index without full remote scan") { `performSync uploads local journal change from cached index without full remote scan`() }
 
@@ -82,17 +108,45 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
 
         test("performSync rolls back metadata, remote index, and journal when final protocol commit fails") { `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() }
 
-        test("performSync falls back to full remote reconciliation when cached index is stale") { `performSync falls back to full remote reconciliation when cached index is stale`() }
+        test("performSync uses bounded reconcile when cached index is stale") { `performSync uses bounded reconcile when cached index is stale`() }
+
+        test("performSync uses bounded local audit when vault root audit is expired") {
+            `performSync uses bounded local audit when vault root audit is expired`()
+        }
+
+        test("performSync keeps bounded local audit cursor safe for nested vault root files") {
+            `performSync keeps bounded local audit cursor safe for nested vault root files`()
+        }
 
         test("performSync verifies cached remote deletion candidate without whole bucket scan") { `performSync verifies cached remote deletion candidate without whole bucket scan`() }
 
         test("performSync deletes remote journal target from remote index when metadata snapshot is missing") { `performSync deletes remote journal target from remote index when metadata snapshot is missing`() }
 
+        test("performSync batches compatible remote delete actions while preserving per path metadata") {
+            `performSync batches compatible remote delete actions while preserving per path metadata`()
+        }
+
+        test("performSync keeps batch delete transport failures path specific") {
+            `performSync keeps batch delete transport failures path specific`()
+        }
+
         test("performSync downloads remotely updated file before applying cached delete intent") { `performSync downloads remotely updated file before applying cached delete intent`() }
 
         test("performSync surfaces conflict when upload candidate changed remotely during fast path") { `performSync surfaces conflict when upload candidate changed remotely during fast path`() }
 
+        test("performSync rejects local-only incremental stale remote key before head") {
+            `performSync rejects local-only incremental stale remote key before head`()
+        }
+
         test("performSync suppresses tracked memo conflict when local and remote content still match baseline") { `performSync suppresses tracked memo conflict when local and remote content still match baseline`() }
+
+        test("performSync rejects tracked memo stale remote key before head or get") {
+            `performSync rejects tracked memo stale remote key before head or get`()
+        }
+
+        test("performSync classifies initial legacy memo overlap through fingerprint boundary without local reads") {
+            `performSync classifies initial legacy memo overlap through fingerprint boundary without local reads`()
+        }
 
         test("performSync uploads tracked memo when remote matches baseline but local fingerprint changed") { `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() }
 
@@ -158,11 +212,11 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf("/voice")
         every { dataStore.voiceUri } returns flowOf(null)
-        every { credentialStore.getAccessKeyId() } returns "access"
-        every { credentialStore.getSecretAccessKey() } returns "secret"
-        every { credentialStore.getSessionToken() } returns null
-        every { credentialStore.getEncryptionPassword() } returns null
-        every { credentialStore.getEncryptionPassword2() } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID) } returns "access"
+        every { credentialStore.getSecret(CredentialField.S3_SECRET_ACCESS_KEY) } returns "secret"
+        every { credentialStore.getSecret(CredentialField.S3_SESSION_TOKEN) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD) } returns null
+        every { credentialStore.getSecret(CredentialField.S3_ENCRYPTION_PASSWORD2) } returns null
 
         coEvery { dataStore.updateS3LastSyncTime(any()) } returns Unit
         coEvery { memoSynchronizer.refreshImportedSync(any()) } returns Unit
@@ -197,6 +251,48 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             client.listCalls shouldBe 0
             client.headCalls shouldBe 0
+        }
+
+    private fun `performSync keeps clean fresh vault root sync journal-only until audit expires`() =
+        runTest {
+            val now = System.currentTimeMillis()
+            val vaultRoot = java.nio.file.Files.createTempDirectory("s3-clean-fresh-vault").toFile()
+            vaultRoot.resolve("cold-local.md").writeText("# cold local")
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.rootDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(vaultRoot.absolutePath)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = now,
+                    lastFastSyncAt = now,
+                    lastReconcileAt = now,
+                    lastFullRemoteScanAt = now,
+                    indexedLocalFileCount = 0,
+                    indexedRemoteFileCount = 0,
+                    scanEpoch = 41L,
+                ),
+            )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("fresh clean incremental sync should not full-list remote objects") },
+                    onListPage = { _, _, _ ->
+                        throw AssertionError("fresh clean incremental sync should not page remote objects")
+                    },
+                    onGetObjectMetadata = { key ->
+                        throw AssertionError("fresh clean incremental sync should not HEAD $key")
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = ExecutorRecordingMetadataDao())
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.putKeys shouldBe emptyList<String>()
+            client.listCalls shouldBe 0
+            client.listPageCalls shouldBe 0
+            client.headCalls shouldBe 0
+            protocolStateStore.read()?.localAuditCursor shouldBe null
         }
 
     private fun `performSync uploads local journal change from cached index without full remote scan`() =
@@ -458,7 +554,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             failingProtocolStateStore.read() shouldBe initialProtocolState
         }
 
-    private fun `performSync falls back to full remote reconciliation when cached index is stale`() =
+    private fun `performSync uses bounded reconcile when cached index is stale`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -471,17 +567,180 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
             val client =
                 ProbeS3Client(
-                    onList = { emptyList() },
+                    onList = { throw AssertionError("stale index must not fall back to full remote snapshot") },
+                    onListPage = { prefix, continuationToken, maxKeys ->
+                        prefix shouldBe "lomo/memo/"
+                        continuationToken shouldBe null
+                        withClue("bounded reconcile should request the endpoint page budget") { maxKeys shouldBe 256 }
+                        S3RemoteListPage(
+                            objects =
+                                listOf(
+                                    S3RemoteObject(
+                                        key = "lomo/memo/remote.md",
+                                        eTag = "etag-remote",
+                                        lastModified = 40L,
+                                        metadata = emptyMap(),
+                                    ),
+                                ),
+                            nextContinuationToken = null,
+                        )
+                    },
                     onGetObjectMetadata = { null },
+                    onGetObject = { key ->
+                        key shouldBe "lomo/memo/remote.md"
+                        S3SmallObjectPayload(
+                            key = key,
+                            eTag = "etag-remote",
+                            lastModified = 40L,
+                            metadata = emptyMap(),
+                            bytes = "# remote".toByteArray(StandardCharsets.UTF_8),
+                        )
+                    },
                 )
+            coEvery {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = "remote.md",
+                    content = "# remote",
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "remote.md")
+            } returns null
             val executor = createExecutor(client = client, metadataDao = ExecutorRecordingMetadataDao())
 
             val result = executor.performSync()
 
-            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
-            client.listPageCalls shouldBe 3
-            client.listCalls shouldBe 3
+            val success = result as S3SyncResult.Success
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe
+                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
+            client.listPageCalls shouldBe 1
+            client.listCalls shouldBe 0
             client.headCalls shouldBe 0
+            protocolStateStore.read()?.remoteScanCursor?.contains("images").shouldBeTrue()
+        }
+
+    private fun `performSync uses bounded local audit when vault root audit is expired`() =
+        runTest {
+            val vaultRoot = java.nio.file.Files.createTempDirectory("s3-local-audit-vault").toFile()
+            vaultRoot.resolve("aaa-untracked.md").writeText("# untracked")
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.rootDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(vaultRoot.absolutePath)
+            val paths = (0..128).map { index -> "tracked-${index.toString().padStart(3, '0')}.md" }
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = 1L,
+                    lastFastSyncAt = 1L,
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = paths.size,
+                    indexedRemoteFileCount = paths.size,
+                    scanEpoch = 41L,
+                ),
+            )
+            remoteIndexStore.upsert(
+                paths.map { path ->
+                    S3RemoteIndexEntry(
+                        relativePath = path,
+                        remotePath = path,
+                        etag = "etag-$path",
+                        remoteLastModified = 10L,
+                        size = 1L,
+                        lastSeenAt = 10L,
+                        lastVerifiedAt = 10L,
+                        scanBucket = S3_SCAN_BUCKET_MEMO,
+                        scanEpoch = 41L,
+                    )
+                },
+            )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial = paths.map { path -> stableMetadata(path = path, eTag = "etag-$path", lastModified = 10L) },
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("expired local audit must not fall back to full remote snapshot") },
+                    onListPage = { _, continuationToken, _ ->
+                        continuationToken shouldBe null
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                    onGetObjectMetadata = { key ->
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "etag-$key",
+                            lastModified = 10L,
+                            metadata = emptyMap(),
+                        )
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val success = result as S3SyncResult.Success
+            success.outcomes.map { it.direction to it.reason }.toSet() shouldBe
+                setOf(
+                    S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED,
+                    S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY,
+                )
+            client.deleteBatches.flatten().toSet() shouldBe paths.take(127).toSet()
+            client.putKeys shouldBe listOf("aaa-untracked.md")
+            protocolStateStore.read()?.localAuditCursor shouldBe paths[126]
+        }
+
+    private fun `performSync keeps bounded local audit cursor safe for nested vault root files`() =
+        runTest {
+            val vaultRoot = java.nio.file.Files.createTempDirectory("s3-local-audit-nested-vault").toFile()
+            val nestedPaths = (0..127).map { index -> "a/z-${index.toString().padStart(3, '0')}.md" }
+            nestedPaths.forEach { path ->
+                vaultRoot.resolve(path).also { file ->
+                    file.parentFile?.mkdirs()
+                    file.writeText("# $path")
+                }
+            }
+            val lexicalSibling = "a-.md"
+            vaultRoot.resolve(lexicalSibling).writeText("# lexical sibling")
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.rootDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(vaultRoot.absolutePath)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = 1L,
+                    lastFastSyncAt = 1L,
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 0,
+                    indexedRemoteFileCount = 0,
+                    scanEpoch = 42L,
+                ),
+            )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("nested local audit must not fall back to full remote snapshot") },
+                    onListPage = { _, continuationToken, _ ->
+                        continuationToken shouldBe null
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                    onGetObjectMetadata = { null },
+                )
+            val metadataDao = ExecutorRecordingMetadataDao()
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val firstResult = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+            val firstCursor = protocolStateStore.read()?.localAuditCursor
+            val secondResult = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            (firstResult as S3SyncResult.Success).message shouldBe "S3 sync completed"
+            (secondResult as S3SyncResult.Success).message shouldBe "S3 sync completed"
+            firstCursor shouldBe nestedPaths[126]
+            protocolStateStore.read()?.localAuditCursor shouldBe null
+            client.putKeys.toSet() shouldBe (nestedPaths + lexicalSibling).toSet()
         }
 
     private fun `performSync verifies cached remote deletion candidate without whole bucket scan`() =
@@ -530,7 +789,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             success.message shouldBe "S3 sync completed"
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
             client.headKeys shouldBe listOf(path)
-            client.deletedKeys shouldBe listOf(path)
+            client.deleteBatches shouldBe listOf(listOf(path))
             client.listCalls shouldBe 0
             withClue("journal should be drained after successful remote delete") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
@@ -589,8 +848,141 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             success.message shouldBe "S3 sync completed"
             success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
             client.headKeys shouldBe listOf("opaque/remote-note")
-            client.deletedKeys shouldBe listOf("opaque/remote-note")
+            client.deleteBatches shouldBe listOf(listOf("opaque/remote-note"))
             withClue("journal should be drained after successful remote delete") { (journalStore.read().isEmpty()).shouldBeTrue() }
+        }
+
+    private fun `performSync batches compatible remote delete actions while preserving per path metadata`() =
+        runTest {
+            val paths = listOf("lomo/memo/alpha.md", "lomo/memo/beta.md")
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = paths.size,
+                    indexedRemoteFileCount = paths.size,
+                ),
+            )
+            paths.forEach { path ->
+                val filename = path.substringAfterLast('/')
+                journalStore.upsert(
+                    S3LocalChangeJournalEntry(
+                        id = "MEMO:$filename",
+                        kind = S3LocalChangeKind.MEMO,
+                        filename = filename,
+                        changeType = S3LocalChangeType.DELETE,
+                        updatedAt = 70L,
+                    ),
+                )
+                coEvery {
+                    markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+                } returns null
+            }
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        paths.map { path ->
+                            stableMetadata(path = path, eTag = "etag-$path", lastModified = 10L)
+                        },
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("batched fast deletes should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "etag-$key",
+                            lastModified = 10L,
+                            metadata = emptyMap(),
+                        )
+                    },
+                    onDeleteObject = { key ->
+                        throw AssertionError("compatible deletes must use deleteObjects batch, not deleteObject($key)")
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val success = result as S3SyncResult.Success
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe
+                listOf(
+                    S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED,
+                    S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED,
+                )
+            client.headKeys.toSet() shouldBe paths.toSet()
+            client.deletedKeys shouldBe emptyList<String>()
+            client.deleteBatches shouldBe listOf(paths)
+            metadataDao.paths() shouldBe emptyList()
+            withClue("all delete journals should be drained after successful batch delete") {
+                (journalStore.read().isEmpty()).shouldBeTrue()
+            }
+        }
+
+    private fun `performSync keeps batch delete transport failures path specific`() =
+        runTest {
+            val successfulPath = "lomo/memo/alpha.md"
+            val failedPath = "lomo/memo/beta.md"
+            val paths = listOf(successfulPath, failedPath)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = paths.size,
+                    indexedRemoteFileCount = paths.size,
+                ),
+            )
+            paths.forEach { path ->
+                val filename = path.substringAfterLast('/')
+                journalStore.upsert(
+                    S3LocalChangeJournalEntry(
+                        id = "MEMO:$filename",
+                        kind = S3LocalChangeKind.MEMO,
+                        filename = filename,
+                        changeType = S3LocalChangeType.DELETE,
+                        updatedAt = 70L,
+                    ),
+                )
+                coEvery {
+                    markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+                } returns null
+            }
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        paths.map { path ->
+                            stableMetadata(path = path, eTag = "etag-$path", lastModified = 10L)
+                        },
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("partial batch delete should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "etag-$key",
+                            lastModified = 10L,
+                            metadata = emptyMap(),
+                        )
+                    },
+                    onDeleteObject = { key ->
+                        throw AssertionError("compatible deletes must use deleteObjects batch, not deleteObject($key)")
+                    },
+                    onDeleteObjects = { S3DeleteObjectsResult(failedKeys = setOf(failedPath)) },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            result as S3SyncResult.Error
+            client.deleteBatches shouldBe listOf(paths)
+            metadataDao.paths() shouldBe listOf(failedPath)
+            journalStore.read().keys shouldBe setOf("MEMO:beta.md")
         }
 
     private fun `performSync downloads remotely updated file before applying cached delete intent`() =
@@ -735,6 +1127,66 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             withClue("journal should be retained while conflict is unresolved") { (journalStore.read().isNotEmpty()).shouldBeTrue() }
         }
 
+    private fun `performSync rejects local-only incremental stale remote key before head`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            every { dataStore.s3Prefix } returns flowOf("current")
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 30L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# local"
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        throw AssertionError("stale key must be rejected before HEAD: $key")
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                remotePath = "old-prefix/opaque-note",
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val error = result as S3SyncResult.Error
+            error.code shouldBe S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
+            error.message shouldBe "S3 remote layout key is outside the configured prefix"
+            client.headKeys shouldBe emptyList<String>()
+            client.getKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe emptyList<String>()
+        }
+
     private fun `performSync suppresses tracked memo conflict when local and remote content still match baseline`() =
         runTest {
             val path = "lomo/memo/note.md"
@@ -764,22 +1216,23 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             coEvery {
                 markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
             } returns baseline.toString(StandardCharsets.UTF_8)
+            coEvery {
+                markdownStorageDataSource.fingerprintFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns baseline.md5Hex()
             val client =
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
                         key shouldBe path
-                        S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
-                    },
-                    onGetObject = { key ->
-                        key shouldBe path
-                        S3SmallObjectPayload(
+                        S3RemoteObject(
                             key = key,
                             eTag = "multipart-2",
                             lastModified = 20L,
-                            metadata = emptyMap(),
-                            bytes = baseline,
+                            metadata = mapOf("md5" to baseline.md5Hex()),
                         )
+                    },
+                    onGetObject = { key ->
+                        throw AssertionError("tracked memo fingerprint metadata should avoid getObject for $key")
                     },
                 )
             val metadataDao =
@@ -800,90 +1253,16 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
 
             result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             client.headKeys shouldBe listOf(path)
-            client.getKeys shouldBe listOf(path)
+            client.getKeys shouldBe emptyList<String>()
             client.putKeys shouldBe emptyList<String>()
             withClue("journal should be drained after content-equivalent sync") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    private fun `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() =
+    private fun `performSync rejects tracked memo stale remote key before head or get`() =
         runTest {
             val path = "lomo/memo/note.md"
             val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
-            val localBytes = "# local changed".toByteArray(StandardCharsets.UTF_8)
-            protocolStateStore.write(
-                S3SyncProtocolState(
-                    lastSuccessfulSyncAt = System.currentTimeMillis(),
-                    lastFastSyncAt = System.currentTimeMillis(),
-                    lastReconcileAt = System.currentTimeMillis(),
-                    lastFullRemoteScanAt = System.currentTimeMillis(),
-                    indexedLocalFileCount = 1,
-                    indexedRemoteFileCount = 1,
-                ),
-            )
-            journalStore.upsert(
-                S3LocalChangeJournalEntry(
-                    id = "MEMO:note.md",
-                    kind = S3LocalChangeKind.MEMO,
-                    filename = "note.md",
-                    changeType = S3LocalChangeType.UPSERT,
-                    updatedAt = 60L,
-                ),
-            )
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
-            } returns FileMetadata(filename = "note.md", lastModified = 60L)
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
-            } returns localBytes.toString(StandardCharsets.UTF_8)
-            val client =
-                ProbeS3Client(
-                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
-                    onGetObjectMetadata = { key ->
-                        key shouldBe path
-                        S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
-                    },
-                    onGetObject = { key ->
-                        key shouldBe path
-                        S3SmallObjectPayload(
-                            key = key,
-                            eTag = "multipart-2",
-                            lastModified = 20L,
-                            metadata = emptyMap(),
-                            bytes = baseline,
-                        )
-                    },
-                )
-            val metadataDao =
-                ExecutorRecordingMetadataDao(
-                    initial =
-                        listOf(
-                            stableMetadata(
-                                path = path,
-                                eTag = "etag-1",
-                                lastModified = 10L,
-                                localFingerprint = baseline.md5Hex(),
-                            ),
-                        ),
-                )
-            val executor = createExecutor(client = client, metadataDao = metadataDao)
-
-            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
-
-            val success = result as S3SyncResult.Success
-            success.message shouldBe "S3 sync completed"
-            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER)
-            client.headKeys shouldBe listOf(path)
-            withClue("content comparison should fetch the tracked remote memo") { (client.getKeys.isNotEmpty()).shouldBeTrue() }
-            withClue("content comparison should only fetch the targeted memo") { (client.getKeys.all { it == path }).shouldBeTrue() }
-            client.putKeys shouldBe listOf(path)
-            metadataDao.getAll().single().localFingerprint shouldBe localBytes.md5Hex()
-            withClue("journal should be drained after fingerprint-backed upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
-        }
-
-    private fun `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() =
-        runTest {
-            val path = "lomo/memo/note.md"
-            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            every { dataStore.s3Prefix } returns flowOf("current")
             protocolStateStore.write(
                 S3SyncProtocolState(
                     lastSuccessfulSyncAt = System.currentTimeMillis(),
@@ -909,6 +1288,188 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             coEvery {
                 markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
             } returns baseline.toString(StandardCharsets.UTF_8)
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        throw AssertionError("stale key must be rejected before tracked memo HEAD: $key")
+                    },
+                    onGetObject = { key ->
+                        throw AssertionError("stale key must be rejected before tracked memo GET: $key")
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                remotePath = "old-prefix/opaque-note",
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                                localFingerprint = baseline.md5Hex(),
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val error = result as S3SyncResult.Error
+            error.code shouldBe S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
+            error.message shouldBe "S3 remote layout key is outside the configured prefix"
+            client.headKeys shouldBe emptyList<String>()
+            client.getKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe emptyList<String>()
+        }
+
+    private fun `performSync classifies initial legacy memo overlap through fingerprint boundary without local reads`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val sharedBytes = "# same".toByteArray(StandardCharsets.UTF_8)
+            val fakeMarkdownStorageDataSource =
+                fakeMarkdownStorage(
+                    filename = "note.md",
+                    content = sharedBytes.toString(StandardCharsets.UTF_8),
+                    lastModified = 100L,
+                )
+            markdownStorageDataSource = fakeMarkdownStorageDataSource
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("initial fingerprint classification should use paged full snapshot") },
+                    onListPage = { prefix, continuationToken, _ ->
+                        continuationToken shouldBe null
+                        S3RemoteListPage(
+                            objects =
+                                if (prefix == "lomo/memo/") {
+                                    listOf(
+                                        S3RemoteObject(
+                                            key = path,
+                                            eTag = "multipart-2",
+                                            lastModified = 100L,
+                                            size = sharedBytes.size.toLong(),
+                                            metadata = mapOf("md5" to sharedBytes.md5Hex()),
+                                        ),
+                                    )
+                                } else {
+                                    emptyList()
+                                },
+                            nextContinuationToken = null,
+                        )
+                    },
+                    onGetObject = { key ->
+                        throw AssertionError("initial fingerprint overlap should not read remote memo body for $key")
+                    },
+                )
+            val metadataDao = ExecutorRecordingMetadataDao()
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FULL_RECONCILE)
+
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.getKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe emptyList<String>()
+            metadataDao.paths() shouldBe listOf(path)
+            metadataDao.getAll().single().localFingerprint shouldBe sharedBytes.md5Hex()
+            fakeMarkdownStorageDataSource.fingerprintFileInCalls shouldBe listOf(Pair(MemoDirectoryType.MAIN, "note.md"))
+            fakeMarkdownStorageDataSource.readFileInCalls shouldBe emptyList<Pair<MemoDirectoryType, String>>()
+        }
+
+    private fun `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            val localBytes = "# local changed".toByteArray(StandardCharsets.UTF_8)
+            val fakeMarkdownStorageDataSource = fakeMarkdownStorage("note.md", localBytes.toString(StandardCharsets.UTF_8), 60L)
+            markdownStorageDataSource = fakeMarkdownStorageDataSource
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        key shouldBe path
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "multipart-2",
+                            lastModified = 20L,
+                            metadata = mapOf("md5" to baseline.md5Hex()),
+                        )
+                    },
+                    onGetObject = { key ->
+                        throw AssertionError("tracked memo fingerprint metadata should avoid getObject for $key")
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                                localFingerprint = baseline.md5Hex(),
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncWorkIntent.FAST_ONLY)
+
+            val success = result as S3SyncResult.Success
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER)
+            client.headKeys shouldBe listOf(path)
+            client.getKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe listOf(path)
+            metadataDao.getAll().single().localFingerprint shouldBe localBytes.md5Hex()
+            fakeMarkdownStorageDataSource.fingerprintFileInCalls shouldBe listOf(Pair(MemoDirectoryType.MAIN, "note.md"))
+            fakeMarkdownStorageDataSource.readFileInCalls shouldBe listOf(Pair(MemoDirectoryType.MAIN, "note.md"))
+            withClue("journal should be drained after fingerprint-backed upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
+        }
+
+    private fun `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            val fakeMarkdownStorageDataSource = fakeMarkdownStorage("note.md", baseline.toString(StandardCharsets.UTF_8), 60L)
+            markdownStorageDataSource = fakeMarkdownStorageDataSource
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
             val client =
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
@@ -945,6 +1506,8 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             client.headKeys shouldBe listOf(path)
             client.getKeys shouldBe emptyList<String>()
             client.putKeys shouldBe emptyList<String>()
+            fakeMarkdownStorageDataSource.fingerprintFileInCalls shouldBe listOf(Pair(MemoDirectoryType.MAIN, "note.md"))
+            fakeMarkdownStorageDataSource.readFileInCalls shouldBe emptyList<Pair<MemoDirectoryType, String>>()
         }
 
     private fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
@@ -1347,10 +1910,22 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
         val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
         return S3SyncExecutor(
             runtime = runtime,
-            support = S3SyncRepositorySupport(runtime),
+            support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
             encodingSupport = encodingSupport,
+            objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
             fileBridge = fileBridge,
-            actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            actionApplier =
+                S3SyncActionApplier(
+                    runtime = runtime,
+                    encodingSupport = encodingSupport,
+                    objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport),
+                    fileBridge = fileBridge,
+                    transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
+                ),
             lifecycleRunner = testRemoteSyncLifecycleRunner(),
             protocolStateStore = protocolStateStore,
             localChangeJournalStore = localChangeJournalStore,
@@ -1360,6 +1935,17 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             pendingReviewStore = InMemoryPendingSyncReviewStore(),
         )
     }
+
+    private fun fakeMarkdownStorage(
+        filename: String,
+        content: String,
+        lastModified: Long,
+    ): FakeFileDataSource =
+        FakeFileDataSource().also { fake ->
+            val key = Pair(MemoDirectoryType.MAIN, filename)
+            fake.files[key] = content
+            fake.fileLastModified[key] = lastModified
+        }
 
     private fun createOperationRepository(
         client: ProbeS3Client,
@@ -1388,12 +1974,17 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
             statusTester =
                 S3SyncStatusTester(
                     runtime = runtime,
-                    support = S3SyncRepositorySupport(runtime),
+                    support = S3SyncRepositorySupport(
+                runtime = runtime,
+                credentialRepository = testS3CredentialRepository(),
+                securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+            ),
                     encodingSupport = encodingSupport,
                     fileBridge = S3SyncFileBridge(runtime, encodingSupport),
                     protocolStateStore = protocolStateStore,
                     localChangeJournalStore = journalStore,
                     remoteIndexStore = remoteIndexStore,
+                    remoteShardStateStore = DisabledS3RemoteShardStateStore,
                 ),
             refreshPolicyPlanner =
                 object : S3RefreshSyncPolicyPlanner {
@@ -1421,9 +2012,10 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
         eTag: String,
         lastModified: Long,
         localFingerprint: String? = null,
+        remotePath: String = path,
     ) = S3SyncMetadataEntity(
         relativePath = path,
-        remotePath = path,
+        remotePath = remotePath,
         etag = eTag,
         remoteLastModified = lastModified,
         localLastModified = lastModified,
@@ -1514,17 +2106,19 @@ private class ProbeS3Client(
         S3PutObjectResult(eTag = "etag-uploaded")
     },
     private val onDeleteObject: suspend (String) -> Unit = {},
+    private val onDeleteObjects: suspend (List<String>) -> S3DeleteObjectsResult = { S3DeleteObjectsResult() },
 ) : LomoS3Client {
     private val listCallsValue = AtomicInteger(0)
     private val listPageCallsValue = AtomicInteger(0)
     private val headCallsValue = AtomicInteger(0)
     private val getObjectCallsValue = AtomicInteger(0)
-    val headKeys = mutableListOf<String>()
-    val getKeys = mutableListOf<String>()
-    val putKeys = mutableListOf<String>()
-    val deletedKeys = mutableListOf<String>()
-    val putIfMatchByKey = linkedMapOf<String, String?>()
-    val putIfNoneMatchByKey = linkedMapOf<String, String?>()
+    val headKeys: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val getKeys: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val putKeys: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val deletedKeys: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val deleteBatches: MutableList<List<String>> = Collections.synchronizedList(mutableListOf())
+    val putIfMatchByKey: MutableMap<String, String?> = Collections.synchronizedMap(linkedMapOf())
+    val putIfNoneMatchByKey: MutableMap<String, String?> = Collections.synchronizedMap(linkedMapOf())
 
     val listCalls: Int
         get() = listCallsValue.get()
@@ -1618,6 +2212,11 @@ private class ProbeS3Client(
     override suspend fun deleteObject(key: String) {
         deletedKeys += key
         onDeleteObject(key)
+    }
+
+    override suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult {
+        deleteBatches += keys
+        return onDeleteObjects(keys)
     }
 
     override fun close() = Unit
