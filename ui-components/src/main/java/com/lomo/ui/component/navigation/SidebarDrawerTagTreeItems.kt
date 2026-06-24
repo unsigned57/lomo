@@ -32,8 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchor
-import com.lomo.ui.component.common.LazyListMotionState
-import com.lomo.ui.component.common.lazyListMotionItem
+import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import sh.calvin.reorderable.ReorderableItem
@@ -50,7 +49,6 @@ internal fun LazyListScope.sidebarTags(
     onTagClick: (String) -> Unit,
     anchorTagForPath: (String) -> String?,
     reorderableLazyListState: ReorderableLazyListState,
-    motionState: LazyListMotionState,
     onReorderComplete: (List<String>) -> Unit,
 ) {
     if (tags.isEmpty()) return
@@ -66,11 +64,7 @@ internal fun LazyListScope.sidebarTags(
 
     items(visibleRows, key = { row -> row.node.fullPath }) { row ->
         val rowModifier =
-            Modifier.lazyListMotionItem(
-                lazyItemScope = this,
-                itemKey = row.node.fullPath,
-                motionState = motionState,
-            )
+            Modifier.lomoListItemMotion(this)
         if (row.level == 0) {
             ReorderableItem(
                 state = reorderableLazyListState,

@@ -58,7 +58,7 @@ internal fun InputSheetContent(
         onTextChange = handleTextChange,
         onTagSelected = { tag ->
             haptic.medium()
-            callbacks.onInputValueChange(buildTagInsertionValue(inputValue.text, tag))
+            callbacks.onInputValueChange(buildTagInsertionValue(inputValue, tag))
             sessionState.showTagSelector = false
         },
         onToggleExpanded = callbacks.onToggleExpanded,
@@ -176,12 +176,29 @@ private fun InputSheetBody(
     }
 }
 
-private fun buildTagInsertionValue(
-    inputText: String,
+internal fun buildTagInsertionValue(
+    inputValue: TextFieldValue,
     tag: String,
 ): TextFieldValue {
-    val newText = "$inputText #$tag "
-    return TextFieldValue(newText, TextRange(newText.length))
+    val selectionStart = minOf(inputValue.selection.start, inputValue.selection.end).coerceIn(0, inputValue.text.length)
+    val selectionEnd = maxOf(inputValue.selection.start, inputValue.selection.end).coerceIn(0, inputValue.text.length)
+    val prefix = inputValue.text.substring(0, selectionStart)
+    val rawSuffix = inputValue.text.substring(selectionEnd)
+    val leadingSeparator =
+        if (prefix.isNotEmpty() && !prefix.last().isWhitespace()) {
+            " "
+        } else {
+            ""
+        }
+    val insertion = "$leadingSeparator#$tag "
+    val suffix =
+        if (rawSuffix.firstOrNull()?.isWhitespace() == true) {
+            rawSuffix.drop(1)
+        } else {
+            rawSuffix
+        }
+    val newText = prefix + insertion + suffix
+    return TextFieldValue(newText, TextRange(selectionStart + insertion.length))
 }
 
 private fun buildTodoInsertionValue(inputValue: TextFieldValue): TextFieldValue {

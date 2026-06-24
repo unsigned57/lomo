@@ -1,8 +1,6 @@
 package com.lomo.ui.component.picker
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -16,18 +14,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Material 3 Expressive flavored [TimePicker] surface.
+ * Material 3 Expressive flavored [TimePicker] surface (hours + minutes only).
  *
- * Provides a [secondsSlot] hook so callers that need second-precision (e.g., 补记) can mount a
- * [SecondsWheelPicker] directly under the clock face while reminder-precision callers leave it
- * `null`.
+ * Second precision is intentionally not part of this surface: callers that need it (e.g. 补录) present
+ * seconds on their own dedicated step via [SecondsWheelPicker], so this surface stays a single,
+ * screen-fitting picker that never needs to share a page with another control.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpressiveTimePickerSurface(
     state: TimePickerState,
     modifier: Modifier = Modifier,
-    secondsSlot: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val colors = TimePickerDefaults.colors(
         selectorColor = MaterialTheme.colorScheme.primary,
@@ -40,11 +37,7 @@ fun ExpressiveTimePickerSurface(
             .fillMaxWidth()
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         TimePicker(state = state, colors = colors)
-        if (secondsSlot != null) {
-            secondsSlot()
-        }
     }
 }
