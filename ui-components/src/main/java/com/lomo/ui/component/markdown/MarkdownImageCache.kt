@@ -25,9 +25,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +50,7 @@ import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.util.SynchronizedLruStore
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
+import kotlinx.coroutines.flow.collectLatest
 
 private val MARKDOWN_IMAGE_CORNER_RADIUS = 8.dp
 private val MARKDOWN_IMAGE_VERTICAL_PADDING = 4.dp
@@ -208,6 +211,21 @@ internal fun MarkdownImagePager(
     }
 
     val pagerState = rememberPagerState(pageCount = { images.size })
+    var currentIndicatorPage by remember { mutableIntStateOf(pagerState.currentPage) }
+    LaunchedEffect(pagerState, images.size) {
+        val lastIndex = images.lastIndex
+        if (lastIndex >= 0 && pagerState.currentPage > lastIndex) {
+            pagerState.scrollToPage(lastIndex)
+        }
+        currentIndicatorPage = pagerState.currentPage
+        snapshotFlow { pagerState.currentPage }
+            .collectLatest { page -> currentIndicatorPage = page }
+    }
+    val indicatorState =
+        resolveMarkdownImagePagerIndicatorState(
+            currentPage = currentIndicatorPage,
+            pageCount = images.size,
+        )
     Column(
         modifier =
             Modifier
@@ -235,8 +253,10 @@ internal fun MarkdownImagePager(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
-            images.forEachIndexed { index, _ ->
-                PagerIndicatorDot(isActive = pagerState.currentPage == index)
+            indicatorState?.let { state ->
+                repeat(state.pageCount) { index ->
+                    PagerIndicatorDot(isActive = state.currentPage == index)
+                }
             }
         }
     }
