@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.IntSize
 import com.lomo.ui.theme.MotionTokens
 
 object LomoListItemMotionSpecs {
+    const val EXIT_ANIMATION_DURATION_MILLIS = MotionTokens.DurationMedium2 * 2L
+
     val fadeInSpec: FiniteAnimationSpec<Float> = keyframes {
         durationMillis = MotionTokens.DurationLong2
         0f at 0

@@ -34,7 +34,7 @@ import kotlinx.coroutines.flow.first
  * - Given isExiting = false (rollback), when the scope recomposes, then alpha
  *   restores to 1 and height restores, without calling onExitSettled.
  * - Given the composable leaves composition mid-exit (scrolled off-screen), when
- *   onDispose fires, then onExitSettled is invoked if not already settled.
+ *   onDispose fires, then onExitSettled is invoked if not already settled and the index space is stable.
  *
  * The caller is responsible for keeping the item's key in the lazy list (via retention)
  * until onExitSettled fires; this scope only drives the visual phases.
@@ -80,6 +80,7 @@ fun LomoListItemExitScope(
             }
         }
     }
+
 
     Box(
         modifier = modifier

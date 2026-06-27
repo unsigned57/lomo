@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 private const val DEFAULT_PAGE_SIZE = 20
 private const val DEFAULT_INITIAL_LOAD_SIZE = 60
 private const val DEFAULT_PREFETCH_DISTANCE = 10
-private const val DEFAULT_ENABLE_PLACEHOLDERS = false
+private const val DEFAULT_ENABLE_PLACEHOLDERS = true
 
 fun <Key : Any, Value : Any> memoPager(
     scope: CoroutineScope,

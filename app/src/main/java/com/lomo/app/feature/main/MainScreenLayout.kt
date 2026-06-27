@@ -50,6 +50,11 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableSet
 import java.time.LocalDate
+import kotlinx.coroutines.delay
+import com.lomo.ui.component.common.LomoListItemMotionSpecs
+
+
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,7 +82,6 @@ internal fun MainScreenNavigationRender(
         snackbarHostState = hostState.snackbarHostState,
         scrollBehavior = hostState.scrollBehavior,
         searchQuery = screenState.searchQuery,
-        mainListTotalCount = screenState.mainListTotalCount,
         isFilterActive = screenState.memoListFilter.isActive,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
@@ -113,7 +117,6 @@ internal fun MainScreenRenderHost(
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     searchQuery: String,
-    mainListTotalCount: Int,
     isFilterActive: Boolean,
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
@@ -155,7 +158,6 @@ internal fun MainScreenRenderHost(
             snackbarHostState = snackbarHostState,
             scrollBehavior = scrollBehavior,
             searchQuery = searchQuery,
-            mainListTotalCount = mainListTotalCount,
             uiState = uiState,
             pagedUiMemos = pagedUiMemos,
             exitAnimationRegistry = exitAnimationRegistry,
@@ -243,7 +245,6 @@ private fun MainScreenSidebarContent(
 internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
-    mainListTotalCount: Int,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     enterAnimationRegistry: EnterAnimationRegistry,
@@ -290,7 +291,6 @@ internal fun MainScreenAnimatedBody(
                 MainReadyContent(
                     pagedUiMemos = pagedUiMemos,
                     searchQuery = searchQuery,
-                    mainListTotalCount = mainListTotalCount,
                     exitAnimationRegistry = exitAnimationRegistry,
                     enterAnimationRegistry = enterAnimationRegistry,
                     listState = listState,
@@ -329,7 +329,6 @@ private fun MainInitialImportingState(modifier: Modifier = Modifier) {
 private fun MainReadyContent(
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     searchQuery: String,
-    mainListTotalCount: Int,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     enterAnimationRegistry: EnterAnimationRegistry,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -349,11 +348,27 @@ private fun MainReadyContent(
     onSettings: () -> Unit,
     isFilterActive: Boolean,
 ) {
-    val readyContentState =
+    val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
+    val hasActiveExits = activeExits.isNotEmpty()
+
+    val resolvedState =
         resolvePagedMainReadyContentState(
             itemCount = pagedUiMemos.itemCount,
             refreshState = pagedUiMemos.loadState.refresh,
+            hasActiveExits = hasActiveExits,
         )
+    var readyContentState by remember { mutableStateOf(resolvedState) }
+    LaunchedEffect(resolvedState, hasActiveExits) {
+        if (resolvedState == MainReadyContentState.Empty) {
+            val delayMillis = if (hasActiveExits) {
+                LomoListItemMotionSpecs.EXIT_ANIMATION_DURATION_MILLIS
+            } else {
+                150L
+            }
+            delay(delayMillis)
+        }
+        readyContentState = resolvedState
+    }
     MainReadyStateEnterContainer {
         Crossfade(
             targetState = readyContentState,
@@ -384,7 +399,6 @@ private fun MainReadyContent(
                         androidx.compose.runtime.key(filterActive) {
                             MemoListContent(
                                 pagedMemos = pagedUiMemos,
-                                knownTotalItemCount = mainListTotalCount,
                                 exitAnimationRegistry = exitAnimationRegistry,
                                 enterAnimationRegistry = enterAnimationRegistry,
                                 listState = listState,
@@ -417,8 +431,10 @@ internal enum class MainReadyContentState {
 internal fun resolvePagedMainReadyContentState(
     itemCount: Int,
     refreshState: LoadState,
+    hasActiveExits: Boolean,
 ): MainReadyContentState =
     when {
+        hasActiveExits -> MainReadyContentState.List
         itemCount > 0 -> MainReadyContentState.List
         refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached -> MainReadyContentState.List
         refreshState is LoadState.Loading -> MainReadyContentState.List

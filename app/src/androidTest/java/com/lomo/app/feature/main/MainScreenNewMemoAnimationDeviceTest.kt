@@ -173,7 +173,6 @@ class MainScreenNewMemoAnimationDeviceTest {
         MaterialTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
-                knownTotalItemCount = harness.memos.value.size,
                 enterAnimationRegistry = enterAnimationRegistry,
                 listState = listState,
                 isRefreshing = false,

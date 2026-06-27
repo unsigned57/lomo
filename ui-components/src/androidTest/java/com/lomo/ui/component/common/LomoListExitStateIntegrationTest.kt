@@ -34,6 +34,13 @@ import org.junit.runner.RunWith
  *
  * Excludes:
  * - Layout placement specs, animations, and main feed item renderer details.
+ *
+ * Test Change Justification:
+ * - Reason category: mechanical format update.
+ * - Old behavior/assertion being replaced: no behavior assertion was replaced.
+ * - Why old assertion is no longer correct: not applicable; the integration assertions are unchanged.
+ * - Coverage preserved by: the same retained-exit and settle assertions remain.
+ * - Why this is not fitting the test to the implementation: the change only keeps the test source aligned with Kotlin formatting.
  */
 @RunWith(AndroidJUnit4::class)
 class LomoListExitStateIntegrationTest {
@@ -53,7 +60,7 @@ class LomoListExitStateIntegrationTest {
             val exitState = rememberLomoListExitState(
                 registry = registry,
                 allItems = itemsState.toImmutableList(),
-                itemKey = { it.id }
+                itemKey = { it.id },
             )
             resolvedRenderList = exitState.renderList
             settleExitAction = exitState.onExitSettled

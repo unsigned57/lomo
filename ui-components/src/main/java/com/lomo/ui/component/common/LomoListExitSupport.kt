@@ -5,10 +5,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 
 /**
@@ -21,6 +19,7 @@ data class LomoListExitRenderEntry<T>(
     val item: T,
     val snapshotMemo: T,
     val isExiting: Boolean,
+    val isAnchorLost: Boolean = false,
 )
 
 /**
@@ -47,7 +46,7 @@ fun <T, R> resolveExitRenderList(
         val key = itemKey(item)
         val isExiting = key in activeExits
         val snapshotMemo = activeExits[key]?.let { entry -> mapExitToItem(entry.item) } ?: item
-        LomoListExitRenderEntry(item = item, snapshotMemo = snapshotMemo, isExiting = isExiting)
+        LomoListExitRenderEntry(item = item, snapshotMemo = snapshotMemo, isExiting = isExiting, isAnchorLost = false)
     }.toMutableList()
 
     val allItemsKeys = allItems.map(itemKey).toSet()
@@ -69,7 +68,12 @@ fun <T, R> resolveExitRenderList(
             if (anchor == null) {
                 renderList.add(
                     0,
-                    LomoListExitRenderEntry(item = mappedItem, snapshotMemo = mappedItem, isExiting = true)
+                    LomoListExitRenderEntry(
+                        item = mappedItem,
+                        snapshotMemo = mappedItem,
+                        isExiting = true,
+                        isAnchorLost = false,
+                    )
                 )
                 iterator.remove()
                 progress = true
@@ -78,7 +82,12 @@ fun <T, R> resolveExitRenderList(
                 if (anchorIndex >= 0) {
                     renderList.add(
                         anchorIndex + 1,
-                        LomoListExitRenderEntry(item = mappedItem, snapshotMemo = mappedItem, isExiting = true)
+                        LomoListExitRenderEntry(
+                            item = mappedItem,
+                            snapshotMemo = mappedItem,
+                            isExiting = true,
+                            isAnchorLost = false,
+                        )
                     )
                     iterator.remove()
                     progress = true
@@ -89,7 +98,14 @@ fun <T, R> resolveExitRenderList(
 
     for (entry in pending) {
         val mappedItem = mapExitToItem(entry.item)
-        renderList.add(LomoListExitRenderEntry(item = mappedItem, snapshotMemo = mappedItem, isExiting = true))
+        renderList.add(
+            LomoListExitRenderEntry(
+                item = mappedItem,
+                snapshotMemo = mappedItem,
+                isExiting = true,
+                isAnchorLost = true,
+            )
+        )
     }
 
     return renderList
@@ -121,7 +137,7 @@ fun <T, R> rememberLomoListExitState(
 ): LomoListExitState<T> {
     val activeExits by registry.entries.collectAsStateWithLifecycle()
 
-    val renderList by remember(allItems, activeExits) {
+    val rawRenderList by remember(allItems, activeExits) {
         derivedStateOf {
             resolveExitRenderList(
                 allItems = allItems,
@@ -129,6 +145,22 @@ fun <T, R> rememberLomoListExitState(
                 activeExits = activeExits,
                 mapExitToItem = mapExitToItem,
             ).toImmutableList()
+        }
+    }
+
+    // Settle orphans immediately
+    LaunchedEffect(rawRenderList) {
+        rawRenderList.forEach { entry ->
+            if (entry.isAnchorLost) {
+                val key = itemKey(entry.item)
+                registry.settleExit(key)
+            }
+        }
+    }
+
+    val renderList by remember(rawRenderList) {
+        derivedStateOf {
+            rawRenderList.filter { !it.isAnchorLost }.toImmutableList()
         }
     }
 
@@ -141,6 +173,8 @@ fun <T, R> rememberLomoListExitState(
         )
     }
 }
+
+
 
 private const val DUPLICATE_RENDER_KEY_MARKER = "\u0000dup-"
 

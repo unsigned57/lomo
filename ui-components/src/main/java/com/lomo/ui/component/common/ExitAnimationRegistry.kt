@@ -8,13 +8,17 @@ import kotlinx.coroutines.flow.update
 class ExitAnimationRegistry<T> {
     data class ExitEntry<T>(
         val item: T,
-        val anchoredAfterKey: String?
+        val anchoredAfterKey: String?,
     )
 
     private val _entries = MutableStateFlow<Map<String, ExitEntry<T>>>(emptyMap())
     val entries: StateFlow<Map<String, ExitEntry<T>>> = _entries.asStateFlow()
 
-    fun beginExit(id: String, item: T, anchoredAfterKey: String?) {
+    fun beginExit(
+        id: String,
+        item: T,
+        anchoredAfterKey: String?,
+    ) {
         _entries.update { it + (id to ExitEntry(item, anchoredAfterKey)) }
     }
 

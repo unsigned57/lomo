@@ -28,7 +28,7 @@ private const val SEARCH_DEBOUNCE_MILLIS = 150L
 internal const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
-private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = false
+private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = true
 internal const val DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 
 sealed interface GalleryUiMemosState {
@@ -100,14 +100,6 @@ internal class MainMemoListStateHolder(
                     },
                 )
             }.stateIn(scope, SharingStarted.Lazily, null)
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val mainListTotalCount: StateFlow<Int> =
-        mainMemoQueryInput
-            .flatMapLatest { queryInput ->
-                mainMemoListQueryUseCase.getMainListCountFlow(queryInput.query, queryInput.filter)
-            }.distinctUntilChanged()
-            .stateIn(scope, appWhileSubscribed(), 0)
 
     val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
         combine(

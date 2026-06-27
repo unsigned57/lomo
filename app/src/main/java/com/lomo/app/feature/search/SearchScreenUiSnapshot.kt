@@ -8,7 +8,6 @@ import kotlinx.collections.immutable.ImmutableSet
 internal data class SearchScreenUiSnapshot(
     val query: String,
     val showLoading: Boolean,
-    val searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     val searchFilter: MemoListFilter,
     val dateFormat: String,
     val timeFormat: String,

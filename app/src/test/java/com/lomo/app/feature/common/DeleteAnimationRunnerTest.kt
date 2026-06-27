@@ -111,8 +111,8 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
                 val result = runCatching {
                     runDeleteAnimationWithRollback(
                         items = listOf(
-                            Triple("memo_1", "snapshot_1", "anchor_1"),
-                            Triple("memo_2", "snapshot_2", "anchor_2")
+                            DeleteAnimationItem("memo_1", "snapshot_1", "anchor_1"),
+                            DeleteAnimationItem("memo_2", "snapshot_2", "anchor_2"),
                         ),
                         registry = registry,
                     ) {
@@ -135,8 +135,8 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
                 val result = runCatching {
                     runDeleteAnimationWithRollback(
                         items = listOf(
-                            Triple("memo_1", "snapshot_1", "anchor_1"),
-                            Triple("memo_2", "snapshot_2", "anchor_2")
+                            DeleteAnimationItem("memo_1", "snapshot_1", "anchor_1"),
+                            DeleteAnimationItem("memo_2", "snapshot_2", "anchor_2"),
                         ),
                         registry = registry,
                     ) {
@@ -171,4 +171,3 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
         }
     }
 }
-

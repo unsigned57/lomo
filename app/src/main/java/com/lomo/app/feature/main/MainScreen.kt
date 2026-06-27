@@ -289,7 +289,6 @@ internal data class MainScreenUiSnapshot(
     val hasRawItems: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
-    val mainListTotalCount: Int,
     val sidebarUiState: SidebarViewModel.SidebarUiState,
     val dateFormat: String,
     val timeFormat: String,

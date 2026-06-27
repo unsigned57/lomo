@@ -41,7 +41,6 @@ import kotlinx.collections.immutable.ImmutableSet
 internal fun SearchScreenContent(
     pagedItems: LazyPagingItems<MemoUiModel>,
     query: String,
-    searchResults: ImmutableList<MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
@@ -60,7 +59,7 @@ internal fun SearchScreenContent(
         resolveSearchContentState(
             query = query,
             showLoading = showLoading,
-            hasResults = searchResults.isNotEmpty() || pagedItems.itemCount > 0,
+            hasResults = pagedItems.itemCount > 0,
             hasActiveExits = activeExits.isNotEmpty(),
         )
     androidx.compose.animation.AnimatedContent(

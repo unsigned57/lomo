@@ -50,6 +50,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.feature.common.DeleteAnimationItem
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
@@ -58,9 +59,11 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.LomoListExitRenderEntry
+import com.lomo.ui.component.common.LomoListExitState
 import com.lomo.ui.component.common.LomoListItemExitScope
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
+import com.lomo.ui.component.common.SkeletonMemoItem
 import com.lomo.ui.component.menu.ActionItemHaptic
 import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoActionSheet
@@ -176,7 +179,11 @@ fun TrashScreen(
             showClearTrashDialog = false
             val items = trashExitState.renderList.mapIndexed { index, entry ->
                 val anchor = if (index > 0) trashExitState.renderList[index - 1].item.memo.id else null
-                Triple(entry.item.memo.id, entry.item.memo, anchor)
+                DeleteAnimationItem(
+                    id = entry.item.memo.id,
+                    snapshot = entry.item.memo,
+                    anchoredAfterKey = anchor,
+                )
             }
             viewModel.clearTrash(items)
         },
@@ -324,6 +331,9 @@ private fun TrashMemoList(
             count = totalItemCount,
             key = { index -> uniqueKeys.getOrElse(index) { "fallback-$index" } },
         ) { index ->
+            if (index < pagedItems.itemCount) {
+                pagedItems[index]
+            }
             val entry = renderList.getOrNull(index - snapshotStartIndex)
             val uiModel = entry?.item
             if (uiModel != null) {
@@ -343,6 +353,14 @@ private fun TrashMemoList(
                         Modifier
                             .lomoListItemMotion(this, animatePlacement = !isExiting)
                             .fillMaxWidth(),
+                )
+            } else {
+                val isLast = index == totalItemCount - 1
+                SkeletonMemoItem(
+                    modifier = Modifier
+                        .lomoListItemMotion(this)
+                        .fillMaxWidth()
+                        .padding(bottom = if (isLast) 0.dp else TRASH_LIST_ITEM_SPACING),
                 )
             }
         }

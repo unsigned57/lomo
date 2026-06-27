@@ -19,6 +19,13 @@
  *
  * Excludes:
  * - DB operations, UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: API contract migration.
+ * - Old behavior/assertion being replaced: clearTrash test setup passed a raw Triple of id, memo, and anchor.
+ * - Why old assertion is no longer correct: clearTrash now accepts DeleteAnimationItem so the delete snapshot and anchor are modeled by one typed command.
+ * - Coverage preserved by: the clearTrash scenario still asserts the observable mapping failure message.
+ * - Why this is not fitting the test to the implementation: the assertion remains error reporting at the collection action boundary; only the input command shape changed.
  */
 
 package com.lomo.app.feature.common
@@ -161,7 +168,15 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     dateKey = "2026_06_24"
                 )
 
-                actions.clearTrash(listOf(Triple("memo_1", memo, null)))
+                actions.clearTrash(
+                    listOf(
+                        DeleteAnimationItem(
+                            id = "memo_1",
+                            snapshot = memo,
+                            anchoredAfterKey = null,
+                        ),
+                    ),
+                )
                 runCurrent()
                 errorMessage.value shouldBe "Failed to clear trash: markdown render error"
             }

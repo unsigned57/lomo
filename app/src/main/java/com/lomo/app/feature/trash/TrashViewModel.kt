@@ -7,6 +7,7 @@ import androidx.paging.map
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.MemoCollectionActionStateHolder
 import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.DeleteAnimationItem
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
@@ -74,13 +75,17 @@ class TrashViewModel
         val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
         val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
 
-        fun restoreMemo(memo: Memo, anchoredAfterKey: String?) =
-            actionStateHolder.actions.restore(memo, anchoredAfterKey)
+        fun restoreMemo(
+            memo: Memo,
+            anchoredAfterKey: String?,
+        ) = actionStateHolder.actions.restore(memo, anchoredAfterKey)
 
-        fun deletePermanently(memo: Memo, anchoredAfterKey: String?) =
-            actionStateHolder.actions.deletePermanently(memo, anchoredAfterKey)
+        fun deletePermanently(
+            memo: Memo,
+            anchoredAfterKey: String?,
+        ) = actionStateHolder.actions.deletePermanently(memo, anchoredAfterKey)
 
-        fun clearTrash(items: List<Triple<String, Memo, String?>>) =
+        fun clearTrash(items: List<DeleteAnimationItem<Memo>>) =
             actionStateHolder.actions.clearTrash(items)
 
         fun onDeleteAnimationSettled(memoId: String) = exitAnimationRegistry.settleExit(memoId)

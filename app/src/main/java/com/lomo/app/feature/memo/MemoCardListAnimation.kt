@@ -7,12 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
@@ -32,9 +29,8 @@ import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.ui.component.common.rememberUniqueExitRenderListKeys
-import androidx.paging.LoadState
+import com.lomo.ui.component.common.SkeletonMemoItem
 import androidx.paging.compose.LazyPagingItems
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
@@ -90,8 +86,7 @@ fun MemoCardList(
     }
  
     val listContent: @Composable () -> Unit = {
-        val resolvedItemCount = resolvePagingItemCount(pagedMemos)
-        val totalItemCount = maxOf(snapshotStartIndex + exitState.renderList.size, resolvedItemCount)
+        val totalItemCount = maxOf(snapshotStartIndex + exitState.renderList.size, pagedMemos.itemCount)
         val uniqueKeys = rememberUniqueExitRenderListKeys(
             totalItemCount = totalItemCount,
             snapshotStartIndex = snapshotStartIndex,
@@ -146,6 +141,13 @@ fun MemoCardList(
                         onExitSettled = { onItemExitSettled(entry.snapshotMemo.memo.id) },
                         lazyItemScope = this,
                         anchoredAfterKey = anchoredAfterKey,
+                    )
+                } else {
+                    val bottomSpacing = if (index == totalItemCount - 1) 0.dp else MEMO_CARD_LIST_ITEM_SPACING
+                    SkeletonMemoItem(
+                        modifier = Modifier
+                            .lomoListItemMotion(this)
+                            .padding(bottom = bottomSpacing)
                     )
                 }
             }
@@ -251,18 +253,4 @@ private fun memoCardExpandedMemoIdsSaver() =
         restore = { restored -> mutableStateOf(restored.toPersistentSet()) },
     )
 
-@Composable
-private fun resolvePagingItemCount(
-    pagedMemos: LazyPagingItems<MemoUiModel>
-): Int {
-    var lastKnownItemCount by remember { mutableIntStateOf(0) }
-    val currentItemCount = pagedMemos.itemCount
-    if (currentItemCount > 0) {
-        lastKnownItemCount = currentItemCount
-    }
-    return if (currentItemCount == 0 && pagedMemos.loadState.refresh is LoadState.Loading) {
-        lastKnownItemCount
-    } else {
-        currentItemCount
-    }
-}
+
