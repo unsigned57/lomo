@@ -50,7 +50,7 @@ private const val SEARCH_QUERY_DEBOUNCE_MILLIS = 300L
 private const val SEARCH_PAGE_SIZE = 20
 private const val SEARCH_INITIAL_LOAD_SIZE = 60
 private const val SEARCH_PREFETCH_DISTANCE = 10
-private const val SEARCH_ENABLE_PLACEHOLDERS = false
+private const val SEARCH_ENABLE_PLACEHOLDERS = true
 
 @HiltViewModel
 class SearchViewModel
@@ -174,7 +174,10 @@ class SearchViewModel
         val onHasUrlChanged: (Boolean?) -> Unit = searchFilterController.onHasUrlChanged
         val clearSearchFilter: () -> Unit = searchFilterController.clear
 
-        fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
+        fun deleteMemo(
+            memo: Memo,
+            anchoredAfterKey: String?,
+        ) {
             actionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
 

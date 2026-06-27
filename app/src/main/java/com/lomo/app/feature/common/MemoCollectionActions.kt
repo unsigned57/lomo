@@ -41,7 +41,10 @@ class MemoCollectionActions internal constructor(
     private val onMemoContentReplaced: ((Memo, String) -> Unit)?,
     private val mapToUiModel: (Memo) -> MemoUiModel,
 ) {
-    fun delete(memo: Memo, anchoredAfterKey: String?) {
+    fun delete(
+        memo: Memo,
+        anchoredAfterKey: String?,
+    ) {
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -101,7 +104,10 @@ class MemoCollectionActions internal constructor(
         }
     }
 
-    fun restore(memo: Memo, anchoredAfterKey: String?) {
+    fun restore(
+        memo: Memo,
+        anchoredAfterKey: String?,
+    ) {
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -115,7 +121,10 @@ class MemoCollectionActions internal constructor(
         }
     }
 
-    fun deletePermanently(memo: Memo, anchoredAfterKey: String?) {
+    fun deletePermanently(
+        memo: Memo,
+        anchoredAfterKey: String?,
+    ) {
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -129,7 +138,7 @@ class MemoCollectionActions internal constructor(
         }
     }
 
-    fun clearTrash(items: List<Triple<String, Memo, String?>>) {
+    fun clearTrash(items: List<DeleteAnimationItem<Memo>>) {
         if (items.isEmpty()) return
         launchAnimatedMutationBulk(
             items = items,
@@ -180,14 +189,18 @@ class MemoCollectionActions internal constructor(
     }
 
     private fun launchAnimatedMutationBulk(
-        items: List<Triple<String, Memo, String?>>,
+        items: List<DeleteAnimationItem<Memo>>,
         fallbackMessage: String,
         mutation: suspend () -> Unit,
     ) {
         scope.launch {
             runCatching {
-                val mappedItems = items.map { (id, memo, anchor) ->
-                    Triple(id, mapToUiModel(memo), anchor)
+                val mappedItems = items.map { item ->
+                    DeleteAnimationItem(
+                        id = item.id,
+                        snapshot = mapToUiModel(item.snapshot),
+                        anchoredAfterKey = item.anchoredAfterKey,
+                    )
                 }
                 runDeleteAnimationWithRollback(
                     items = mappedItems,

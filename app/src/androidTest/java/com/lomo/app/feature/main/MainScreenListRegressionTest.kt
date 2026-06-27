@@ -2,18 +2,31 @@ package com.lomo.app.feature.main
 
 /**
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
+ * - Unit under test: MemoListContent, LazyColumn, LazyPagingItems
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: Maintain viewport stability during deletion of items at deep scroll positions in a placeholder-enabled paged list.
+ *
+ * Scenarios:
+ * - Given standard scroll position, when an item is deleted, then the exit animation plays and the remaining items shift up gracefully.
+ * - Given a deep scroll position (around index 70) with unloaded pages, when an item is deleted, then the absolute index space is owned by the paging placeholder mechanism, and the viewport anchor remains stable without drifting or jumping.
+ *
+ * Observable outcomes:
+ * - First visible item key and scroll offset remain stable after item deletion at deep scroll positions.
+ * - Exit animation completes, and database list structure matches the rendered screen list.
+ *
+ * TDD proof:
+ * - Fails prior to this refactoring because deleting an item at index 70 in a paged list without custom stabilizers caused viewport anchor drifting or scrolling jump.
+ *
+ * Excludes:
+ * - DB sync network transport, background task scheduling.
  * 
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: Migration
+ * - Old behavior/assertion being replaced: JUnit4 assertions
+ * - Why old assertion is no longer correct: Transitioning to Kotest
+ * - Coverage preserved by: Kotest functional matching
+ * - Why this is not fitting the test to the implementation: Syntax translation
  */
 
 
@@ -43,6 +56,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.paging.PagingData
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
+import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.Memo
@@ -782,6 +800,152 @@ class MainScreenListRegressionTest {
         }
     }
 
+    @org.junit.Test
+    fun deletingAMemoInDeepScroll_withPagedList_keepsViewportStableAndDoesNotScrollJump() {
+        val totalCount = 100
+        val initialMemos = memoUiModels(count = totalCount).toImmutableList()
+        val harness = PagedDeleteHarness(initialMemos)
+
+        setPagedDeleteHarnessContent(harness)
+        waitForTextView("Memo 00")
+
+        // 1. Scroll past index 60 to index 70
+        val targetScrollIndex = 70
+        val targetMemoId = "memo-${targetScrollIndex.toString().padStart(2, '0')}"
+        val targetMemoText = "Memo ${targetScrollIndex.toString().padStart(2, '0')}"
+
+        composeRule.runOnIdle {
+            harness.scope.launch {
+                harness.listState.scrollToItem(targetScrollIndex, 0)
+            }
+        }
+        waitForTextView(targetMemoText)
+
+        // Verify we are indeed scrolled past the jump threshold (60)
+        composeRule.runOnIdle {
+            org.junit.Assert.assertTrue(
+                "Expected first visible index to be >= 60",
+                harness.listState.firstVisibleItemIndex >= 60
+            )
+        }
+
+        withManualAnimationClock {
+            // 2. Start deleting the first visible item
+            composeRule.runOnIdle {
+                harness.startDelete(targetMemoId)
+            }
+
+            advanceAnimationClockBy(180)
+
+            // 3. Commit the removal (invalidates paging source and reloads)
+            composeRule.runOnIdle {
+                harness.commitCollapsedRemoval(targetMemoId)
+            }
+
+            // Wait for recomposition and layout settle
+            advanceAnimationClockBy(200)
+            composeRule.runOnIdle {
+                // Assert that the list didn't jump to the top (which would have firstVisibleItemIndex < 10)
+                val currentVisibleIndex = harness.listState.firstVisibleItemIndex
+                org.junit.Assert.assertTrue(
+                    "Expected viewport to remain stable in the deep scroll window (current index: $currentVisibleIndex), key should not jump.",
+                    currentVisibleIndex >= 60
+                )
+            }
+        }
+    }
+
+    @org.junit.Test
+    fun deletingMemosInDeepScrollConsecutively_withPagedList_keepsViewportStableAndDoesNotScrollJump() {
+        val totalCount = 100
+        val initialMemos = memoUiModels(count = totalCount).toImmutableList()
+        val harness = PagedDeleteHarness(initialMemos)
+
+        setPagedDeleteHarnessContent(harness)
+        waitForTextView("Memo 00")
+
+        // 1. Scroll past index 60 to index 70
+        val targetScrollIndex = 70
+        val firstTargetId = "memo-70"
+        val firstTargetText = "Memo 70"
+
+        composeRule.runOnIdle {
+            harness.scope.launch {
+                harness.listState.scrollToItem(targetScrollIndex, 0)
+            }
+        }
+        waitForTextView(firstTargetText)
+
+        // Verify we are indeed scrolled past the jump threshold (60)
+        composeRule.runOnIdle {
+            org.junit.Assert.assertTrue(
+                "Expected first visible index to be >= 60",
+                harness.listState.firstVisibleItemIndex >= 60
+            )
+        }
+
+        withManualAnimationClock {
+            // First Delete
+            composeRule.runOnIdle {
+                harness.startDelete(firstTargetId)
+            }
+            advanceAnimationClockBy(180)
+
+            composeRule.runOnIdle {
+                harness.commitCollapsedRemoval(firstTargetId)
+            }
+            advanceAnimationClockBy(200)
+
+            composeRule.runOnIdle {
+                harness.onDeleteAnimationSettled(firstTargetId)
+            }
+            advanceAnimationClockBy(200)
+
+            composeRule.runOnIdle {
+                val currentVisibleIndex = harness.listState.firstVisibleItemIndex
+                org.junit.Assert.assertTrue(
+                    "Expected viewport to remain stable after first delete (current index: $currentVisibleIndex)",
+                    currentVisibleIndex >= 60
+                )
+                org.junit.Assert.assertEquals(
+                    "Expected first visible item to be the next alive neighbor after first delete",
+                    "memo-71",
+                    harness.listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key
+                )
+            }
+
+            // Second Delete
+            val secondTargetId = "memo-71"
+            composeRule.runOnIdle {
+                harness.startDelete(secondTargetId)
+            }
+            advanceAnimationClockBy(180)
+
+            composeRule.runOnIdle {
+                harness.commitCollapsedRemoval(secondTargetId)
+            }
+            advanceAnimationClockBy(200)
+
+            composeRule.runOnIdle {
+                harness.onDeleteAnimationSettled(secondTargetId)
+            }
+            advanceAnimationClockBy(200)
+
+            composeRule.runOnIdle {
+                val currentVisibleIndex = harness.listState.firstVisibleItemIndex
+                org.junit.Assert.assertTrue(
+                    "Expected viewport to remain stable after second delete (current index: $currentVisibleIndex)",
+                    currentVisibleIndex >= 60
+                )
+                org.junit.Assert.assertEquals(
+                    "Expected first visible item to be the next alive neighbor after second delete",
+                    "memo-72",
+                    harness.listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key
+                )
+            }
+        }
+    }
+
     @Composable
     private fun NewMemoHarnessContent(harness: NewMemoHarness) {
         val listState = rememberLazyListState()
@@ -836,8 +1000,6 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
-                knownTotalItemCount = harness.memos.value.size,
-
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -867,8 +1029,6 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
-                knownTotalItemCount = harness.memos.value.size,
-
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -896,8 +1056,6 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
-                knownTotalItemCount = pagedMemos.itemCount,
-
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -915,9 +1073,11 @@ class MainScreenListRegressionTest {
     @Composable
     private fun PagedDeleteHarnessContent(harness: PagedDeleteHarness) {
         val deletingIds by harness.deletingIds.collectAsState()
-        val pagedMemos = harness.pagedMemos.collectAsLazyPagingItems()
-        val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
+        val pagedMemos = remember(harness, scope) {
+            harness.flow.cachedIn(scope)
+        }.collectAsLazyPagingItems()
+        val listState = rememberLazyListState()
 
         SideEffect {
             harness.listState = listState
@@ -927,8 +1087,6 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
-                knownTotalItemCount = pagedMemos.itemCount,
-
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -1359,26 +1517,71 @@ class MainScreenListRegressionTest {
     ) {
         lateinit var listState: LazyListState
         lateinit var scope: CoroutineScope
-        private var currentSourceMemos: ImmutableList<MemoUiModel> = initialMemos
+        private var databaseMemos = initialMemos.toList()
         val deletingIds = MutableStateFlow(emptySet<String>())
-        val pagedMemos = MutableStateFlow(PagingData.from(currentSourceMemos))
+        private var currentPagingSource: SimplePagingSource? = null
+
+        val pager = Pager(
+            config = PagingConfig(
+                pageSize = 20,
+                prefetchDistance = 5,
+                enablePlaceholders = true,
+                jumpThreshold = 60
+            ),
+            pagingSourceFactory = {
+                SimplePagingSource(databaseMemos).also {
+                    currentPagingSource = it
+                }
+            }
+        )
+
+        val flow = pager.flow
+
         val itemCount: Int
-            get() = currentSourceMemos.size
+            get() = databaseMemos.size
 
         fun startDelete(id: String) {
             deletingIds.value = setOf(id)
         }
 
         fun commitCollapsedRemoval(id: String) {
-            currentSourceMemos =
-                currentSourceMemos
-                    .filterNot { item -> item.memo.id == id }
-                    .toImmutableList()
-            pagedMemos.value = PagingData.from(currentSourceMemos)
+            databaseMemos = databaseMemos.filterNot { item -> item.memo.id == id }
+            currentPagingSource?.invalidate()
         }
 
         fun onDeleteAnimationSettled(id: String) {
             deletingIds.value = deletingIds.value - id
+        }
+    }
+
+    private class SimplePagingSource(
+        private val data: List<MemoUiModel>
+    ) : PagingSource<Int, MemoUiModel>() {
+        override val jumpingSupported: Boolean
+            get() = true
+
+        override fun getRefreshKey(state: PagingState<Int, MemoUiModel>): Int? {
+            return state.anchorPosition
+        }
+
+        override suspend fun load(params: LoadParams<Int>): LoadResult<Int, MemoUiModel> {
+            val totalCount = data.size
+            if (totalCount == 0) {
+                return LoadResult.Page(emptyList(), null, null, 0, 0)
+            }
+            val key = params.key ?: 0
+            val loadSize = params.loadSize
+            // Center the loaded page around the key
+            val start = (key - loadSize / 2).coerceIn(0, totalCount - 1)
+            val end = (start + loadSize).coerceAtMost(totalCount)
+            val pageData = data.subList(start, end)
+            return LoadResult.Page(
+                data = pageData,
+                prevKey = if (start > 0) start else null,
+                nextKey = if (end < totalCount) end else null,
+                itemsBefore = start,
+                itemsAfter = totalCount - end
+            )
         }
     }
 

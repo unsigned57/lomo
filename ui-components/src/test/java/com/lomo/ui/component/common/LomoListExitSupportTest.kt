@@ -31,6 +31,13 @@ import kotlinx.collections.immutable.toImmutableList
  *
  * Excludes:
  * - UI rendering, layout animations, lazy list viewport boundaries.
+ *
+ * Test Change Justification:
+ * - Reason category: API shape cleanup.
+ * - Old behavior/assertion being replaced: ExitEntry test fixtures used positional constructor arguments.
+ * - Why old assertion is no longer correct: ExitEntry now names item and anchoredAfterKey explicitly as the registry contract was simplified.
+ * - Coverage preserved by: every ordering, anchor, snapshot, and duplicate-key assertion remains unchanged.
+ * - Why this is not fitting the test to the implementation: fixture construction was updated while observable render-list expectations stayed the same.
  */
 
 private data class TestItem(val id: String, val content: String = "")
@@ -53,7 +60,10 @@ class LomoListExitSupportTest : FunSpec({
     test("deleting id still in source appears in-place with isExiting=true and snapshotMemo holds the live value") {
         val source = listOf(TestItem("a"), TestItem("b", "live"), TestItem("c"))
         val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(TestItem("b", "snapshot"), anchoredAfterKey = "a")
+            "b" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("b", "snapshot"),
+                anchoredAfterKey = "a",
+            )
         )
 
         val result = resolveExitRenderList(
@@ -70,7 +80,10 @@ class LomoListExitSupportTest : FunSpec({
     test("deleting id removed from source is retained at its anchoredAfterKey position") {
         val source = listOf(TestItem("a"), TestItem("c"))
         val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(TestItem("b"), anchoredAfterKey = "a"),
+            "b" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("b"),
+                anchoredAfterKey = "a",
+            ),
         )
 
         val result = resolveExitRenderList(
@@ -86,8 +99,14 @@ class LomoListExitSupportTest : FunSpec({
     test("multiple concurrent deletes preserve transitive order") {
         val source = listOf(TestItem("a"), TestItem("d"))
         val activeExits = mapOf(
-            "b" to ExitAnimationRegistry.ExitEntry(TestItem("b"), anchoredAfterKey = "a"),
-            "c" to ExitAnimationRegistry.ExitEntry(TestItem("c"), anchoredAfterKey = "b"),
+            "b" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("b"),
+                anchoredAfterKey = "a",
+            ),
+            "c" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("c"),
+                anchoredAfterKey = "b",
+            ),
         )
 
         val result = resolveExitRenderList(
@@ -104,7 +123,10 @@ class LomoListExitSupportTest : FunSpec({
     test("null anchoredAfterKey places item at the beginning of the list") {
         val source = listOf(TestItem("b"), TestItem("c"))
         val activeExits = mapOf(
-            "a" to ExitAnimationRegistry.ExitEntry(TestItem("a"), anchoredAfterKey = null),
+            "a" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("a"),
+                anchoredAfterKey = null,
+            ),
         )
 
         val result = resolveExitRenderList(
@@ -119,7 +141,10 @@ class LomoListExitSupportTest : FunSpec({
     test("orphans whose anchors do not exist are appended to the end of the list") {
         val source = listOf(TestItem("a"), TestItem("b"))
         val activeExits = mapOf(
-            "c" to ExitAnimationRegistry.ExitEntry(TestItem("c"), anchoredAfterKey = "nonexistent"),
+            "c" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("c"),
+                anchoredAfterKey = "nonexistent",
+            ),
         )
 
         val result = resolveExitRenderList(
@@ -134,7 +159,10 @@ class LomoListExitSupportTest : FunSpec({
     test("retained exits placed before existing source items do not shift other items keys") {
         val source = listOf(TestItem("b"), TestItem("c"))
         val activeExits = mapOf(
-            "a" to ExitAnimationRegistry.ExitEntry(TestItem("a"), anchoredAfterKey = null)
+            "a" to ExitAnimationRegistry.ExitEntry(
+                item = TestItem("a"),
+                anchoredAfterKey = null,
+            )
         )
 
         val result = resolveExitRenderList(

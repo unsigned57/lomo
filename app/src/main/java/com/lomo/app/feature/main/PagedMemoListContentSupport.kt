@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.paging.compose.LazyPagingItems
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 
@@ -115,16 +116,6 @@ private fun buildMemoListScrollbarContentGeneration(
     )
 }
 
-internal fun computeRenderedItemCount(
-    snapshotStartIndex: Int,
-    visiblePagedMemosSize: Int,
-    pagedMemosItemCount: Int,
-    knownTotalItemCount: Int,
-    pageSize: Int,
-): Int = maxOf(
-    snapshotStartIndex + visiblePagedMemosSize,
-    minOf(knownTotalItemCount, pagedMemosItemCount + pageSize)
-)
 
 internal fun computeRetainedExitsCount(
     deletingIds: Set<String>,
@@ -133,5 +124,19 @@ internal fun computeRetainedExitsCount(
     return deletingIds.count { it !in snapshotMemoIds }
 }
 
+internal fun pagingAccessIndexForRenderedRow(
+    index: Int,
+    pagedItemCount: Int,
+    renderedItemCount: Int,
+): Int? {
+    if (pagedItemCount <= 0 || index !in 0 until renderedItemCount) {
+        return null
+    }
+    return minOf(index, pagedItemCount - 1)
+}
 
+internal data class MemoListLoadedSnapshot<T>(
+    val startIndex: Int,
+    val memos: ImmutableList<T>,
+)
 

@@ -90,7 +90,7 @@ fun SearchScreen(
     val resultListActive =
         uiState.query.isNotEmpty() &&
             !uiState.showLoading &&
-            uiState.searchResults.isNotEmpty()
+            pagedItems.itemCount > 0
 
     SearchScreenEffects(
         errorMessage = uiState.errorMessage,
@@ -143,7 +143,6 @@ fun SearchScreen(
             SearchScreenContent(
                 pagedItems = pagedItems,
                 query = uiState.query,
-                searchResults = uiState.searchResults,
                 dateFormat = uiState.dateFormat,
                 timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
@@ -179,16 +178,11 @@ private fun collectSearchScreenUiSnapshot(
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
-    val itemSnapshotList = pagedItems.itemSnapshotList
-    val snapshotMemos = remember(itemSnapshotList) {
-        itemSnapshotList.items.toImmutableList()
-    }
     val showLoading = pagedItems.loadState.refresh is LoadState.Loading
 
     return SearchScreenUiSnapshot(
         query = query,
         showLoading = showLoading,
-        searchResults = snapshotMemos,
         searchFilter = searchFilter,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,

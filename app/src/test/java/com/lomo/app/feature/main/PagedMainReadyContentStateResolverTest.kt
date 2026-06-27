@@ -50,6 +50,7 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
             (resolvePagedMainReadyContentState(
                 itemCount = 0,
                 refreshState = LoadState.Loading,
+                hasActiveExits = false,
             )) shouldBe (MainReadyContentState.List)
         }
 
@@ -57,6 +58,7 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
             (resolvePagedMainReadyContentState(
                 itemCount = 0,
                 refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                hasActiveExits = false,
             )) shouldBe (MainReadyContentState.Empty)
         }
 
@@ -64,6 +66,7 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
             (resolvePagedMainReadyContentState(
                 itemCount = 0,
                 refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                hasActiveExits = false,
             )) shouldBe (MainReadyContentState.List)
         }
 
@@ -71,7 +74,46 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
             (resolvePagedMainReadyContentState(
                 itemCount = 1,
                 refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                hasActiveExits = false,
             )) shouldBe (MainReadyContentState.List)
+        }
+
+        test("resolves list when itemCount is 0 and refresh is completed, but active exits are running") {
+            (resolvePagedMainReadyContentState(
+                itemCount = 0,
+                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                hasActiveExits = true,
+            )) shouldBe (MainReadyContentState.List)
+        }
+
+        test("resolves state correctly across a 4-phase slow refresh deletion sequence") {
+            // Phase 1: Initial list before delete
+            resolvePagedMainReadyContentState(
+                itemCount = 1,
+                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                hasActiveExits = false,
+            ) shouldBe MainReadyContentState.List
+
+            // Phase 2: Delete starts, pager invalidates, refresh starts
+            resolvePagedMainReadyContentState(
+                itemCount = 0,
+                refreshState = LoadState.Loading,
+                hasActiveExits = true,
+            ) shouldBe MainReadyContentState.List
+
+            // Phase 3: Exit animation finishes and settles, but slow refresh is still loading
+            resolvePagedMainReadyContentState(
+                itemCount = 0,
+                refreshState = LoadState.Loading,
+                hasActiveExits = false,
+            ) shouldBe MainReadyContentState.List
+
+            // Phase 4: Slow refresh completes and shows list is indeed empty
+            resolvePagedMainReadyContentState(
+                itemCount = 0,
+                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                hasActiveExits = false,
+            ) shouldBe MainReadyContentState.Empty
         }
     }
 }

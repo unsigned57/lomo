@@ -182,7 +182,9 @@ fun rememberMemoMenuCommandHandler(
         MemoMenuCommandHandler(
             presentationState = presentationState,
             onEditMemo = { memo -> editMemoState.value(memo) },
-            onDeleteMemo = { memo, anchoredAfterKey -> deleteMemoState.value(memo, anchoredAfterKey) },
+            onDeleteMemo = { memo, anchoredAfterKey ->
+                deleteMemoState.value(memo, anchoredAfterKey)
+            },
             onShareCard = { request ->
                 scope.launch {
                     shareMemoAsImage(

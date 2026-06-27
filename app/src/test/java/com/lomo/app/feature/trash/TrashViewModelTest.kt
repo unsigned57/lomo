@@ -3,6 +3,7 @@ package com.lomo.app.feature.trash
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.DeleteAnimationItem
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
@@ -97,9 +98,17 @@ class TrashViewModelTest : AppFunSpec() {
 
                 viewModel.clearTrash(
                     listOf(
-                        Triple(firstMemo.id, firstMemo, null),
-                        Triple(secondMemo.id, secondMemo, null)
-                    )
+                        DeleteAnimationItem(
+                            id = firstMemo.id,
+                            snapshot = firstMemo,
+                            anchoredAfterKey = null,
+                        ),
+                        DeleteAnimationItem(
+                            id = secondMemo.id,
+                            snapshot = secondMemo,
+                            anchoredAfterKey = null,
+                        ),
+                    ),
                 )
                 runCurrent()
 

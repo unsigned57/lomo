@@ -207,8 +207,6 @@ class MainViewModel
 
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
 
-        val mainListTotalCount: StateFlow<Int> = memoListStateHolder.mainListTotalCount
-
         val galleryUiMemosState: StateFlow<GalleryUiMemosState> = memoListStateHolder.galleryUiMemosState
 
         val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos

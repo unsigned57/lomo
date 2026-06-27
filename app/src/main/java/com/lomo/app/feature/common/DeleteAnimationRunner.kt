@@ -11,14 +11,14 @@ internal suspend fun <T> runDeleteAnimationWithRollback(
     mutation: suspend () -> Unit,
 ) {
     runDeleteAnimationWithRollback(
-        items = listOf(Triple(itemId, item, anchoredAfterKey)),
+        items = listOf(DeleteAnimationItem(itemId, item, anchoredAfterKey)),
         registry = registry,
         mutation = mutation,
     )
 }
 
 internal suspend fun <T> runDeleteAnimationWithRollback(
-    items: List<Triple<String, T, String?>>,
+    items: List<DeleteAnimationItem<T>>,
     registry: ExitAnimationRegistry<T>,
     mutation: suspend () -> Unit,
 ) {
@@ -26,17 +26,26 @@ internal suspend fun <T> runDeleteAnimationWithRollback(
         return
     }
 
-    items.forEach { (id, item, anchor) ->
-        registry.beginExit(id, item, anchor)
+    items.forEach { item ->
+        registry.beginExit(
+            id = item.id,
+            item = item.snapshot,
+            anchoredAfterKey = item.anchoredAfterKey,
+        )
     }
 
     runCatching {
         mutation()
     }.onFailure { throwable ->
-        items.forEach { (id, _, _) ->
-            registry.settleExit(id)
+        items.forEach { item ->
+            registry.settleExit(item.id)
         }
         throw throwable
     }
 }
 
+data class DeleteAnimationItem<T>(
+    val id: String,
+    val snapshot: T,
+    val anchoredAfterKey: String?,
+)

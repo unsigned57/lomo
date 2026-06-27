@@ -103,7 +103,10 @@ class TagFilterViewModel
         val imageDir: StateFlow<String?> = appConfigStateProvider.imageDirectory
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
-        fun deleteMemo(memo: Memo, anchoredAfterKey: String?) {
+        fun deleteMemo(
+            memo: Memo,
+            anchoredAfterKey: String?,
+        ) {
             actionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
 

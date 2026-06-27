@@ -46,8 +46,8 @@ val composeCompilerReportTasksByProject =
 val compileGateTasksByProject =
     linkedMapOf(
         "app" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac", "compileDebugAndroidTestKotlin"),
-        "data" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
-        "ui-components" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
+        "data" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac", "compileDebugAndroidTestKotlin"),
+        "ui-components" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac", "compileDebugAndroidTestKotlin"),
         "domain" to listOf("compileKotlin", "compileJava"),
     )
 val unitTestTasksByProject =
