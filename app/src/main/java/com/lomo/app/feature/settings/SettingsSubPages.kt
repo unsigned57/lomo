@@ -280,6 +280,11 @@ internal fun StorageFormatsSettingsPage(
                 onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
             )
 
+            HeatmapSettingsSection(
+                thresholds = uiState.display.calendarHeatmapThresholds,
+                onOpenThresholdDialog = { dialogState.showCalendarHeatmapThresholdsDialog = true },
+            )
+
             ShareCardSettingsSection(
                 state = uiState.shareCard,
                 onToggleShowTime = features.shareCard::updateShareCardShowTime,

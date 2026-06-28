@@ -853,6 +853,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             AppPreferenceSnapshotField.DATE_FORMAT -> "yyyy/MM/dd"
             AppPreferenceSnapshotField.TIME_FORMAT -> "HH:mm"
             AppPreferenceSnapshotField.THEME_MODE -> ThemeMode.DARK.value
+            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> "2,5,9"
             AppPreferenceSnapshotField.COLOR_SOURCE -> ColorSource.Preset(ColorPresetId.OCEAN).storageValue
             AppPreferenceSnapshotField.FONT_PREFERENCE -> FontPreference.UserImported("serif.ttf").storageValue
             AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> false.toString()

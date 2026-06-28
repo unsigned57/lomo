@@ -46,6 +46,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.common.UiState
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.stats.CalendarHeatmap
@@ -71,6 +72,7 @@ fun StatisticsScreen(
     viewModel: StatisticsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val shareImageEvent by viewModel.shareImageEvent.collectAsStateWithLifecycle()
     val shareErrorMessage by viewModel.shareErrorMessage.collectAsStateWithLifecycle()
     val haptic = LocalAppHapticFeedback.current
@@ -137,6 +139,7 @@ fun StatisticsScreen(
                 is UiState.Success -> {
                     StatisticsContent(
                         stats = state.data,
+                        calendarHeatmapThresholds = appPreferences.calendarHeatmapThresholds,
                         onShareImageCaptured = viewModel::shareStatisticsImage,
                         onShareCaptureFailed = viewModel::reportShareFailure,
                     )
@@ -151,6 +154,7 @@ fun StatisticsScreen(
 @Composable
 private fun StatisticsContent(
     stats: MemoStatistics,
+    calendarHeatmapThresholds: CalendarHeatmapThresholds,
     onShareImageCaptured: (StatisticsPngSource) -> Unit,
     onShareCaptureFailed: (Throwable) -> Unit,
 ) {
@@ -182,7 +186,11 @@ private fun StatisticsContent(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             StatisticsOverviewSection(stats = stats)
-            StatisticsActivitySection(stats = stats, today = presentationDates.today)
+            StatisticsActivitySection(
+                stats = stats,
+                today = presentationDates.today,
+                calendarHeatmapThresholds = calendarHeatmapThresholds,
+            )
             StatisticsTimeSection(stats = stats)
             StatisticsReportsSection(
                 stats = stats,
@@ -273,6 +281,7 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
 private fun StatisticsActivitySection(
     stats: MemoStatistics,
     today: LocalDate,
+    calendarHeatmapThresholds: CalendarHeatmapThresholds,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -285,6 +294,7 @@ private fun StatisticsActivitySection(
                     .filterKeys { !it.isAfter(today) }
                     .toImmutableMap(),
             today = today,
+            thresholds = calendarHeatmapThresholds,
             modifier = Modifier.fillMaxWidth(),
         )
     }

@@ -3,6 +3,8 @@ package com.lomo.app.feature.statistics
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeCustomFontStore
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
@@ -15,7 +17,9 @@ import java.io.ByteArrayOutputStream
 import java.io.OutputStream
 import java.time.LocalDate
 import java.time.LocalTime
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -47,6 +51,19 @@ import kotlinx.coroutines.test.runTest
  * Excludes:
  * - Compose screenshot capture, Android FileProvider URI creation, share sheet dispatch, and
  *   MemoStatisticsUseCase calculations.
+ *
+ * Test Change Justification:
+ * - Reason category: App preference contract expansion.
+ * - Old behavior/assertion being replaced: StatisticsViewModel tests constructed the view model
+ *   without an app config state provider because statistics UI state did not consume app-level
+ *   heatmap preferences.
+ * - Why old assertion is no longer correct: the statistics screen now receives calendar heatmap
+ *   thresholds through the app preference snapshot, so the view model constructor contract needs
+ *   a real fake-backed config state provider.
+ * - Coverage preserved by: the existing loading and share-image observable assertions remain
+ *   unchanged while the fake provider supplies default app preferences.
+ * - Why this is not fitting the test to the implementation: the added collaborator models the
+ *   public app configuration boundary used by the screen, not a private view-model detail.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class StatisticsViewModelTest : AppFunSpec() {
@@ -141,7 +158,18 @@ class StatisticsViewModelTest : AppFunSpec() {
         StatisticsViewModel(
             memoStatisticsUseCase = memoStatisticsUseCase,
             persistShareImageUseCase = persistShareImageUseCase,
+            appConfigStateProvider = createAppConfigStateProvider(),
         )
+
+    private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider {
+        val appConfigRepository = FakeAppConfigRepository()
+        return com.lomo.app.feature.common.AppConfigStateProvider(
+            appConfigUiCoordinator = com.lomo.app.feature.common.AppConfigUiCoordinator(appConfigRepository),
+            appPreferencesSnapshotRepository = appConfigRepository,
+            customFontStore = FakeCustomFontStore(),
+            appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+        )
+    }
 
     private class TestStatisticsPngSource(
         private val bytes: ByteArray,

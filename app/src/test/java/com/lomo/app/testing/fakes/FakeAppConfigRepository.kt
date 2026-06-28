@@ -1,6 +1,7 @@
 package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.AppPreferenceSnapshot
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
@@ -35,6 +36,7 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
     private val dateFormat = MutableStateFlow(PreferenceDefaults.DATE_FORMAT)
     private val timeFormat = MutableStateFlow(PreferenceDefaults.TIME_FORMAT)
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    private val calendarHeatmapThresholds = MutableStateFlow(CalendarHeatmapThresholds.default())
     private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
     private val colorHistory = MutableStateFlow<List<Int>>(emptyList())
     private val fontPreference = MutableStateFlow<FontPreference>(FontPreference.default())
@@ -106,6 +108,7 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
                 dateFormat = display.dateFormat,
                 timeFormat = display.timeFormat,
                 themeMode = display.themeMode,
+                calendarHeatmapThresholds = display.calendarHeatmapThresholds,
                 colorSource = display.colorSource,
                 fontPreference = display.fontPreference,
                 hapticFeedbackEnabled = editor.hapticFeedbackEnabled,
@@ -136,10 +139,29 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
             dateFormat,
             timeFormat,
             themeMode,
+            observeDisplayPersonalizationSnapshot(),
+        ) { dateFormat, timeFormat, themeMode, personalization ->
+            FakeDisplaySnapshot(
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                themeMode = themeMode,
+                calendarHeatmapThresholds = personalization.calendarHeatmapThresholds,
+                colorSource = personalization.colorSource,
+                fontPreference = personalization.fontPreference,
+            )
+        }
+
+    private fun observeDisplayPersonalizationSnapshot(): Flow<FakeDisplayPersonalizationSnapshot> =
+        combine(
             colorSource,
+            calendarHeatmapThresholds,
             fontPreference,
-        ) { dateFormat, timeFormat, themeMode, colorSource, fontPreference ->
-            FakeDisplaySnapshot(dateFormat, timeFormat, themeMode, colorSource, fontPreference)
+        ) { colorSource, calendarHeatmapThresholds, fontPreference ->
+            FakeDisplayPersonalizationSnapshot(
+                colorSource = colorSource,
+                calendarHeatmapThresholds = calendarHeatmapThresholds,
+                fontPreference = fontPreference,
+            )
         }
 
     private fun observeEditorSnapshot(): Flow<FakeEditorSnapshot> =
@@ -238,6 +260,13 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
 
     override suspend fun setThemeMode(mode: ThemeMode) {
         themeMode.value = mode
+    }
+
+    override fun getCalendarHeatmapThresholds(): Flow<CalendarHeatmapThresholds> =
+        calendarHeatmapThresholds.asStateFlow()
+
+    override suspend fun setCalendarHeatmapThresholds(thresholds: CalendarHeatmapThresholds) {
+        calendarHeatmapThresholds.value = thresholds
     }
 
     override fun getColorSource(): Flow<ColorSource> = colorSource.asStateFlow()
@@ -417,7 +446,14 @@ private data class FakeDisplaySnapshot(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
+    val fontPreference: FontPreference,
+)
+
+private data class FakeDisplayPersonalizationSnapshot(
+    val colorSource: ColorSource,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val fontPreference: FontPreference,
 )
 

@@ -25,6 +25,7 @@ enum class AppPreferenceSnapshotField {
     DATE_FORMAT,
     TIME_FORMAT,
     THEME_MODE,
+    CALENDAR_HEATMAP_THRESHOLDS,
     COLOR_SOURCE,
     FONT_PREFERENCE,
     HAPTIC_FEEDBACK_ENABLED,
@@ -140,6 +141,20 @@ sealed interface SettingValueContract {
             )
     }
 
+    data object CalendarHeatmapThresholdsText : SettingValueContract {
+        override fun parse(
+            storageKey: String,
+            value: String,
+        ): SettingValue =
+            SettingValue.Text(
+                requireSupportedText(
+                    storageKey = storageKey,
+                    value = value,
+                    isSupported = { CalendarHeatmapThresholds.parseStorageValueOrNull(it) != null },
+                ),
+            )
+    }
+
     data object FontPreferenceText : SettingValueContract {
         override fun parse(
             storageKey: String,
@@ -179,6 +194,14 @@ object SettingsCatalog {
                 valueContract = SettingValueContract.ThemeModeText,
                 facet = SettingsFacet.DISPLAY,
                 snapshotField = AppPreferenceSnapshotField.THEME_MODE,
+            ),
+            text(
+                id = "display.calendarHeatmapThresholds",
+                storageKey = "calendar_heatmap_thresholds",
+                defaultValue = PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS,
+                valueContract = SettingValueContract.CalendarHeatmapThresholdsText,
+                facet = SettingsFacet.DISPLAY,
+                snapshotField = AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS,
             ),
             text(
                 id = "display.colorSource",
@@ -333,6 +356,10 @@ object SettingsCatalog {
             dateFormat = valuesByField.requireText(fields, AppPreferenceSnapshotField.DATE_FORMAT),
             timeFormat = valuesByField.requireText(fields, AppPreferenceSnapshotField.TIME_FORMAT),
             themeMode = ThemeMode.fromValue(valuesByField.requireText(fields, AppPreferenceSnapshotField.THEME_MODE)),
+            calendarHeatmapThresholds =
+                CalendarHeatmapThresholds.parseStorageValue(
+                    valuesByField.requireText(fields, AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS),
+                ),
             colorSource =
                 ColorSource.fromStorageValue(
                     valuesByField.requireText(fields, AppPreferenceSnapshotField.COLOR_SOURCE),

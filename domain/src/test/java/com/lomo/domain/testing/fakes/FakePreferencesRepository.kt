@@ -1,6 +1,7 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoActionPreferencesRepository
@@ -13,6 +14,7 @@ class FakePreferencesRepository : PreferencesRepository {
     private val dateFormat = MutableStateFlow("yyyy_MM_dd")
     private val timeFormat = MutableStateFlow("HH:mm:ss")
     private val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    private val calendarHeatmapThresholds = MutableStateFlow(CalendarHeatmapThresholds.default())
     private val colorSource = MutableStateFlow<ColorSource>(ColorSource.default())
     private val colorHistory = MutableStateFlow<List<Int>>(emptyList())
     private val fontPreference = MutableStateFlow<FontPreference>(FontPreference.default())
@@ -64,6 +66,13 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setThemeMode(mode: ThemeMode) {
         themeMode.value = mode
+    }
+
+    override fun getCalendarHeatmapThresholds(): Flow<CalendarHeatmapThresholds> =
+        calendarHeatmapThresholds.asStateFlow()
+
+    override suspend fun setCalendarHeatmapThresholds(thresholds: CalendarHeatmapThresholds) {
+        calendarHeatmapThresholds.value = thresholds
     }
 
     override fun getColorSource(): Flow<ColorSource> = colorSource.asStateFlow()

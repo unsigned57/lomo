@@ -3,6 +3,7 @@ package com.lomo.app.feature.preferences
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.domain.model.AppPreferenceSnapshot
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.ThemeMode
@@ -28,6 +29,7 @@ data class AppPreferencesState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
     val fontPreference: FontPreference,
     val customFontPath: String?,
@@ -93,6 +95,7 @@ private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontReso
         dateFormat = dateFormat,
         timeFormat = timeFormat,
         themeMode = themeMode,
+        calendarHeatmapThresholds = calendarHeatmapThresholds,
         colorSource = colorSource,
         fontPreference = fontResolution.preference,
         customFontPath = fontResolution.resolvedPath,

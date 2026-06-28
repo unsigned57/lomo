@@ -28,10 +28,22 @@
  *
  * Excludes:
  * - Compose rendering, Android resources, popup animation, and domain statistics calculation.
+ *
+ * Test Change Justification:
+ * - Reason category: Display policy contract extraction.
+ * - Old behavior/assertion being replaced: heatmap intensity tests called resolveHeatmapIntensity
+ *   without thresholds, proving only the old hard-coded 1/3/6 component policy.
+ * - Why old assertion is no longer correct: calendar heatmap intensity now belongs to the domain
+ *   threshold preference, so callers must pass the configured thresholds explicitly.
+ * - Coverage preserved by: the same default count-to-intensity matrix is asserted through
+ *   CalendarHeatmapThresholds.default().
+ * - Why this is not fitting the test to the implementation: the test verifies the public policy
+ *   input and observable intensity output rather than the internals of color selection.
  */
 
 package com.lomo.ui.component.stats
 
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
@@ -99,6 +111,8 @@ class StatsChartPolicyTest : UiComponentsFunSpec() {
         }
 
         test("heatmap intensity thresholds are explicit display policy") {
+            val thresholds = CalendarHeatmapThresholds.default()
+
             mapOf(
                 0 to HeatmapIntensity.Empty,
                 1 to HeatmapIntensity.Level1,
@@ -109,7 +123,7 @@ class StatsChartPolicyTest : UiComponentsFunSpec() {
                 7 to HeatmapIntensity.Level4,
             ).forEach { (count, expectedIntensity) ->
                 withClue("count=$count") {
-                    resolveHeatmapIntensity(count) shouldBe expectedIntensity
+                    resolveHeatmapIntensity(count, thresholds) shouldBe expectedIntensity
                 }
             }
         }

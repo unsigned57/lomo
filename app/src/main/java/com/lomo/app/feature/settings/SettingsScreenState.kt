@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.S3EncryptionMode
@@ -41,6 +42,7 @@ data class DisplaySectionState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
     val fontPreference: FontPreference,
     val availableCustomFonts: ImmutableList<CustomFontInfo> = persistentListOf(),

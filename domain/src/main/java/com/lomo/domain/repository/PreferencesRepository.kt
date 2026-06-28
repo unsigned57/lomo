@@ -1,6 +1,7 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceValueCodecs
 import com.lomo.domain.model.ThemeMode
@@ -18,6 +19,10 @@ interface DateTimePreferencesRepository {
     fun getThemeMode(): Flow<ThemeMode>
 
     suspend fun setThemeMode(mode: ThemeMode)
+
+    fun getCalendarHeatmapThresholds(): Flow<CalendarHeatmapThresholds>
+
+    suspend fun setCalendarHeatmapThresholds(thresholds: CalendarHeatmapThresholds)
 }
 
 interface StoragePreferencesRepository {

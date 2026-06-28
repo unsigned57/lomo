@@ -1,15 +1,34 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.component.dialog.SelectionDialog
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -67,6 +86,15 @@ internal fun DisplayPreferenceDialogs(
             dialogState.showLanguageDialog = false
         },
         labelProvider = { options.languageLabels[it] ?: it },
+    )
+    CalendarHeatmapThresholdPreferenceDialog(
+        visible = dialogState.showCalendarHeatmapThresholdsDialog,
+        currentThresholds = uiState.display.calendarHeatmapThresholds,
+        onDismiss = { dialogState.showCalendarHeatmapThresholdsDialog = false },
+        onSave = { thresholds ->
+            displayFeature.updateCalendarHeatmapThresholds(thresholds)
+            dialogState.showCalendarHeatmapThresholdsDialog = false
+        },
     )
 }
 
@@ -210,6 +238,164 @@ private fun MigrationPasswordDialog(
             }
         },
     )
+}
+
+@Composable
+private fun CalendarHeatmapThresholdPreferenceDialog(
+    visible: Boolean,
+    currentThresholds: CalendarHeatmapThresholds,
+    onDismiss: () -> Unit,
+    onSave: (CalendarHeatmapThresholds) -> Unit,
+) {
+    if (!visible) {
+        return
+    }
+
+    var input by remember(currentThresholds, visible) {
+        mutableStateOf(currentThresholds.toCalendarHeatmapThresholdEditorInput())
+    }
+    val editorState = remember(input) { resolveCalendarHeatmapThresholdEditorState(input) }
+    val parsedThresholds = editorState.thresholds
+    val rangeThresholds =
+        if (parsedThresholds != null) {
+            parsedThresholds
+        } else {
+            currentThresholds
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_calendar_heatmap_thresholds_dialog_title)) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CalendarHeatmapThresholdRanges(thresholds = rangeThresholds)
+                CalendarHeatmapBoundaryControl(
+                    label = stringResource(R.string.settings_heatmap_threshold_level1),
+                    value = input.level1Max,
+                    onValueChange = { value -> input = input.copy(level1Max = value) },
+                )
+                CalendarHeatmapBoundaryControl(
+                    label = stringResource(R.string.settings_heatmap_threshold_level2),
+                    value = input.level2Max,
+                    onValueChange = { value -> input = input.copy(level2Max = value) },
+                )
+                CalendarHeatmapBoundaryControl(
+                    label = stringResource(R.string.settings_heatmap_threshold_level3),
+                    value = input.level3Max,
+                    onValueChange = { value -> input = input.copy(level3Max = value) },
+                )
+                editorState.validationError?.let { error ->
+                    Text(
+                        text = calendarHeatmapThresholdErrorLabel(error),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = editorState.canSave,
+                onClick = {
+                    editorState.thresholds?.let(onSave)
+                },
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun CalendarHeatmapThresholdRanges(thresholds: CalendarHeatmapThresholds) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for (label in calendarHeatmapThresholdRangeLabels(thresholds)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalendarHeatmapBoundaryControl(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        IconButton(
+            onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = -1)) },
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Remove,
+                contentDescription = stringResource(R.string.cd_heatmap_threshold_decrement),
+            )
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.width(80.dp),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+        IconButton(
+            onClick = { onValueChange(stepCalendarHeatmapThresholdValue(value, delta = 1)) },
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = stringResource(R.string.cd_heatmap_threshold_increment),
+            )
+        }
+    }
+}
+
+@Composable
+private fun calendarHeatmapThresholdErrorLabel(error: CalendarHeatmapThresholdValidationError): String =
+    when (error) {
+        CalendarHeatmapThresholdValidationError.NON_NUMERIC ->
+            stringResource(R.string.settings_heatmap_threshold_error_non_numeric)
+        CalendarHeatmapThresholdValidationError.OUT_OF_RANGE ->
+            stringResource(
+                R.string.settings_heatmap_threshold_error_out_of_range,
+                CalendarHeatmapThresholds.MIN_THRESHOLD,
+                CalendarHeatmapThresholds.MAX_THRESHOLD,
+            )
+        CalendarHeatmapThresholdValidationError.NOT_STRICTLY_INCREASING ->
+            stringResource(R.string.settings_heatmap_threshold_error_increasing)
+    }
+
+private fun stepCalendarHeatmapThresholdValue(
+    value: String,
+    delta: Int,
+): String {
+    val current = value.trim().toIntOrNull()
+    if (current == null) {
+        return value
+    }
+    return (current + delta)
+        .coerceIn(CalendarHeatmapThresholds.MIN_THRESHOLD, CalendarHeatmapThresholds.MAX_THRESHOLD)
+        .toString()
 }
 
 @Composable

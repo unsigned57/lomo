@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
@@ -65,6 +66,11 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .getThemeMode()
             .stateIn(scope, settingsWhileSubscribed(), ThemeMode.SYSTEM)
+
+    val calendarHeatmapThresholds: StateFlow<CalendarHeatmapThresholds> =
+        appConfigRepository
+            .getCalendarHeatmapThresholds()
+            .stateIn(scope, settingsWhileSubscribed(), CalendarHeatmapThresholds.default())
 
     val colorSource: StateFlow<ColorSource> =
         appConfigRepository
@@ -280,6 +286,9 @@ class SettingsAppConfigCoordinator(
 
     val updateThemeMode: suspend (ThemeMode) -> Unit =
         { mode -> appConfigRepository.setThemeMode(mode) }
+
+    val updateCalendarHeatmapThresholds: suspend (CalendarHeatmapThresholds) -> Unit =
+        { thresholds -> appConfigRepository.setCalendarHeatmapThresholds(thresholds) }
 
     val updateColorSource: suspend (ColorSource) -> Unit =
         { source -> appConfigRepository.setColorSource(source) }

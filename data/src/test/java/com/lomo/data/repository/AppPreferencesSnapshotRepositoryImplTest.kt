@@ -9,6 +9,7 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.AppPreferenceSnapshot
 import com.lomo.domain.model.AppPreferenceSnapshotField
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
@@ -17,6 +18,7 @@ import com.lomo.domain.model.SettingValue
 import com.lomo.domain.model.SettingsCatalog
 import com.lomo.domain.model.SettingsReadModel
 import com.lomo.domain.model.ThemeMode
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +52,17 @@ import java.nio.file.Files
  * Excludes:
  * - UI mapping, custom font file resolution, migration archive transactions, and provider
  *   credential settings.
+ *
+ * Test Change Justification:
+ * - Reason category: Preference snapshot contract expansion.
+ * - Old behavior/assertion being replaced: snapshot tests asserted date, time, theme, and other
+ *   existing app preferences without including calendar heatmap thresholds.
+ * - Why old assertion is no longer correct: calendar heatmap thresholds are now a typed
+ *   app-preference field and malformed persisted values must surface instead of falling back.
+ * - Coverage preserved by: the previous snapshot fields remain asserted, with added assertions
+ *   for threshold read/write, catalog-keyed mapping, defaults, and invalid persisted input.
+ * - Why this is not fitting the test to the implementation: the assertions exercise the repository
+ *   contract at the DataStore boundary and the catalog descriptor parser, not private mapping code.
  */
 class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
     init {
@@ -61,6 +74,9 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 dataStore.updateDateFormat("MM/dd/yyyy")
                 dataStore.updateTimeFormat("HH:mm")
                 dataStore.updateThemeMode(ThemeMode.DARK.value)
+                dataStore.updateCalendarHeatmapThresholds(
+                    CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9).storageValue,
+                )
                 dataStore.updateColorSource(ColorSource.Preset(ColorPresetId.OCEAN).storageValue)
                 dataStore.updateFontPreference(FontPreference.SystemDefault.storageValue)
                 dataStore.updateHapticFeedbackEnabled(false)
@@ -88,6 +104,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                         dateFormat = "MM/dd/yyyy",
                         timeFormat = "HH:mm",
                         themeMode = ThemeMode.DARK,
+                        calendarHeatmapThresholds = CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9),
                         colorSource = ColorSource.Preset(ColorPresetId.OCEAN),
                         fontPreference = FontPreference.SystemDefault,
                         hapticFeedbackEnabled = false,
@@ -121,6 +138,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 snapshot.dateFormat shouldBe expectedDefaults.dateFormat
                 snapshot.timeFormat shouldBe expectedDefaults.timeFormat
                 snapshot.themeMode shouldBe expectedDefaults.themeMode
+                snapshot.calendarHeatmapThresholds shouldBe expectedDefaults.calendarHeatmapThresholds
                 snapshot.colorSource shouldBe expectedDefaults.colorSource
                 snapshot.fontPreference shouldBe expectedDefaults.fontPreference
                 snapshot.memoActionOrder shouldContainExactly emptyList()
@@ -166,6 +184,32 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 snapshot shouldBe SettingsCatalog.appPreferenceSnapshotFrom(catalogValues)
             }
         }
+
+        test("given invalid persisted heatmap thresholds when snapshot is observed then the invalid setting is exposed") {
+            runTest {
+                val rawDataStore =
+                    PreferenceDataStoreFactory.create(
+                        scope = backgroundScope,
+                        produceFile = { createBackingFile() },
+                    )
+                val dataStore = createLomoDataStore(rawDataStore)
+                val repository = AppPreferencesSnapshotRepositoryImpl(dataStore)
+                val heatmapDescriptor =
+                    SettingsCatalog
+                        .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
+                        .single { descriptor ->
+                            descriptor.snapshotField == AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS
+                        }
+
+                rawDataStore.edit { preferences ->
+                    preferences[stringPreferencesKey(heatmapDescriptor.storageKey)] = "1,1,6"
+                }
+
+                shouldThrow<IllegalArgumentException> {
+                    repository.observeAppPreferenceSnapshot().first()
+                }
+            }
+        }
     }
 
     private fun createLomoDataStore(scope: CoroutineScope): LomoDataStore {
@@ -195,6 +239,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
             AppPreferenceSnapshotField.DATE_FORMAT -> SettingValue.Text("dd/MM/yyyy")
             AppPreferenceSnapshotField.TIME_FORMAT -> SettingValue.Text("HH:mm")
             AppPreferenceSnapshotField.THEME_MODE -> SettingValue.Text(ThemeMode.DARK.value)
+            AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS -> SettingValue.Text("2,5,9")
             AppPreferenceSnapshotField.COLOR_SOURCE -> SettingValue.Text(ColorSource.Preset(ColorPresetId.OCEAN).storageValue)
             AppPreferenceSnapshotField.FONT_PREFERENCE -> SettingValue.Text(FontPreference.SystemDefault.storageValue)
             AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED -> SettingValue.Bool(false)

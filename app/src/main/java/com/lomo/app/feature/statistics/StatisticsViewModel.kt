@@ -2,7 +2,9 @@ package com.lomo.app.feature.statistics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.UiState
+import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.usecase.MemoStatisticsUseCase
@@ -27,6 +29,7 @@ class StatisticsViewModel
     constructor(
         private val memoStatisticsUseCase: MemoStatisticsUseCase,
         private val persistShareImageUseCase: PersistShareImageUseCase,
+        appConfigStateProvider: AppConfigStateProvider,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<MemoStatistics>>(UiState.Loading)
         val uiState: StateFlow<UiState<MemoStatistics>> = _uiState.asStateFlow()
@@ -34,6 +37,7 @@ class StatisticsViewModel
         val shareImageEvent: StateFlow<StatisticsShareImageEvent?> = _shareImageEvent.asStateFlow()
         private val _shareErrorMessage = MutableStateFlow<String?>(null)
         val shareErrorMessage: StateFlow<String?> = _shareErrorMessage.asStateFlow()
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
         private var nextShareEventId = 0L
         private var hasLoaded = false
 

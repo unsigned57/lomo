@@ -105,6 +105,27 @@
     <string name="settings_typography_preview_zh_2">文字间距影响词句的紧凑程度，行间距决定段落的呼吸感，段间距则为不同思想之间留出停顿的空间。调整这些参数，找到最适合你的阅读体验。</string>
     <string name="settings_date_format">Date Format</string>
     <string name="settings_time_format">Time Format</string>
+    <string name="settings_group_heatmap">Heatmap</string>
+    <string name="settings_calendar_heatmap_thresholds">Calendar heatmap thresholds</string>
+    <string name="settings_calendar_heatmap_thresholds_dialog_title">Edit heatmap thresholds</string>
+    <string name="settings_heatmap_threshold_level1">Light max</string>
+    <string name="settings_heatmap_threshold_level2">Medium max</string>
+    <string name="settings_heatmap_threshold_level3">Darker max</string>
+    <string name="settings_heatmap_threshold_error_non_numeric">Enter whole numbers for all thresholds.</string>
+    <string name="settings_heatmap_threshold_error_out_of_range">Valid range: %1$d..%2$d.</string>
+    <string name="settings_heatmap_threshold_error_increasing">Thresholds must increase from light to darker.</string>
+    <string name="settings_heatmap_range_separator">, </string>
+    <string name="settings_heatmap_range_empty">0 notes: %1$s</string>
+    <string name="settings_heatmap_range_single">Count %1$d: %2$s</string>
+    <string name="settings_heatmap_range_bounded">Counts %1$d..%2$d: %3$s</string>
+    <string name="settings_heatmap_range_unbounded">Counts %1$d+: %2$s</string>
+    <string name="settings_heatmap_tone_blank">blank</string>
+    <string name="settings_heatmap_tone_light">light</string>
+    <string name="settings_heatmap_tone_medium">medium</string>
+    <string name="settings_heatmap_tone_darker">darker</string>
+    <string name="settings_heatmap_tone_darkest">darkest</string>
+    <string name="cd_heatmap_threshold_decrement">Decrease threshold</string>
+    <string name="cd_heatmap_threshold_increment">Increase threshold</string>
     
     <!-- Interaction Group -->
     <string name="settings_group_interaction">Interaction</string>

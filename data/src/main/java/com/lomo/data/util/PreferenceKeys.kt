@@ -27,6 +27,7 @@ object PreferenceKeys {
     const val DATE_FORMAT = "date_format_only"
     const val TIME_FORMAT = "time_format_only"
     const val THEME_MODE = "theme_mode"
+    const val CALENDAR_HEATMAP_THRESHOLDS = "calendar_heatmap_thresholds"
     const val COLOR_SOURCE = "color_source"
     const val COLOR_HISTORY = "color_history"
     const val FONT_PREFERENCE = "font_preference"
@@ -127,6 +128,7 @@ object PreferenceKeys {
         const val LAN_SHARE_ENABLED = PreferenceDefaults.LAN_SHARE_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
+        const val CALENDAR_HEATMAP_THRESHOLDS = PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS
         const val COLOR_SOURCE = PreferenceDefaults.COLOR_SOURCE
         const val FONT_PREFERENCE = PreferenceDefaults.FONT_PREFERENCE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME

@@ -43,6 +43,7 @@ import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.util.activityHiltViewModel
 import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoRevision
@@ -63,7 +64,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
 internal const val MAIN_SCREEN_FAB_VISIBILITY_THRESHOLD = 0.9f
-internal const val MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION = 0.8f
+internal const val MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION = 0.85f
 internal const val NEW_MEMO_REVEAL_TIMEOUT_MS = 5_000L
 
 internal data class MainScreenDependencies(
@@ -292,6 +293,7 @@ internal data class MainScreenUiSnapshot(
     val sidebarUiState: SidebarViewModel.SidebarUiState,
     val dateFormat: String,
     val timeFormat: String,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
