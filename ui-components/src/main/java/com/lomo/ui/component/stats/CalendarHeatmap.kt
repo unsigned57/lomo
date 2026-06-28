@@ -22,6 +22,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.domain.model.CalendarHeatmapIntensity
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
 import java.time.LocalDate
@@ -31,8 +33,8 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
-private val HEATMAP_CELL_SIZE = 10.dp
-private val HEATMAP_CELL_SPACING = 3.dp
+private val HEATMAP_CELL_SIZE = 12.dp
+private val HEATMAP_CELL_SPACING = 4.dp
 internal val HEATMAP_MONTH_LABEL_HEIGHT = 14.dp
 private val HEATMAP_CELL_CORNER_RADIUS = 2.dp
 private const val HEATMAP_EMPTY_ALPHA = 0.5f
@@ -43,9 +45,6 @@ internal val HEATMAP_POPUP_MARGIN = 4.dp
 internal val HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING = 12.dp
 internal val HEATMAP_POPUP_CONTENT_VERTICAL_PADDING = 8.dp
 internal val HEATMAP_POPUP_TEXT_SPACING = 2.dp
-internal const val HEATMAP_LEVEL_ONE_MAX = 1
-internal const val HEATMAP_LEVEL_TWO_MAX = 3
-internal const val HEATMAP_LEVEL_THREE_MAX = 6
 private const val PREVIEW_DAY_RANGE = 120
 private const val PREVIEW_LEVEL_FOUR_INTERVAL = 17
 private const val PREVIEW_LEVEL_THREE_INTERVAL = 9
@@ -61,6 +60,7 @@ private val PREVIEW_TODAY: LocalDate = LocalDate.of(2026, 5, 22)
 fun CalendarHeatmap(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     today: LocalDate,
+    thresholds: CalendarHeatmapThresholds,
     modifier: Modifier = Modifier,
     onDateLongPress: (LocalDate) -> Unit = {},
 ) {
@@ -100,6 +100,7 @@ fun CalendarHeatmap(
         horizontalScrollState = horizontalScrollState,
         selectedDate = selectedDate,
         popupOffset = popupOffset,
+        thresholds = thresholds,
         memoCountByDate = memoCountByDate,
         dateFormatter = dateFormatter,
         onSelect = { hit ->
@@ -193,13 +194,16 @@ internal fun resolveCalendarHeatmapWindow(
     )
 }
 
-internal fun resolveHeatmapIntensity(count: Int): HeatmapIntensity =
-    when {
-        count <= 0 -> HeatmapIntensity.Empty
-        count <= HEATMAP_LEVEL_ONE_MAX -> HeatmapIntensity.Level1
-        count <= HEATMAP_LEVEL_TWO_MAX -> HeatmapIntensity.Level2
-        count <= HEATMAP_LEVEL_THREE_MAX -> HeatmapIntensity.Level3
-        else -> HeatmapIntensity.Level4
+internal fun resolveHeatmapIntensity(
+    count: Int,
+    thresholds: CalendarHeatmapThresholds,
+): HeatmapIntensity =
+    when (thresholds.intensityForCount(count)) {
+        CalendarHeatmapIntensity.Empty -> HeatmapIntensity.Empty
+        CalendarHeatmapIntensity.Level1 -> HeatmapIntensity.Level1
+        CalendarHeatmapIntensity.Level2 -> HeatmapIntensity.Level2
+        CalendarHeatmapIntensity.Level3 -> HeatmapIntensity.Level3
+        CalendarHeatmapIntensity.Level4 -> HeatmapIntensity.Level4
     }
 
 @Composable
@@ -376,6 +380,7 @@ private fun CalendarHeatmapPreview() {
             CalendarHeatmap(
                 memoCountByDate = sampleMemoCountByDate.toImmutableMap(),
                 today = today,
+                thresholds = CalendarHeatmapThresholds.default(),
                 modifier = Modifier.width(320.dp),
             )
         }

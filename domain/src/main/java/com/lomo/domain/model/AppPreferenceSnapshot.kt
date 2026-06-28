@@ -4,6 +4,7 @@ data class AppPreferenceSnapshot(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     val colorSource: ColorSource,
     val fontPreference: FontPreference,
     val hapticFeedbackEnabled: Boolean,

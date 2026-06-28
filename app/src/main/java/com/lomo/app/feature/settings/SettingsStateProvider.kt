@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.ColorSource
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.WebDavProvider
@@ -50,6 +51,13 @@ class SettingsStateProvider(
         val lanShare: LanShareSectionState,
         val shareCard: ShareCardSectionState,
         val snapshot: SnapshotSectionState,
+    )
+
+    private data class DisplayPrimaryState(
+        val dateFormat: String,
+        val timeFormat: String,
+        val themeMode: com.lomo.domain.model.ThemeMode,
+        val calendarHeatmapThresholds: CalendarHeatmapThresholds,
     )
 
     private data class CoreUiSections(
@@ -121,9 +129,19 @@ class SettingsStateProvider(
 
     private val displayState: StateFlow<DisplaySectionState> =
         combine(
-            appConfigCoordinator.dateFormat,
-            appConfigCoordinator.timeFormat,
-            appConfigCoordinator.themeMode,
+            combine(
+                appConfigCoordinator.dateFormat,
+                appConfigCoordinator.timeFormat,
+                appConfigCoordinator.themeMode,
+                appConfigCoordinator.calendarHeatmapThresholds,
+            ) { dateFormat, timeFormat, themeMode, calendarHeatmapThresholds ->
+                DisplayPrimaryState(
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    themeMode = themeMode,
+                    calendarHeatmapThresholds = calendarHeatmapThresholds,
+                )
+            },
             combine(
                 appConfigCoordinator.colorSource,
                 appConfigCoordinator.fontPreference,
@@ -145,11 +163,12 @@ class SettingsStateProvider(
             ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
                 floatArrayOf(fontSize, lineHeight, letterSpacing, paragraphSpacing)
             }
-        ) { dateFormat, timeFormat, themeMode, sources, typography ->
+        ) { primary, sources, typography ->
             DisplaySectionState(
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                themeMode = themeMode,
+                dateFormat = primary.dateFormat,
+                timeFormat = primary.timeFormat,
+                themeMode = primary.themeMode,
+                calendarHeatmapThresholds = primary.calendarHeatmapThresholds,
                 colorSource = sources.colorSource,
                 fontPreference = sources.fontPreference,
                 availableCustomFonts = sources.customFonts.toImmutableList(),
@@ -167,6 +186,7 @@ class SettingsStateProvider(
                     dateFormat = appConfigCoordinator.dateFormat.value,
                     timeFormat = appConfigCoordinator.timeFormat.value,
                     themeMode = appConfigCoordinator.themeMode.value,
+                    calendarHeatmapThresholds = appConfigCoordinator.calendarHeatmapThresholds.value,
                     colorSource = appConfigCoordinator.colorSource.value,
                     fontPreference = appConfigCoordinator.fontPreference.value,
                     availableCustomFonts = appConfigCoordinator.availableCustomFonts.value.toImmutableList(),

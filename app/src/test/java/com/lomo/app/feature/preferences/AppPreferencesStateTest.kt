@@ -21,6 +21,7 @@ import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import io.kotest.matchers.shouldBe
@@ -55,6 +56,8 @@ class AppPreferencesStateTest : AppFunSpec() {
                 appConfigRepository.setDateFormat("yyyy-MM-dd")
                 appConfigRepository.setTimeFormat("HH:mm")
                 appConfigRepository.setThemeModeNow(ThemeMode.DARK)
+                val thresholds = CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9)
+                appConfigRepository.setCalendarHeatmapThresholds(thresholds)
                 appConfigRepository.setHapticFeedbackEnabled(false)
                 appConfigRepository.setShowInputHintsEnabled(true)
                 appConfigRepository.setDoubleTapEditEnabled(false)
@@ -81,6 +84,7 @@ class AppPreferencesStateTest : AppFunSpec() {
                 state.dateFormat shouldBe "yyyy-MM-dd"
                 state.timeFormat shouldBe "HH:mm"
                 state.themeMode shouldBe ThemeMode.DARK
+                state.calendarHeatmapThresholds shouldBe thresholds
                 state.hapticFeedbackEnabled shouldBe false
                 state.showInputHints shouldBe true
                 state.doubleTapEditEnabled shouldBe false

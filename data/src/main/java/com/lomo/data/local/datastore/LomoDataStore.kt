@@ -82,6 +82,7 @@ interface LomoDisplayPreferencesStore {
     val dateFormat: Flow<String>
     val timeFormat: Flow<String>
     val themeMode: Flow<String>
+    val calendarHeatmapThresholds: Flow<String>
     val colorSource: Flow<String>
     val fontPreference: Flow<String>
     val colorHistory: Flow<String>
@@ -91,6 +92,8 @@ interface LomoDisplayPreferencesStore {
     suspend fun updateTimeFormat(format: String)
 
     suspend fun updateThemeMode(mode: String)
+
+    suspend fun updateCalendarHeatmapThresholds(thresholds: String)
 
     suspend fun updateColorSource(source: String)
 
@@ -528,6 +531,7 @@ internal object LomoDataStoreKeys {
     val DATE_FORMAT = stringPreferencesKey(PreferenceKeys.DATE_FORMAT)
     val TIME_FORMAT = stringPreferencesKey(PreferenceKeys.TIME_FORMAT)
     val THEME_MODE = stringPreferencesKey(PreferenceKeys.THEME_MODE)
+    val CALENDAR_HEATMAP_THRESHOLDS = stringPreferencesKey(PreferenceKeys.CALENDAR_HEATMAP_THRESHOLDS)
     val COLOR_SOURCE = stringPreferencesKey(PreferenceKeys.COLOR_SOURCE)
     val COLOR_HISTORY = stringPreferencesKey(PreferenceKeys.COLOR_HISTORY)
     val FONT_PREFERENCE = stringPreferencesKey(PreferenceKeys.FONT_PREFERENCE)

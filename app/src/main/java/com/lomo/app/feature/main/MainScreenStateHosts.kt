@@ -87,6 +87,7 @@ internal fun collectMainScreenUiSnapshot(
         sidebarUiState = sidebarUiState,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
+        calendarHeatmapThresholds = appPreferences.calendarHeatmapThresholds,
         showInputHints = appPreferences.showInputHints,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,

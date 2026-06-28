@@ -20,6 +20,7 @@ package com.lomo.app.feature.settings
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.PreferenceDefaults
@@ -225,6 +226,10 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
 
                 coordinator.updateThemeMode(ThemeMode.DARK)
                 appConfigRepository.getThemeMode().first() shouldBe ThemeMode.DARK
+
+                val thresholds = CalendarHeatmapThresholds.of(level1Max = 2, level2Max = 5, level3Max = 9)
+                coordinator.updateCalendarHeatmapThresholds(thresholds)
+                appConfigRepository.getCalendarHeatmapThresholds().first() shouldBe thresholds
 
                 coordinator.updateStorageFilenameFormat("yyyyMMdd")
                 appConfigRepository.getStorageFilenameFormat().first() shouldBe "yyyyMMdd"

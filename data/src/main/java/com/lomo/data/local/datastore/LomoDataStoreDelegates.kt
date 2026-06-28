@@ -170,6 +170,13 @@ internal class DisplayPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.COLOR_SOURCE,
         )
 
+    override val calendarHeatmapThresholds: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.CALENDAR_HEATMAP_THRESHOLDS,
+            flowName = "calendarHeatmapThresholds",
+            default = PreferenceKeys.Defaults.CALENDAR_HEATMAP_THRESHOLDS,
+        )
+
     override val fontPreference: Flow<String> =
         dataStore.stringFlow(
             key = LomoDataStoreKeys.FONT_PREFERENCE,
@@ -194,6 +201,10 @@ internal class DisplayPreferencesStoreImpl(
 
     override suspend fun updateThemeMode(mode: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.THEME_MODE] = mode }
+    }
+
+    override suspend fun updateCalendarHeatmapThresholds(thresholds: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.CALENDAR_HEATMAP_THRESHOLDS] = thresholds }
     }
 
     override suspend fun updateColorSource(source: String) {

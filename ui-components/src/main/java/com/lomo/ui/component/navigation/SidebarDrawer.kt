@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.theme.AppSpacing
@@ -119,11 +120,11 @@ sealed interface SidebarDestination {
 
 @Composable
 fun SidebarDrawer(
-    username: String,
     stats: SidebarStats,
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     today: LocalDate,
     tags: ImmutableList<SidebarTag>,
+    calendarHeatmapThresholds: CalendarHeatmapThresholds,
     modifier: Modifier = Modifier,
     rootTagOrder: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
     currentDestination: SidebarDestination = SidebarDestination.Memo,
@@ -167,26 +168,24 @@ fun SidebarDrawer(
         contentPadding = PaddingValues(AppSpacing.Medium),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
-        sidebarHeader(
-            username = username,
-            onSettingsClick = onSettingsClick,
-            settingsAnchorTag = settingsAnchorTag,
-        )
-        sidebarStats(stats = stats)
         sidebarHeatmap(
             memoCountByDate = memoCountByDate,
             today = today,
+            thresholds = calendarHeatmapThresholds,
             onDateLongPress = onHeatmapDateLongPress,
         )
+        sidebarStats(stats = stats)
         sidebarDestinations(
             isTrashSelected = isTrashSelected,
             isDailyReviewSelected = isDailyReviewSelected,
             isGallerySelected = isGallerySelected,
             isStatisticsSelected = isStatisticsSelected,
+            onSettingsClick = onSettingsClick,
             onTrashClick = onTrashClick,
             onDailyReviewClick = onDailyReviewClick,
             onGalleryClick = onGalleryClick,
             onStatisticsClick = onStatisticsClick,
+            settingsAnchorTag = settingsAnchorTag,
             trashAnchorTag = trashAnchorTag,
         )
         sidebarTags(
@@ -249,35 +248,6 @@ private fun NavigationItem(
     )
 }
 
-private fun LazyListScope.sidebarHeader(
-    username: String,
-    onSettingsClick: () -> Unit,
-    settingsAnchorTag: String?,
-) {
-    item {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = username,
-                style = MaterialTheme.typography.titleLarge,
-            )
-            IconButton(
-                onClick = rememberMediumHapticClick(onSettingsClick),
-                modifier = Modifier.benchmarkAnchor(settingsAnchorTag),
-            ) {
-                Icon(
-                    Icons.Rounded.Settings,
-                    androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_settings),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(AppSpacing.Large))
-    }
-}
-
 private fun LazyListScope.sidebarStats(stats: SidebarStats) {
     item {
         Row(
@@ -304,12 +274,14 @@ private fun LazyListScope.sidebarStats(stats: SidebarStats) {
 private fun LazyListScope.sidebarHeatmap(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     today: LocalDate,
+    thresholds: CalendarHeatmapThresholds,
     onDateLongPress: (LocalDate) -> Unit,
 ) {
     item {
         CalendarHeatmap(
             memoCountByDate = memoCountByDate,
             today = today,
+            thresholds = thresholds,
             onDateLongPress = onDateLongPress,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -322,12 +294,23 @@ private fun LazyListScope.sidebarDestinations(
     isDailyReviewSelected: Boolean,
     isGallerySelected: Boolean,
     isStatisticsSelected: Boolean,
+    onSettingsClick: () -> Unit,
     onTrashClick: () -> Unit,
     onDailyReviewClick: () -> Unit,
     onGalleryClick: () -> Unit,
     onStatisticsClick: () -> Unit,
+    settingsAnchorTag: String?,
     trashAnchorTag: String?,
 ) {
+    item {
+        NavigationItem(
+            icon = Icons.Rounded.Settings,
+            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_settings),
+            isSelected = false,
+            anchorTag = settingsAnchorTag,
+            onClick = onSettingsClick,
+        )
+    }
     item {
         NavigationItem(
             icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
@@ -375,17 +358,6 @@ internal fun rememberLightHapticClick(onClick: () -> Unit): () -> Unit {
     }
 }
 
-@Composable
-private fun rememberMediumHapticClick(onClick: () -> Unit): () -> Unit {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    return remember(onClick, haptic) {
-        {
-            haptic.medium()
-            onClick()
-        }
-    }
-}
-
 @Preview(showBackground = true, widthDp = 360, heightDp = 780)
 @Composable
 private fun SidebarDrawerPreviewMemo() {
@@ -422,11 +394,11 @@ private fun SidebarDrawerPreviewMemo() {
 
     LomoTheme {
         SidebarDrawer(
-            username = "Lomo",
             stats = sampleStats,
             memoCountByDate = memoCountByDate.toImmutableMap(),
             today = today,
             tags = sampleTags.toImmutableList(),
+            calendarHeatmapThresholds = CalendarHeatmapThresholds.default(),
             currentDestination = SidebarDestination.Memo,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -459,7 +431,6 @@ private fun SidebarDrawerPreviewTagSelected() {
 
     LomoTheme {
         SidebarDrawer(
-            username = "Lomo",
             stats =
                 SidebarStats(
                     memoCount = PREVIEW_TAG_SELECTED_MEMO_COUNT,
@@ -469,6 +440,7 @@ private fun SidebarDrawerPreviewTagSelected() {
             memoCountByDate = memoCountByDate.toImmutableMap(),
             today = today,
             tags = sampleTags.toImmutableList(),
+            calendarHeatmapThresholds = CalendarHeatmapThresholds.default(),
             currentDestination = SidebarDestination.Tag("project/android"),
             modifier = Modifier.fillMaxWidth(),
         )

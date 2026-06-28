@@ -3,6 +3,7 @@ package com.lomo.app.feature.settings
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
@@ -162,6 +163,10 @@ class SettingsDisplayFeatureViewModel(
 
     fun updateThemeMode(mode: ThemeMode) {
         scope.launch { appConfigCoordinator.updateThemeMode(mode) }
+    }
+
+    val updateCalendarHeatmapThresholds: (CalendarHeatmapThresholds) -> Unit = { thresholds ->
+        scope.launch { appConfigCoordinator.updateCalendarHeatmapThresholds(thresholds) }
     }
 
     fun updateColorSource(source: ColorSource) {

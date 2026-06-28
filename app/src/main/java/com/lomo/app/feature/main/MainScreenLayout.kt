@@ -36,6 +36,7 @@ import com.lomo.ui.component.common.EnterAnimationRegistry
 import androidx.paging.compose.LazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
@@ -78,6 +79,7 @@ internal fun MainScreenNavigationRender(
         isExpanded = hostState.isExpanded,
         drawerState = hostState.drawerState,
         sidebarUiState = screenState.sidebarUiState,
+        calendarHeatmapThresholds = screenState.calendarHeatmapThresholds,
         actions = actions,
         snackbarHostState = hostState.snackbarHostState,
         scrollBehavior = hostState.scrollBehavior,
@@ -113,6 +115,7 @@ internal fun MainScreenRenderHost(
     isExpanded: Boolean,
     drawerState: androidx.compose.material3.DrawerState,
     sidebarUiState: SidebarViewModel.SidebarUiState,
+    calendarHeatmapThresholds: CalendarHeatmapThresholds,
     actions: MainScreenActions,
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
@@ -146,6 +149,7 @@ internal fun MainScreenRenderHost(
         sidebarContent = {
             MainScreenSidebarContent(
                 sidebarUiState = sidebarUiState,
+                calendarHeatmapThresholds = calendarHeatmapThresholds,
                 actions = actions,
                 onHeatmapDateLongPress = onHeatmapDateLongPress,
                 onTagReorder = onSidebarTagReorder,
@@ -215,16 +219,17 @@ private fun MainScreenDrawerLayout(
 @Composable
 private fun MainScreenSidebarContent(
     sidebarUiState: SidebarViewModel.SidebarUiState,
+    calendarHeatmapThresholds: CalendarHeatmapThresholds,
     actions: MainScreenActions,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onTagReorder: (List<String>) -> Unit,
 ) {
     SidebarDrawer(
-        username = "Lomo",
         stats = sidebarUiState.stats,
         memoCountByDate = sidebarUiState.memoCountByDate.toImmutableMap(),
         today = LocalDate.now(),
         tags = sidebarUiState.tags.toImmutableList(),
+        calendarHeatmapThresholds = calendarHeatmapThresholds,
         rootTagOrder = sidebarUiState.rootTagOrder.toImmutableList(),
         onTagClick = actions.onSidebarTagClick,
         onTagReorder = onTagReorder,

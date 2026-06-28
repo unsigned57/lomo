@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.StorageFilenameFormats
@@ -85,6 +86,13 @@ class DateTimePreferencesRepositoryImpl
 
         override suspend fun setThemeMode(mode: ThemeMode) {
             dataStore.updateThemeMode(mode.value)
+        }
+
+        override fun getCalendarHeatmapThresholds(): Flow<CalendarHeatmapThresholds> =
+            dataStore.calendarHeatmapThresholds.map(CalendarHeatmapThresholds::parseStorageValue)
+
+        override suspend fun setCalendarHeatmapThresholds(thresholds: CalendarHeatmapThresholds) {
+            dataStore.updateCalendarHeatmapThresholds(thresholds.storageValue)
         }
     }
 

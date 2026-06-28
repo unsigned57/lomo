@@ -99,6 +99,7 @@ class SettingsDialogState {
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)
     var showLanguageDialog by mutableStateOf(false)
+    var showCalendarHeatmapThresholdsDialog by mutableStateOf(false)
     var activeSubPage by mutableStateOf(SettingsSubPage.NONE)
     var showShareCardSignatureDialog by mutableStateOf(false)
     var shareCardSignatureInput by mutableStateOf("")

@@ -106,6 +106,27 @@
     <string name="settings_typography_preview_zh_2">文字间距影响词句的紧凑程度，行间距决定段落的呼吸感，段间距则为不同思想之间留出停顿的空间。调整这些参数，找到最适合你的阅读体验。</string>
     <string name="settings_date_format">日期格式</string>
     <string name="settings_time_format">时间格式</string>
+    <string name="settings_group_heatmap">热力图</string>
+    <string name="settings_calendar_heatmap_thresholds">日历热力图阈值</string>
+    <string name="settings_calendar_heatmap_thresholds_dialog_title">编辑热力图阈值</string>
+    <string name="settings_heatmap_threshold_level1">浅色上限</string>
+    <string name="settings_heatmap_threshold_level2">中等上限</string>
+    <string name="settings_heatmap_threshold_level3">较深上限</string>
+    <string name="settings_heatmap_threshold_error_non_numeric">请为所有阈值输入整数。</string>
+    <string name="settings_heatmap_threshold_error_out_of_range">有效范围：%1$d..%2$d。</string>
+    <string name="settings_heatmap_threshold_error_increasing">阈值必须从浅色到较深严格递增。</string>
+    <string name="settings_heatmap_range_separator">，</string>
+    <string name="settings_heatmap_range_empty">0 条：%1$s</string>
+    <string name="settings_heatmap_range_single">数量 %1$d：%2$s</string>
+    <string name="settings_heatmap_range_bounded">数量 %1$d..%2$d：%3$s</string>
+    <string name="settings_heatmap_range_unbounded">数量 %1$d+：%2$s</string>
+    <string name="settings_heatmap_tone_blank">空白</string>
+    <string name="settings_heatmap_tone_light">浅色</string>
+    <string name="settings_heatmap_tone_medium">中等</string>
+    <string name="settings_heatmap_tone_darker">较深</string>
+    <string name="settings_heatmap_tone_darkest">最深</string>
+    <string name="cd_heatmap_threshold_decrement">减小阈值</string>
+    <string name="cd_heatmap_threshold_increment">增大阈值</string>
     
     <!-- Interaction Group -->
     <string name="settings_group_interaction">交互</string>

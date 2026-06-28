@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
+import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
@@ -53,6 +55,7 @@ internal fun HeatmapInteractiveContent(
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     selectedDate: LocalDate?,
     popupOffset: Offset,
+    thresholds: CalendarHeatmapThresholds,
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     dateFormatter: DateTimeFormatter,
     onSelect: (HeatmapCellHit) -> Unit,
@@ -61,29 +64,49 @@ internal fun HeatmapInteractiveContent(
     onDismissPopup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    val visibleYear by remember(layout, density, horizontalScrollState) {
+        androidx.compose.runtime.derivedStateOf {
+            val weekWidthPx = layout.weekWidth
+            val scrollValue = horizontalScrollState.value
+            val visibleCol = if (weekWidthPx > 0f) (scrollValue / weekWidthPx).toInt().coerceAtLeast(0) else 0
+            val visibleDate = layout.startDay.plusWeeks(visibleCol.toLong())
+            visibleDate.year
+        }
+    }
+
+    Column(
         modifier = modifier.padding(vertical = 4.dp),
-        contentAlignment = Alignment.Center,
     ) {
-        HeatmapScrollableCanvas(
-            layout = layout,
-            colors = colors,
-            textPaint = textPaint,
-            density = density,
-            horizontalScrollState = horizontalScrollState,
-            selectedDate = selectedDate,
-            onSelect = onSelect,
-            onClearSelection = onClearSelection,
-            onLongPress = onLongPress,
+        Text(
+            text = "${visibleYear}年",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp)
         )
-        HeatmapSelectionPopup(
-            selectedDate = selectedDate,
-            memoCountByDate = memoCountByDate,
-            popupOffset = popupOffset,
-            dateFormatter = dateFormatter,
-            density = density,
-            onDismiss = onDismissPopup,
-        )
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            HeatmapScrollableCanvas(
+                layout = layout,
+                colors = colors,
+                textPaint = textPaint,
+                density = density,
+                horizontalScrollState = horizontalScrollState,
+                selectedDate = selectedDate,
+                thresholds = thresholds,
+                onSelect = onSelect,
+                onClearSelection = onClearSelection,
+                onLongPress = onLongPress,
+            )
+            HeatmapSelectionPopup(
+                selectedDate = selectedDate,
+                memoCountByDate = memoCountByDate,
+                popupOffset = popupOffset,
+                dateFormatter = dateFormatter,
+                density = density,
+                onDismiss = onDismissPopup,
+            )
+        }
     }
 }
 
@@ -95,6 +118,7 @@ private fun HeatmapScrollableCanvas(
     density: androidx.compose.ui.unit.Density,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     selectedDate: LocalDate?,
+    thresholds: CalendarHeatmapThresholds,
     onSelect: (HeatmapCellHit) -> Unit,
     onClearSelection: () -> Unit,
     onLongPress: (LocalDate) -> Unit,
@@ -126,7 +150,7 @@ private fun HeatmapScrollableCanvas(
         ) {
             Canvas(modifier = Modifier.fillMaxSize().then(gestureModifier)) {
                 drawHeatmapMonthLabels(layout, textPaint)
-                drawHeatmapCells(layout, colors, selectedDate)
+                drawHeatmapCells(layout, colors, selectedDate, thresholds)
             }
         }
     }
@@ -253,13 +277,14 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapCells(
     layout: HeatmapLayout,
     colors: HeatmapColors,
     selectedDate: LocalDate?,
+    thresholds: CalendarHeatmapThresholds,
 ) {
     layout.heatmapCells.forEach { cell ->
         val left = cell.week * layout.weekWidth
         val top = layout.monthLabelHeightPx + cell.day * layout.weekWidth
 
         drawRoundRect(
-            color = resolveHeatmapColor(cell.count, colors),
+            color = resolveHeatmapColor(cell.count, colors, thresholds),
             topLeft = Offset(left, top),
             size = Size(layout.cellSizePx, layout.cellSizePx),
             cornerRadius = CornerRadius(layout.cornerRadiusPx),
@@ -280,8 +305,9 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapCells(
 private fun resolveHeatmapColor(
     count: Int,
     colors: HeatmapColors,
+    thresholds: CalendarHeatmapThresholds,
 ): Color =
-    when (resolveHeatmapIntensity(count)) {
+    when (resolveHeatmapIntensity(count, thresholds)) {
         HeatmapIntensity.Empty -> colors.empty
         HeatmapIntensity.Level1 -> colors.level1
         HeatmapIntensity.Level2 -> colors.level2

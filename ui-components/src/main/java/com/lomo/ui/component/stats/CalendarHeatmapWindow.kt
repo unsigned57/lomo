@@ -37,7 +37,7 @@ internal fun buildMonthLabels(
                 labels +=
                     MonthLabel(
                         week = week,
-                        text = formatHeatmapMonthLabel(dateOfWeekStart, isFirstVisibleLabel = labels.isEmpty()),
+                        text = formatHeatmapMonthLabel(dateOfWeekStart),
                         year = dateOfWeekStart.year,
                     )
             }
@@ -80,12 +80,6 @@ internal fun buildHeatmapCells(
 
 private fun formatHeatmapMonthLabel(
     date: LocalDate,
-    isFirstVisibleLabel: Boolean,
 ): String {
-    val monthText = date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    return if (isFirstVisibleLabel || date.monthValue == 1) {
-        "${date.year} $monthText"
-    } else {
-        monthText
-    }
+    return date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
 }
