@@ -53,7 +53,7 @@ class RefreshMemosUseCaseTest : DomainFunSpec() {
     private val syncAndRebuildUseCase =
         SyncAndRebuildUseCase(
             memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-            syncProviderRegistry = SyncProviderRegistry(emptyList()),
+            syncProviderRegistry = SyncProviderRegistry(emptySet()),
             syncPolicyRepository = FakeSyncPolicyRepository(),
         )
     private val useCase = RefreshMemosUseCase(syncAndRebuildUseCase)

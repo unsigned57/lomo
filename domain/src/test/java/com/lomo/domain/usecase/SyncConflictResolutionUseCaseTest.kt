@@ -74,7 +74,7 @@ class SyncConflictResolutionUseCaseTest : DomainFunSpec() {
     private val syncProviderRegistry =
         SyncProviderRegistry(
             providers =
-                listOf(
+                setOf(
                     GitUnifiedSyncProvider(gitSyncRepository),
                     WebDavUnifiedSyncProvider(webDavSyncRepository),
                     S3UnifiedSyncProvider(s3SyncRepository),

@@ -49,7 +49,7 @@ class S3SyncSettingsUseCaseStrongCompatTest : DomainFunSpec() {
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
                             memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(FakeMemoStore()),
-                            syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                            syncProviderRegistry = SyncProviderRegistry(emptySet()),
                             syncPolicyRepository = FakeSyncPolicyRepository(),
                         ),
                 )

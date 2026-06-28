@@ -1105,7 +1105,7 @@ class MainViewModelTest : AppFunSpec() {
     private fun syncProviderRegistry(): SyncProviderRegistry =
         SyncProviderRegistry(
             providers =
-                listOf(
+                setOf(
                     GitUnifiedSyncProvider(gitSyncRepo),
                     WebDavUnifiedSyncProvider(webDavSyncRepository),
                     S3UnifiedSyncProvider(s3SyncRepository),

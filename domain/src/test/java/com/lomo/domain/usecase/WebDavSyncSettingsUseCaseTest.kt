@@ -57,7 +57,7 @@ class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
                     syncAndRebuildUseCase =
                         SyncAndRebuildUseCase(
                             memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                            syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                            syncProviderRegistry = SyncProviderRegistry(emptySet()),
                             syncPolicyRepository = syncPolicyRepository,
                         ),
                 )

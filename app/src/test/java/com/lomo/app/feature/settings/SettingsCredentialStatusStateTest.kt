@@ -66,7 +66,7 @@ class SettingsCredentialStatusStateTest : AppFunSpec() {
                                 syncAndRebuildUseCase =
                                     SyncAndRebuildUseCase(
                                         memoRepository = NoOpMemoMutationRepository(),
-                                        syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                                        syncProviderRegistry = SyncProviderRegistry(emptySet()),
                                         syncPolicyRepository = NoOpSyncPolicyRepository(),
                                     ),
                                 gitRemoteUrlUseCase = GitRemoteUrlUseCase(),

@@ -51,7 +51,8 @@ class RemoteSyncSettingsSharedTest : DomainFunSpec() {
     private val fakeGitProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.GIT)
     private val fakeInboxProvider = FakeUnifiedSyncProvider(backendType = SyncBackendType.INBOX)
     private val syncProviderRegistry = SyncProviderRegistry(
-        providers = listOf(fakeGitProvider, fakeInboxProvider)
+            providers =
+                setOf(fakeGitProvider, fakeInboxProvider)
     )
     private val syncAndRebuildUseCase = SyncAndRebuildUseCase(
         memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
