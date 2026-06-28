@@ -13,9 +13,9 @@ internal fun resolveScrollbarThumbVisualState(
 
 internal fun resolveScrollbarThumbAlpha(state: ScrollbarThumbVisualState): Float =
     when (state) {
-        ScrollbarThumbVisualState.Idle -> DRAGGABLE_SCROLLBAR_IDLE_ALPHA
-        ScrollbarThumbVisualState.Active -> DRAGGABLE_SCROLLBAR_ACTIVE_ALPHA
-        ScrollbarThumbVisualState.Drag -> DRAGGABLE_SCROLLBAR_DRAG_ALPHA
+        ScrollbarThumbVisualState.Idle -> DraggableScrollbarTokens.IdleAlpha
+        ScrollbarThumbVisualState.Active -> DraggableScrollbarTokens.ActiveAlpha
+        ScrollbarThumbVisualState.Drag -> DraggableScrollbarTokens.DragAlpha
     }
 
 /** True iff [pointerXPx] falls inside the end-aligned scrollbar touch zone of a canvas of width [canvasWidthPx]. */

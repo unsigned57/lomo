@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -13,7 +12,7 @@ import androidx.compose.material3.SheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
+import com.lomo.ui.theme.SheetHandleTokens
 import kotlinx.collections.immutable.ImmutableList
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,11 +36,11 @@ fun MemoMenuBottomSheet(
             Box(
                 modifier =
                     Modifier
-                        .padding(vertical = 22.dp)
-                        .width(32.dp)
-                        .size(32.dp, 4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                        .padding(vertical = SheetHandleTokens.VerticalPadding)
+                        .width(SheetHandleTokens.Width)
+                        .size(SheetHandleTokens.Width, SheetHandleTokens.Height)
+                        .clip(SheetHandleTokens.Shape)
+                        .background(SheetHandleTokens.color(MaterialTheme.colorScheme)),
             )
         },
     ) {

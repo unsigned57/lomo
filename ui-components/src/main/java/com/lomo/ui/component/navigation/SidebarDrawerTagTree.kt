@@ -4,9 +4,6 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 
 internal object SidebarDrawerTagTree
 
-internal const val TAG_DRAG_SCALE = 1.02f
-internal const val TAG_DRAG_ALPHA = 0.92f
-
 internal data class TagNode(
     val name: String,
     val fullPath: String,

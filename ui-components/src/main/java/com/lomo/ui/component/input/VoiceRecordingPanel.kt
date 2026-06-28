@@ -33,13 +33,6 @@ private const val MIN_RECORDING_AMPLITUDE = 0
 private const val MAX_RECORDING_AMPLITUDE = 32767
 private const val MIN_WAVEFORM_WIDTH = 50
 private const val WAVEFORM_WIDTH_RANGE = 200
-private val WAVEFORM_TRACK_HEIGHT = 48.dp
-private val WAVEFORM_HEIGHT = 4.dp
-private val CANCEL_BUTTON_SIZE = 56.dp
-private val CANCEL_ICON_SIZE = 32.dp
-private val STOP_BUTTON_SIZE = 72.dp
-private val STOP_ICON_SIZE = 36.dp
-
 data class VoiceRecordingPanelState(
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int = 0,
@@ -92,7 +85,7 @@ fun VoiceRecordingPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(WAVEFORM_TRACK_HEIGHT)
+                    .height(InputSheetTokens.RecordingTrackHeight)
                     .background(
                         MaterialTheme.colorScheme.surfaceContainerHigh,
                         AppShapes.Medium,
@@ -115,7 +108,7 @@ private fun RecordingAmplitudeBar(width: Float) {
         modifier =
             Modifier
                 .width(width.dp)
-                .height(WAVEFORM_HEIGHT)
+                .height(InputSheetTokens.RecordingWaveformHeight)
                 .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
     )
 }
@@ -129,7 +122,7 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
     ) {
         IconButton(
             onClick = callbacks.onCancel,
-            modifier = Modifier.size(CANCEL_BUTTON_SIZE),
+            modifier = Modifier.size(InputSheetTokens.RecordingCancelButtonSize),
         ) {
             Icon(
                 Icons.Rounded.Close,
@@ -138,13 +131,13 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
                         com.lomo.ui.R.string.cd_cancel_recording,
                     ),
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(CANCEL_ICON_SIZE),
+                modifier = Modifier.size(InputSheetTokens.RecordingCancelIconSize),
             )
         }
 
         androidx.compose.material3.FilledIconButton(
             onClick = callbacks.onStop,
-            modifier = Modifier.size(STOP_BUTTON_SIZE),
+            modifier = Modifier.size(InputSheetTokens.RecordingStopButtonSize),
             colors =
                 androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -156,7 +149,7 @@ private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
                     androidx.compose.ui.res.stringResource(
                         com.lomo.ui.R.string.cd_stop_recording,
                     ),
-                modifier = Modifier.size(STOP_ICON_SIZE),
+                modifier = Modifier.size(InputSheetTokens.RecordingStopIconSize),
             )
         }
     }

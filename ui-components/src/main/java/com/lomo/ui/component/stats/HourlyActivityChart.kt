@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,8 +37,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableMap
@@ -49,13 +46,6 @@ private const val HOUR_LABEL_INTERVAL = 6
 private const val LEVEL_ONE_MAX_RATIO = 0.25f
 private const val LEVEL_TWO_MAX_RATIO = 0.50f
 private const val LEVEL_THREE_MAX_RATIO = 0.75f
-private val BAR_CORNER_RADIUS = 2.dp
-private val BAR_SPACING = 3.dp
-private val LABEL_FONT_SIZE = 9.sp
-private val CHART_AREA_HEIGHT = 100.dp
-private const val EMPTY_ALPHA = 0.5f
-private const val LEVEL_THREE_ALPHA = 0.7f
-private const val SELECTION_STROKE_WIDTH = 2f
 
 private data class HourlyBarHit(
     val hour: Int,
@@ -68,10 +58,10 @@ fun HourlyActivityChart(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val spacingPx = with(density) { BAR_SPACING.toPx() }
-    val cornerRadiusPx = with(density) { BAR_CORNER_RADIUS.toPx() }
-    val chartHeightPx = with(density) { CHART_AREA_HEIGHT.toPx() }
-    val labelFontSizePx = with(density) { LABEL_FONT_SIZE.toPx() }
+    val spacingPx = with(density) { StatsChartTokens.HourlyBarSpacing.toPx() }
+    val cornerRadiusPx = with(density) { StatsChartTokens.CellCornerRadius.toPx() }
+    val chartHeightPx = with(density) { StatsChartTokens.HourlyChartAreaHeight.toPx() }
+    val labelFontSizePx = with(density) { StatsChartTokens.LabelFontSize.toPx() }
     val labelAreaHeight = labelFontSizePx + spacingPx * 2
 
     val colors = rememberBarChartColors()
@@ -151,7 +141,7 @@ fun HourlyActivityChart(
                         topLeft = Offset(x, 0f),
                         size = Size(barWidth, chartHeightPx),
                         cornerRadius = CornerRadius(cornerRadiusPx),
-                        style = Stroke(width = SELECTION_STROKE_WIDTH.dp.toPx()),
+                        style = Stroke(width = StatsChartTokens.SelectionStrokeWidth.toPx()),
                     )
                 }
 
@@ -225,16 +215,16 @@ private fun HourlyBarSelectionPopup(
                 scaleOut(targetScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
         ) {
             Surface(
-                shape = RoundedCornerShape(HEATMAP_POPUP_SHAPE),
+                shape = StatsChartTokens.PopupShape,
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = HEATMAP_POPUP_ELEVATION,
-                shadowElevation = HEATMAP_POPUP_ELEVATION,
-                modifier = Modifier.padding(HEATMAP_POPUP_MARGIN),
+                tonalElevation = StatsChartTokens.PopupElevation,
+                shadowElevation = StatsChartTokens.PopupElevation,
+                modifier = Modifier.padding(StatsChartTokens.PopupMargin),
             ) {
                 Column(
                     modifier = Modifier.padding(
-                        horizontal = HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING,
-                        vertical = HEATMAP_POPUP_CONTENT_VERTICAL_PADDING,
+                        horizontal = StatsChartTokens.PopupHorizontalPadding,
+                        vertical = StatsChartTokens.PopupVerticalPadding,
                     ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -243,7 +233,7 @@ private fun HourlyBarSelectionPopup(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(modifier = Modifier.height(HEATMAP_POPUP_TEXT_SPACING))
+                    Spacer(modifier = Modifier.height(StatsChartTokens.PopupTextSpacing))
                     Text(
                         text = countLabel,
                         style = MaterialTheme.typography.bodySmall,
@@ -255,7 +245,7 @@ private fun HourlyBarSelectionPopup(
     }
 }
 
-private data class BarChartColors(
+internal data class BarChartColors(
     val empty: Color,
     val level1: Color,
     val level2: Color,
@@ -265,13 +255,7 @@ private data class BarChartColors(
 
 @Composable
 private fun rememberBarChartColors(): BarChartColors =
-    BarChartColors(
-        empty = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = EMPTY_ALPHA),
-        level1 = MaterialTheme.colorScheme.primaryContainer.copy(alpha = EMPTY_ALPHA),
-        level2 = MaterialTheme.colorScheme.primaryContainer,
-        level3 = MaterialTheme.colorScheme.primary.copy(alpha = LEVEL_THREE_ALPHA),
-        level4 = MaterialTheme.colorScheme.primary,
-    )
+    StatsChartTokens.barChartColors(MaterialTheme.colorScheme)
 
 @Composable
 private fun rememberBarChartTextPaint(
@@ -283,7 +267,7 @@ private fun rememberBarChartTextPaint(
     return remember(textColor, densityScale, fontScale) {
         Paint().apply {
             color = textColor
-            textSize = with(density) { LABEL_FONT_SIZE.toPx() }
+            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
             isAntiAlias = true
             textAlign = Paint.Align.LEFT
         }

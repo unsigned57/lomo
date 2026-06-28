@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Tag
@@ -30,15 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
-
-private val SidebarTagRowShape = RoundedCornerShape(28.dp)
 
 internal fun LazyListScope.sidebarTags(
     tags: List<SidebarTag>,
@@ -113,9 +109,9 @@ private fun sh.calvin.reorderable.ReorderableCollectionItemScope.DraggableRootTa
             modifier
                 .graphicsLayer {
                     if (isDragging) {
-                        scaleX = TAG_DRAG_SCALE
-                        scaleY = TAG_DRAG_SCALE
-                        alpha = TAG_DRAG_ALPHA
+                        scaleX = SidebarDrawerTokens.TagDragScale
+                        scaleY = SidebarDrawerTokens.TagDragScale
+                        alpha = SidebarDrawerTokens.TagDragAlpha
                     }
                 }
                 .longPressDraggableHandle(
@@ -187,25 +183,28 @@ private fun SidebarTagRow(
 
     Surface(
         onClick = rememberTagClick(node.fullPath, onTagClick),
-        shape = SidebarTagRowShape,
+        shape = SidebarDrawerTokens.TagRowShape,
         color = containerColor,
         contentColor = contentColor,
         modifier =
             modifier
                 .fillMaxWidth()
-                .padding(start = (level * AppSpacing.Medium.value).dp)
-                .height(48.dp)
+                .padding(start = SidebarDrawerTokens.TagRowStartPadding * level)
+                .height(SidebarDrawerTokens.RowHeight)
                 .benchmarkAnchor(anchorTag),
     ) {
         Row(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(start = AppSpacing.Medium, end = AppSpacing.Small),
+                    .padding(
+                        start = SidebarDrawerTokens.TagRowStartPadding,
+                        end = SidebarDrawerTokens.TagRowEndPadding,
+                    ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TagTreeLeadingIcon(contentColor)
-            Spacer(modifier = Modifier.width(AppSpacing.MediumSmall))
+            Spacer(modifier = Modifier.width(SidebarDrawerTokens.TagLabelSpacing))
             TagTreeLabel(
                 node = node,
                 color = contentColor,
@@ -243,7 +242,7 @@ private fun TagTreeLeadingIcon(color: Color) {
     Icon(
         Icons.Outlined.Tag,
         null,
-        modifier = Modifier.size(20.dp),
+        modifier = Modifier.size(SidebarDrawerTokens.TagLeadingIconSize),
         tint = color,
     )
 }
@@ -283,7 +282,7 @@ private fun TagTreeExpandButton(
 ) {
     IconButton(
         onClick = rememberLightHapticClick(onClick),
-        modifier = Modifier.size(36.dp),
+        modifier = Modifier.size(SidebarDrawerTokens.TagExpandButtonSize),
     ) {
         Icon(
             if (isExpanded) {
@@ -299,7 +298,7 @@ private fun TagTreeExpandButton(
                         com.lomo.ui.R.string.cd_expand
                     },
                 ),
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(SidebarDrawerTokens.TagExpandIconSize),
             tint = color,
         )
     }

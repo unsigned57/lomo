@@ -106,6 +106,8 @@ lomo-architecture:
     active: true
   UiComponentsLayerBoundary:
     active: true
+  UiComponentDesignTokenUsage:
+    active: true
   NoSourceSuppressions:
     active: true
     excludes:

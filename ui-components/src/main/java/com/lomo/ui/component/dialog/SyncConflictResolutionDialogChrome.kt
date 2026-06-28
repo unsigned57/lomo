@@ -139,7 +139,7 @@ internal fun BottomSection(
         shadowElevation = 4.dp,
         tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = SyncConflictDialogTokens.SheetShape,
     ) {
         Column(
             modifier = Modifier
@@ -166,7 +166,7 @@ internal fun BottomSection(
 internal fun ResolvingOverlay() {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f),
+        color = SyncConflictDialogTokens.scrimColor(MaterialTheme.colorScheme),
     ) {
         Box(
             contentAlignment = Alignment.Center,

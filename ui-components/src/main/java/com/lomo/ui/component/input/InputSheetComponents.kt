@@ -49,7 +49,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import com.lomo.ui.R
@@ -58,7 +57,6 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.text.scriptAwareFor
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoEditorTextStyle
@@ -124,7 +122,7 @@ internal fun InputEditorPanel(
             Modifier
                 .fillMaxWidth()
                 .then(if (isExpanded) Modifier.fillMaxHeight() else Modifier)
-                .padding(AppSpacing.Medium),
+                .padding(InputSheetTokens.PanelPadding),
     ) {
         InputEditorChromeTransitionHost(
             transitionState = chromeState.displayModeBar,
@@ -290,7 +288,7 @@ private fun InputEditorToolbarSection(
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,
-            modifier = chromeModifier.padding(top = AppSpacing.MediumSmall),
+            modifier = chromeModifier.padding(top = InputSheetTokens.ToolbarTopPadding),
         )
     }
 }
@@ -314,7 +312,7 @@ private fun rememberInputEditorChromeMotion(
         label = "InputEditorChromeAlpha",
     )
     val offsetY by animateDpAsState(
-        targetValue = if (transitionState.isVisible) 0.dp else transitionState.hiddenOffsetY,
+        targetValue = if (transitionState.isVisible) InputSheetTokens.CollapsedInset else transitionState.hiddenOffsetY,
         animationSpec =
             androidx.compose.animation.core.tween(
                 durationMillis = MotionTokens.DurationMedium2,
@@ -370,11 +368,11 @@ private fun InputEditorDisplayModeBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
-            shape = AppShapes.Large,
+            shape = InputSheetTokens.SegmentedControlShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             Row(
-                modifier = Modifier.padding(4.dp),
+                modifier = Modifier.padding(InputSheetTokens.SegmentedControlContentPadding),
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -443,7 +441,7 @@ private fun InputEditorDisplayModePill(
     onClick: () -> Unit,
 ) {
     Surface(
-        shape = AppShapes.Large,
+        shape = InputSheetTokens.ModePillShape,
         color =
             if (selected) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -452,7 +450,7 @@ private fun InputEditorDisplayModePill(
             },
         modifier =
             Modifier
-                .clip(AppShapes.Large)
+                .clip(InputSheetTokens.ModePillShape)
                 .clickable(enabled = enabled, onClick = onClick),
     ) {
         Text(
@@ -464,7 +462,7 @@ private fun InputEditorDisplayModePill(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(InputSheetTokens.ModePillContentPadding),
         )
     }
 }
@@ -477,7 +475,7 @@ private fun InputEditorPreviewContent(
     val scrollState = rememberScrollState()
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = AppShapes.Large,
+        shape = InputSheetTokens.PreviewShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         if (content.isBlank()) {
@@ -485,7 +483,7 @@ private fun InputEditorPreviewContent(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .padding(horizontal = InputEditorContainerPaddingHorizontal),
+                        .padding(horizontal = InputSheetTokens.PreviewHorizontalPadding),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -505,8 +503,8 @@ private fun InputEditorPreviewContent(
                             .fillMaxSize()
                             .verticalScroll(scrollState)
                             .padding(
-                                horizontal = InputEditorContainerPaddingHorizontal,
-                                vertical = InputEditorContainerPaddingVertical,
+                                horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
+                                vertical = InputSheetTokens.EditorContainerPaddingVertical,
                             ),
                 ) {
                     MarkdownRenderer(

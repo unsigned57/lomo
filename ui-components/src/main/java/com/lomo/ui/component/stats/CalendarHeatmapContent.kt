@@ -11,7 +11,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
@@ -75,13 +73,13 @@ internal fun HeatmapInteractiveContent(
     }
 
     Column(
-        modifier = modifier.padding(vertical = 4.dp),
+        modifier = modifier.padding(vertical = StatsChartTokens.PopupMargin),
     ) {
         Text(
             text = "${visibleYear}年",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp)
+            modifier = Modifier.padding(bottom = StatsChartTokens.PopupMargin),
         )
         Box(
             modifier = Modifier.fillMaxWidth(),
@@ -228,13 +226,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapMonthLab
         labels = layout.monthLabels,
         weekWidth = layout.weekWidth,
         totalWidth = size.width,
-        minimumSpacingPx = 6.dp.toPx(),
+        minimumSpacingPx = StatsChartTokens.MonthLabelMinimumSpacing.toPx(),
         textWidth = { text -> textPaint.measureText(text) },
     ).forEach { label ->
         drawContext.canvas.nativeCanvas.drawText(
             label.text,
             label.drawX,
-            layout.monthLabelHeightPx - 4.dp.toPx(),
+            layout.monthLabelHeightPx - StatsChartTokens.MonthLabelBaselineInset.toPx(),
             textPaint,
         )
     }
@@ -296,7 +294,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapCells(
                 topLeft = Offset(left, top),
                 size = Size(layout.cellSizePx, layout.cellSizePx),
                 cornerRadius = CornerRadius(layout.cornerRadiusPx),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                style =
+                    androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = StatsChartTokens.SelectionStrokeWidth.toPx(),
+                    ),
             )
         }
     }
@@ -321,17 +322,17 @@ private fun HeatmapPopupCard(
     countLabel: String,
 ) {
     Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(HEATMAP_POPUP_SHAPE),
+        shape = StatsChartTokens.PopupShape,
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = HEATMAP_POPUP_ELEVATION,
-        shadowElevation = HEATMAP_POPUP_ELEVATION,
-        modifier = Modifier.padding(HEATMAP_POPUP_MARGIN),
+        tonalElevation = StatsChartTokens.PopupElevation,
+        shadowElevation = StatsChartTokens.PopupElevation,
+        modifier = Modifier.padding(StatsChartTokens.PopupMargin),
     ) {
         Column(
             modifier =
                 Modifier.padding(
-                    horizontal = HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING,
-                    vertical = HEATMAP_POPUP_CONTENT_VERTICAL_PADDING,
+                    horizontal = StatsChartTokens.PopupHorizontalPadding,
+                    vertical = StatsChartTokens.PopupVerticalPadding,
                 ),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -340,7 +341,7 @@ private fun HeatmapPopupCard(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(modifier = Modifier.height(HEATMAP_POPUP_TEXT_SPACING))
+            Spacer(modifier = Modifier.height(StatsChartTokens.PopupTextSpacing))
             Text(
                 text = countLabel,
                 style = MaterialTheme.typography.bodySmall,

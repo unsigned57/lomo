@@ -17,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.MotionTokens
 
 internal data class InputSheetAnimatedSurfaceState(
@@ -45,9 +44,9 @@ internal fun rememberInputSheetAnimatedSurfaceState(
     val animatedCornerRadius by animateDpAsState(
         targetValue =
             if (motionStage == InputSheetMotionStage.Compact) {
-                28.dp
+                InputSheetTokens.CompactCornerRadius
             } else {
-                0.dp
+                InputSheetTokens.ExpandedCornerRadius
             },
         animationSpec =
             androidx.compose.animation.core.tween(
@@ -106,7 +105,7 @@ internal fun rememberInputSheetAnimatedInsets(motionStage: InputSheetMotionStage
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val animatedTopInset by animateDpAsState(
-        targetValue = if (motionStage.usesExpandedInsets()) statusBarHeight else 0.dp,
+        targetValue = if (motionStage.usesExpandedInsets()) statusBarHeight else InputSheetTokens.CollapsedInset,
         animationSpec =
             androidx.compose.animation.core.tween(
                 durationMillis = MotionTokens.DurationMedium2,
@@ -115,7 +114,7 @@ internal fun rememberInputSheetAnimatedInsets(motionStage: InputSheetMotionStage
         label = "InputSheetTopInset",
     )
     val animatedBottomInset by animateDpAsState(
-        targetValue = if (motionStage.usesExpandedInsets()) navBarHeight else 0.dp,
+        targetValue = if (motionStage.usesExpandedInsets()) navBarHeight else InputSheetTokens.CollapsedInset,
         animationSpec =
             androidx.compose.animation.core.tween(
                 durationMillis = MotionTokens.DurationMedium2,

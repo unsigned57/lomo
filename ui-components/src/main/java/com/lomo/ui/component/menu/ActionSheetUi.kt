@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -40,7 +39,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.benchmark.benchmarkAnchor
 import kotlinx.coroutines.launch
@@ -102,7 +100,7 @@ internal fun SwipeAffordanceIndicator(
     val draggableState =
         rememberDraggableState { delta ->
             val maxTravelPx =
-                (trackWidthPx - with(density) { SwipeIndicatorThumbWidth.roundToPx() }).coerceAtLeast(1)
+                (trackWidthPx - with(density) { ActionSheetTokens.SwipeThumbWidth.roundToPx() }).coerceAtLeast(1)
             val totalItemsCount = lazyRowState.layoutInfo.totalItemsCount
             val visibleItems = lazyRowState.layoutInfo.visibleItemsInfo
             val firstVisibleSize = visibleItems.firstOrNull()?.size ?: 0
@@ -127,25 +125,25 @@ internal fun SwipeAffordanceIndicator(
             onClick = onScrollBackward,
             contentDescription = stringResource(R.string.cd_action_sheet_scroll_backward),
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(ActionSheetTokens.SwipeEdgeSpacing))
         androidx.compose.foundation.layout.BoxWithConstraints(
             modifier =
                 Modifier
-                    .width(112.dp)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    .width(ActionSheetTokens.SwipeTrackWidth)
+                    .height(ActionSheetTokens.SwipeTrackHeight)
+                    .clip(ActionSheetTokens.SwipeShape)
+                    .background(ActionSheetTokens.swipeTrackColor(MaterialTheme.colorScheme))
                     .onSizeChanged { size -> trackWidthPx = size.width },
         ) {
-            val maxTravel = maxWidth - SwipeIndicatorThumbWidth
+            val maxTravel = maxWidth - ActionSheetTokens.SwipeThumbWidth
             Box(
                 modifier =
                     Modifier
                         .offset { IntOffset(x = (maxTravel * clampedProgress).roundToPx(), y = 0) }
-                        .width(SwipeIndicatorThumbWidth)
+                        .width(ActionSheetTokens.SwipeThumbWidth)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f))
+                        .clip(ActionSheetTokens.SwipeShape)
+                        .background(ActionSheetTokens.swipeThumbColor(MaterialTheme.colorScheme))
                         .draggable(
                             orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
                             state = draggableState,
@@ -153,7 +151,7 @@ internal fun SwipeAffordanceIndicator(
                         ),
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(ActionSheetTokens.SwipeEdgeSpacing))
         SwipeEdgeIcon(
             icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             enabled = canScrollForward,
@@ -184,24 +182,22 @@ private fun SwipeEdgeIcon(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
+        shape = ActionSheetTokens.SwipeShape,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = containerAlpha),
     ) {
         Box(
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(ActionSheetTokens.SwipeEdgeButtonSize),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(ActionSheetTokens.SwipeEdgeIconSize),
             )
         }
     }
 }
-
-private val SwipeIndicatorThumbWidth = 28.dp
 
 @Composable
 internal fun ActionChip(
@@ -214,13 +210,11 @@ internal fun ActionChip(
     enabled: Boolean = true,
 ) {
     val containerColor =
-        if (isDestructive) {
-            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
-        } else if (isHighlighted) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-        }
+        ActionSheetTokens.actionChipContainerColor(
+            colorScheme = MaterialTheme.colorScheme,
+            isDestructive = isDestructive,
+            isHighlighted = isHighlighted,
+        )
     val contentColor =
         if (isDestructive) {
             MaterialTheme.colorScheme.onErrorContainer
@@ -234,21 +228,24 @@ internal fun ActionChip(
         onClick = onClick,
         enabled = enabled,
         color = containerColor,
-        shape = RoundedCornerShape(12.dp),
-        modifier = modifier.height(64.dp).widthIn(min = 72.dp),
+        shape = ActionSheetTokens.ActionChipShape,
+        modifier =
+            modifier
+                .height(ActionSheetTokens.ActionChipHeight)
+                .widthIn(min = ActionSheetTokens.ActionChipMinWidth),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.padding(ActionSheetTokens.ActionChipPadding),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = contentColor,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(ActionSheetTokens.ActionChipIconSize),
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(ActionSheetTokens.ActionChipIconLabelSpacing))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
@@ -271,7 +268,7 @@ internal fun InfoItem(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(ActionSheetTokens.InfoItemTextSpacing))
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,

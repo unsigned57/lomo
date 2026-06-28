@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.theme.AppSpacing
@@ -38,9 +37,6 @@ import com.lomo.ui.util.AppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-
-private const val TOOLBAR_DRAG_SCALE_FACTOR = 1.05f
-private const val TOOLBAR_DRAG_ALPHA = 0.92f
 
 @Composable
 internal fun InputEditorToolbar(
@@ -143,9 +139,9 @@ private fun InputToolbarScrollableTools(
                         onDragStopped = { onToolbarOrderChanged(toolIds.toList()) },
                     ).graphicsLayer {
                         if (isDragging) {
-                            scaleX = TOOLBAR_DRAG_SCALE_FACTOR
-                            scaleY = TOOLBAR_DRAG_SCALE_FACTOR
-                            alpha = TOOLBAR_DRAG_ALPHA
+                            scaleX = InputSheetTokens.ToolbarDragScaleFactor
+                            scaleY = InputSheetTokens.ToolbarDragScaleFactor
+                            alpha = InputSheetTokens.ToolbarDragAlpha
                         }
                     }
                 val tool = toolById.getValue(toolId)
@@ -297,7 +293,7 @@ private fun InputToolbarSubmitButton(
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.Send,
             contentDescription = stringResource(R.string.cd_send),
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(InputSheetTokens.ToolbarSubmitIconSize),
         )
     }
 }

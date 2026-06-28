@@ -47,7 +47,7 @@ fun TagSelectorBar(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(32.dp),
+                    .height(InputSheetTokens.TagSelectorHeight),
         ) {
             items(state.availableTags) { tag ->
                 FilterChip(

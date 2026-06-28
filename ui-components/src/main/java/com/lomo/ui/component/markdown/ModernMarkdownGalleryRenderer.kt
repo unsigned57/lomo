@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
 
 @Composable
@@ -32,7 +31,7 @@ internal fun ModernMarkdownGalleryItem(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(MarkdownComponentTokens.GallerySpacing),
     ) {
         resolvedMedia.forEach { (image, presentation) ->
             if (presentation != null) {

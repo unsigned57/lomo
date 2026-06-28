@@ -18,16 +18,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.lomo.ui.benchmark.benchmarkAnchor
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.memoPlatformTextHandleColor
-
-internal val InputEditorContainerPaddingHorizontal = 16.dp
-internal val InputEditorContainerPaddingVertical = 12.dp
 
 @Composable
 internal fun InputEditorTextField(
@@ -53,8 +48,8 @@ internal fun InputEditorTextField(
     val maximumContentHeightPx = resolveMemoInputMaximumContentHeightPx(displayStyle, density)
     val minimumContentHeight = with(density) { minimumContentHeightPx.toDp() }
     val maximumContentHeight = with(density) { maximumContentHeightPx.toDp() }
-    val minimumContainerHeight = minimumContentHeight + (InputEditorContainerPaddingVertical * 2)
-    val maximumContainerHeight = maximumContentHeight + (InputEditorContainerPaddingVertical * 2)
+    val minimumContainerHeight = minimumContentHeight + (InputSheetTokens.EditorContainerPaddingVertical * 2)
+    val maximumContainerHeight = maximumContentHeight + (InputSheetTokens.EditorContainerPaddingVertical * 2)
     val compactContainerMaxHeight = maximumContainerHeight.coerceAtLeast(minimumContainerHeight)
     val compactEditorMaxHeight = maximumContentHeight.coerceAtLeast(minimumContentHeight)
     val editorContainerMaxHeight =
@@ -76,10 +71,10 @@ internal fun InputEditorTextField(
                     min = minimumContainerHeight,
                     max = editorContainerMaxHeight,
                 )
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh, AppShapes.Large)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, InputSheetTokens.EditorContainerShape)
                 .padding(
-                    horizontal = InputEditorContainerPaddingHorizontal,
-                    vertical = InputEditorContainerPaddingVertical,
+                    horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
+                    vertical = InputSheetTokens.EditorContainerPaddingVertical,
                 ),
     ) {
         if (showsPlaceholder) {
@@ -137,7 +132,7 @@ private fun InputEditorPlaceholder(
     Text(
         text = hintText,
         style = textStyle,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        color = InputSheetTokens.placeholderColor(MaterialTheme.colorScheme),
         modifier =
             Modifier
                 .fillMaxWidth()

@@ -15,18 +15,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 
-private val BAR_HEIGHT = 20.dp
 internal const val MAX_DISPLAY_TAGS = 10
 private const val TAG_NAME_WEIGHT = 0.25f
 private const val TAG_BAR_WEIGHT = 0.65f
 private const val TAG_COUNT_WEIGHT = 0.1f
-private const val BAR_ALPHA_BASE = 0.3f
-private const val BAR_ALPHA_RANGE = 0.7f
 
 data class ChartTagSlice(
     val name: String,
@@ -82,15 +78,15 @@ fun TagDistributionChart(
                 Box(
                     modifier = Modifier
                         .weight(TAG_BAR_WEIGHT)
-                        .height(BAR_HEIGHT),
+                        .height(StatsChartTokens.TagBarHeight),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(bar.fraction)
-                            .height(BAR_HEIGHT)
+                            .height(StatsChartTokens.TagBarHeight)
                             .clip(AppShapes.ExtraSmall)
-                            .background(barColor.copy(alpha = BAR_ALPHA_BASE + BAR_ALPHA_RANGE * bar.fraction)),
+                            .background(StatsChartTokens.tagBarColor(barColor, bar.fraction)),
                     )
                 }
                 Text(

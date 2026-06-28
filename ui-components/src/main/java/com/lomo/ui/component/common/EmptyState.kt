@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 
 @Composable
 fun EmptyState(
@@ -29,13 +28,16 @@ fun EmptyState(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier.padding(EmptyStateTokens.ContentPadding),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = title,
-                modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier =
+                    Modifier
+                        .size(EmptyStateTokens.IconSize)
+                        .padding(bottom = EmptyStateTokens.IconBottomPadding),
+                tint = EmptyStateTokens.iconColor(MaterialTheme.colorScheme),
             )
 
             Text(
@@ -48,13 +50,13 @@ fun EmptyState(
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.padding(top = 8.dp),
+                color = EmptyStateTokens.descriptionColor(MaterialTheme.colorScheme),
+                modifier = Modifier.padding(top = EmptyStateTokens.DescriptionTopPadding),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
             if (action != null) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(EmptyStateTokens.ActionSpacing))
                 action()
             }
         }

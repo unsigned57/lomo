@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -25,7 +24,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import kotlinx.collections.immutable.ImmutableMap
@@ -113,8 +111,6 @@ internal fun ModernMarkdownRenderPlanContent(
 
 private const val PROGRESSIVE_RENDER_INITIAL_BATCH = 20
 private const val PROGRESSIVE_RENDER_INCREMENT = 30
-private val MODERN_MARKDOWN_BLOCK_QUOTE_CONTENT_GAP = 8.dp
-
 @Composable
 internal fun ModernMarkdownBlock(
     node: ASTNode,
@@ -261,7 +257,10 @@ private fun RenderModernMarkdownStandardBlock(
                 hideImages = hideImages,
             )
 
-        MarkdownTokenTypes.HORIZONTAL_RULE -> HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        MarkdownTokenTypes.HORIZONTAL_RULE ->
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = MarkdownComponentTokens.HorizontalRuleVerticalPadding),
+            )
 
         else ->
             ModernMarkdownFallbackBlock(
@@ -507,17 +506,17 @@ private fun ModernMarkdownCodeFence(
 ) {
     val code = remember(content, node) { node.extractCodeFenceContent(content) }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(4.dp),
+        color = MarkdownComponentTokens.codeBlockContainerColor(MaterialTheme.colorScheme),
+        shape = MarkdownComponentTokens.CodeBlockShape,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .padding(vertical = MarkdownComponentTokens.BlockVerticalPadding),
     ) {
         MemoParagraphText(
             text = code,
             style = tokenSpec.codeStyle.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.padding(8.dp),
+            modifier = Modifier.padding(MarkdownComponentTokens.CodeBlockContentPadding),
             selectable = enableTextSelection,
             blockKey = MarkdownBlockKey.codeFence(node.startOffset),
             selectionRegistrar = selectionRegistrar,
@@ -548,7 +547,10 @@ private fun ModernMarkdownIndentedCodeBlock(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(top = 4.dp, bottom = 4.dp),
+                .padding(
+                    top = MarkdownComponentTokens.BlockVerticalPadding,
+                    bottom = MarkdownComponentTokens.BlockVerticalPadding,
+                ),
         selectable = enableTextSelection,
         blockKey = MarkdownBlockKey.codeBlock(node.startOffset),
         selectionRegistrar = selectionRegistrar,
@@ -581,11 +583,11 @@ private fun ModernMarkdownTable(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp)
+                .padding(vertical = MarkdownComponentTokens.BlockVerticalPadding)
                 .border(
-                    width = 1.dp,
+                    width = MarkdownComponentTokens.TableBorderWidth,
                     color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = RoundedCornerShape(4.dp),
+                    shape = MarkdownComponentTokens.TableShape,
                 ),
     ) {
         rows.forEachIndexed { rowIndex, row ->
@@ -595,7 +597,7 @@ private fun ModernMarkdownTable(
                         .fillMaxWidth()
                         .background(
                             if (rowIndex == 0) {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                MarkdownComponentTokens.tableHeaderColor(MaterialTheme.colorScheme)
                             } else {
                                 MaterialTheme.colorScheme.surface
                             },
@@ -613,7 +615,7 @@ private fun ModernMarkdownTable(
                         modifier =
                             Modifier
                                 .weight(1f)
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                .padding(MarkdownComponentTokens.TableCellPadding),
                     ) {
                         MDText(
                             text = annotatedText,
@@ -662,14 +664,19 @@ private fun ModernMarkdownBlockQuote(
 ) {
     val indicatorStyle = resolveModernMarkdownQuoteIndicatorStyle(MaterialTheme.colorScheme)
     Layout(
-        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+        modifier =
+            Modifier.padding(
+                start = MarkdownComponentTokens.BlockQuoteStartPadding,
+                top = MarkdownComponentTokens.BlockVerticalPadding,
+                bottom = MarkdownComponentTokens.BlockVerticalPadding,
+            ),
         content = {
             Box(
                 modifier =
                     Modifier
                         .background(
                             indicatorStyle.color,
-                            RoundedCornerShape(indicatorStyle.cornerRadius),
+                            indicatorStyle.shape,
                         ),
             )
 
@@ -709,7 +716,7 @@ private fun ModernMarkdownBlockQuote(
         },
         measurePolicy = { measurables, constraints ->
             val indicatorWidth = indicatorStyle.thickness.roundToPx()
-            val contentGap = MODERN_MARKDOWN_BLOCK_QUOTE_CONTENT_GAP.roundToPx()
+            val contentGap = MarkdownComponentTokens.BlockQuoteContentGap.roundToPx()
             val contentWidth =
                 if (constraints.hasBoundedWidth) {
                     (constraints.maxWidth - indicatorWidth - contentGap).coerceAtLeast(0)

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
@@ -38,9 +36,6 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-
-internal const val DRAG_SCALE_FACTOR = 1.05f
-internal const val DRAG_ALPHA = 0.92f
 
 enum class ActionItemHaptic {
     NONE,
@@ -142,8 +137,8 @@ fun MemoActionSheet(
         equalWidthActions = equalWidthActions,
     ) {
         HorizontalDivider(
-            modifier = Modifier.padding(vertical = 8.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            modifier = Modifier.padding(vertical = ActionSheetTokens.DividerVerticalPadding),
+            color = ActionSheetTokens.dividerColor(MaterialTheme.colorScheme),
         )
 
         MemoInfoCard(state = state)
@@ -191,8 +186,8 @@ fun ActionSheetSurface(
             modifier
                 .benchmarkAnchorRoot(benchmarkRootTag)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
+                .padding(horizontal = ActionSheetTokens.ContentHorizontalPadding)
+                .padding(bottom = ActionSheetTokens.ContentBottomPadding),
     ) {
         ActionItemRow(
             actions = reorderableActions,
@@ -213,7 +208,7 @@ fun ActionSheetSurface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        .padding(bottom = ActionSheetTokens.DividerVerticalPadding),
                 progress = swipeAffordanceProgress,
                 canScrollBackward = canScrollBackward,
                 canScrollForward = canScrollForward,
@@ -267,8 +262,8 @@ private fun ActionItemRow(
             LazyRow(
                 state = lazyRowState,
                 userScrollEnabled = useHorizontalScroll,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = ActionSheetTokens.RowVerticalPadding),
+                horizontalArrangement = Arrangement.spacedBy(ActionSheetTokens.ItemSpacing),
             ) {
                 items(
                     items = actions,
@@ -297,9 +292,9 @@ private fun ActionItemRow(
 
         MemoActionRowLayoutMode.EQUAL_WIDTH_STATIC ->
             BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = ActionSheetTokens.RowVerticalPadding),
             ) {
-                val itemSpacing = 12.dp
+                val itemSpacing = ActionSheetTokens.ItemSpacing
                 val actionWidth =
                     if (actions.size <= 1) {
                         maxWidth
@@ -352,14 +347,14 @@ private fun sh.calvin.reorderable.ReorderableCollectionItemScope.ReorderableActi
         isDestructive = action.isDestructive,
         isHighlighted = action.isHighlighted,
         modifier =
-            (if (equalWidthActions) Modifier else Modifier.width(92.dp))
+            (if (equalWidthActions) Modifier else Modifier.width(ActionSheetTokens.EqualWidthActionWidth))
                 .benchmarkAnchor(action.benchmarkTag)
                 .then(dragModifier)
                 .graphicsLayer {
                     if (isDragging) {
-                        scaleX = DRAG_SCALE_FACTOR
-                        scaleY = DRAG_SCALE_FACTOR
-                        alpha = DRAG_ALPHA
+                        scaleX = ActionSheetTokens.DragScaleFactor
+                        scaleY = ActionSheetTokens.DragScaleFactor
+                        alpha = ActionSheetTokens.DragAlpha
                     }
                 },
         onClick = {
@@ -380,15 +375,15 @@ private fun MemoInfoCard(state: MemoMenuState) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(12.dp),
+                .padding(top = ActionSheetTokens.InfoCardTopPadding),
+        color = ActionSheetTokens.infoCardContainerColor(MaterialTheme.colorScheme),
+        shape = ActionSheetTokens.InfoCardShape,
     ) {
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(ActionSheetTokens.InfoCardPadding),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {

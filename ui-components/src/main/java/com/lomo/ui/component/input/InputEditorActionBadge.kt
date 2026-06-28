@@ -18,8 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 
@@ -42,7 +40,7 @@ internal fun InputEditorActionBadgeContent(
     ) {
         val actionBadge = badge ?: return@AnimatedVisibility
         Surface(
-            shape = AppShapes.Large,
+            shape = InputSheetTokens.ActionBadgeShape,
             color = MaterialTheme.colorScheme.secondaryContainer,
             modifier =
                 Modifier
@@ -50,11 +48,11 @@ internal fun InputEditorActionBadgeContent(
                         top = AppSpacing.ExtraSmall,
                         bottom = AppSpacing.MediumSmall,
                     )
-                    .clip(AppShapes.Large)
+                    .clip(InputSheetTokens.ActionBadgeShape)
                     .clickable(onClick = onClick),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(InputSheetTokens.ActionBadgeContentPadding),
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -62,7 +60,7 @@ internal fun InputEditorActionBadgeContent(
                     imageVector = actionBadge.icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(InputSheetTokens.ActionBadgeIconSize),
                 )
                 Text(
                     text = actionBadge.text,

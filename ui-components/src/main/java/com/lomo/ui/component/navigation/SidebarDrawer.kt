@@ -48,7 +48,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.stats.CalendarHeatmap
@@ -233,7 +232,7 @@ private fun NavigationItem(
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     NavigationDrawerItem(
         label = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-        icon = { Icon(icon, null, modifier = Modifier.size(20.dp)) },
+        icon = { Icon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
         badge = badge?.let { { Text(it, style = MaterialTheme.typography.labelSmall) } },
         selected = isSelected,
         onClick = {
@@ -244,7 +243,7 @@ private fun NavigationItem(
             NavigationDrawerItemDefaults.colors(
                 unselectedContainerColor = Color.Transparent,
             ),
-        modifier = Modifier.height(48.dp).benchmarkAnchor(anchorTag),
+        modifier = Modifier.height(SidebarDrawerTokens.RowHeight).benchmarkAnchor(anchorTag),
     )
 }
 
