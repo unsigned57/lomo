@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.component.markdown.MarkdownRendererWithTextSelectionRegistrar
@@ -224,7 +223,7 @@ private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = COLLAPSED_BODY_MAX_HEIGHT)
+                .heightIn(max = MemoCardTokens.CollapsedBodyMaxHeight)
                 .clipToBounds(),
     ) {
         content()
@@ -254,7 +253,7 @@ private fun MemoCardMarkdownContent(
         content = processedContent,
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = if (precomputedRenderPlan == null) tags else persistentListOf(),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
         maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
         onTodoClick = onTodoClick,
         todoOverrides = todoOverrides,
@@ -321,7 +320,7 @@ private fun BoxScope.MemoCardCollapsedOverlay() {
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(COLLAPSED_BODY_OVERLAY_HEIGHT)
+                .height(MemoCardTokens.CollapsedBodyOverlayHeight)
                 .background(
                     brush =
                         Brush.verticalGradient(
@@ -334,6 +333,3 @@ private fun BoxScope.MemoCardCollapsedOverlay() {
                 ),
     )
 }
-
-private val COLLAPSED_BODY_MAX_HEIGHT = 240.dp
-private val COLLAPSED_BODY_OVERLAY_HEIGHT = 48.dp

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,8 +37,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
 import java.time.DayOfWeek
@@ -49,19 +46,12 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableList
 
-private val CELL_SIZE = 10.dp
-private val CELL_SPACING = 3.dp
-private val CELL_CORNER_RADIUS = 2.dp
-private val LABEL_FONT_SIZE = 9.sp
 private const val HOURS_IN_DAY = 24
 private const val DAYS_IN_WEEK = 7
 private const val HOUR_LABEL_INTERVAL = 3
 private const val LEVEL_ONE_MAX_RATIO = 0.25f
 private const val LEVEL_TWO_MAX_RATIO = 0.50f
 private const val LEVEL_THREE_MAX_RATIO = 0.75f
-private const val EMPTY_ALPHA = 0.5f
-private const val LEVEL_THREE_ALPHA = 0.7f
-private const val SELECTION_STROKE_WIDTH = 2f
 
 private data class WeeklyHeatmapCellHit(
     val dayIndex: Int,
@@ -76,9 +66,9 @@ fun WeeklyHourHeatmap(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val cellSizePx = with(density) { CELL_SIZE.toPx() }
-    val spacingPx = with(density) { CELL_SPACING.toPx() }
-    val cornerRadiusPx = with(density) { CELL_CORNER_RADIUS.toPx() }
+    val cellSizePx = with(density) { StatsChartTokens.WeeklyCellSize.toPx() }
+    val spacingPx = with(density) { StatsChartTokens.WeeklyCellSpacing.toPx() }
+    val cornerRadiusPx = with(density) { StatsChartTokens.CellCornerRadius.toPx() }
     val cellStep = cellSizePx + spacingPx
 
     val colors = rememberWeeklyHeatmapColors()
@@ -106,7 +96,7 @@ fun WeeklyHourHeatmap(
     }
     val leftMarginPx = labelWidthPx + spacingPx * 2
 
-    val hourLabelHeightPx = with(density) { LABEL_FONT_SIZE.toPx() } + spacingPx
+    val hourLabelHeightPx = with(density) { StatsChartTokens.LabelFontSize.toPx() } + spacingPx
     val totalHeight = hourLabelHeightPx + DAYS_IN_WEEK * cellStep
 
     var selectedHit by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
@@ -241,7 +231,7 @@ private fun WeeklyHeatmapCanvas(
                         topLeft = Offset(x, rowY),
                         size = Size(cellSizePx, cellSizePx),
                         cornerRadius = CornerRadius(cornerRadiusPx),
-                        style = Stroke(width = SELECTION_STROKE_WIDTH.dp.toPx()),
+                        style = Stroke(width = StatsChartTokens.SelectionStrokeWidth.toPx()),
                     )
                 }
             }
@@ -300,16 +290,16 @@ private fun WeeklyHeatmapSelectionPopup(
                 scaleOut(targetScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
         ) {
             Surface(
-                shape = RoundedCornerShape(HEATMAP_POPUP_SHAPE),
+                shape = StatsChartTokens.PopupShape,
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = HEATMAP_POPUP_ELEVATION,
-                shadowElevation = HEATMAP_POPUP_ELEVATION,
-                modifier = Modifier.padding(HEATMAP_POPUP_MARGIN),
+                tonalElevation = StatsChartTokens.PopupElevation,
+                shadowElevation = StatsChartTokens.PopupElevation,
+                modifier = Modifier.padding(StatsChartTokens.PopupMargin),
             ) {
                 Column(
                     modifier = Modifier.padding(
-                        horizontal = HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING,
-                        vertical = HEATMAP_POPUP_CONTENT_VERTICAL_PADDING,
+                        horizontal = StatsChartTokens.PopupHorizontalPadding,
+                        vertical = StatsChartTokens.PopupVerticalPadding,
                     ),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -318,7 +308,7 @@ private fun WeeklyHeatmapSelectionPopup(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(modifier = Modifier.height(HEATMAP_POPUP_TEXT_SPACING))
+                    Spacer(modifier = Modifier.height(StatsChartTokens.PopupTextSpacing))
                     Text(
                         text = countLabel,
                         style = MaterialTheme.typography.bodySmall,
@@ -351,7 +341,7 @@ private fun resolveWeeklyHeatmapHit(
     return WeeklyHeatmapCellHit(dayIndex = dayIndex, hour = hour, day = day, count = count)
 }
 
-private data class WeeklyHeatmapColors(
+internal data class WeeklyHeatmapColors(
     val empty: Color,
     val level1: Color,
     val level2: Color,
@@ -361,13 +351,7 @@ private data class WeeklyHeatmapColors(
 
 @Composable
 private fun rememberWeeklyHeatmapColors(): WeeklyHeatmapColors =
-    WeeklyHeatmapColors(
-        empty = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = EMPTY_ALPHA),
-        level1 = MaterialTheme.colorScheme.primaryContainer.copy(alpha = EMPTY_ALPHA),
-        level2 = MaterialTheme.colorScheme.primaryContainer,
-        level3 = MaterialTheme.colorScheme.primary.copy(alpha = LEVEL_THREE_ALPHA),
-        level4 = MaterialTheme.colorScheme.primary,
-    )
+    StatsChartTokens.weeklyHeatmapColors(MaterialTheme.colorScheme)
 
 @Composable
 private fun rememberWeeklyHeatmapTextPaint(
@@ -379,7 +363,7 @@ private fun rememberWeeklyHeatmapTextPaint(
     return remember(textColor, densityScale, fontScale) {
         Paint().apply {
             color = textColor
-            textSize = with(density) { LABEL_FONT_SIZE.toPx() }
+            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
             isAntiAlias = true
             textAlign = Paint.Align.LEFT
         }

@@ -63,7 +63,7 @@ internal fun rememberDraggableScrollbarInteractionState(
             return@LaunchedEffect
         }
         if (state.recentlyScrolled) {
-            delay(DRAGGABLE_SCROLLBAR_FADE_OUT_DELAY_MS)
+            delay(DraggableScrollbarTokens.FadeOutDelayMillis)
             state.recentlyScrolled = false
         }
     }
@@ -105,9 +105,9 @@ internal fun BoxScope.DraggableScrollbarOverlay(
             Modifier
                 .align(Alignment.CenterEnd)
                 .padding(
-                    top = DraggableScrollbarTrackPadding,
-                    bottom = DraggableScrollbarTrackPadding,
-                    end = DraggableScrollbarEndPadding,
+                    top = DraggableScrollbarTokens.TrackPadding,
+                    bottom = DraggableScrollbarTokens.TrackPadding,
+                    end = DraggableScrollbarTokens.EndPadding,
                 ),
         enter = draggableScrollbarFadeInTransition(),
         exit = draggableScrollbarFadeOutTransition(),
@@ -178,7 +178,7 @@ private fun Modifier.draggableScrollbarTrackModifier(
 ): Modifier =
     this
         .fillMaxHeight()
-        .width(DraggableScrollbarTouchTargetWidth)
+        .width(DraggableScrollbarTokens.TouchTargetWidth)
         .systemGestureExclusion()
         .onSizeChanged { size -> onTrackHeightChanged(size.height.toFloat()) }
 
@@ -202,7 +202,7 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
     val hapticsRef = rememberUpdatedState(haptics)
     return this
         .offset { IntOffset(x = 0, y = thumbOffsetRef.value.roundToInt()) }
-        .width(DraggableScrollbarTouchTargetWidth)
+        .width(DraggableScrollbarTokens.TouchTargetWidth)
         .height(thumbHeight)
         .pointerInput(Unit) {
             awaitEachGesture {
@@ -272,7 +272,7 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
 @Composable
 private fun rememberAnimatedThumbWidthPx(isThumbDragged: Boolean): Float {
     val animatedThumbWidth by animateDpAsState(
-        targetValue = if (isThumbDragged) DraggableScrollbarDragWidth else DraggableScrollbarIdleWidth,
+        targetValue = if (isThumbDragged) DraggableScrollbarTokens.DragWidth else DraggableScrollbarTokens.IdleWidth,
         animationSpec = spring(stiffness = Spring.StiffnessMedium),
         label = "ScrollbarThumbWidth",
     )

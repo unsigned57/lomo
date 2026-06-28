@@ -12,7 +12,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.currentTypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
@@ -78,7 +77,7 @@ internal fun createModernMarkdownTokenSpec(
         highlightSpanStyle = highlightSpanStyle,
         blockSpacing = memoParagraphBlockSpacing(scales),
         listSpacing = memoParagraphBlockSpacing(scales),
-        listItemSpacing = 4.dp,
+        listItemSpacing = MarkdownComponentTokens.BlockVerticalPadding,
     )
 }
 
@@ -118,7 +117,7 @@ internal fun rememberModernMarkdownTokenSpec(): ModernMarkdownTokenSpec {
     val baseSpec = createModernMarkdownTokenSpec(
         typography = materialTypography,
         linkColor = colorScheme.primary,
-        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
+        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = MODERN_MARKDOWN_HIGHLIGHT_ALPHA),
         scales = scales,
     )
     return remember(materialTypography, colorScheme, baseSpec) {
@@ -138,7 +137,7 @@ internal fun rememberModernMarkdownTokens(): ModernMarkdownTokens {
     val baseSpec = createModernMarkdownTokenSpec(
         typography = materialTypography,
         linkColor = colorScheme.primary,
-        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
+        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = MODERN_MARKDOWN_HIGHLIGHT_ALPHA),
         scales = scales,
     )
     return remember(materialTypography, colorScheme, baseSpec) {
@@ -203,9 +202,11 @@ private data class LomoMarkdownPadding(
     override val list: Dp,
     override val listItemTop: Dp,
     override val listItemBottom: Dp,
-    override val listIndent: Dp = 8.dp,
-    override val codeBlock: PaddingValues = PaddingValues(8.dp),
-    override val blockQuote: PaddingValues = PaddingValues(vertical = 4.dp),
-    override val blockQuoteText: PaddingValues = PaddingValues(start = 8.dp),
-    override val blockQuoteBar: PaddingValues.Absolute = PaddingValues.Absolute(0.dp, 0.dp, 0.dp, 0.dp),
+    override val listIndent: Dp = MarkdownComponentTokens.ListIndent,
+    override val codeBlock: PaddingValues = PaddingValues(MarkdownComponentTokens.CodeBlockContentPadding),
+    override val blockQuote: PaddingValues = PaddingValues(vertical = MarkdownComponentTokens.BlockVerticalPadding),
+    override val blockQuoteText: PaddingValues = PaddingValues(start = MarkdownComponentTokens.ListIndent),
+    override val blockQuoteBar: PaddingValues.Absolute = PaddingValues.Absolute(),
 ) : MarkdownPadding
+
+private const val MODERN_MARKDOWN_HIGHLIGHT_ALPHA = 0.55f

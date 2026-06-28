@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lomo.domain.model.CalendarHeatmapIntensity
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.R
@@ -33,18 +32,6 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
-private val HEATMAP_CELL_SIZE = 12.dp
-private val HEATMAP_CELL_SPACING = 4.dp
-internal val HEATMAP_MONTH_LABEL_HEIGHT = 14.dp
-private val HEATMAP_CELL_CORNER_RADIUS = 2.dp
-private const val HEATMAP_EMPTY_ALPHA = 0.5f
-private const val HEATMAP_LEVEL_THREE_ALPHA = 0.7f
-internal val HEATMAP_POPUP_SHAPE = 8.dp
-internal val HEATMAP_POPUP_ELEVATION = 3.dp
-internal val HEATMAP_POPUP_MARGIN = 4.dp
-internal val HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING = 12.dp
-internal val HEATMAP_POPUP_CONTENT_VERTICAL_PADDING = 8.dp
-internal val HEATMAP_POPUP_TEXT_SPACING = 2.dp
 private const val PREVIEW_DAY_RANGE = 120
 private const val PREVIEW_LEVEL_FOUR_INTERVAL = 17
 private const val PREVIEW_LEVEL_THREE_INTERVAL = 9
@@ -211,10 +198,10 @@ private fun rememberHeatmapLayout(
     density: androidx.compose.ui.unit.Density,
     window: CalendarHeatmapWindow,
 ): HeatmapLayout {
-    val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
-    val spacingPx = with(density) { HEATMAP_CELL_SPACING.toPx() }
-    val monthLabelHeightPx = with(density) { HEATMAP_MONTH_LABEL_HEIGHT.toPx() }
-    val cornerRadiusPx = with(density) { HEATMAP_CELL_CORNER_RADIUS.toPx() }
+    val cellSizePx = with(density) { StatsChartTokens.CalendarCellSize.toPx() }
+    val spacingPx = with(density) { StatsChartTokens.CalendarCellSpacing.toPx() }
+    val monthLabelHeightPx = with(density) { StatsChartTokens.CalendarMonthLabelHeight.toPx() }
+    val cornerRadiusPx = with(density) { StatsChartTokens.CellCornerRadius.toPx() }
     val weekWidth = cellSizePx + spacingPx
     val totalWidth = window.totalWeeks * weekWidth
     val totalHeight = monthLabelHeightPx + DAYS_PER_WEEK * weekWidth
@@ -249,13 +236,7 @@ private fun rememberHeatmapLayout(
 
 @Composable
 private fun rememberHeatmapColors(): HeatmapColors =
-    HeatmapColors(
-        empty = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = HEATMAP_EMPTY_ALPHA),
-        level1 = MaterialTheme.colorScheme.primaryContainer.copy(alpha = HEATMAP_EMPTY_ALPHA),
-        level2 = MaterialTheme.colorScheme.primaryContainer,
-        level3 = MaterialTheme.colorScheme.primary.copy(alpha = HEATMAP_LEVEL_THREE_ALPHA),
-        level4 = MaterialTheme.colorScheme.primary,
-    )
+    StatsChartTokens.heatmapColors(MaterialTheme.colorScheme)
 
 @Composable
 private fun rememberHeatmapTextPaint(
@@ -267,7 +248,7 @@ private fun rememberHeatmapTextPaint(
     return remember(textColor, densityScale, fontScale) {
         Paint().apply {
             color = textColor
-            textSize = with(density) { 9.sp.toPx() }
+            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
             isAntiAlias = true
             textAlign = android.graphics.Paint.Align.LEFT
         }
@@ -341,7 +322,7 @@ internal class HeatmapPopupPositionProvider(
         val popupX = centeredPopupX.coerceIn(minPopupX, maxPopupX)
 
         // Place popup above the target point
-        val margin = with(density) { 8.dp.roundToPx() }
+        val margin = with(density) { StatsChartTokens.PopupAnchorMargin.roundToPx() }
         val popupY = targetY.toInt() - popupContentSize.height - margin
 
         return androidx.compose.ui.unit
@@ -376,7 +357,7 @@ private fun CalendarHeatmapPreview() {
         }
 
     LomoTheme {
-        Surface(modifier = Modifier.padding(16.dp)) {
+        Surface(modifier = Modifier.padding(com.lomo.ui.theme.AppSpacing.Medium)) {
             CalendarHeatmap(
                 memoCountByDate = sampleMemoCountByDate.toImmutableMap(),
                 today = today,

@@ -63,6 +63,7 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("DataLayerUiDependency") to ::DataLayerUiDependencyRule,
                 RuleName("P0HotspotRepositoryBoundary") to ::P0HotspotRepositoryBoundaryRule,
                 RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
+                RuleName("UiComponentDesignTokenUsage") to ::UiComponentDesignTokenUsageRule,
                 RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
                 RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
                 RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
@@ -480,6 +481,69 @@ private class UiComponentsLayerBoundaryRule(
         }
     }
 }
+
+private class UiComponentDesignTokenUsageRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "ui-components component source must use semantic component tokens for static shapes and alpha ramps.",
+) {
+    private val tokenFileSuffixes = config.valueOrDefault("tokenFileSuffixes", listOf("Tokens.kt", "Token.kt"))
+
+    override fun visitCallExpression(expression: KtCallExpression) {
+        super.visitCallExpression(expression)
+        val file = expression.containingKtFile
+        if (!file.isUiComponentProductionSource()) return
+        if (file.isComponentTokenFile(tokenFileSuffixes)) return
+
+        when (expression.calleeExpression?.text?.substringAfterLast('.')) {
+            "RoundedCornerShape" -> {
+                if (expression.hasStaticShapeArgument()) {
+                    reportElement(
+                        expression,
+                        "Use a semantic component token or AppShapes token instead of creating RoundedCornerShape in component source.",
+                    )
+                }
+            }
+
+            "copy" -> {
+                if (expression.hasStaticAlphaArgument()) {
+                    reportElement(
+                        expression,
+                        "Use a semantic component token color helper instead of applying a local alpha ramp in component source.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun KtFile.isUiComponentProductionSource(): Boolean =
+        isProductionSource() && path().contains("/ui-components/src/main/java/com/lomo/ui/component/")
+
+    private fun KtFile.isComponentTokenFile(tokenFileSuffixes: List<String>): Boolean =
+        tokenFileSuffixes.any { suffix -> path().endsWith(suffix) }
+
+    private fun KtCallExpression.hasStaticShapeArgument(): Boolean {
+        val argumentText = valueArguments.joinToString(separator = " ") { argument -> argument.text }
+        return ".dp" in argumentText ||
+            "AppSpacing." in argumentText ||
+            staticVisualConstantPattern.containsMatchIn(argumentText)
+    }
+
+    private fun KtCallExpression.hasStaticAlphaArgument(): Boolean {
+        val alphaArgument =
+            valueArguments.firstOrNull { argument ->
+                argument.getArgumentName()?.asName?.identifier == "alpha"
+            } ?: return false
+        val alphaExpression = alphaArgument.getArgumentExpression()?.text?.trim().orEmpty()
+        return alphaExpression.isAlphaLiteral() || staticVisualConstantPattern.containsMatchIn(alphaExpression)
+    }
+
+    private fun String.isAlphaLiteral(): Boolean =
+        matches(Regex("""(?:0(?:\.\d+)?|1(?:\.0+)?)[fF]?"""))
+}
+
+private val staticVisualConstantPattern = Regex("""\b[A-Z][A-Z0-9_]*\b""")
 
 private class NoSourceSuppressionsRule(
     config: Config,

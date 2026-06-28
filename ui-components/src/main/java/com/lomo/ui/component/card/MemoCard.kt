@@ -45,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
@@ -54,7 +53,6 @@ import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.memoSummaryTextStyle
 import com.lomo.domain.model.ReminderMarker
@@ -141,14 +139,14 @@ fun MemoCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = AppShapes.Medium,
+        shape = MemoCardTokens.ContainerShape,
         colors =
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
             ),
     ) {
         Column(
-            modifier = interactionModifier.padding(16.dp),
+            modifier = interactionModifier.padding(MemoCardTokens.ContainerPadding),
         ) {
             MemoCardHeader(
                 timestamp = timestamp,
@@ -204,10 +202,10 @@ private fun Modifier.rememberMemoCardInteractionModifier(
     onMenuClick: (() -> Unit)?,
 ): Modifier =
     if (allowFreeTextCopy) {
-        clip(AppShapes.Medium)
+        clip(MemoCardTokens.ContainerShape)
     } else {
         this
-            .clip(AppShapes.Medium)
+            .clip(MemoCardTokens.ContainerShape)
             .combinedClickable(
                 interactionSource = cardInteractionSource,
                 indication = LocalIndication.current,
@@ -225,7 +223,7 @@ private suspend fun emitMemoCardPressFeedback(
 ) {
     val press = PressInteraction.Press(Offset.Zero)
     interactionSource.emit(press)
-    delay(MEMO_CARD_PRESS_FEEDBACK_MILLIS)
+    delay(MemoCardTokens.PressFeedbackMillis)
     interactionSource.emit(PressInteraction.Release(press))
 }
 
@@ -273,24 +271,28 @@ private fun MemoCardHeaderActions(
     menuContent: (@Composable () -> Unit)?,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.HeaderActionSpacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (isPinned) {
             Surface(
                 color = MaterialTheme.colorScheme.tertiaryContainer,
-                shape = AppShapes.Small,
+                shape = MemoCardTokens.PinnedBadgeShape,
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier =
+                        Modifier.padding(
+                            horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding,
+                            vertical = MemoCardTokens.PinnedBadgeVerticalPadding,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.PinnedBadgeSpacing),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.PushPin,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(12.dp),
+                        modifier = Modifier.size(MemoCardTokens.PinnedIconSize),
                     )
                     Text(
                         text = stringResource(R.string.memo_pinned_badge),
@@ -309,13 +311,13 @@ private fun MemoCardHeaderActions(
                         haptic.medium()
                         onMenuClick()
                     },
-                    modifier = Modifier.size(20.dp).then(modifier),
+                    modifier = Modifier.size(MemoCardTokens.MenuButtonSize).then(modifier),
                 ) {
                     Icon(
                         Icons.Rounded.MoreVert,
                         contentDescription = stringResource(R.string.cd_more_options),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(12.dp),
+                        modifier = Modifier.size(MemoCardTokens.MenuIconSize),
                     )
                 }
             }
@@ -359,7 +361,7 @@ private fun MemoCardBody(
                             base.animateContentSize(
                                 animationSpec =
                                     tween(
-                                        durationMillis = MEMO_CARD_EXPAND_ANIMATION_DURATION_MS,
+                                        durationMillis = MemoCardTokens.ExpandAnimationDurationMillis,
                                     ),
                             )
 
@@ -410,7 +412,7 @@ internal fun MemoCardCollapsedSummary(
         style = summaryStyle,
         maxLines = COLLAPSED_SUMMARY_MAX_LINES,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
         selectable = allowFreeTextCopy,
         selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTapFeedback,
@@ -432,12 +434,12 @@ private fun MemoCardFooter(
     onReminderClick: (ReminderMarker) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = MemoCardTokens.FooterTopPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.FooterItemSpacing),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MemoCardTagPills(tags = tags, haptic = haptic, onTagClick = onTagClick)
@@ -450,14 +452,16 @@ private fun MemoCardFooter(
 
         if (shouldShowExpand) {
             val label = if (isExpanded) R.string.cd_collapse else R.string.cd_expand
-            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 24.dp) {
+            CompositionLocalProvider(
+                LocalMinimumInteractiveComponentSize provides MemoCardTokens.ExpandButtonInteractiveSize,
+            ) {
                 TextButton(
                     onClick = {
                         haptic.medium()
                         onToggleExpanded()
                     },
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.heightIn(min = 24.dp),
+                    contentPadding = MemoCardTokens.ExpandButtonContentPadding,
+                    modifier = Modifier.heightIn(min = MemoCardTokens.ExpandButtonInteractiveSize),
                 ) {
                     Text(
                         stringResource(label),
@@ -469,6 +473,4 @@ private fun MemoCardFooter(
     }
 }
 
-private const val MEMO_CARD_EXPAND_ANIMATION_DURATION_MS = 250
-private const val MEMO_CARD_PRESS_FEEDBACK_MILLIS = 120L
 internal const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6

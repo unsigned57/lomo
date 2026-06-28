@@ -26,7 +26,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.theme.memoListTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
@@ -60,7 +59,7 @@ internal fun ModernMarkdownUnorderedList(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp),
+                .padding(start = MarkdownComponentTokens.ListIndent),
         verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
     ) {
         node.children
@@ -112,7 +111,7 @@ internal fun ModernMarkdownOrderedList(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp),
+                .padding(start = MarkdownComponentTokens.ListIndent),
         verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
     ) {
         node.children
@@ -180,7 +179,7 @@ private fun ModernMarkdownListItem(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 2.dp),
+                .padding(vertical = MarkdownComponentTokens.ListItemVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ModernMarkdownListItemLeading(
@@ -237,10 +236,10 @@ private fun ModernMarkdownListItemLeading(
         )
         val checkboxModifier =
             if (onTodoClick == null) {
-                Modifier.size(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
+                Modifier.size(MarkdownComponentTokens.LeadingVisualWidth)
             } else {
                 Modifier
-                    .size(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
+                    .size(MarkdownComponentTokens.LeadingVisualWidth)
                     .graphicsLayer {
                         scaleX = checkboxScale
                         scaleY = checkboxScale
@@ -272,7 +271,7 @@ private fun ModernMarkdownBulletLeading(bullet: String) {
     if (bullet == "•") {
         ModernMarkdownListLeadingSlot {
             val dotColor = MaterialTheme.colorScheme.onSurfaceVariant
-            Canvas(modifier = Modifier.size(6.dp)) { drawCircle(color = dotColor) }
+            Canvas(modifier = Modifier.size(MarkdownComponentTokens.BulletSize)) { drawCircle(color = dotColor) }
         }
     } else {
         ModernMarkdownListLeadingSlot {
@@ -294,22 +293,19 @@ private fun ModernMarkdownBulletLeading(bullet: String) {
 @Composable
 private fun ModernMarkdownListLeadingSlot(content: @Composable BoxScope.() -> Unit) {
     Box(
-        modifier = Modifier.width(MODERN_MARKDOWN_LEADING_SLOT_WIDTH),
+        modifier = Modifier.width(MarkdownComponentTokens.LeadingSlotWidth),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             modifier =
                 Modifier
-                    .width(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
-                    .height(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH),
+                    .width(MarkdownComponentTokens.LeadingVisualWidth)
+                    .height(MarkdownComponentTokens.LeadingVisualWidth),
             contentAlignment = Alignment.Center,
             content = content,
         )
     }
 }
-
-private val MODERN_MARKDOWN_LEADING_SLOT_WIDTH = 28.dp
-private val MODERN_MARKDOWN_LEADING_VISUAL_WIDTH = 24.dp
 
 private fun ASTNode.extractOrderedListMarker(content: String): String? =
     children

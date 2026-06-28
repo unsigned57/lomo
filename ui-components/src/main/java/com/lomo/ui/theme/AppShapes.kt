@@ -68,6 +68,15 @@ object AppShapes {
             bottomEnd = 28.dp,
             bottomStart = 0.dp,
         )
+
+    /** 28.dp top corners only; modal bottom surfaces that keep a flat bottom edge */
+    val ExtraLargeTop =
+        RoundedCornerShape(
+            topStart = 28.dp,
+            topEnd = 28.dp,
+            bottomEnd = 0.dp,
+            bottomStart = 0.dp,
+        )
 }
 
 /**

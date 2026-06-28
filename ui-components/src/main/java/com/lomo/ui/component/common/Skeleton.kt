@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 
 private const val DEFAULT_SHIMMER_TARGET = 1000f
-private const val SHIMMER_HIGHLIGHT_ALPHA = 0.6f
 private const val SHIMMER_DURATION_MILLIS = 800
 private const val PRIMARY_CONTENT_WIDTH_FRACTION = 0.9f
 private const val SECONDARY_CONTENT_WIDTH_FRACTION = 0.6f
@@ -43,9 +41,9 @@ fun shimmerBrush(
     if (showShimmer) {
         val shimmerColors =
             listOf(
-                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = SHIMMER_HIGHLIGHT_ALPHA),
+                SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
                 MaterialTheme.colorScheme.surfaceContainerHighest,
-                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = SHIMMER_HIGHLIGHT_ALPHA),
+                SkeletonTokens.shimmerHighlightColor(MaterialTheme.colorScheme),
             )
 
         val transition = rememberInfiniteTransition(label = "shimmer")
@@ -84,16 +82,16 @@ fun SkeletonMemoItem(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(SkeletonTokens.ItemContentPadding),
+            verticalArrangement = Arrangement.spacedBy(SkeletonTokens.ItemVerticalSpacing),
         ) {
             // Header (Time + Tag)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(SkeletonTokens.HeaderSpacing)) {
                 Box(
                     modifier =
                         Modifier
                             .size(width = 80.dp, height = 14.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(SkeletonTokens.LineShape)
                             .background(brush),
                 )
             }
@@ -104,7 +102,7 @@ fun SkeletonMemoItem(
                     Modifier
                         .fillMaxWidth(PRIMARY_CONTENT_WIDTH_FRACTION)
                         .height(16.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(SkeletonTokens.LineShape)
                         .background(brush),
             )
             Box(
@@ -112,27 +110,27 @@ fun SkeletonMemoItem(
                     Modifier
                         .fillMaxWidth(SECONDARY_CONTENT_WIDTH_FRACTION)
                         .height(16.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(SkeletonTokens.LineShape)
                         .background(brush),
             )
 
             // Footer (Actions)
             Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(top = SkeletonTokens.FooterTopPadding),
+                horizontalArrangement = Arrangement.spacedBy(SkeletonTokens.FooterSpacing),
             ) {
                 Box(
                     modifier =
                         Modifier
                             .size(24.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(SkeletonTokens.ActionShape)
                             .background(brush),
                 )
                 Box(
                     modifier =
                         Modifier
                             .size(24.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(SkeletonTokens.ActionShape)
                             .background(brush),
                 )
             }
@@ -143,7 +141,10 @@ fun SkeletonMemoItem(
 @Composable
 fun MemoListSkeleton(modifier: Modifier = Modifier) {
     val brush = shimmerBrush()
-    Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = modifier.padding(SkeletonTokens.ItemContentPadding),
+        verticalArrangement = Arrangement.spacedBy(SkeletonTokens.ItemVerticalSpacing),
+    ) {
         repeat(SKELETON_ITEM_COUNT) { SkeletonMemoItem(brush = brush) }
     }
 }

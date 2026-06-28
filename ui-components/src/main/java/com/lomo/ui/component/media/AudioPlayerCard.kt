@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -35,7 +34,6 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.R
 import com.lomo.ui.media.AudioPlayerController
@@ -78,12 +76,12 @@ fun AudioPlayerCard(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(56.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
+                .height(AudioPlayerCardTokens.ContainerHeight),
+        color = AudioPlayerCardTokens.containerColor(MaterialTheme.colorScheme),
+        shape = AudioPlayerCardTokens.ContainerShape,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = AudioPlayerCardTokens.ContentHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PlaybackControlButton(
@@ -93,14 +91,14 @@ fun AudioPlayerCard(
                 onClick = { playerManager.play(relativeFilePath) },
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(AudioPlayerCardTokens.ContentSpacing))
 
             PlaybackProgressIndicator(
                 progress = displayProgress,
                 active = isCurrentItem && durationMs > 0L,
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(AudioPlayerCardTokens.ContentSpacing))
             PlaybackTimestamp(
                 positionMs = if (isCurrentItem) playbackState.positionMs else 0L,
                 durationMs = if (isCurrentItem) durationMs else 0L,
@@ -149,20 +147,20 @@ private fun PlaybackControlButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(AudioPlayerCardTokens.ControlButtonSize),
     ) {
         Box(
             modifier =
                 Modifier
-                    .size(32.dp)
-                    .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(16.dp)),
+                    .size(AudioPlayerCardTokens.ControlContainerSize)
+                    .background(MaterialTheme.colorScheme.secondary, AudioPlayerCardTokens.ControlContainerShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) pauseDescription else playDescription,
                 tint = MaterialTheme.colorScheme.onSecondary,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(AudioPlayerCardTokens.ControlIconSize),
             )
         }
     }
@@ -183,11 +181,11 @@ private fun RowScope.PlaybackProgressIndicator(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(18.dp)
+                    .height(AudioPlayerCardTokens.ProgressHeight)
                     .testTag(AUDIO_PLAYBACK_PROGRESS_TAG),
             amplitude = { 0.12f + (it * 0.08f) },
-            wavelength = 28.dp,
-            waveSpeed = 18.dp,
+            wavelength = AudioPlayerCardTokens.ProgressWavelength,
+            waveSpeed = AudioPlayerCardTokens.ProgressWaveSpeed,
             color =
                 if (active) {
                     MaterialTheme.colorScheme.secondary
@@ -196,9 +194,9 @@ private fun RowScope.PlaybackProgressIndicator(
                 },
             trackColor =
                 if (active) {
-                    MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.22f)
+                    AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = true)
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+                    AudioPlayerCardTokens.progressTrackColor(MaterialTheme.colorScheme, active = false)
                 },
         )
     }
@@ -213,7 +211,7 @@ private fun PlaybackTimestamp(
 
     Text(
         text = "${formatAudioTimestamp(positionMs, locale)} / ${formatAudioTimestamp(durationMs, locale)}",
-        modifier = Modifier.widthIn(min = 84.dp),
+        modifier = Modifier.widthIn(min = AudioPlayerCardTokens.TimestampMinWidth),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.End,

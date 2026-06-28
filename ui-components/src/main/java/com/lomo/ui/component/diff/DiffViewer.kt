@@ -9,17 +9,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lomo.domain.model.SimpleLineDiff
 import kotlinx.collections.immutable.ImmutableList
-
-private const val DIFF_CHANGED_LINE_ALPHA = 0.2f
-private const val DIFF_LINE_NUMBER_WIDTH = 4
-private const val DIFF_LINE_NUMBER_FONT_SIZE = 11
-private const val DIFF_LINE_CONTENT_FONT_SIZE = 12
 
 @Composable
 fun DiffViewer(
@@ -32,8 +24,12 @@ fun DiffViewer(
                 Text(
                     text = "\u00b7\u00b7\u00b7",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(vertical = 2.dp, horizontal = 8.dp),
+                    color = DiffViewerTokens.secondaryTextColor(MaterialTheme.colorScheme),
+                    modifier =
+                        Modifier.padding(
+                            vertical = DiffViewerTokens.HunkSeparatorPaddingVertical,
+                            horizontal = DiffViewerTokens.HunkSeparatorPaddingHorizontal,
+                        ),
                 )
             }
             hunk.lines.forEach { line ->
@@ -45,43 +41,36 @@ fun DiffViewer(
 
 @Composable
 private fun DiffLineRow(line: SimpleLineDiff.DiffLine) {
-    val bgColor = when (line.op) {
-        SimpleLineDiff.DiffOp.DELETE -> MaterialTheme.colorScheme.errorContainer.copy(alpha = DIFF_CHANGED_LINE_ALPHA)
-        SimpleLineDiff.DiffOp.INSERT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = DIFF_CHANGED_LINE_ALPHA)
-        SimpleLineDiff.DiffOp.EQUAL -> Color.Transparent
-    }
+    val bgColor = DiffViewerTokens.changedLineBackgroundColor(MaterialTheme.colorScheme, line.op)
     val prefix = when (line.op) {
         SimpleLineDiff.DiffOp.DELETE -> "-"
         SimpleLineDiff.DiffOp.INSERT -> "+"
         SimpleLineDiff.DiffOp.EQUAL -> " "
     }
-    val textColor = when (line.op) {
-        SimpleLineDiff.DiffOp.EQUAL -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    val textColor = DiffViewerTokens.lineContentColor(MaterialTheme.colorScheme, line.op)
     val lineNoText = buildString {
-        append((line.oldLineNumber?.toString() ?: "").padStart(DIFF_LINE_NUMBER_WIDTH))
+        append((line.oldLineNumber?.toString() ?: "").padStart(DiffViewerTokens.LineNumberWidth))
         append(" ")
-        append((line.newLineNumber?.toString() ?: "").padStart(DIFF_LINE_NUMBER_WIDTH))
+        append((line.newLineNumber?.toString() ?: "").padStart(DiffViewerTokens.LineNumberWidth))
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bgColor)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = DiffViewerTokens.LinePaddingHorizontal),
     ) {
         Text(
             text = lineNoText,
             fontFamily = FontFamily.Monospace,
-            fontSize = DIFF_LINE_NUMBER_FONT_SIZE.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.padding(end = 4.dp),
+            fontSize = DiffViewerTokens.LineNumberFontSize,
+            color = DiffViewerTokens.secondaryTextColor(MaterialTheme.colorScheme),
+            modifier = Modifier.padding(end = DiffViewerTokens.LineNumberEndPadding),
         )
         Text(
             text = "$prefix ${line.text}",
             fontFamily = FontFamily.Monospace,
-            fontSize = DIFF_LINE_CONTENT_FONT_SIZE.sp,
+            fontSize = DiffViewerTokens.LineContentFontSize,
             color = textColor,
             maxLines = 1,
         )

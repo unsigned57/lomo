@@ -18,20 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-
-internal const val DRAGGABLE_SCROLLBAR_FADE_OUT_DELAY_MS = 1200L
-internal val DraggableScrollbarTrackPadding = 2.dp
-internal val DraggableScrollbarEndPadding = 8.dp
-internal val DraggableScrollbarIdleWidth = 4.dp
-internal val DraggableScrollbarDragWidth = 12.dp
-internal val DraggableScrollbarTouchTargetWidth = 32.dp
-internal val DraggableScrollbarThumbHeight = 36.dp
-internal const val DRAGGABLE_SCROLLBAR_IDLE_ALPHA = 0.12f
-internal const val DRAGGABLE_SCROLLBAR_ACTIVE_ALPHA = 0.25f
-internal const val DRAGGABLE_SCROLLBAR_DRAG_ALPHA = 0.55f
 
 internal fun shouldShowDraggableScrollbar(canScroll: Boolean): Boolean = canScroll
 
@@ -141,7 +129,7 @@ fun WithDraggableScrollbar(
         Box(modifier = Modifier.then(modifier), content = content)
         return
     }
-    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarThumbHeight.toPx() }
+    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
     val canScroll by remember(state) {
         derivedStateOf { state.maxValue > 0 && state.viewportSize > 0 }
@@ -199,7 +187,7 @@ fun WithDraggableScrollbar(
         Box(modifier = Modifier.then(modifier), content = content)
         return
     }
-    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarThumbHeight.toPx() }
+    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
     val lazyMetrics by produceState<LazyListScrollbarMetrics?>(
         initialValue = null,
@@ -286,7 +274,7 @@ fun WithDraggableScrollbar(
         Box(modifier = Modifier.then(modifier), content = content)
         return
     }
-    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarThumbHeight.toPx() }
+    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
     val interaction =
         rememberDraggableScrollbarInteractionState(
             canScroll = state.canScroll,

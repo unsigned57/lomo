@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,7 +36,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.compose.rememberConstraintsSizeResolver
@@ -51,14 +49,6 @@ import com.lomo.ui.util.SynchronizedLruStore
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
 import kotlinx.coroutines.flow.collectLatest
-
-private val MARKDOWN_IMAGE_CORNER_RADIUS = 8.dp
-private val MARKDOWN_IMAGE_VERTICAL_PADDING = 4.dp
-private val MARKDOWN_IMAGE_INDICATOR_ACTIVE_SIZE = 8.dp
-private val MARKDOWN_IMAGE_INDICATOR_INACTIVE_SIZE = 6.dp
-private val MARKDOWN_IMAGE_INDICATOR_SHAPE_RADIUS = 999.dp
-private const val MARKDOWN_IMAGE_INDICATOR_ACTIVE_ALPHA = 0.85f
-private const val MARKDOWN_IMAGE_INDICATOR_INACTIVE_ALPHA = 0.65f
 
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
@@ -228,9 +218,9 @@ internal fun MarkdownImagePager(
         )
     Column(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = MarkdownImageTokens.VerticalPadding),
     ) {
         HorizontalPager(
             state = pagerState,
@@ -249,7 +239,7 @@ internal fun MarkdownImagePager(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .padding(top = MarkdownImageTokens.PagerTopPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
@@ -290,8 +280,8 @@ private fun Modifier.rememberImageBlockModifier(
     val baseModifier =
         this
             .fillMaxWidth()
-            .clip(RoundedCornerShape(MARKDOWN_IMAGE_CORNER_RADIUS))
-            .padding(vertical = MARKDOWN_IMAGE_VERTICAL_PADDING)
+            .clip(MarkdownImageTokens.Shape)
+            .padding(vertical = MarkdownImageTokens.VerticalPadding)
     val ratioModifier = baseModifier.aspectRatio(ratio)
     val clickableModifier =
         onImageClick?.let { clickHandler ->
@@ -312,20 +302,20 @@ private fun AsyncImagePainter.State.resolvedAspectRatio(): Float? =
 @Composable
 private fun PagerIndicatorDot(isActive: Boolean) {
     val indicatorSize =
-        if (isActive) MARKDOWN_IMAGE_INDICATOR_ACTIVE_SIZE else MARKDOWN_IMAGE_INDICATOR_INACTIVE_SIZE
+        if (isActive) MarkdownImageTokens.IndicatorActiveSize else MarkdownImageTokens.IndicatorInactiveSize
     val indicatorColor =
         if (isActive) {
-            MaterialTheme.colorScheme.primary.copy(alpha = MARKDOWN_IMAGE_INDICATOR_ACTIVE_ALPHA)
+            MarkdownImageTokens.activeIndicatorColor(MaterialTheme.colorScheme)
         } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = MARKDOWN_IMAGE_INDICATOR_INACTIVE_ALPHA)
+            MarkdownImageTokens.inactiveIndicatorColor(MaterialTheme.colorScheme)
         }
 
     Box(
         modifier =
             Modifier
-                .padding(horizontal = 3.dp)
+                .padding(horizontal = MarkdownImageTokens.IndicatorHorizontalPadding)
                 .size(indicatorSize)
-                .clip(RoundedCornerShape(MARKDOWN_IMAGE_INDICATOR_SHAPE_RADIUS))
+                .clip(MarkdownImageTokens.IndicatorShape)
                 .background(indicatorColor),
     )
 }
@@ -336,16 +326,16 @@ private fun ImageLoadingPlaceholder(modifier: Modifier = Modifier) {
         modifier =
             modifier
                 .fillMaxWidth()
-                .heightIn(min = 100.dp)
+                .heightIn(min = MarkdownImageTokens.LoadingMinHeight)
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    RoundedCornerShape(8.dp),
+                    MarkdownImageTokens.loadingContainerColor(MaterialTheme.colorScheme),
+                    MarkdownImageTokens.Shape,
                 ),
         contentAlignment = Alignment.Center,
     ) {
         ExpressiveLoadingIndicator(
-            modifier = Modifier.size(24.dp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+            modifier = Modifier.size(MarkdownImageTokens.LoadingIndicatorSize),
+            color = MarkdownImageTokens.loadingIndicatorColor(MaterialTheme.colorScheme),
         )
     }
 }
@@ -356,10 +346,10 @@ private fun ImageErrorPlaceholder(modifier: Modifier = Modifier) {
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(60.dp)
+                .height(MarkdownImageTokens.ErrorHeight)
                 .background(
-                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                    RoundedCornerShape(8.dp),
+                    MarkdownImageTokens.errorContainerColor(MaterialTheme.colorScheme),
+                    MarkdownImageTokens.Shape,
                 ),
         contentAlignment = Alignment.Center,
     ) {
@@ -377,10 +367,10 @@ private fun ImageEmptyPlaceholder(modifier: Modifier = Modifier) {
         modifier =
             modifier
                 .fillMaxWidth()
-                .heightIn(min = 60.dp)
+                .heightIn(min = MarkdownImageTokens.PlaceholderMinHeight)
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                    RoundedCornerShape(8.dp),
+                    MarkdownImageTokens.emptyContainerColor(MaterialTheme.colorScheme),
+                    MarkdownImageTokens.Shape,
                 ),
     )
 }
@@ -393,7 +383,7 @@ private fun MarkdownImagePlaceholdersPreview() {
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(MarkdownImageTokens.PlaceholderContentPadding),
         ) {
             ImageLoadingPlaceholder()
             ImageErrorPlaceholder()

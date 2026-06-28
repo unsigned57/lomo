@@ -17,10 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.ui.R
-import com.lomo.ui.theme.AppShapes
 import kotlinx.collections.immutable.ImmutableList
 import java.time.format.DateTimeFormatter
 
@@ -37,13 +35,13 @@ internal fun MemoCardTagPills(
                 haptic.medium()
                 onTagClick(tag)
             },
-            shape = AppShapes.Small,
+            shape = MemoCardTokens.PinnedBadgeShape,
             color = colors.containerColor,
-            modifier = Modifier.height(24.dp),
+            modifier = Modifier.height(MemoCardTokens.ExpandButtonInteractiveSize),
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding),
             ) {
                 Text(
                     text = "#$tag",
@@ -75,20 +73,20 @@ internal fun MemoCardReminderPills(
                 }
             },
             enabled = !isExhausted,
-            shape = AppShapes.Small,
+            shape = MemoCardTokens.PinnedBadgeShape,
             color = colors.containerColor,
-            modifier = Modifier.height(24.dp),
+            modifier = Modifier.height(MemoCardTokens.ExpandButtonInteractiveSize),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(MemoCardTokens.PinnedBadgeSpacing),
+                modifier = Modifier.padding(horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Alarm,
                     contentDescription = null,
                     tint = colors.contentColor,
-                    modifier = Modifier.size(12.dp),
+                    modifier = Modifier.size(MemoCardTokens.PinnedIconSize),
                 )
                 val displayText = ReminderDisplayFormatter.format(reminder, formatter, doneLabel)
                 Text(

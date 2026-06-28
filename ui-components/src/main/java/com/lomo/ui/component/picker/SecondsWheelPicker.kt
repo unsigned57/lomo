@@ -185,7 +185,7 @@ private fun SecondsWheelPickerContent(
     Box(
         modifier = modifier
             .height(viewport.itemHeight * viewport.visibleItems)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(PickerComponentTokens.WheelViewportShape)
             .semantics(mergeDescendants = true) {
                 contentDescription =
                     wheelContentDescription
@@ -207,8 +207,8 @@ private fun SecondsWheelPickerContent(
                 .fillMaxWidth()
                 .height(viewport.itemHeight)
                 .background(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(12.dp),
+                    color = PickerComponentTokens.wheelSelectionColor(MaterialTheme.colorScheme),
+                    shape = PickerComponentTokens.WheelSelectionShape,
                 ),
         )
         LazyColumn(

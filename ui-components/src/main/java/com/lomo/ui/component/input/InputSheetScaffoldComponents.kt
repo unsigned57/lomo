@@ -27,12 +27,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.MotionTokens
-
-internal val InputSheetCompactFallbackHeight = 228.dp
+import com.lomo.ui.theme.SheetHandleTokens
 
 @Composable
 internal fun InputSheetScaffold(
@@ -100,7 +97,7 @@ private fun InputSheetAnimatedSurface(
                 fullSurfaceHeightPx = fullSurfaceHeightPx,
                 fallbackCompactSurfaceHeightPx =
                     remember(density) {
-                        with(density) { InputSheetCompactFallbackHeight.roundToPx() }
+                        with(density) { InputSheetTokens.CompactFallbackHeight.roundToPx() }
                     },
             )
         val animatedInsets = rememberInputSheetAnimatedInsets(motionStage = surfaceState.motionStage)
@@ -156,11 +153,11 @@ internal fun InputSheetDragHandle(modifier: Modifier = Modifier) {
     Box(
         modifier =
             modifier
-                .padding(vertical = 22.dp)
-                .width(32.dp)
-                .height(4.dp)
-                .clip(AppShapes.ExtraSmall)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                .padding(vertical = SheetHandleTokens.VerticalPadding)
+                .width(SheetHandleTokens.Width)
+                .height(SheetHandleTokens.Height)
+                .clip(SheetHandleTokens.Shape)
+                .background(SheetHandleTokens.color(MaterialTheme.colorScheme))
                 .clearAndSetSemantics { },
     )
 }
