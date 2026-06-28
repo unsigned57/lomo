@@ -40,6 +40,7 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 @Composable
 internal fun ModernMarkdownUnorderedList(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock.ListBlock?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -64,10 +65,11 @@ internal fun ModernMarkdownUnorderedList(
     ) {
         node.children
             .filter { it.type == MarkdownElementTypes.LIST_ITEM }
-            .forEach { listItemNode ->
+            .forEachIndexed { index, listItemNode ->
                 ModernMarkdownListItem(
                     content = content,
                     listItemNode = listItemNode,
+                    semanticItem = semanticBlock?.items?.getOrNull(index),
                     tokenSpec = tokenSpec,
                     bullet = "•",
                     onTodoClick = onTodoClick,
@@ -90,6 +92,7 @@ internal fun ModernMarkdownUnorderedList(
 @Composable
 internal fun ModernMarkdownOrderedList(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock.ListBlock?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -119,6 +122,7 @@ internal fun ModernMarkdownOrderedList(
                 ModernMarkdownListItem(
                     content = content,
                     listItemNode = listItemNode,
+                    semanticItem = semanticBlock?.items?.getOrNull(index),
                     tokenSpec = tokenSpec,
                     bullet = bullet,
                     onTodoClick = onTodoClick,
@@ -136,10 +140,13 @@ internal fun ModernMarkdownOrderedList(
                 )
             }
     }
-}@Composable
+}
+
+@Composable
 private fun ModernMarkdownListItem(
     content: String,
     listItemNode: ASTNode,
+    semanticItem: MarkdownSemanticListItem?,
     tokenSpec: ModernMarkdownTokenSpec,
     bullet: String,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -168,7 +175,7 @@ private fun ModernMarkdownListItem(
             color = MaterialTheme.colorScheme.outline,
         )
     val itemStyle = if (presentation.effectiveChecked) checkedItemStyle else tokenSpec.listStyle
- 
+
     Row(
         modifier =
             Modifier
@@ -187,9 +194,10 @@ private fun ModernMarkdownListItem(
         ) {
             listItemNode.children
                 .filter(::isRenderableListItemChild)
-                .forEach { child ->
+                .forEachIndexed { index, child ->
                     ModernMarkdownBlock(
                         node = child,
+                        semanticBlock = semanticItem?.blocks?.getOrNull(index),
                         content = content,
                         tokenSpec = tokenSpec,
                         onTodoClick = onTodoClick,
