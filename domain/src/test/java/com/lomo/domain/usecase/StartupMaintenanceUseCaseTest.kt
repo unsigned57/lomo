@@ -84,7 +84,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository = FakeSyncInboxRepository()
@@ -98,7 +98,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -121,7 +122,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository = FakeSyncInboxRepository()
@@ -135,7 +136,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -184,7 +186,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val preferencesRepository = FakePreferencesRepository().apply {
@@ -197,7 +199,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -223,7 +226,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository = FakeSyncInboxRepository()
@@ -237,7 +240,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -281,7 +285,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository = FakeSyncInboxRepository()
@@ -295,7 +299,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -333,7 +338,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 }
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository = FakeSyncInboxRepository()
@@ -347,7 +352,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -375,7 +381,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val delegateInbox = FakeSyncInboxRepository()
@@ -399,7 +405,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),
@@ -439,7 +446,7 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val syncPolicyRepository = FakeSyncPolicyRepository()
                 val syncAndRebuildUseCase = SyncAndRebuildUseCase(
                     memoRepository = com.lomo.domain.testing.fakes.FakeMemoMutationRepository(memoRepository),
-                    syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                    syncProviderRegistry = SyncProviderRegistry(emptySet()),
                     syncPolicyRepository = syncPolicyRepository,
                 )
                 val syncInboxRepository =
@@ -461,7 +468,8 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     initializeWorkspaceUseCase = initializeWorkspaceUseCase,
                     syncAndRebuildUseCase = syncAndRebuildUseCase,
                     syncProviderRegistry = SyncProviderRegistry(
-                        providers = listOf(
+            providers =
+                setOf(
                             InboxUnifiedSyncProvider(syncInboxRepository, preferencesRepository)
                         )
                     ),

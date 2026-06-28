@@ -37,15 +37,22 @@ import kotlinx.coroutines.test.runTest
  * Behavior Contract:
  * - Capability: Conflict and review dialog state transitions, typed default choice preselection, and resolution application.
  * - Scenarios:
- *   - Given a conflict set, dialog displays correct initial showing state.
- *   - Given backend type and content heuristics (strict superset, disjoint insertions, identical content with newer metadata), suggest optimal default resolution choices.
- *   - Given inbox blocked review items, expose typed review state and leave their choices unselected.
- *   - Given user choice overrides or bulk selection, apply choices appropriately.
- *   - Given apply resolution trigger, verify backup and resolve use cases are invoked in correct order.
+ *   - Given a conflict set, when the dialog is shown, then it displays correct initial showing state.
+ *   - Given backend type and content heuristics, when conflicts are shown, then optimal default choices are suggested.
+ *   - Given inbox blocked review items, when review state is shown, then blocked choices remain unselected.
+ *   - Given user choice overrides or bulk selection, when choices change, then state applies choices appropriately.
+ *   - Given apply resolution trigger, when resolution runs, then backup and resolve use cases run in order.
  * - Observable outcomes:
  *   - ViewModel state (Hidden, Showing, ReviewShowing), per-file conflict choices, and per-item review choices.
  * - TDD proof: RED observed with unresolved ReviewShowing/setReviewItemChoice references before the typed review state fix.
  * - Excludes: Compose UI dialog representation and sync engine transport operations.
+ *
+ * Test Change Justification:
+ * - Reason category: API contract migration.
+ * - Old behavior/assertion being replaced: SyncProviderRegistry accepted an ordered List of providers.
+ * - Why old assertion is no longer correct: provider registration now models the Hilt multibinding graph as an unordered Set.
+ * - Coverage preserved by: existing ViewModel state assertions plus SyncProviderRegistryTest duplicate-provider coverage.
+ * - Why this is not fitting the test to the implementation: observable conflict/review behavior is unchanged.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncConflictViewModelTest : AppFunSpec() {
@@ -549,12 +556,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
         SyncConflictViewModel(
             syncConflictResolutionUseCase =
                 SyncConflictResolutionUseCase(
-                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toList()),
+                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toSet()),
                     memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
                 ),
             syncReviewResolutionUseCase =
                 SyncReviewResolutionUseCase(
-                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toList()),
+                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toSet()),
                 ),
             backupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(backupRepository),
         )
