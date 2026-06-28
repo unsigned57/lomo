@@ -4,8 +4,6 @@ import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import com.lomo.ui.theme.TypographyScales
-import org.intellij.markdown.MarkdownElementTypes
-import org.intellij.markdown.ast.ASTNode
 
 /*
  * Behavior Contract:
@@ -19,14 +17,25 @@ import org.intellij.markdown.ast.ASTNode
  * - Given image Markdown, when no media resolver claims it, then image and gallery behavior is preserved.
  * - Given an audio-looking image marker and no media resolver, when paragraph items are built, then it falls back to image presentation.
  * - Given an audio-looking image marker and a caller media resolver, when paragraph items are built, then it emits a media presentation item instead of hard-coding an audio card.
+ * - Given a render plan semantic paragraph with reference image and rich inline text, when paragraph items are built, then the semantic paragraph is the only inline source.
  *
  * Observable outcomes:
- * - emitted paragraph item kinds, text payloads, image destinations, and media presentation data.
+ * - emitted paragraph item kinds, text payloads, image destinations, inline style ranges, link annotations, and media presentation data.
  *
  * TDD proof:
  * - Fails before the fix because paragraph media is represented as VoiceMemo and is selected by ui-components through domain MediaFileExtensions.
+ * - Fails before the semantic pipeline fix because reference images are parsed into the render-plan semantic block but
+ *   buildModernParagraphItems reparses the paragraph AST fragment and cannot resolve reference image destinations.
  *
- * - Excludes: Compose widget rendering, TextView layout, image loading, and top-level block planning.
+ * Excludes:
+ * - Compose widget rendering, TextView layout, image loading, and top-level block planning.
+ *
+ * Test Change Justification:
+ * - Reason category: production contract migration from AST paragraph input to semantic paragraph input.
+ * - Old behavior/assertion being replaced: tests parsed paragraph AST nodes locally and passed raw content into buildModernParagraphItems.
+ * - Why old assertion is no longer correct: paragraph item building no longer owns Markdown parsing; the render plan owns semantic parsing once.
+ * - Coverage preserved by: existing text, line break, image, gallery, and media scenarios still assert emitted paragraph item outcomes.
+ * - Why this is not fitting the test to the implementation: the expected user-visible item outputs are unchanged, and the new reference-image scenario locks cross-parser behavior.
  */
 class ModernParagraphItemTest : UiComponentsFunSpec() {
     private val tokenSpec = createModernMarkdownTokenSpec(Typography(), scales = TypographyScales())
@@ -131,20 +140,56 @@ class ModernParagraphItemTest : UiComponentsFunSpec() {
             (mediaItem.presentation.source) shouldBe ("recordings/memo.ogg")
             (mediaItem.presentation.kind) shouldBe ("audio")
         }
+
+        test("semantic paragraph is the single source for reference images and inline styling") {
+            val content =
+                """
+                lead [site][home] ==focus== <u>now</u> ![cover][cover]
+
+                [home]: https://example.com
+                [cover]: images/cover.png "Cover"
+                """.trimIndent()
+            val plan =
+                createModernMarkdownRenderPlan(
+                    content = content,
+                    knownTagsToStrip = emptyList(),
+                )
+            val block = plan.items.first() as ModernMarkdownRenderItem.Block
+            val paragraph = block.semanticBlock as MarkdownSemanticBlock.Paragraph
+
+            val items = buildModernParagraphItemsFor(paragraph)
+
+            (items.size) shouldBe (2)
+            val textItem = items.first() as ModernParagraphItem.Text
+            (textItem.text.text) shouldBe ("lead site focus now ")
+            (textItem.text.getLinkAnnotations(0, textItem.text.length).isEmpty()) shouldBe false
+            (textItem.text.spanStyles.any { range -> textItem.text.text.substring(range.start, range.end) == "focus" }) shouldBe true
+            (textItem.text.spanStyles.any { range -> textItem.text.text.substring(range.start, range.end) == "now" }) shouldBe true
+            val imageItem = items[1] as ModernParagraphItem.Image
+            (imageItem.image.destination) shouldBe ("images/cover.png")
+            (imageItem.image.title) shouldBe ("cover")
+        }
     }
 
     private fun buildModernParagraphItemsFor(
         content: String,
         mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
     ): List<ModernParagraphItem> =
-        buildModernParagraphItems(
-            content = content,
-            paragraphNode = parseParagraphNode(content),
-            tokenSpec = tokenSpec,
-            textStyle = tokenSpec.paragraphStyle,
+        buildModernParagraphItemsFor(
+            paragraph = parseParagraph(content),
             mediaPresentationResolver = mediaPresentationResolver,
         )
 
-    private fun parseParagraphNode(content: String): ASTNode =
-        parseModernMarkdownDocument(content).children.first { it.type == MarkdownElementTypes.PARAGRAPH }
+    private fun buildModernParagraphItemsFor(
+        paragraph: MarkdownSemanticBlock.Paragraph,
+        mediaPresentationResolver: MarkdownMediaPresentationResolver? = null,
+    ): List<ModernParagraphItem> =
+        buildModernParagraphItems(
+            paragraph = paragraph,
+            tokenSpec = tokenSpec,
+            mediaPresentationResolver = mediaPresentationResolver,
+        )
+
+    private fun parseParagraph(content: String): MarkdownSemanticBlock.Paragraph =
+        parseMarkdownSemanticDocument(content).blocks.first() as MarkdownSemanticBlock.Paragraph
 }

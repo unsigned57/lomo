@@ -78,6 +78,7 @@ internal fun ModernMarkdownRenderPlanContent(
                 is ModernMarkdownRenderItem.Block -> {
                     ModernMarkdownBlock(
                         node = item.node,
+                        semanticBlock = item.semanticBlock,
                         content = plan.content,
                         tokenSpec = tokenSpec,
                         onTodoClick = onTodoClick,
@@ -117,6 +118,7 @@ private val MODERN_MARKDOWN_BLOCK_QUOTE_CONTENT_GAP = 8.dp
 @Composable
 internal fun ModernMarkdownBlock(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -134,9 +136,10 @@ internal fun ModernMarkdownBlock(
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     resolveModernMarkdownHeadingStyle(node = node, tokenSpec = tokenSpec)?.let { headingStyle ->
+        val headingBlock = semanticBlock as? MarkdownSemanticBlock.Heading
         ModernMarkdownHeading(
-            node = node,
-            content = content,
+            semanticBlock = headingBlock,
+            blockStartOffset = node.startOffset,
             style = headingStyle,
             tokenSpec = tokenSpec,
             enableTextSelection = enableTextSelection,
@@ -151,6 +154,7 @@ internal fun ModernMarkdownBlock(
 
     RenderModernMarkdownStandardBlock(
         node = node,
+        semanticBlock = semanticBlock,
         content = content,
         tokenSpec = tokenSpec,
         onTodoClick = onTodoClick,
@@ -172,6 +176,7 @@ internal fun ModernMarkdownBlock(
 @Composable
 private fun RenderModernMarkdownStandardBlock(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -191,8 +196,8 @@ private fun RenderModernMarkdownStandardBlock(
     when (node.type) {
         MarkdownElementTypes.PARAGRAPH ->
             ModernMarkdownParagraph(
-                node = node,
-                content = content,
+                semanticBlock = semanticBlock as MarkdownSemanticBlock.Paragraph,
+                blockStartOffset = node.startOffset,
                 tokenSpec = tokenSpec,
                 textStyle = baseParagraphStyle ?: tokenSpec.paragraphStyle,
                 onImageClick = onImageClick,
@@ -239,6 +244,7 @@ private fun RenderModernMarkdownStandardBlock(
         GFMElementTypes.TABLE ->
             RenderModernMarkdownStructuredBlock(
                 node = node,
+                semanticBlock = semanticBlock,
                 content = content,
                 tokenSpec = tokenSpec,
                 onTodoClick = onTodoClick,
@@ -275,6 +281,7 @@ private fun RenderModernMarkdownStandardBlock(
 @Composable
 private fun RenderModernMarkdownStructuredBlock(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -294,6 +301,7 @@ private fun RenderModernMarkdownStructuredBlock(
         MarkdownElementTypes.BLOCK_QUOTE ->
             ModernMarkdownBlockQuote(
                 node = node,
+                semanticBlock = semanticBlock as? MarkdownSemanticBlock.BlockQuote,
                 content = content,
                 tokenSpec = tokenSpec,
                 onTodoClick = onTodoClick,
@@ -313,6 +321,7 @@ private fun RenderModernMarkdownStructuredBlock(
         MarkdownElementTypes.UNORDERED_LIST ->
             ModernMarkdownUnorderedList(
                 node = node,
+                semanticBlock = semanticBlock as? MarkdownSemanticBlock.ListBlock,
                 content = content,
                 tokenSpec = tokenSpec,
                 onTodoClick = onTodoClick,
@@ -332,6 +341,7 @@ private fun RenderModernMarkdownStructuredBlock(
         MarkdownElementTypes.ORDERED_LIST ->
             ModernMarkdownOrderedList(
                 node = node,
+                semanticBlock = semanticBlock as? MarkdownSemanticBlock.ListBlock,
                 content = content,
                 tokenSpec = tokenSpec,
                 onTodoClick = onTodoClick,
@@ -351,6 +361,7 @@ private fun RenderModernMarkdownStructuredBlock(
         else ->
             ModernMarkdownTable(
                 node = node,
+                semanticBlock = semanticBlock as? MarkdownSemanticBlock.Table,
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
@@ -365,8 +376,8 @@ private fun RenderModernMarkdownStructuredBlock(
 
 @Composable
 private fun ModernMarkdownHeading(
-    node: ASTNode,
-    content: String,
+    semanticBlock: MarkdownSemanticBlock.Heading?,
+    blockStartOffset: Int,
     style: TextStyle,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
@@ -377,11 +388,9 @@ private fun ModernMarkdownHeading(
     onTextLongClick: (() -> Unit)?,
 ) {
     val annotatedText =
-        remember(content, node, style, tokenSpec) {
-            buildModernMarkdownHeadingAnnotatedText(
-                content = content,
-                node = node,
-                style = style,
+        remember(semanticBlock, style, tokenSpec) {
+            buildModernMarkdownAnnotatedTextFromSemanticInlines(
+                inlines = semanticBlock?.inlines.orEmpty(),
                 tokenSpec = tokenSpec,
             )
         }
@@ -402,7 +411,7 @@ private fun ModernMarkdownHeading(
                 .fillMaxWidth()
                 .padding(vertical = tokenSpec.blockSpacing / 2),
         selectable = enableTextSelection,
-        blockKey = MarkdownBlockKey.heading(node.startOffset),
+        blockKey = MarkdownBlockKey.heading(blockStartOffset),
         selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTextTapFeedback,
         onBodyClick = onTextBodyClick,
@@ -413,8 +422,8 @@ private fun ModernMarkdownHeading(
 
 @Composable
 private fun ModernMarkdownParagraph(
-    node: ASTNode,
-    content: String,
+    semanticBlock: MarkdownSemanticBlock.Paragraph,
+    blockStartOffset: Int,
     tokenSpec: ModernMarkdownTokenSpec,
     textStyle: TextStyle,
     onImageClick: ((String) -> Unit)?,
@@ -430,12 +439,10 @@ private fun ModernMarkdownParagraph(
 ) {
     val effectiveMediaPresentationResolver = mediaPresentationResolver.takeIf { mediaContent != null }
     val items =
-        remember(content, node, tokenSpec, textStyle, effectiveMediaPresentationResolver) {
+        remember(semanticBlock, tokenSpec, textStyle, effectiveMediaPresentationResolver) {
             buildModernParagraphItems(
-                content = content,
-                paragraphNode = node,
+                paragraph = semanticBlock,
                 tokenSpec = tokenSpec,
-                textStyle = textStyle,
                 mediaPresentationResolver = effectiveMediaPresentationResolver,
             )
         }
@@ -449,7 +456,7 @@ private fun ModernMarkdownParagraph(
                         text = item.text,
                         style = textStyle,
                         enableTextSelection = enableTextSelection,
-                        blockKey = MarkdownBlockKey.paragraphItem(node.startOffset, index),
+                        blockKey = MarkdownBlockKey.paragraphItem(blockStartOffset, index),
                         selectionRegistrar = selectionRegistrar,
                         onTapFeedback = onTextTapFeedback,
                         onBodyClick = onTextBodyClick,
@@ -555,6 +562,7 @@ private fun ModernMarkdownIndentedCodeBlock(
 @Composable
 private fun ModernMarkdownTable(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock.Table?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
@@ -564,7 +572,9 @@ private fun ModernMarkdownTable(
     onTextDoubleClick: (() -> Unit)?,
     onTextLongClick: (() -> Unit)?,
 ) {
-    val rows = remember(content, node) { node.extractModernMarkdownTableRows(content) }
+    val rows = remember(semanticBlock, content, node) {
+        semanticBlock?.toModernMarkdownTableRows() ?: node.extractModernMarkdownTableRows(content).toSemanticTableRows()
+    }
     if (rows.isEmpty()) return
 
     Column(
@@ -594,9 +604,8 @@ private fun ModernMarkdownTable(
                 row.cells.forEachIndexed { cellIndex, cell ->
                     val annotatedText =
                         remember(cell, tokenSpec) {
-                            buildModernMarkdownAnnotatedTextFromFragment(
-                                fragment = cell,
-                                style = tokenSpec.tableStyle,
+                            buildModernMarkdownAnnotatedTextFromSemanticInlines(
+                                inlines = cell.inlines,
                                 tokenSpec = tokenSpec,
                             )
                         }
@@ -635,6 +644,7 @@ private fun ModernMarkdownTable(
 @Composable
 private fun ModernMarkdownBlockQuote(
     node: ASTNode,
+    semanticBlock: MarkdownSemanticBlock.BlockQuote?,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -669,9 +679,10 @@ private fun ModernMarkdownBlockQuote(
             ) {
                 node.children
                     .filter(::isRenderableNestedBlock)
-                    .forEach { child ->
+                    .forEachIndexed { index, child ->
                         ModernMarkdownBlock(
                             node = child,
+                            semanticBlock = semanticBlock?.blocks?.getOrNull(index),
                             content = content,
                             tokenSpec = tokenSpec,
                             onTodoClick = onTodoClick,

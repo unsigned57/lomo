@@ -155,7 +155,7 @@ private fun buildModernAnnotatorSettings(tokenSpec: ModernMarkdownTokenSpec): An
         annotator = markdownAnnotator(),
     )
 
-private fun TextStyle.toInlineSpanStyle(): SpanStyle =
+internal fun TextStyle.toInlineSpanStyle(): SpanStyle =
     SpanStyle(
         color = color,
         fontSize = fontSize,

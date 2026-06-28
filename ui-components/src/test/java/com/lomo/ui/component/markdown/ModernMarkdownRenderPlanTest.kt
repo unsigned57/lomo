@@ -38,6 +38,13 @@ import org.intellij.markdown.MarkdownElementTypes
  *
  * Excludes:
  * - Compose layout, click logic, and notification routing.
+ *
+ * Test Change Justification:
+ * - Reason category: production contract migration from AST fragment input to render-plan semantic block input.
+ * - Old behavior/assertion being replaced: media resolver assertions rebuilt paragraph items from plan content plus AST block nodes.
+ * - Why old assertion is no longer correct: paragraph item rendering no longer performs its own fragment parse and must consume the semantic block produced by the plan.
+ * - Coverage preserved by: the tests still assert media-resolved image paragraphs split galleries and expose audio media sources.
+ * - Why this is not fitting the test to the implementation: the observable media presentation contract is unchanged; setup now uses the canonical render-plan IR.
  */
 class ModernMarkdownRenderPlanTest : UiComponentsFunSpec() {
     private val tokenSpec = createModernMarkdownTokenSpec(Typography(), scales = TypographyScales())
@@ -88,10 +95,8 @@ class ModernMarkdownRenderPlanTest : UiComponentsFunSpec() {
                 blocks.map { block ->
                     val item =
                         buildModernParagraphItems(
-                            content = plan.content,
-                            paragraphNode = block.node,
+                            paragraph = block.semanticBlock as MarkdownSemanticBlock.Paragraph,
                             tokenSpec = tokenSpec,
-                            textStyle = tokenSpec.paragraphStyle,
                             mediaPresentationResolver = resolver,
                         ).single()
                     item.shouldBeInstanceOf<ModernParagraphItem.Media>().presentation.source
@@ -326,10 +331,8 @@ class ModernMarkdownRenderPlanTest : UiComponentsFunSpec() {
             val block = item.shouldBeInstanceOf<ModernMarkdownRenderItem.Block>()
             val paragraphItem =
                 buildModernParagraphItems(
-                    content = plan.content,
-                    paragraphNode = block.node,
+                    paragraph = block.semanticBlock as MarkdownSemanticBlock.Paragraph,
                     tokenSpec = tokenSpec,
-                    textStyle = tokenSpec.paragraphStyle,
                     mediaPresentationResolver = resolver,
                 ).single()
             paragraphItem.shouldBeInstanceOf<ModernParagraphItem.Media>().presentation.source
