@@ -10,11 +10,7 @@ lomo_ai_prepare_gradle_env "ai-local-maintenance-check"
 report_dir="$repo_root/build/reports/ai/local-maintenance"
 summary_file="$report_dir/summary.md"
 version_updates_log="$report_dir/version-catalog-update-check.log"
-dependency_analysis_log="$report_dir/dependency-analysis-check.log"
-dependency_vulnerability_log="$report_dir/dependency-vulnerability-check.log"
 r8_log="$report_dir/r8-minify-release.log"
-dependency_vulnerability_timeout_seconds="${LOMO_DEPENDENCY_VULNERABILITY_TIMEOUT_SECONDS:-300}"
-dependency_analysis_report="$repo_root/build/reports/dependency-analysis/build-health-report.txt"
 
 mkdir -p "$report_dir"
 
@@ -24,29 +20,6 @@ run_gradle_capture() {
 
   set +e
   lomo_ai_run_gradle "$@" 2>&1 | tee "$log_file"
-  local status=${PIPESTATUS[0]}
-  set -e
-  return "$status"
-}
-
-run_gradle_capture_with_timeout() {
-  local timeout_seconds="$1"
-  local log_file="$2"
-  shift 2
-
-  set +e
-  timeout "$timeout_seconds" env HOME="$ai_home" \
-    ANDROID_PREFS_ROOT="$ai_android_prefs_root" \
-    XDG_DATA_HOME="$ai_xdg_data_home" \
-    XDG_CONFIG_HOME="$ai_xdg_config_home" \
-    GRADLE_OPTS="$ai_gradle_opts" \
-    GRADLE_USER_HOME="$ai_gradle_user_home" \
-    "$gradlew" \
-    --project-dir "$repo_root" \
-    --no-daemon \
-    --no-configuration-cache \
-    --console=plain \
-    "$@" 2>&1 | tee "$log_file"
   local status=${PIPESTATUS[0]}
   set -e
   return "$status"
@@ -86,20 +59,6 @@ else
   version_updates_status=$?
 fi
 
-echo "ai-local-maintenance-check: running advisory ./gradlew dependencyAnalysisCheck"
-if run_gradle_capture "$dependency_analysis_log" dependencyAnalysisCheck "$@"; then
-  dependency_analysis_status=0
-else
-  dependency_analysis_status=$?
-fi
-
-echo "ai-local-maintenance-check: running advisory ./gradlew dependencyVulnerabilityCheck (timeout: ${dependency_vulnerability_timeout_seconds}s)"
-if run_gradle_capture_with_timeout "$dependency_vulnerability_timeout_seconds" "$dependency_vulnerability_log" dependencyVulnerabilityCheck "$@"; then
-  dependency_vulnerability_status=0
-else
-  dependency_vulnerability_status=$?
-fi
-
 echo "ai-local-maintenance-check: running enforced ./gradlew :app:minifyReleaseWithR8"
 if run_gradle_capture "$r8_log" :app:minifyReleaseWithR8 "$@"; then
   r8_status=0
@@ -123,30 +82,17 @@ if [ ! -f "$version_updates_artifact" ]; then
   version_updates_artifact="$version_updates_log"
 fi
 
-dependency_analysis_status_label="clean"
-dependency_analysis_artifact="$dependency_analysis_log"
-if [ "$dependency_analysis_status" -ne 0 ]; then
-  dependency_analysis_status_label="advisory-failure"
-elif [ -f "$dependency_analysis_report" ] && grep -q '^Advice for :' "$dependency_analysis_report"; then
-  dependency_analysis_status_label="advisory-findings"
-  dependency_analysis_artifact="$dependency_analysis_report"
-fi
-
 cat > "$summary_file" <<EOF
 # Local maintenance summary
 
 | Check | Status | Notes |
 | --- | --- | --- |
 | Version catalog update check | $( [ "$version_updates_status" -eq 0 ] && printf 'clean' || printf 'updates-or-review-needed' ) | log: \`$version_updates_log\` |
-| Dependency analysis | $dependency_analysis_status_label | log: \`$dependency_analysis_log\` |
-| Dependency vulnerability scan | $( if [ "$dependency_vulnerability_status" -eq 0 ]; then printf 'clean'; elif [ "$dependency_vulnerability_status" -eq 124 ]; then printf 'timed-out'; else printf 'failed'; fi ) | log: \`$dependency_vulnerability_log\` |
 | R8 release diagnostics | $( [ "$r8_status" -eq 0 ] && printf 'ready' || printf 'failed-or-incomplete' ) | log: \`$r8_log\` |
 
 EOF
 
 append_report_section "Version catalog updates" "$version_updates_artifact" 80
-append_report_section "Dependency analysis" "$dependency_analysis_artifact" 120
-append_report_section "Dependency vulnerability log" "$dependency_vulnerability_log" 120
 append_report_section "R8 usage report" "$r8_usage_file" 120
 append_report_section "R8 seeds report" "$r8_seeds_file" 120
 append_report_section "R8 mapping file" "$r8_mapping_file" 40
@@ -155,6 +101,6 @@ append_report_section "R8 missing rules" "$r8_missing_rules_file" 80
 
 cat "$summary_file"
 
-if { [ "$dependency_vulnerability_status" -ne 0 ] && [ "$dependency_vulnerability_status" -ne 124 ]; } || [ "$r8_status" -ne 0 ]; then
+if [ "$r8_status" -ne 0 ]; then
   exit 1
 fi

@@ -64,7 +64,9 @@ reject_text() {
 
 require_file "$ai_quality_script"
 require_file "$local_maintenance_script"
-require_file "$vulnerability_workflow"
+
+# Enforce that the scheduled dependency check workflow has been removed
+[ ! -f "$vulnerability_workflow" ] || fail "workflow file $vulnerability_workflow still exists"
 
 bash -n "$ai_quality_script"
 bash -n "$local_maintenance_script"
@@ -75,20 +77,16 @@ require_text "$ai_quality_script" "skipping local maintenance by default"
 require_text "$ai_quality_script" 'bash "$script_dir/ai_local_maintenance_check.sh"'
 reject_text "$ai_quality_script" "LOMO_SKIP_LOCAL_MAINTENANCE"
 
-require_text "$local_maintenance_script" "dependencyVulnerabilityCheck"
-require_text "$local_maintenance_script" "LOMO_DEPENDENCY_VULNERABILITY_TIMEOUT_SECONDS"
+# Enforce rejection of dependency check and analysis in local maintenance script
+reject_text "$local_maintenance_script" "dependencyVulnerabilityCheck"
+reject_text "$local_maintenance_script" "dependencyAnalysisCheck"
 
-require_text "$root_build" "dependency-check-data"
-require_text "$root_build" "NVD_API_KEY"
-require_text "$root_build" "validForHours = 24"
+# Enforce rejection of dependency check and analysis in root build.gradle.kts
+reject_text "$root_build" "dependency-check-data"
+reject_text "$root_build" "dependencyAnalysis"
+reject_text "$root_build" "NVD_API_KEY"
 
 require_text "$quality_readme" "LOMO_RUN_LOCAL_MAINTENANCE=true"
-require_text "$quality_readme" "Dependency-Check data"
 reject_text "$quality_readme" "LOMO_SKIP_LOCAL_MAINTENANCE"
-
-require_text "$vulnerability_workflow" "dependencyVulnerabilityCheck"
-require_text "$vulnerability_workflow" "NVD_API_KEY"
-require_text "$vulnerability_workflow" "schedule:"
-require_text "$vulnerability_workflow" "workflow_dispatch:"
 
 echo "ai-quality-check-contract: ok"

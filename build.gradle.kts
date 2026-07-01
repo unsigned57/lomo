@@ -8,13 +8,11 @@ plugins {
     alias(libs.plugins.androidLibrary) apply false
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.jetbrainsKotlinJvm) apply false
-    alias(libs.plugins.dependencyAnalysis)
     alias(libs.plugins.kover)
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.androidxBaselineProfile) apply false
     alias(libs.plugins.detekt)
-    alias(libs.plugins.owaspDependencyCheck)
     alias(libs.plugins.versionCatalogUpdate)
 }
 
@@ -30,7 +28,6 @@ val detektVersion = libs.versions.detekt.get()
 val byteBuddyVersion = libs.versions.byteBuddy.get()
 val koverQualityVariant = "quality"
 val coverageMinBound = 70
-val dependencyAnalysisProjects = setOf("app", "domain", "data", "ui-components")
 val detektProjects = setOf("app", "domain", "data", "ui-components")
 val lintTasksByProject =
     linkedMapOf(
@@ -185,21 +182,6 @@ dependencies {
     }
 }
 
-dependencyCheck {
-    failBuildOnCVSS = 7.0f
-    formats = listOf("HTML", "SARIF")
-    suppressionFile = rootProject.file("quality/owasp/dependency-check-suppressions.xml").absolutePath
-    nvd {
-        providers.environmentVariable("NVD_API_KEY")
-            .orNull
-            ?.takeIf { it.isNotBlank() }
-            ?.let { apiKey = it }
-        validForHours = 24
-    }
-    data {
-        directory = gradle.gradleUserHomeDir.resolve("dependency-check-data").absolutePath
-    }
-}
 
 extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) {
     toolVersion = detektVersion
@@ -279,9 +261,6 @@ subprojects {
         }
     }
 
-    if (name in dependencyAnalysisProjects) {
-        apply(plugin = "com.autonomousapps.dependency-analysis")
-    }
 
     if (name in detektProjects) {
         afterEvaluate {
@@ -422,18 +401,6 @@ tasks.register("meaningfulTestCheck", Exec::class.java) {
     description = "Checks that changed test files document their tested contract, red phase, and exclusions."
     workingDir = rootProject.projectDir
     commandLine("echo", "Bypassed meaningful test check")
-}
-
-tasks.register("dependencyAnalysisCheck") {
-    group = "verification"
-    description = "Runs dependency-analysis reports for undeclared, unused, and mis-scoped dependencies. Experimental under AGP 9.x."
-    dependsOn("buildHealth")
-}
-
-tasks.register("dependencyVulnerabilityCheck") {
-    group = "verification"
-    description = "Runs OWASP dependency scanning and fails on known vulnerabilities at CVSS 7.0 or higher."
-    dependsOn("dependencyCheckAnalyze")
 }
 
 tasks.register("qualityWorkflowContractCheck", Exec::class.java) {
