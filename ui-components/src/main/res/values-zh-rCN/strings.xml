@@ -23,6 +23,7 @@
     <string name="markdown_image_content_description">图片</string>
     <string name="markdown_image_load_failed">图片加载失败</string>
     <string name="calendar_heatmap_date_format">M月d日</string>
+    <string name="calendar_heatmap_year_format">%1$d年</string>
     <plurals name="calendar_heatmap_memo_count">
         <item quantity="other">%1$d 条备忘录</item>
     </plurals>

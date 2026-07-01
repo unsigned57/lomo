@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lomo Sidebar Redesign Proposal - Material 3 Expressive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Common Design Tokens */
+            --transition-smooth: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            --transition-bounce: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            
+            /* Theme Light Baseline (Before) */
+            --b-bg: #f3f4f6;
+            --b-surface: #ffffff;
+            --b-text-primary: #1f2937;
+            --b-text-secondary: #4b5563;
+            --b-accent: #3b82f6;
+            --b-border: #e5e7eb;
+            --b-chip-bg: #eff6ff;
+            --b-chip-text: #1e40af;
+            
+            /* Theme Expressive Dark (After) */
+            --m3-bg: #0d0e12;
+            --m3-surface: #161822;
+            --m3-surface-hover: #212435;
+            --m3-surface-card: #1c1e2d;
+            --m3-primary: #6366f1; /* Indigo */
+            --m3-primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --m3-secondary: #d946ef; /* Magenta */
+            --m3-text-primary: #f8fafc;
+            --m3-text-secondary: #94a3b8;
+            --m3-text-muted: #64748b;
+            --m3-border: rgba(255, 255, 255, 0.08);
+            --m3-card-border: rgba(255, 255, 255, 0.04);
+            --m3-glow: 0px 8px 30px rgba(99, 102, 241, 0.2);
+            --m3-radius-xl: 24px;
+            --m3-radius-lg: 16px;
+            --m3-radius-md: 12px;
+            --m3-radius-pill: 9999px;
+        }
+
+        /* Dark Mode toggles for Before side */
+        .theme-dark {
+            --b-bg: #111827;
+            --b-surface: #1f2937;
+            --b-text-primary: #f9fafb;
+            --b-text-secondary: #9ca3af;
+            --b-accent: #60a5fa;
+            --b-border: #374151;
+            --b-chip-bg: #1e3a8a;
+            --b-chip-text: #93c5fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #090a0f;
+            color: #f1f5f9;
+            min-height: 100vh;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        /* Presentation Container */
+        .wrapper {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        header.proposal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .proposal-title h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #06b6d4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .proposal-title p {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #f1f5f9;
+            padding: 8px 16px;
+            border-radius: var(--m3-radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .btn-active {
+            background: var(--m3-primary);
+            border-color: var(--m3-primary);
+            box-shadow: var(--m3-glow);
+        }
+
+        /* Sidebar Side-by-Side Comparison Layout */
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            width: 100%;
+        }
+
+        @media (max-width: 1024px) {
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Column Panels */
+        .panel {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 28px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: var(--bar-gradient);
+        }
+
+        .panel-before {
+            --bar-gradient: linear-gradient(90deg, #9ca3af, #d1d5db);
+        }
+
+        .panel-after {
+            --bar-gradient: linear-gradient(90deg, #6366f1, #a855f7);
+            background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.06), transparent 60%),
+                        rgba(255, 255, 255, 0.02);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-tag {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 4px 10px;
+            border-radius: var(--m3-radius-pill);
+            background: rgba(255, 255, 255, 0.06);
+            color: #94a3b8;
+        }
+
+        .panel-after .panel-tag {
+            background: rgba(99, 102, 241, 0.15);
+            color: #c084fc;
+        }
+
+        /* Screen Simulator */
+        .simulator {
+            background: var(--sim-bg);
+            border: 8px solid #27272a;
+            border-radius: 28px;
+            height: 720px;
+            width: 340px;
+            margin: 0 auto;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            display: flex;
+        }
+
+        .panel-before .simulator {
+            --sim-bg: var(--b-bg);
+            transition: background-color 0.3s;
+        }
+
+        .panel-after .simulator {
+            --sim-bg: var(--m3-bg);
+        }
+
+        /* ----------------------------------------------------
+           BEFORE DESIGN: Classic / Standard Sidebar Drawer
+           ---------------------------------------------------- */
+        .before-drawer {
+            width: 100%;
+            height: 100%;
+            background: var(--b-surface);
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow-y: auto;
+            color: var(--b-text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 14px;
+        }
+
+        .before-header {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+        }
+
+        .before-settings-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--b-text-secondary);
+        }
+
+        .before-settings-btn:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .theme-dark .before-settings-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Calendar Heatmap (Before) */
+        .before-heatmap {
+            margin-bottom: 16px;
+            border: 1px solid var(--b-border);
+            padding: 10px;
+            border-radius: 8px;
+            background: var(--b-surface);
+        }
+
+        .before-heatmap-header {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--b-text-secondary);
+            margin-bottom: 6px;
+            text-align: left;
+        }
+
+        .before-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 3px;
+        }
+
+        .before-cell {
+            width: 100%;
+            aspect-ratio: 1;
+            background: #e5e7eb;
+            border-radius: 2px;
+        }
+
+        .theme-dark .before-cell {
+            background: #374151;
+        }
+
+        .before-cell.lvl-1 { background: #9effa9; }
+        .before-cell.lvl-2 { background: #34d399; }
+        .before-cell.lvl-3 { background: #059669; }
+        .before-cell.lvl-4 { background: #047857; }
+        .theme-dark .before-cell.lvl-1 { background: #064e3b; }
+        .theme-dark .before-cell.lvl-2 { background: #047857; }
+        .theme-dark .before-cell.lvl-3 { background: #059669; }
+        .theme-dark .before-cell.lvl-4 { background: #34d399; }
+
+        /* Stats (Before) */
+        .before-stats {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .before-stat-card {
+            flex: 1;
+            background: #eff6ff; /* primary container light */
+            padding: 8px 4px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #dbeafe;
+        }
+
+        .theme-dark .before-stat-card {
+            background: #1e3a8a;
+            border-color: #1e40af;
+        }
+
+        .before-stat-val {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1e40af;
+        }
+
+        .theme-dark .before-stat-val {
+            color: #93c5fd;
+        }
+
+        .before-stat-lbl {
+            font-size: 10px;
+            color: #1e40af;
+            opacity: 0.8;
+            margin-top: 2px;
+        }
+
+        .theme-dark .before-stat-lbl {
+            color: #93c5fd;
+        }
+
+        /* Nav List (Before) */
+        .before-nav-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            border-radius: 9999px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            color: var(--b-text-secondary);
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .before-nav-item:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+
+        .theme-dark .before-nav-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .before-nav-item.active {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .theme-dark .before-nav-item.active {
+            background: #1e3a8a;
+            color: #93c5fd;
+        }
+
+        .before-nav-icon {
+            margin-right: 12px;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .before-nav-label {
+            flex-grow: 1;
+        }
+
+        .before-nav-badge {
+            font-size: 11px;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 2px 6px;
+            border-radius: 999px;
+            color: var(--b-text-secondary);
+        }
+
+        .theme-dark .before-nav-badge {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .before-divider {
+            height: 1px;
+            background: var(--b-border);
+            margin: 12px 0;
+        }
+
+        /* Tags Tree (Before) */
+        .before-tag-row {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 2px;
+            color: var(--b-text-secondary);
+        }
+
+        .before-tag-row:hover {
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .theme-dark .before-tag-row:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .before-tag-row.selected {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--b-accent);
+            font-weight: 600;
+        }
+
+        .before-tag-arrow {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 4px;
+            color: var(--b-text-secondary);
+            transition: transform 0.2s;
+        }
+
+        .before-tag-label {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .before-tag-count {
+            font-size: 11px;
+            color: var(--b-text-secondary);
+            opacity: 0.7;
+        }
+
+
+        /* ----------------------------------------------------
+           AFTER DESIGN: Material 3 Expressive Sidebar Drawer
+           ---------------------------------------------------- */
+        .after-drawer {
+            width: 100%;
+            height: 100%;
+            background: var(--m3-bg);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+            color: var(--m3-text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 14px;
+        }
+
+        /* Custom Scrollbar for M3 Expressive Panel */
+        .after-drawer::-webkit-scrollbar {
+            width: 5px;
+        }
+        .after-drawer::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .after-drawer::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: var(--m3-radius-pill);
+        }
+        .after-drawer::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .after-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .after-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .after-brand-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--m3-primary-gradient);
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+        }
+
+        .after-brand-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+            background: linear-gradient(to right, #ffffff, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .after-settings-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--m3-border);
+            color: var(--m3-text-secondary);
+            cursor: pointer;
+            padding: 8px;
+            border-radius: var(--m3-radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition-smooth);
+        }
+
+        .after-settings-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--m3-text-primary);
+            transform: scale(1.05) rotate(15deg);
+        }
+
+        /* Expressive containment cards */
+        .after-card {
+            background: var(--m3-surface-card);
+            border: 1px solid var(--m3-card-border);
+            border-radius: var(--m3-radius-lg);
+            padding: 14px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            transition: var(--transition-smooth);
+        }
+
+        .after-card:hover {
+            border-color: rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* Heatmap (After) */
+        .after-heatmap-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--m3-text-secondary);
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .after-heatmap-header span {
+            color: var(--m3-primary);
+        }
+
+        .after-heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 4px;
+        }
+
+        .after-cell {
+            width: 100%;
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px; /* smooth rounded cells */
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            position: relative;
+        }
+
+        .after-cell:hover {
+            transform: scale(1.2);
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+        }
+
+        .after-cell.lvl-1 { background: #4f46e5; opacity: 0.4; }
+        .after-cell.lvl-2 { background: #6366f1; opacity: 0.7; }
+        .after-cell.lvl-3 { background: #818cf8; }
+        .after-cell.lvl-4 { background: #c084fc; box-shadow: 0 0 8px rgba(192, 132, 252, 0.6); }
+
+        /* Stats (After) */
+        .after-stats-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .after-stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: var(--m3-radius-md);
+            padding: 10px 4px;
+            text-align: center;
+            transition: var(--transition-bounce);
+            cursor: pointer;
+        }
+
+        .after-stat-card:hover {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: rgba(99, 102, 241, 0.25);
+            transform: translateY(-4px) scale(1.05);
+        }
+
+        .after-stat-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--m3-text-primary);
+            letter-spacing: -0.5px;
+            line-height: 1.2;
+        }
+
+        .after-stat-card:hover .after-stat-val {
+            background: var(--m3-primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .after-stat-lbl {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--m3-text-secondary);
+            margin-top: 4px;
+            letter-spacing: 0.2px;
+        }
+
+        /* Navigation List - Expressive Style */
+        .after-nav-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            padding: 12px 18px;
+            border-radius: var(--m3-radius-lg);
+            cursor: pointer;
+            margin-bottom: 6px;
+            color: var(--m3-text-secondary);
+            font-weight: 600;
+            letter-spacing: 0.1px;
+            transition: var(--transition-bounce);
+            overflow: hidden;
+            border: 1px solid transparent;
+        }
+
+        .after-nav-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--m3-primary-gradient);
+            opacity: 0;
+            z-index: 1;
+            transition: opacity 0.3s ease;
+        }
+
+        .after-nav-item:hover {
+            color: var(--m3-text-primary);
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--m3-border);
+            transform: translateX(4px);
+        }
+
+        .after-nav-item.active {
+            color: #ffffff;
+            box-shadow: var(--m3-glow);
+            transform: scale(1.02);
+            border-color: transparent;
+        }
+
+        .after-nav-item.active::before {
+            opacity: 1;
+        }
+
+        /* Make content show above the background layer */
+        .after-nav-item > * {
+            position: relative;
+            z-index: 2;
+        }
+
+        .after-nav-icon {
+            margin-right: 14px;
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: inherit;
+            transition: var(--transition-bounce);
+        }
+
+        .after-nav-item:hover .after-nav-icon {
+            transform: scale(1.15) rotate(-5deg);
+        }
+
+        .after-nav-item.active .after-nav-icon {
+            color: #ffffff;
+        }
+
+        .after-nav-label {
+            flex-grow: 1;
+            font-size: 14px;
+        }
+
+        .after-nav-badge {
+            font-size: 11px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--m3-text-primary);
+            padding: 2px 8px;
+            border-radius: var(--m3-radius-pill);
+            transition: var(--transition-smooth);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .after-nav-item.active .after-nav-badge {
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .after-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--m3-border) 20%, var(--m3-border) 80%, transparent);
+            margin: 18px 0;
+        }
+
+        /* Tags Tree - Expressive Hierarchy with cards & nested lines */
+        .after-tags-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--m3-text-muted);
+            margin-bottom: 12px;
+            padding-left: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .after-tags-title span {
+            font-family: 'Outfit', sans-serif;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1px 6px;
+            border-radius: 6px;
+            font-size: 10px;
+        }
+
+        .after-tag-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .after-tag-row {
+            display: flex;
+            align-items: center;
+            padding: 10px 14px;
+            border-radius: var(--m3-radius-md);
+            cursor: pointer;
+            color: var(--m3-text-secondary);
+            transition: var(--transition-smooth);
+            position: relative;
+            user-select: none;
+        }
+
+        /* Level indicators */
+        .after-tag-row::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 0;
+            background: var(--m3-primary);
+            border-radius: var(--m3-radius-pill);
+            transition: var(--transition-smooth);
+        }
+
+        .after-tag-row:hover {
+            background: var(--m3-surface-hover);
+            color: var(--m3-text-primary);
+        }
+
+        .after-tag-row:hover::after {
+            height: 16px;
+        }
+
+        .after-tag-row.selected {
+            background: rgba(99, 102, 241, 0.12);
+            color: #ffffff;
+            font-weight: 600;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .after-tag-row.selected::after {
+            height: 24px;
+            background: var(--m3-primary-gradient);
+            width: 4px;
+        }
+
+        .after-tag-indent-line {
+            position: absolute;
+            left: -12px;
+            top: -12px;
+            bottom: 12px;
+            width: 1.5px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 1px;
+        }
+
+        .after-tag-arrow {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 6px;
+            color: var(--m3-text-muted);
+            border-radius: 4px;
+            transition: var(--transition-smooth);
+        }
+
+        .after-tag-row:hover .after-tag-arrow {
+            color: var(--m3-text-primary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .after-tag-arrow.expanded {
+            transform: rotate(90deg);
+            color: var(--m3-primary);
+        }
+
+        .after-tag-label {
+            flex-grow: 1;
+            font-size: 13.5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .after-tag-count {
+            font-size: 11px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            color: var(--m3-text-muted);
+            background: rgba(255, 255, 255, 0.04);
+            padding: 1px 6px;
+            border-radius: 6px;
+            margin-left: 6px;
+            transition: var(--transition-smooth);
+        }
+
+        .after-tag-row:hover .after-tag-count {
+            color: var(--m3-text-primary);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .after-tag-row.selected .after-tag-count {
+            color: #ffffff;
+            background: rgba(99, 102, 241, 0.3);
+        }
+
+        .nested-tags {
+            margin-left: 20px;
+            padding-left: 8px;
+            border-left: 1px dashed rgba(255, 255, 255, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* SVG Icons Inline */
+        .icon-svg {
+            fill: currentColor;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Details info panel */
+        .details-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: var(--m3-radius-lg);
+            padding: 20px;
+            margin-top: 16px;
+        }
+
+        .details-box h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .details-box h3::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--m3-primary);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--m3-primary);
+        }
+
+        .details-box ul {
+            list-style-type: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .details-box li {
+            font-size: 13.5px;
+            color: #94a3b8;
+            line-height: 1.5;
+            padding-left: 12px;
+            position: relative;
+        }
+
+        .details-box li::before {
+            content: "•";
+            color: var(--m3-primary);
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <header class="proposal-header">
+        <div class="proposal-title">
+            <h1>Lomo 侧边栏 UI 优化方案 (Material 3 Expressive 风格)</h1>
+            <p>基于 Material 3 表现力规范，重塑侧边栏，带来灵动的微动效、卡片式容器组合和更强的信息对比。</p>
+        </div>
+        <div class="controls">
+            <button class="btn" onclick="toggleBeforeTheme()" id="beforeThemeBtn">
+                <svg class="icon-svg" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 9.01 9.01 0 0 0-9-9zm0 16a7 7 0 1 1 7-7 7.008 7.008 0 0 1-7 7z"/></svg>
+                切换 "旧方案" 主题: <span id="themeName">浅色</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="comparison-grid">
+        <!-- Panel Before -->
+        <div class="panel panel-before">
+            <div class="panel-header">
+                <span class="panel-tag">Current / 优化前</span>
+                <h2>传统导航抽屉 (Drawer)</h2>
+            </div>
+            
+            <div class="simulator">
+                <div class="before-drawer" id="beforeDrawer">
+                    <div class="before-header">
+                        <button class="before-settings-btn">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.488.488 0 0 0-.59.22L3.91 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.27.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Heatmap Grid -->
+                    <div class="before-heatmap">
+                        <div class="before-heatmap-header">热力图 (最近12周)</div>
+                        <div class="before-heatmap-grid">
+                            <div class="before-cell"></div><div class="before-cell lvl-1"></div><div class="before-cell"></div><div class="before-cell lvl-2"></div>
+                            <div class="before-cell lvl-1"></div><div class="before-cell"></div><div class="before-cell lvl-3"></div><div class="before-cell lvl-2"></div>
+                            <div class="before-cell"></div><div class="before-cell lvl-1"></div><div class="before-cell"></div><div class="before-cell lvl-4"></div>
+                            <div class="before-cell lvl-1"></div><div class="before-cell lvl-2"></div><div class="before-cell"></div><div class="before-cell"></div>
+                            <div class="before-cell"></div><div class="before-cell lvl-3"></div><div class="before-cell lvl-2"></div><div class="before-cell"></div>
+                            <div class="before-cell"></div><div class="before-cell lvl-1"></div><div class="before-cell lvl-2"></div><div class="before-cell lvl-3"></div>
+                            <div class="before-cell lvl-1"></div><div class="before-cell lvl-1"></div><div class="before-cell"></div><div class="before-cell"></div>
+                            <div class="before-cell lvl-2"></div><div class="before-cell"></div><div class="before-cell lvl-4"></div><div class="before-cell lvl-3"></div>
+                            <div class="before-cell"></div><div class="before-cell lvl-1"></div><div class="before-cell lvl-2"></div><div class="before-cell"></div>
+                            <div class="before-cell lvl-3"></div><div class="before-cell lvl-2"></div><div class="before-cell"></div><div class="before-cell lvl-1"></div>
+                            <div class="before-cell"></div><div class="before-cell lvl-1"></div><div class="before-cell lvl-4"></div><div class="before-cell lvl-2"></div>
+                            <div class="before-cell lvl-2"></div><div class="before-cell"></div><div class="before-cell"></div><div class="before-cell lvl-3"></div>
+                        </div>
+                    </div>
+
+                    <!-- Stats Row -->
+                    <div class="before-stats">
+                        <div class="before-stat-card">
+                            <div class="before-stat-val">196</div>
+                            <div class="before-stat-lbl">备忘</div>
+                        </div>
+                        <div class="before-stat-card">
+                            <div class="before-stat-val">14</div>
+                            <div class="before-stat-lbl">标签</div>
+                        </div>
+                        <div class="before-stat-card">
+                            <div class="before-stat-val">88</div>
+                            <div class="before-stat-lbl">记录天数</div>
+                        </div>
+                    </div>
+
+                    <!-- Destination Links -->
+                    <div class="before-nav-item active">
+                        <div class="before-nav-icon">📝</div>
+                        <div class="before-nav-label">备忘录</div>
+                        <div class="before-nav-badge">196</div>
+                    </div>
+                    <div class="before-nav-item">
+                        <div class="before-nav-icon">📅</div>
+                        <div class="before-nav-label">每日回顾</div>
+                    </div>
+                    <div class="before-nav-item">
+                        <div class="before-nav-icon">🖼️</div>
+                        <div class="before-nav-label">画廊</div>
+                    </div>
+                    <div class="before-nav-item">
+                        <div class="before-nav-icon">📊</div>
+                        <div class="before-nav-label">统计统计</div>
+                    </div>
+                    <div class="before-nav-item">
+                        <div class="before-nav-icon">🗑️</div>
+                        <div class="before-nav-label">废纸篓</div>
+                    </div>
+
+                    <div class="before-divider"></div>
+
+                    <!-- Tags List -->
+                    <div class="before-tag-row">
+                        <div class="before-tag-arrow">▶</div>
+                        <div class="before-tag-label">work</div>
+                        <div class="before-tag-count">42</div>
+                    </div>
+                    <div class="before-tag-row">
+                        <div class="before-tag-arrow">▶</div>
+                        <div class="before-tag-label">personal</div>
+                        <div class="before-tag-count">39</div>
+                    </div>
+                    <div class="before-tag-row">
+                        <div class="before-tag-arrow">▶</div>
+                        <div class="before-tag-label">travel</div>
+                        <div class="before-tag-count">11</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="details-box">
+                <h3>当前界面痛点</h3>
+                <ul>
+                    <li><strong>缺乏视觉层次：</strong>所有版块都是平直放置在白色（或灰色）背景上，没有合理的卡片进行物理和视觉边界划分。</li>
+                    <li><strong>色彩单一且古板：</strong>采用传统的 Material 3 基础卡片配色，对重点项目和数字的强调度明显不足，整体风格趋近普通企业级管理后台。</li>
+                    <li><strong>无微动效与反馈：</strong>悬停与选中仅仅是静态透明度或底色的变化，缺乏物理弹性的回馈感。</li>
+                    <li><strong>空间分布松散：</strong>标签树的多级缩进没有辅助线指引，视觉排版不够精致。</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Panel After -->
+        <div class="panel panel-after">
+            <div class="panel-header">
+                <span class="panel-tag">Proposed / 优化后</span>
+                <h2>表现力侧边栏 (M3 Expressive)</h2>
+            </div>
+            
+            <div class="simulator">
+                <div class="after-drawer">
+                    <div class="after-header">
+                        <div class="after-brand">
+                            <div class="after-brand-icon">
+                                <svg style="width:16px;height:16px;fill:#ffffff" viewBox="0 0 24 24">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                                </svg>
+                            </div>
+                            <div class="after-brand-title">LOMO</div>
+                        </div>
+                        <button class="after-settings-btn">
+                            <svg style="width:18px;height:18px;" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.488.488 0 0 0-.59.22L3.91 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.27.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Expressive Card for Heatmap & Stats -->
+                    <div class="after-card">
+                        <div class="after-heatmap-header">
+                            最近 12 周活跃 <span>Heatmap</span>
+                        </div>
+                        <div class="after-heatmap-grid" style="margin-bottom: 14px;">
+                            <div class="after-cell"></div><div class="after-cell lvl-1"></div><div class="after-cell"></div><div class="after-cell lvl-2"></div>
+                            <div class="after-cell lvl-1"></div><div class="after-cell"></div><div class="after-cell lvl-3"></div><div class="after-cell lvl-2"></div>
+                            <div class="after-cell"></div><div class="after-cell lvl-1"></div><div class="after-cell"></div><div class="after-cell lvl-4"></div>
+                            <div class="after-cell lvl-1"></div><div class="after-cell lvl-2"></div><div class="after-cell"></div><div class="after-cell"></div>
+                            <div class="after-cell"></div><div class="after-cell lvl-3"></div><div class="after-cell lvl-2"></div><div class="after-cell"></div>
+                            <div class="after-cell"></div><div class="after-cell lvl-1"></div><div class="after-cell lvl-2"></div><div class="after-cell lvl-3"></div>
+                            <div class="after-cell lvl-1"></div><div class="after-cell lvl-1"></div><div class="after-cell"></div><div class="after-cell"></div>
+                            <div class="after-cell lvl-2"></div><div class="after-cell"></div><div class="after-cell lvl-4"></div><div class="after-cell lvl-3"></div>
+                            <div class="after-cell"></div><div class="after-cell lvl-1"></div><div class="after-cell lvl-2"></div><div class="after-cell"></div>
+                            <div class="after-cell lvl-3"></div><div class="after-cell lvl-2"></div><div class="after-cell"></div><div class="after-cell lvl-1"></div>
+                            <div class="after-cell"></div><div class="after-cell lvl-1"></div><div class="after-cell lvl-4"></div><div class="after-cell lvl-2"></div>
+                            <div class="after-cell lvl-2"></div><div class="after-cell"></div><div class="after-cell"></div><div class="after-cell lvl-3"></div>
+                        </div>
+
+                        <!-- Secondary card content for Stats inside the main container -->
+                        <div class="after-stats-container">
+                            <div class="after-stat-card">
+                                <div class="after-stat-val">196</div>
+                                <div class="after-stat-lbl">备忘</div>
+                            </div>
+                            <div class="after-stat-card">
+                                <div class="after-stat-val">14</div>
+                                <div class="after-stat-lbl">标签</div>
+                            </div>
+                            <div class="after-stat-card">
+                                <div class="after-stat-val">88</div>
+                                <div class="after-stat-lbl">记录天</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Destination Links -->
+                    <div class="after-nav-item active" onclick="setActiveNav(this)">
+                        <div class="after-nav-icon">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                            </svg>
+                        </div>
+                        <div class="after-nav-label">备忘录</div>
+                        <div class="after-nav-badge">196</div>
+                    </div>
+                    <div class="after-nav-item" onclick="setActiveNav(this)">
+                        <div class="after-nav-icon">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                        </div>
+                        <div class="after-nav-label">每日回顾</div>
+                    </div>
+                    <div class="after-nav-item" onclick="setActiveNav(this)">
+                        <div class="after-nav-icon">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                        </div>
+                        <div class="after-nav-label">画廊</div>
+                    </div>
+                    <div class="after-nav-item" onclick="setActiveNav(this)">
+                        <div class="after-nav-icon">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>
+                            </svg>
+                        </div>
+                        <div class="after-nav-label">统计分析</div>
+                    </div>
+                    <div class="after-nav-item" onclick="setActiveNav(this)">
+                        <div class="after-nav-icon">
+                            <svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </div>
+                        <div class="after-nav-label">回收站</div>
+                    </div>
+
+                    <div class="after-divider"></div>
+
+                    <!-- Tags Header -->
+                    <div class="after-tags-title">
+                        标签分类 <span>Tree</span>
+                    </div>
+
+                    <!-- Tags List (After) -->
+                    <div class="after-tag-list">
+                        <!-- Work Tag (Parent) -->
+                        <div>
+                            <div class="after-tag-row" onclick="toggleTag(this, 'work-children')">
+                                <div class="after-tag-arrow" id="work-arrow">▶</div>
+                                <div class="after-tag-label">work</div>
+                                <div class="after-tag-count">42</div>
+                            </div>
+                            <div class="nested-tags" id="work-children" style="display: none;">
+                                <div class="after-tag-row" onclick="selectTag(this)">
+                                    <div class="after-tag-label">roadmap</div>
+                                    <div class="after-tag-count">8</div>
+                                </div>
+                                <div class="after-tag-row" onclick="selectTag(this)">
+                                    <div class="after-tag-label">retro</div>
+                                    <div class="after-tag-count">5</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Personal Tag (Parent) -->
+                        <div>
+                            <div class="after-tag-row" onclick="toggleTag(this, 'personal-children')">
+                                <div class="after-tag-arrow" id="personal-arrow">▶</div>
+                                <div class="after-tag-label">personal</div>
+                                <div class="after-tag-count">39</div>
+                            </div>
+                            <div class="nested-tags" id="personal-children" style="display: none;">
+                                <div class="after-tag-row" onclick="selectTag(this)">
+                                    <div class="after-tag-label">books</div>
+                                    <div class="after-tag-count">12</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Travel Tag -->
+                        <div class="after-tag-row" onclick="selectTag(this)">
+                            <div class="after-tag-arrow">▶</div>
+                            <div class="after-tag-label">travel</div>
+                            <div class="after-tag-count">11</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="details-box">
+                <h3>表现力设计核心改进</h3>
+                <ul>
+                    <li><strong>统一卡片容器 (M3 Card Containment)：</strong>热力图与核心数据块被整合在一个柔和的半透明暗色卡片中，收敛了布局噪音。</li>
+                    <li><strong>加重字体表现 (Emphasized Typography)：</strong>将备忘、标签等关键数值使用 Outfit 粗体放大展示，突出用户成就。</li>
+                    <li><strong>非对称炫彩胶囊 (Asymmetrical Capsule/Gradients)：</strong>选中的导航栏项使用绚丽的蓝紫渐变色块填充，带有柔和的投影 (glow-shadow)，充满现代感与拟物光泽。</li>
+                    <li><strong>多层嵌套引导线：</strong>在标签子级添加树状虚线辅助，极大地提升了树状层级展开时的几何美学。</li>
+                    <li><strong>物理弹性反馈 (Spring Physics)：</strong>在悬停时，图标微微旋转并缩放，卡片在垂直方向轻轻浮起，响应极其灵动。</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Toggle theme of the "Before" panel to simulate Light/Dark mode
+    let beforeThemeDark = false;
+    function toggleBeforeTheme() {
+        beforeThemeDark = !beforeThemeDark;
+        const beforeDrawer = document.getElementById('beforeDrawer');
+        const themeName = document.getElementById('themeName');
+        if (beforeThemeDark) {
+            beforeDrawer.classList.add('theme-dark');
+            themeName.innerText = "暗色";
+        } else {
+            beforeDrawer.classList.remove('theme-dark');
+            themeName.innerText = "浅色";
+        }
+    }
+
+    // Interactive functions for After side
+    function setActiveNav(element) {
+        // Remove active class from all nav items
+        document.querySelectorAll('.after-nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        // Remove selected class from all tag rows
+        document.querySelectorAll('.after-tag-row').forEach(row => {
+            row.classList.remove('selected');
+        });
+        element.classList.add('active');
+    }
+
+    function toggleTag(element, childId) {
+        const childContainer = document.getElementById(childId);
+        const arrow = element.querySelector('.after-tag-arrow');
+        
+        if (childContainer.style.display === 'none' || childContainer.style.display === '') {
+            childContainer.style.display = 'flex';
+            arrow.innerHTML = '▼';
+            arrow.classList.add('expanded');
+        } else {
+            childContainer.style.display = 'none';
+            arrow.innerHTML = '▶';
+            arrow.classList.remove('expanded');
+        }
+        selectTag(element);
+    }
+
+    function selectTag(element) {
+        // Clear nav active state
+        document.querySelectorAll('.after-nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        // Clear selected tags
+        document.querySelectorAll('.after-tag-row').forEach(row => {
+            row.classList.remove('selected');
+        });
+        element.classList.add('selected');
+    }
+</script>
+</body>
+</html>

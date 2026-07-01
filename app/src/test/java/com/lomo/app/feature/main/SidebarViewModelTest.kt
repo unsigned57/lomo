@@ -30,6 +30,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import io.mockk.every
+import io.mockk.mockk
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SidebarViewModelTest : AppFunSpec() {
@@ -38,6 +40,7 @@ class SidebarViewModelTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val stateHolder = MainSidebarStateHolder()
     private val appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
+
 
     init {
         extension(MainDispatcherExtension(testDispatcher))

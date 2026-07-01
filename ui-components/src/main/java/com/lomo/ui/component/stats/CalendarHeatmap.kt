@@ -49,6 +49,7 @@ fun CalendarHeatmap(
     today: LocalDate,
     thresholds: CalendarHeatmapThresholds,
     modifier: Modifier = Modifier,
+    yearBackgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     onDateLongPress: (LocalDate) -> Unit = {},
 ) {
     val datePattern = stringResource(R.string.calendar_heatmap_date_format)
@@ -90,6 +91,7 @@ fun CalendarHeatmap(
         thresholds = thresholds,
         memoCountByDate = memoCountByDate,
         dateFormatter = dateFormatter,
+        yearBackgroundColor = yearBackgroundColor,
         onSelect = { hit ->
             if (selectedDate == hit.date) {
                 selectedDate = null
