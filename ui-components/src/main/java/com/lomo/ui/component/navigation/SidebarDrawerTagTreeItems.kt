@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.common.lomoListItemMotion
@@ -35,6 +37,10 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
 
 internal fun LazyListScope.sidebarTags(
     tags: List<SidebarTag>,
@@ -170,53 +176,86 @@ private fun SidebarTagRow(
 ) {
     val containerColor =
         if (isSelected) {
-            MaterialTheme.colorScheme.secondaryContainer
+            SidebarDrawerTokens.selectedContainerColor(MaterialTheme.colorScheme)
         } else {
             Color.Transparent
         }
     val contentColor =
         if (isSelected) {
-            MaterialTheme.colorScheme.onSecondaryContainer
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         }
 
-    Surface(
-        onClick = rememberTagClick(node.fullPath, onTagClick),
-        shape = SidebarDrawerTokens.TagRowShape,
-        color = containerColor,
-        contentColor = contentColor,
-        modifier =
-            modifier
+    val border = null
+
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .drawBehind {
+                // If level > 0, draw vertical dashed guidelines for hierarchy
+                if (level > 0) {
+                    val stepPx = with(density) { SidebarDrawerTokens.TagRowStartPadding.toPx() }
+                    val startOffsetPx = stepPx / 2f
+                    val dashPathEffect = PathEffect.dashPathEffect(
+                        floatArrayOf(4f, 4f), // 4px line, 4px gap
+                        0f
+                    )
+                    
+                    for (i in 0 until level) {
+                        val x = startOffsetPx + i * stepPx
+                        drawLine(
+                            color = outlineVariant,
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = dashPathEffect
+                        )
+                    }
+                }
+            }
+    ) {
+        Surface(
+            onClick = rememberTagClick(node.fullPath, onTagClick),
+            shape = SidebarDrawerTokens.TagRowShape,
+            color = containerColor,
+            contentColor = contentColor,
+            border = border,
+            modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = SidebarDrawerTokens.TagRowStartPadding * level)
                 .height(SidebarDrawerTokens.RowHeight)
                 .benchmarkAnchor(anchorTag),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(
-                        start = SidebarDrawerTokens.TagRowStartPadding,
-                        end = SidebarDrawerTokens.TagRowEndPadding,
-                    ),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            TagTreeLeadingIcon(contentColor)
-            Spacer(modifier = Modifier.width(SidebarDrawerTokens.TagLabelSpacing))
-            TagTreeLabel(
-                node = node,
-                color = contentColor,
-                modifier = Modifier.weight(1f),
-            )
-            TagTreeTrailingContent(
-                node = node,
-                hasChildren = hasChildren,
-                isExpanded = isExpanded,
-                color = contentColor,
-                onToggleExpand = onToggleExpand,
-            )
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(
+                            start = SidebarDrawerTokens.TagRowStartPadding,
+                            end = SidebarDrawerTokens.TagRowEndPadding,
+                        ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TagTreeLeadingIcon(contentColor)
+                Spacer(modifier = Modifier.width(SidebarDrawerTokens.TagLabelSpacing))
+                TagTreeLabel(
+                    node = node,
+                    color = contentColor,
+                    isSelected = isSelected,
+                    modifier = Modifier.weight(1f),
+                )
+                TagTreeTrailingContent(
+                    node = node,
+                    hasChildren = hasChildren,
+                    isExpanded = isExpanded,
+                    color = contentColor,
+                    onToggleExpand = onToggleExpand,
+                )
+            }
         }
     }
 }
@@ -225,11 +264,16 @@ private fun SidebarTagRow(
 private fun TagTreeLabel(
     node: TagNode,
     color: Color,
+    isSelected: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Text(
         node.name,
-        style = MaterialTheme.typography.bodyMedium,
+        style = if (isSelected) {
+            MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+        } else {
+            MaterialTheme.typography.bodyMedium
+        },
         color = color,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

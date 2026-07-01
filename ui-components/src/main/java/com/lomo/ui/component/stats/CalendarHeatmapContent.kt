@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -33,16 +34,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.collections.immutable.ImmutableMap
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
+private const val YEAR_GRADIENT_SOLID_STOP = 0.7f
 
 @Composable
 internal fun HeatmapInteractiveContent(
@@ -61,6 +68,7 @@ internal fun HeatmapInteractiveContent(
     onLongPress: (LocalDate) -> Unit,
     onDismissPopup: () -> Unit,
     modifier: Modifier = Modifier,
+    yearBackgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
 ) {
     val visibleYear by remember(layout, density, horizontalScrollState) {
         androidx.compose.runtime.derivedStateOf {
@@ -72,39 +80,60 @@ internal fun HeatmapInteractiveContent(
         }
     }
 
-    Column(
-        modifier = modifier.padding(vertical = StatsChartTokens.PopupMargin),
+    Box(
+        modifier = modifier.fillMaxWidth(),
     ) {
-        Text(
-            text = "${visibleYear}年",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = StatsChartTokens.PopupMargin),
+        HeatmapScrollableCanvas(
+            layout = layout,
+            colors = colors,
+            textPaint = textPaint,
+            density = density,
+            horizontalScrollState = horizontalScrollState,
+            selectedDate = selectedDate,
+            thresholds = thresholds,
+            onSelect = onSelect,
+            onClearSelection = onClearSelection,
+            onLongPress = onLongPress,
         )
+        // Misty Fade Gradient covering the Year label and fading out the month labels
         Box(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .width(56.dp)
+                .height(StatsChartTokens.CalendarMonthLabelHeight)
+                .background(
+                    brush = Brush.horizontalGradient(
+                        0.0f to yearBackgroundColor,
+                        YEAR_GRADIENT_SOLID_STOP to yearBackgroundColor,
+                        1.0f to Color.Transparent
+                    )
+                )
+        )
+        val yearText = stringResource(R.string.calendar_heatmap_year_format, visibleYear)
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .width(56.dp)
+                .height(StatsChartTokens.CalendarMonthLabelHeight)
         ) {
-            HeatmapScrollableCanvas(
-                layout = layout,
-                colors = colors,
-                textPaint = textPaint,
-                density = density,
-                horizontalScrollState = horizontalScrollState,
-                selectedDate = selectedDate,
-                thresholds = thresholds,
-                onSelect = onSelect,
-                onClearSelection = onClearSelection,
-                onLongPress = onLongPress,
+            val wasFakeBold = textPaint.isFakeBoldText
+            textPaint.isFakeBoldText = true
+            drawContext.canvas.nativeCanvas.drawText(
+                yearText,
+                0f,
+                layout.monthLabelHeightPx - StatsChartTokens.MonthLabelBaselineInset.toPx(),
+                textPaint
             )
-            HeatmapSelectionPopup(
-                selectedDate = selectedDate,
-                memoCountByDate = memoCountByDate,
-                popupOffset = popupOffset,
-                dateFormatter = dateFormatter,
-                density = density,
-                onDismiss = onDismissPopup,
-            )
+            textPaint.isFakeBoldText = wasFakeBold
         }
+        HeatmapSelectionPopup(
+            selectedDate = selectedDate,
+            memoCountByDate = memoCountByDate,
+            popupOffset = popupOffset,
+            dateFormatter = dateFormatter,
+            density = density,
+            onDismiss = onDismissPopup,
+        )
     }
 }
 

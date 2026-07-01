@@ -10,9 +10,9 @@ import com.lomo.ui.theme.AppSpacing
 internal object StatsChartTokens {
     val TagBarHeight = 20.dp
     val CalendarCellSize = 12.dp
-    val CalendarCellSpacing = AppSpacing.ExtraSmall
+    val CalendarCellSpacing = 3.dp
     val CalendarMonthLabelHeight = 14.dp
-    val CellCornerRadius = 2.dp
+    val CellCornerRadius = 3.dp
     val PopupShape = AppShapes.Small
     val PopupElevation = 3.dp
     val PopupMargin = AppSpacing.ExtraSmall

@@ -26,6 +26,7 @@
     <string name="markdown_image_content_description">Image</string>
     <string name="markdown_image_load_failed">Image failed to load</string>
     <string name="calendar_heatmap_date_format">MMM d</string>
+    <string name="calendar_heatmap_year_format">%1$d</string>
     <plurals name="calendar_heatmap_memo_count">
         <item quantity="one">%1$d memo</item>
         <item quantity="other">%1$d memos</item>

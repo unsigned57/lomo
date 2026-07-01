@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,18 +28,27 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Text
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -46,11 +57,13 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.stats.CalendarHeatmap
+import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import kotlinx.collections.immutable.persistentSetOf
@@ -161,62 +174,199 @@ fun SidebarDrawer(
     val visibleTagRows = visibleTagRows(reorderableTree, expandedNodePaths)
 
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxHeight().clipToBounds(),
-        contentPadding = PaddingValues(AppSpacing.Medium),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+    Column(
+        modifier = modifier.fillMaxHeight()
     ) {
-        sidebarHeatmap(
-            memoCountByDate = memoCountByDate,
-            today = today,
-            thresholds = calendarHeatmapThresholds,
-            onDateLongPress = onHeatmapDateLongPress,
-        )
-        sidebarStats(stats = stats)
-        sidebarDestinations(
-            isTrashSelected = isTrashSelected,
-            isDailyReviewSelected = isDailyReviewSelected,
-            isGallerySelected = isGallerySelected,
-            isStatisticsSelected = isStatisticsSelected,
-            onSettingsClick = onSettingsClick,
-            onTrashClick = onTrashClick,
-            onDailyReviewClick = onDailyReviewClick,
-            onGalleryClick = onGalleryClick,
-            onStatisticsClick = onStatisticsClick,
-            settingsAnchorTag = settingsAnchorTag,
-            trashAnchorTag = trashAnchorTag,
-        )
-        sidebarTags(
-            tags = tags,
-            visibleRows = visibleTagRows,
-            tagTree = reorderableTree,
-            expandedNodes = expandedNodes,
-            selectedTagPath = selectedTagPath,
-            onTagClick = onTagClick,
-            anchorTagForPath = tagAnchorForPath,
-            reorderableLazyListState = reorderableLazyListState,
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clipToBounds(),
+                contentPadding = PaddingValues(
+                    start = AppSpacing.Medium,
+                    end = AppSpacing.Medium,
+                    top = AppSpacing.Medium,
+                    bottom = AppSpacing.ExtraLarge
+                ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+            ) {
+                sidebarStatusHub(
+                    stats = stats,
+                    memoCountByDate = memoCountByDate,
+                    today = today,
+                    thresholds = calendarHeatmapThresholds,
+                    onDateLongPress = onHeatmapDateLongPress,
+                )
+                sidebarDestinations(
+                    isDailyReviewSelected = isDailyReviewSelected,
+                    isGallerySelected = isGallerySelected,
+                    isStatisticsSelected = isStatisticsSelected,
+                    onDailyReviewClick = onDailyReviewClick,
+                    onGalleryClick = onGalleryClick,
+                    onStatisticsClick = onStatisticsClick,
+                )
+                sidebarTags(
+                    tags = tags,
+                    visibleRows = visibleTagRows,
+                    tagTree = reorderableTree,
+                    expandedNodes = expandedNodes,
+                    selectedTagPath = selectedTagPath,
+                    onTagClick = onTagClick,
+                    anchorTagForPath = tagAnchorForPath,
+                    reorderableLazyListState = reorderableLazyListState,
 
-            onReorderComplete = onTagReorder,
+                    onReorderComplete = onTagReorder,
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .height(32.dp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                SidebarDrawerTokens.Footer
+                                    .cardContainerColor(MaterialTheme.colorScheme)
+                            )
+                        )
+                    )
+            )
+        }
+
+        SidebarFooter(
+            isTrashSelected = isTrashSelected,
+            onTrashClick = onTrashClick,
+            onSettingsClick = onSettingsClick,
+            trashAnchorTag = trashAnchorTag,
+            settingsAnchorTag = settingsAnchorTag
         )
     }
 }
 
 @Composable
-private fun StatItem(
-    value: String,
-    label: String,
+private fun SidebarFooter(
+    isTrashSelected: Boolean,
+    onTrashClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    trashAnchorTag: String?,
+    settingsAnchorTag: String?,
+    modifier: Modifier = Modifier,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            value,
-            style = MaterialTheme.typography.titleMedium,
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                start = AppSpacing.Medium,
+                end = AppSpacing.Medium,
+                bottom = AppSpacing.Medium,
+                top = AppSpacing.Small
+            ),
+        shape = SidebarDrawerTokens.Footer.CardShape,
+        color = SidebarDrawerTokens.Footer.cardContainerColor(MaterialTheme.colorScheme),
+        border = BorderStroke(
+            width = 1.dp,
+            color = SidebarDrawerTokens.Footer.cardBorderColor(MaterialTheme.colorScheme)
         )
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(all = AppSpacing.Small),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            UtilityButton(
+                icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
+                label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_trash),
+                isSelected = isTrashSelected,
+                anchorTag = trashAnchorTag,
+                onClick = onTrashClick,
+                selectedContainerColor = SidebarDrawerTokens
+                    .trashSelectedContainerColor(MaterialTheme.colorScheme),
+                selectedContentColor = SidebarDrawerTokens
+                    .trashSelectedContentColor(MaterialTheme.colorScheme),
+                unselectedContainerColor = SidebarDrawerTokens
+                    .trashUnselectedContainerColor(MaterialTheme.colorScheme),
+                unselectedContentColor = SidebarDrawerTokens
+                    .trashUnselectedContentColor(MaterialTheme.colorScheme),
+                modifier = Modifier.weight(1f)
+            )
+            UtilityButton(
+                icon = Icons.Rounded.Settings,
+                label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_settings),
+                isSelected = false,
+                anchorTag = settingsAnchorTag,
+                onClick = onSettingsClick,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+
+
+@Composable
+private fun UtilityButton(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    anchorTag: String? = null,
+    shape: androidx.compose.ui.graphics.Shape = SidebarDrawerTokens.Footer.ButtonShape,
+    selectedContainerColor: Color =
+        SidebarDrawerTokens.selectedContainerColor(MaterialTheme.colorScheme),
+    selectedContentColor: Color = MaterialTheme.colorScheme.primary,
+    unselectedContainerColor: Color =
+        SidebarDrawerTokens.cardContainerColor(MaterialTheme.colorScheme),
+    unselectedContentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    Surface(
+        onClick = {
+            haptic.light()
+            onClick()
+        },
+        shape = shape,
+        color = if (isSelected) {
+            selectedContainerColor
+        } else {
+            unselectedContainerColor
+        },
+        contentColor = if (isSelected) {
+            selectedContentColor
+        } else {
+            unselectedContentColor
+        },
+        modifier = modifier.height(38.dp).benchmarkAnchor(anchorTag)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = AppSpacing.Small),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(AppSpacing.Small))
+            Text(
+                text = label,
+                color = androidx.compose.material3.LocalContentColor.current,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                )
+            )
+        }
     }
 }
 
@@ -230,120 +380,180 @@ private fun NavigationItem(
     onClick: () -> Unit,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    NavigationDrawerItem(
-        label = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-        icon = { Icon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
-        badge = badge?.let { { Text(it, style = MaterialTheme.typography.labelSmall) } },
-        selected = isSelected,
-        onClick = {
-            haptic.light()
-            onClick()
-        },
-        colors =
-            NavigationDrawerItemDefaults.colors(
-                unselectedContainerColor = Color.Transparent,
-            ),
-        modifier = Modifier.height(SidebarDrawerTokens.RowHeight).benchmarkAnchor(anchorTag),
-    )
-}
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(SidebarDrawerTokens.RowHeight)
+            .benchmarkAnchor(anchorTag),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        NavigationDrawerItem(
+            label = {
+                Text(
+                    text = label,
+                    style = if (isSelected) {
+                        MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.bodyMedium
+                    }
+                )
+            },
+            icon = { Icon(icon, null, modifier = Modifier.size(SidebarDrawerTokens.NavigationIconSize)) },
+            badge = badge?.let { { Text(it, style = MaterialTheme.typography.labelSmall) } },
+            selected = isSelected,
+            onClick = {
+                haptic.light()
+                onClick()
+            },
+            colors =
+                NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor =
+                        SidebarDrawerTokens.selectedContainerColor(
+                            MaterialTheme.colorScheme
+                        ),
+                    unselectedContainerColor = Color.Transparent,
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            shape = SidebarDrawerTokens.NavigationItemShape,
+            modifier = Modifier.fillMaxSize(),
+        )
 
-private fun LazyListScope.sidebarStats(stats: SidebarStats) {
-    item {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            StatItem(
-                value = stats.memoCount.toString(),
-                label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_memo),
-            )
-            StatItem(
-                value = stats.tagCount.toString(),
-                label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_tag),
-            )
-            StatItem(
-                value = stats.dayCount.toString(),
-                label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_day),
-            )
-        }
-        Spacer(modifier = Modifier.height(AppSpacing.Medium))
     }
 }
 
-private fun LazyListScope.sidebarHeatmap(
+
+@Composable
+private fun StatIndicator(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(vertical = AppSpacing.Small, horizontal = AppSpacing.ExtraSmall),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall)
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = SidebarDrawerTokens.statCardLabelColor(MaterialTheme.colorScheme)
+        )
+    }
+}
+
+private fun LazyListScope.sidebarStatusHub(
+    stats: SidebarStats,
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     today: LocalDate,
     thresholds: CalendarHeatmapThresholds,
     onDateLongPress: (LocalDate) -> Unit,
 ) {
     item {
-        CalendarHeatmap(
-            memoCountByDate = memoCountByDate,
-            today = today,
-            thresholds = thresholds,
-            onDateLongPress = onDateLongPress,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = AppSpacing.ExtraSmall),
+            shape = SidebarDrawerTokens.HubCardShape,
+            color = SidebarDrawerTokens.cardContainerColor(MaterialTheme.colorScheme),
+        ) {
+            Column(
+                modifier = Modifier.padding(AppSpacing.Medium),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium)
+            ) {
+                CalendarHeatmap(
+                    memoCountByDate = memoCountByDate,
+                    today = today,
+                    thresholds = thresholds,
+                    onDateLongPress = onDateLongPress,
+                    yearBackgroundColor = SidebarDrawerTokens.heatmapYearBackgroundColor(MaterialTheme.colorScheme),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = AppShapes.Large,
+                    color = SidebarDrawerTokens.statRowContainerColor(MaterialTheme.colorScheme)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = AppSpacing.Small),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        StatIndicator(
+                            value = stats.memoCount.toString(),
+                            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_memo),
+                            modifier = Modifier.weight(1f)
+                        )
+                        VerticalDivider(
+                            color = SidebarDrawerTokens.dividerColor(MaterialTheme.colorScheme),
+                            modifier = Modifier.height(24.dp).width(1.dp)
+                        )
+                        StatIndicator(
+                            value = stats.tagCount.toString(),
+                            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_tag),
+                            modifier = Modifier.weight(1f)
+                        )
+                        VerticalDivider(
+                            color = SidebarDrawerTokens.dividerColor(MaterialTheme.colorScheme),
+                            modifier = Modifier.height(24.dp).width(1.dp)
+                        )
+                        StatIndicator(
+                            value = stats.dayCount.toString(),
+                            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.stat_day),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(AppSpacing.Medium))
     }
 }
 
 private fun LazyListScope.sidebarDestinations(
-    isTrashSelected: Boolean,
     isDailyReviewSelected: Boolean,
     isGallerySelected: Boolean,
     isStatisticsSelected: Boolean,
-    onSettingsClick: () -> Unit,
-    onTrashClick: () -> Unit,
     onDailyReviewClick: () -> Unit,
     onGalleryClick: () -> Unit,
     onStatisticsClick: () -> Unit,
-    settingsAnchorTag: String?,
-    trashAnchorTag: String?,
 ) {
     item {
-        NavigationItem(
-            icon = Icons.Rounded.Settings,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_settings),
-            isSelected = false,
-            anchorTag = settingsAnchorTag,
-            onClick = onSettingsClick,
-        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = AppShapes.Large,
+            color = SidebarDrawerTokens.cardContainerColor(MaterialTheme.colorScheme)
+        ) {
+            Column(
+                modifier = Modifier.padding(AppSpacing.Small),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall)
+            ) {
+                NavigationItem(
+                    icon = if (isDailyReviewSelected) Icons.Filled.DateRange else Icons.Outlined.DateRange,
+                    label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_daily_review),
+                    isSelected = isDailyReviewSelected,
+                    onClick = onDailyReviewClick,
+                )
+                NavigationItem(
+                    icon = Icons.Outlined.PhotoLibrary,
+                    label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_gallery),
+                    isSelected = isGallerySelected,
+                    onClick = onGalleryClick,
+                )
+                NavigationItem(
+                    icon = Icons.Outlined.Analytics,
+                    label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_statistics),
+                    isSelected = isStatisticsSelected,
+                    onClick = onStatisticsClick,
+                )
+            }
+        }
     }
-    item {
-        NavigationItem(
-            icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_trash),
-            isSelected = isTrashSelected,
-            anchorTag = trashAnchorTag,
-            onClick = onTrashClick,
-        )
-    }
-    item {
-        NavigationItem(
-            icon = if (isDailyReviewSelected) Icons.Filled.DateRange else Icons.Outlined.DateRange,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_daily_review),
-            isSelected = isDailyReviewSelected,
-            onClick = onDailyReviewClick,
-        )
-    }
-    item {
-        NavigationItem(
-            icon = Icons.Outlined.PhotoLibrary,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_gallery),
-            isSelected = isGallerySelected,
-            onClick = onGalleryClick,
-        )
-    }
-    item {
-        NavigationItem(
-            icon = Icons.Outlined.Analytics,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_statistics),
-            isSelected = isStatisticsSelected,
-            onClick = onStatisticsClick,
-        )
-    }
-    item { HorizontalDivider(modifier = Modifier.padding(vertical = AppSpacing.Small)) }
 }
 
 @Composable
@@ -352,6 +562,17 @@ internal fun rememberLightHapticClick(onClick: () -> Unit): () -> Unit {
     return remember(onClick, haptic) {
         {
             haptic.light()
+            onClick()
+        }
+    }
+}
+
+@Composable
+private fun rememberMediumHapticClick(onClick: () -> Unit): () -> Unit {
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    return remember(onClick, haptic) {
+        {
+            haptic.medium()
             onClick()
         }
     }
