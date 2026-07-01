@@ -41,15 +41,13 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
 | AI iteration after `src/main`, Gradle, quality, detekt, workflow, or AGENTS/prompt changes | `quality/scripts/ai_static_quality_check.sh` |
 | AI iteration for pure test/docs changes | `quality/scripts/ai_fast_quality_check.sh` |
-| I want the local AI maintenance report (dependency updates, dependency-analysis, CVEs, R8 shrink output) | `quality/scripts/ai_local_maintenance_check.sh` |
+| I want the local AI maintenance report (dependency updates, R8 shrink output) | `quality/scripts/ai_local_maintenance_check.sh` |
 | I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
 | I want JVM tests only | `./gradlew unitTestCheck` |
 | I want BDD+TDD test-style anti-pattern checks only | `./gradlew testStyleCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
 | I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
 | I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
-| I want dependency usage advice | `./gradlew dependencyAnalysisCheck` |
-| I want CVE scanning for dependencies | `./gradlew dependencyVulnerabilityCheck` |
 | I changed release-sensitive resources or strings | `quality/scripts/check_string_resource_parity.sh` and review `quality/resources-release-checklist.md` |
 | Final handoff or pre-merge gate | `./gradlew qualityCheck` |
 
@@ -147,15 +145,8 @@ Task roles:
   - Final integrated repository gate.
 - `ai_local_maintenance_check.sh`
   - Local-only AI maintenance pass.
-  - Captures dependency update suggestions, dependency-analysis output, OWASP scan results, and R8 release shrinker artifacts.
+  - Captures dependency update suggestions and R8 release shrinker artifacts.
   - Writes a consolidated summary to `build/reports/ai/local-maintenance/summary.md`.
-- `dependencyAnalysisCheck`
-  - Runs the dependency-analysis plugin to report unused, mis-scoped, and undeclared dependencies.
-  - Experimental under the current AGP 9.2 alpha toolchain; use it as an advisory task, not a merge gate.
-- `dependencyVulnerabilityCheck`
-  - Runs OWASP Dependency-Check and fails on known vulnerabilities at CVSS 7.0 or higher.
-  - Uses Dependency-Check data under the active Gradle user home so CI and AI repo-local Gradle caches preserve the NVD database between runs.
-  - Reads `NVD_API_KEY` when present and keeps NVD data valid for 24 hours before checking for updates.
 - `architectureCheck`
   - Detekt-based architecture guardrails.
 - `androidLintCheck`
@@ -236,18 +227,14 @@ Task roles:
 - `quality/scripts/ai_local_maintenance_check.sh` writes:
   - `build/reports/ai/local-maintenance/summary.md`
   - `build/reports/ai/local-maintenance/version-catalog-update-check.log`
-  - `build/reports/ai/local-maintenance/dependency-analysis-check.log`
-  - `build/reports/ai/local-maintenance/dependency-vulnerability-check.log`
   - `build/reports/ai/local-maintenance/r8-minify-release.log`
 - The R8 diagnostics step also keeps shrinker artifacts under `app/build/outputs/mapping/release/`, including:
   - `usage.txt`
   - `seeds.txt`
   - `mapping.txt`
   - `configuration.txt`
-- `quality/scripts/ai_quality_check.sh` skips local maintenance by default so high-frequency fix/test/commit loops do not download OWASP/NVD data.
+- `quality/scripts/ai_quality_check.sh` skips local maintenance by default.
 - If you need the full repository gate plus the local maintenance pass, set `LOMO_RUN_LOCAL_MAINTENANCE=true` before running `quality/scripts/ai_quality_check.sh`.
-- The dedicated GitHub Actions workflow `.github/workflows/dependency_vulnerability.yml` runs `dependencyVulnerabilityCheck` on a schedule or manual dispatch; configure the repository secret `NVD_API_KEY` to avoid slow unauthenticated NVD updates.
-- `LOMO_DEPENDENCY_VULNERABILITY_TIMEOUT_SECONDS` controls how long the local maintenance script waits for OWASP Dependency-Check before recording a timeout in the summary. The default is `300`.
 
 ## Warning Escalation Matrix
 

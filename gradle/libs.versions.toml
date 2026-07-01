@@ -16,7 +16,6 @@ coreKtx = "1.18.0"
 coroutines = "1.11.0"
 datastore = "1.2.1"
 dav4jvm = "2.2.1"
-dependencyAnalysis = "3.11.0"
 detekt = "2.0.0-alpha.3"
 documentfile = "1.1.0"
 espressoCore = "3.7.0"
@@ -40,7 +39,6 @@ media3 = "1.10.1"
 navigationCompose = "2.9.8"
 okio = "3.17.0"
 paging = "3.5.0"
-owaspDependencyCheck = "12.2.2"
 profileinstaller = "1.4.1"
 reorderable = "3.1.0"
 room3 = "3.0.0-alpha04"
@@ -144,7 +142,6 @@ androidLibrary = { id = "com.android.library", version.ref = "agp" }
 androidTest = { id = "com.android.test", version.ref = "agp" }
 androidxBaselineProfile = "androidx.baselineprofile:1.5.0-alpha06"
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-dependencyAnalysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependencyAnalysis" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
@@ -152,5 +149,4 @@ jetbrainsKotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-owaspDependencyCheck = { id = "org.owasp.dependencycheck", version.ref = "owaspDependencyCheck" }
 versionCatalogUpdate = "nl.littlerobots.version-catalog-update:1.1.0"

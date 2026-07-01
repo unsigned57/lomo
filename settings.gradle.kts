@@ -4,13 +4,6 @@ pluginManagement {
         google()
         gradlePluginPortal()
     }
-    resolutionStrategy {
-        eachPlugin {
-            if (requested.id.id == "org.owasp.dependencycheck") {
-                useModule("org.owasp:dependency-check-gradle:${requested.version}")
-            }
-        }
-    }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
