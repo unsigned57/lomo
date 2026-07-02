@@ -38,7 +38,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -59,8 +58,8 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.LomoListExitRenderEntry
-import com.lomo.ui.component.common.LomoListExitState
-import com.lomo.ui.component.common.LomoListItemExitScope
+import com.lomo.ui.component.common.LomoListExitPhase
+import com.lomo.ui.component.common.lomoListItemExitPhaseMotion
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
 import com.lomo.ui.component.common.SkeletonMemoItem
@@ -69,12 +68,8 @@ import com.lomo.ui.component.menu.ActionItemUi
 import com.lomo.ui.component.menu.MemoActionSheet
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableSet
-import kotlinx.collections.immutable.toPersistentList
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -339,7 +334,8 @@ private fun TrashMemoList(
             if (uiModel != null) {
                 val isLast = index == totalItemCount - 1
                 val memoId = entry.snapshotMemo.memo.id
-                val isExiting = entry.isExiting
+                val exitPhase = entry.exitPhase
+                val isExiting = exitPhase != null
                 TrashMemoCardItem(
                     uiModel = uiModel,
                     bottomSpacing = if (isLast) 0.dp else TRASH_LIST_ITEM_SPACING,
@@ -347,7 +343,7 @@ private fun TrashMemoList(
                     timeFormat = timeFormat,
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     onMemoMenuClick = onMemoMenuClick,
-                    isExiting = isExiting,
+                    exitPhase = exitPhase,
                     onExitSettled = { onExitSettled(memoId) },
                     modifier =
                         Modifier
@@ -375,35 +371,36 @@ private fun TrashMemoCardItem(
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
     onMemoMenuClick: (Memo) -> Unit,
-    isExiting: Boolean,
+    exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LomoListItemExitScope(
-        isExiting = isExiting,
-        onExitSettled = onExitSettled,
-        modifier = modifier.padding(bottom = bottomSpacing),
-    ) {
-        Box(
-            modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoCard(uiModel.memo.id)),
-        ) {
-            MemoCard(
-                content = uiModel.memo.content,
-                processedContent = uiModel.processedContent,
-                precomputedRenderPlan = uiModel.precomputedRenderPlan,
-                timestamp = uiModel.memo.timestamp,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                isPinned = uiModel.memo.isPinned,
-                tags = uiModel.tags,
-                allowFreeTextCopy = freeTextCopyEnabled,
-                menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
-                onMenuClick = { onMemoMenuClick(uiModel.memo) },
-                menuContent = {},
-                mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
-                mediaContent = MemoMarkdownMediaAdapter.content,
+    val isExiting = exitPhase != null
+    Box(
+        modifier = modifier
+            .padding(bottom = bottomSpacing)
+            .lomoListItemExitPhaseMotion(
+                exitPhase = exitPhase,
+                onExitSettled = onExitSettled,
             )
-        }
+            .benchmarkAnchor(BenchmarkAnchorContract.memoCard(uiModel.memo.id)),
+    ) {
+        MemoCard(
+            content = uiModel.memo.content,
+            processedContent = uiModel.processedContent,
+            precomputedRenderPlan = uiModel.precomputedRenderPlan,
+            timestamp = uiModel.memo.timestamp,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            isPinned = uiModel.memo.isPinned,
+            tags = uiModel.tags,
+            allowFreeTextCopy = freeTextCopyEnabled,
+            menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
+            onMenuClick = { onMemoMenuClick(uiModel.memo) },
+            menuContent = {},
+            mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
+            mediaContent = MemoMarkdownMediaAdapter.content,
+        )
     }
 }
 

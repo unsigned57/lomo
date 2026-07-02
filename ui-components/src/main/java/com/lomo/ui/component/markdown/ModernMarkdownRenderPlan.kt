@@ -20,14 +20,120 @@ data class ModernMarkdownRenderPlan(
 
 sealed interface ModernMarkdownRenderItem {
     data class Block(
-        val node: ASTNode,
-        val semanticBlock: MarkdownSemanticBlock? = null,
-    ) : ModernMarkdownRenderItem
+        val renderNode: ModernMarkdownRenderNode,
+    ) : ModernMarkdownRenderItem {
+        val node: ASTNode
+            get() = renderNode.node
+
+        val semanticBlock: MarkdownSemanticBlock?
+            get() = renderNode.semanticBlock
+    }
 
     data class Gallery(
         val images: List<ModernMarkdownImage>,
     ) : ModernMarkdownRenderItem
 }
+
+data class ModernMarkdownRenderKey(
+    val path: String,
+    val type: String,
+    val startOffset: Int,
+    val endOffset: Int,
+)
+
+sealed interface ModernMarkdownRenderNode {
+    val key: ModernMarkdownRenderKey
+    val node: ASTNode
+    val semanticBlock: MarkdownSemanticBlock?
+
+    data class Paragraph(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val paragraph: MarkdownSemanticBlock.Paragraph,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock = paragraph
+    }
+
+    data class Heading(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val heading: MarkdownSemanticBlock.Heading,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock = heading
+    }
+
+    data class BlockQuote(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val quote: MarkdownSemanticBlock.BlockQuote?,
+        val blocks: List<ModernMarkdownRenderNode>,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock?
+            get() = quote
+    }
+
+    data class ListBlock(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val list: MarkdownSemanticBlock.ListBlock?,
+        val ordered: Boolean,
+        val startNumber: Int,
+        val items: List<ModernMarkdownListItemRenderNode>,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock?
+            get() = list
+    }
+
+    data class CodeBlock(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val codeBlock: MarkdownSemanticBlock.CodeBlock?,
+        val fenced: Boolean,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock?
+            get() = codeBlock
+    }
+
+    data class Table(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        val table: MarkdownSemanticBlock.Table?,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock?
+            get() = table
+    }
+
+    data class ThematicBreak(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+    ) : ModernMarkdownRenderNode {
+        override val semanticBlock: MarkdownSemanticBlock = MarkdownSemanticBlock.ThematicBreak
+    }
+
+    data class Fallback(
+        override val key: ModernMarkdownRenderKey,
+        override val node: ASTNode,
+        override val semanticBlock: MarkdownSemanticBlock?,
+    ) : ModernMarkdownRenderNode
+}
+
+data class ModernMarkdownListItemRenderNode(
+    val key: ModernMarkdownRenderKey,
+    val node: ASTNode,
+    val checked: Boolean?,
+    val blocks: List<ModernMarkdownRenderNode>,
+)
+
+internal fun ModernMarkdownRenderNode.flattenKeys(): List<ModernMarkdownRenderKey> =
+    when (this) {
+        is ModernMarkdownRenderNode.BlockQuote -> listOf(key) + blocks.flatMap { it.flattenKeys() }
+        is ModernMarkdownRenderNode.ListBlock ->
+            listOf(key) +
+                items.flatMap { item ->
+                    listOf(item.key) + item.blocks.flatMap { it.flattenKeys() }
+                }
+        else -> listOf(key)
+    }
 
 data class ModernMarkdownImage(
     val destination: String,

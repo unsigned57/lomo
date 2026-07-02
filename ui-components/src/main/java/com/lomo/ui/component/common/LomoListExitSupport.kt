@@ -12,15 +12,24 @@ import kotlinx.collections.immutable.toImmutableList
 /**
  * A render-list entry that pairs a source item with its exit state.
  *
- * `isExiting = true` means the item is mid two-phase exit (fade then collapse) and the
- * caller should wrap its content in [LomoListItemExitScope].
+ * [LomoListExitPhase.Exiting] means the item is mid two-phase exit (fade then collapse).
+ * [LomoListExitPhase.Hidden] means the visual animation has settled but the source still
+ * contains the item, so the caller must keep the row zero-height/transparent until source
+ * absence is observed.
  */
 data class LomoListExitRenderEntry<T>(
     val item: T,
     val snapshotMemo: T,
-    val isExiting: Boolean,
-    val isAnchorLost: Boolean = false,
-)
+    val exitPhase: LomoListExitPhase?,
+) {
+    val isExiting: Boolean
+        get() = exitPhase != null
+}
+
+enum class LomoListExitPhase {
+    Exiting,
+    Hidden,
+}
 
 /**
  * Builds the render list by merging [allItems] with active exits from the registry.
@@ -44,9 +53,9 @@ fun <T, R> resolveExitRenderList(
 ): List<LomoListExitRenderEntry<T>> {
     val renderList = allItems.map { item ->
         val key = itemKey(item)
-        val isExiting = key in activeExits
-        val snapshotMemo = activeExits[key]?.let { entry -> mapExitToItem(entry.item) } ?: item
-        LomoListExitRenderEntry(item = item, snapshotMemo = snapshotMemo, isExiting = isExiting, isAnchorLost = false)
+        val activeExit = activeExits[key]
+        val snapshotMemo = activeExit?.let { entry -> mapExitToItem(entry.item) } ?: item
+        LomoListExitRenderEntry(item = item, snapshotMemo = snapshotMemo, exitPhase = activeExit?.exitPhase)
     }.toMutableList()
 
     val allItemsKeys = allItems.map(itemKey).toSet()
@@ -71,8 +80,7 @@ fun <T, R> resolveExitRenderList(
                     LomoListExitRenderEntry(
                         item = mappedItem,
                         snapshotMemo = mappedItem,
-                        isExiting = true,
-                        isAnchorLost = false,
+                        exitPhase = entry.exitPhase,
                     )
                 )
                 iterator.remove()
@@ -85,8 +93,7 @@ fun <T, R> resolveExitRenderList(
                         LomoListExitRenderEntry(
                             item = mappedItem,
                             snapshotMemo = mappedItem,
-                            isExiting = true,
-                            isAnchorLost = false,
+                            exitPhase = entry.exitPhase,
                         )
                     )
                     iterator.remove()
@@ -102,8 +109,7 @@ fun <T, R> resolveExitRenderList(
             LomoListExitRenderEntry(
                 item = mappedItem,
                 snapshotMemo = mappedItem,
-                isExiting = true,
-                isAnchorLost = true,
+                exitPhase = entry.exitPhase,
             )
         )
     }
@@ -137,7 +143,19 @@ fun <T, R> rememberLomoListExitState(
 ): LomoListExitState<T> {
     val activeExits by registry.entries.collectAsStateWithLifecycle()
 
-    val rawRenderList by remember(allItems, activeExits) {
+    val sourceKeys =
+        remember(allItems) {
+            allItems
+                .asSequence()
+                .map(itemKey)
+                .toSet()
+        }
+
+    LaunchedEffect(sourceKeys, activeExits) {
+        registry.updateSourceKeys(sourceKeys)
+    }
+
+    val renderList by remember(allItems, activeExits) {
         derivedStateOf {
             resolveExitRenderList(
                 allItems = allItems,
@@ -148,27 +166,11 @@ fun <T, R> rememberLomoListExitState(
         }
     }
 
-    // Settle orphans immediately
-    LaunchedEffect(rawRenderList) {
-        rawRenderList.forEach { entry ->
-            if (entry.isAnchorLost) {
-                val key = itemKey(entry.item)
-                registry.settleExit(key)
-            }
-        }
-    }
-
-    val renderList by remember(rawRenderList) {
-        derivedStateOf {
-            rawRenderList.filter { !it.isAnchorLost }.toImmutableList()
-        }
-    }
-
     return remember(renderList) {
         LomoListExitState(
             renderList = renderList,
             onExitSettled = { id ->
-                registry.settleExit(id)
+                registry.markExitAnimationSettled(id)
             },
         )
     }

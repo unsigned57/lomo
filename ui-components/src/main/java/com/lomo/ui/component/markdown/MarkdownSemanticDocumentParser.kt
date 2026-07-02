@@ -85,7 +85,7 @@ internal fun parseSemanticBlock(
                 MarkdownSemanticBlock.BlockQuote(
                     blocks =
                         parseMarkdownSemanticBlocks(
-                            nodes = node.children.filter(::isRenderableNestedBlock),
+                            nodes = node.children.filter { child -> isRenderableNestedBlock(child, content) },
                             content = content,
                             references = references,
                         ),
@@ -108,7 +108,7 @@ internal fun parseSemanticBlock(
             listOf(
                 MarkdownSemanticBlock.ListBlock(
                     ordered = true,
-                    startNumber = node.resolveOrderedListStart(content),
+                    startNumber = node.resolveMarkdownOrderedListStart(content),
                     items =
                         node.children
                             .filter { it.type == MarkdownElementTypes.LIST_ITEM }
@@ -154,7 +154,7 @@ private fun parseSemanticListItem(
     references: Map<String, MarkdownLinkReference>,
 ): MarkdownSemanticListItem =
     MarkdownSemanticListItem(
-        checked = node.resolveTaskListChecked(content),
+        checked = node.resolveMarkdownTaskListChecked(content),
         blocks = parseMarkdownSemanticBlocks(node.children, content, references),
     )
 
@@ -202,19 +202,3 @@ private fun ASTNode.toHeadingLevel(): Int =
         MarkdownElementTypes.ATX_6 -> H6_LEVEL
         else -> H1_LEVEL
     }
-
-private fun ASTNode.resolveOrderedListStart(content: String): Int =
-    children
-        .firstOrNull { it.type == MarkdownElementTypes.LIST_ITEM }
-        ?.children
-        ?.firstOrNull { it.type == MarkdownTokenTypes.LIST_NUMBER }
-        ?.extractNodeText(content)
-        ?.takeWhile(Char::isDigit)
-        ?.toIntOrNull()
-        ?: H1_LEVEL
-
-private fun ASTNode.resolveTaskListChecked(content: String): Boolean? =
-    children
-        .firstOrNull { it.type == GFMTokenTypes.CHECK_BOX }
-        ?.extractNodeText(content)
-        ?.let { checkbox -> checkbox.contains("[x]", ignoreCase = true) }

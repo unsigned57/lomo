@@ -1,11 +1,5 @@
 package com.lomo.ui.component.card
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -25,7 +19,6 @@ import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.component.markdown.MarkdownRendererWithTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionScope
-import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -80,52 +73,36 @@ internal fun MemoCardBodyContent(
             }
 
             MemoCardBodyTransitionMode.StateContentTransform -> {
-                val collapsedTargetPreviewMode =
-                    resolveMemoCardBodyCollapsedTargetPreviewMode(
-                        bodyTransitionMode = bodyTransitionMode,
-                        currentPreviewMode = collapsedPreviewMode,
-                        hasProcessedContent = processedContent.isNotBlank(),
-                        collapsedSummary = collapsedSummary,
-                    )
                 val targetVisualState =
                     resolveMemoCardBodyVisualState(
                         isExpanded = isExpanded,
-                        collapsedPreviewMode = collapsedTargetPreviewMode,
+                        collapsedPreviewMode =
+                            resolveMemoCardBodyCollapsedTargetPreviewMode(
+                                bodyTransitionMode = bodyTransitionMode,
+                                currentPreviewMode = collapsedPreviewMode,
+                                hasProcessedContent = processedContent.isNotBlank(),
+                                collapsedSummary = collapsedSummary,
+                            ),
                     )
-                val motionSpec = resolveMemoCardBodyMotionSpec(bodyTransitionMode)
-
-                AnimatedContent(
-                    targetState = targetVisualState,
-                    modifier = Modifier.fillMaxWidth(),
-                    transitionSpec = {
-                        memoCardBodyContentTransform(
-                            motionSpec = motionSpec,
-                            isExpanding = targetState == MemoCardBodyVisualState.Expanded,
-                        )
-                    },
-                    contentAlignment = Alignment.TopStart,
-                    label = "MemoCardBodyContentTransition",
-                ) { visualState ->
-                    MemoCardBodyStateContent(
-                        visualState = visualState,
-                        collapsedPreviewMode = collapsedTargetPreviewMode,
-                        collapsedSummary = collapsedSummary,
-                        allowFreeTextCopy = allowFreeTextCopy,
-                        onTapFeedback = onTapFeedback,
-                        onBodyClick = onBodyClick,
-                        onDoubleClick = onDoubleClick,
-                        onLongClick = onLongClick,
-                        processedContent = processedContent,
-                        precomputedRenderPlan = precomputedRenderPlan,
-                        tags = tags,
-                        onTodoClick = onTodoClick,
-                        todoOverrides = todoOverrides,
-                        onImageClick = onImageClick,
-                        mediaPresentationResolver = mediaPresentationResolver,
-                        mediaContent = mediaContent,
-                        selectionRegistrar = selectionRegistrar,
-                    )
-                }
+                MemoCardBodyStateContent(
+                    visualState = targetVisualState,
+                    collapsedPreviewMode = collapsedPreviewMode,
+                    collapsedSummary = collapsedSummary,
+                    allowFreeTextCopy = allowFreeTextCopy,
+                    onTapFeedback = onTapFeedback,
+                    onBodyClick = onBodyClick,
+                    onDoubleClick = onDoubleClick,
+                    onLongClick = onLongClick,
+                    processedContent = processedContent,
+                    precomputedRenderPlan = precomputedRenderPlan,
+                    tags = tags,
+                    onTodoClick = onTodoClick,
+                    todoOverrides = todoOverrides,
+                    onImageClick = onImageClick,
+                    mediaPresentationResolver = mediaPresentationResolver,
+                    mediaContent = mediaContent,
+                    selectionRegistrar = selectionRegistrar,
+                )
             }
         }
     }
@@ -266,50 +243,6 @@ private fun MemoCardMarkdownContent(
         onTextDoubleClick = onDoubleClick,
         onTextLongClick = onLongClick,
         mediaContent = mediaContent,
-    )
-}
-
-private fun memoCardBodyContentTransform(
-    motionSpec: MemoCardBodyMotionSpec,
-    isExpanding: Boolean,
-): ContentTransform {
-    val contentSwitchSpec =
-        resolveMemoCardBodyContentSwitchSpec(
-            motionSpec = motionSpec,
-            isExpanding = isExpanding,
-        )
-    return ContentTransform(
-        targetContentEnter =
-            fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = contentSwitchSpec.targetContentEnterDurationMillis,
-                        delayMillis = contentSwitchSpec.targetContentEnterDelayMillis,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            ),
-        initialContentExit =
-            fadeOut(
-                animationSpec =
-                    tween(
-                        durationMillis = contentSwitchSpec.initialContentExitDurationMillis,
-                        delayMillis = contentSwitchSpec.initialContentExitDelayMillis,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            ),
-        targetContentZIndex = 0f,
-        sizeTransform =
-            SizeTransform(clip = true) { _, _ ->
-                tween(
-                    durationMillis =
-                        if (isExpanding) {
-                            motionSpec.sizeEnterDurationMillis
-                        } else {
-                            motionSpec.sizeExitDurationMillis
-                        },
-                    easing = MotionTokens.EasingEmphasized,
-                )
-            },
     )
 }
 

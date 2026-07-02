@@ -75,7 +75,7 @@ internal fun buildModernParagraphItems(
         galleryImages.clear()
     }
 
-    paragraph.inlines.forEach { inline ->
+    paragraph.inlines.filterNotNull().forEach { inline ->
         val image = inline.toModernMarkdownImageOrNull()
         val mediaPresentation = image?.let { mediaPresentationResolver?.invoke(it) }
         when {

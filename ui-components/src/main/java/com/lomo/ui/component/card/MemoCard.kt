@@ -54,6 +54,7 @@ import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoSummaryTextStyle
 import com.lomo.domain.model.ReminderMarker
 import kotlinx.collections.immutable.ImmutableList
@@ -348,26 +349,17 @@ private fun MemoCardBody(
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
-    val containerSizeAnimation =
-        resolveMemoCardBodyContainerSizeAnimation(bodyTransitionMode)
 
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .let { base ->
-                    when (containerSizeAnimation) {
-                        MemoCardBodyContainerSizeAnimation.Enabled ->
-                            base.animateContentSize(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MemoCardTokens.ExpandAnimationDurationMillis,
-                                    ),
-                            )
-
-                        MemoCardBodyContainerSizeAnimation.Disabled -> base
-                    }
-                },
+            .animateContentSize(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                    ),
+            ),
     ) {
         MemoCardBodyContent(
             collapsedPreviewMode = collapsedPreviewMode,

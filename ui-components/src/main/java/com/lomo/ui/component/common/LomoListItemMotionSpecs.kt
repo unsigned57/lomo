@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import com.lomo.ui.theme.MotionTokens
 
 object LomoListItemMotionSpecs {
@@ -31,7 +30,7 @@ object LomoListItemMotionSpecs {
         dampingRatio = Spring.DampingRatioNoBouncy
     )
 
-    val collapseSpec: FiniteAnimationSpec<IntSize> = tween(
+    val heightFractionSpec: FiniteAnimationSpec<Float> = tween(
         durationMillis = MotionTokens.DurationMedium2,
         easing = MotionTokens.EasingStandard,
     )
@@ -42,7 +41,7 @@ object LomoListItemMotionSpecs {
  * shift, fade-out on disappearance.
  *
  * Set [animateAppearance] to false when the row's appearance is owned externally — e.g. a row
- * wrapped in [LomoListItemEnterScope], whose two-phase enter (expand then fade) must be the sole
+ * using [lomoListItemPhaseMotion], whose two-phase enter (expand then fade) must be the sole
  * driver of the appearance. Placement and disappearance still apply so neighbors animate normally.
  */
 fun Modifier.lomoListItemMotion(

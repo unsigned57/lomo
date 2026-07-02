@@ -1,7 +1,9 @@
 package com.lomo.ui.component.markdown
 
 import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import androidx.compose.material3.Typography
 import com.lomo.ui.theme.TypographyScales
 
@@ -168,6 +170,26 @@ class ModernParagraphItemTest : UiComponentsFunSpec() {
             val imageItem = items[1] as ModernParagraphItem.Image
             (imageItem.image.destination) shouldBe ("images/cover.png")
             (imageItem.image.title) shouldBe ("cover")
+        }
+
+        test("given paragraph inlines containing null entries when building items then only valid items are emitted without crashing") {
+            @Suppress("UNCHECKED_CAST")
+            val inlinesWithNull: List<MarkdownSemanticInline> =
+                listOf<MarkdownSemanticInline?>(
+                    MarkdownSemanticInline.Text("safe text"),
+                    null,
+                ) as List<MarkdownSemanticInline>
+            val paragraph = MarkdownSemanticBlock.Paragraph(inlines = inlinesWithNull)
+
+            val items =
+                buildModernParagraphItems(
+                    paragraph = paragraph,
+                    tokenSpec = tokenSpec,
+                )
+
+            items shouldHaveSize 1
+            val textItem = items.single().shouldBeInstanceOf<ModernParagraphItem.Text>()
+            textItem.text.text shouldBe "safe text"
         }
     }
 

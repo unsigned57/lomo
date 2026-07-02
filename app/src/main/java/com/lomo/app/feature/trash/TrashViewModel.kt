@@ -88,7 +88,7 @@ class TrashViewModel
         fun clearTrash(items: List<DeleteAnimationItem<Memo>>) =
             actionStateHolder.actions.clearTrash(items)
 
-        fun onDeleteAnimationSettled(memoId: String) = exitAnimationRegistry.settleExit(memoId)
+        fun onDeleteAnimationSettled(memoId: String) = exitAnimationRegistry.markExitAnimationSettled(memoId)
 
         fun clearError() = actionStateHolder.errors.clear()
     }

@@ -30,8 +30,8 @@ import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.EnterAnimationRegistry
-import com.lomo.ui.component.common.LomoListItemEnterScope
-import com.lomo.ui.component.common.LomoListItemExitScope
+import com.lomo.ui.component.common.LomoListExitPhase
+import com.lomo.ui.component.common.lomoListItemPhaseMotion
 import com.lomo.ui.component.common.rememberLomoListEnterState
 import com.lomo.ui.component.common.LomoListExitRenderEntry
 import com.lomo.ui.component.common.rememberLomoListExitState
@@ -353,7 +353,8 @@ private fun MemoPagedListRow(
         prevEntry?.item?.memo?.id
     } else null
 
-    val isExiting = entry.isExiting
+    val exitPhase = entry.exitPhase
+    val isExiting = exitPhase != null
     val isEntering = uiModel.memo.id in enteringIds
     MemoPagedListItem(
         uiModel = uiModel,
@@ -362,7 +363,7 @@ private fun MemoPagedListRow(
         expandedMemoIds = expandedMemoIds,
         displayConfig = displayConfig,
         actions = actions,
-        isExiting = isExiting,
+        exitPhase = exitPhase,
         onExitSettled = { onItemExitSettled(entry.snapshotMemo.memo.id) },
         isEntering = isEntering,
         onEnterSettled = { onItemEnterSettled(uiModel.memo.id) },
@@ -382,7 +383,7 @@ private fun MemoPagedListItem(
     expandedMemoIds: ImmutableSet<String>,
     displayConfig: MemoPagedListDisplayConfig,
     actions: MemoPagedListActions,
-    isExiting: Boolean,
+    exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
     isEntering: Boolean,
     onEnterSettled: () -> Unit,
@@ -391,42 +392,38 @@ private fun MemoPagedListItem(
 ) {
     val bottomSpacing = if (index == itemCount - 1) 0.dp else MEMO_LIST_ITEM_SPACING
     val isExpanded = uiModel.memo.id in expandedMemoIds
+    val isExiting = exitPhase != null
 
-    LomoListItemExitScope(
-        isExiting = isExiting,
-        onExitSettled = onExitSettled,
-        modifier = modifier,
-    ) {
-        LomoListItemEnterScope(
+    MemoListItem(
+        uiModel = uiModel,
+        bottomSpacing = bottomSpacing,
+        onTodoClick = actions.onTodoClick,
+        onReminderClick =
+            createMainReminderDoneClickAction(
+                memoId = uiModel.memo.id,
+                onReminderDone = actions.onReminderDone,
+            ),
+        dateFormat = displayConfig.dateFormat,
+        timeFormat = displayConfig.timeFormat,
+        onMemoDoubleClick = actions.onMemoDoubleClick,
+        doubleTapEditEnabled = displayConfig.doubleTapEditEnabled,
+        freeTextCopyEnabled = displayConfig.freeTextCopyEnabled,
+        onTagClick = actions.onTagClick,
+        onImageClick = actions.onImageClick,
+        onShowMemoMenu = actions.onShowMemoMenu,
+        modifier = modifier.lomoListItemPhaseMotion(
             isEntering = isEntering,
             onEnterSettled = onEnterSettled,
-        ) {
-            MemoListItem(
-                uiModel = uiModel,
-                bottomSpacing = bottomSpacing,
-                onTodoClick = actions.onTodoClick,
-                onReminderClick =
-                    createMainReminderDoneClickAction(
-                        memoId = uiModel.memo.id,
-                        onReminderDone = actions.onReminderDone,
-                    ),
-                dateFormat = displayConfig.dateFormat,
-                timeFormat = displayConfig.timeFormat,
-                onMemoDoubleClick = actions.onMemoDoubleClick,
-                doubleTapEditEnabled = displayConfig.doubleTapEditEnabled,
-                freeTextCopyEnabled = displayConfig.freeTextCopyEnabled,
-                onTagClick = actions.onTagClick,
-                onImageClick = actions.onImageClick,
-                onShowMemoMenu = actions.onShowMemoMenu,
-                isExpanded = isExpanded,
-                onExpandedChange = { expanded ->
-                    actions.onExpandedMemoChange(uiModel.memo.id, expanded)
-                },
-                anchoredAfterKey = anchoredAfterKey,
-                isExiting = isExiting,
-            )
-        }
-    }
+            exitPhase = exitPhase,
+            onExitSettled = onExitSettled,
+        ),
+        isExpanded = isExpanded,
+        onExpandedChange = { expanded ->
+            actions.onExpandedMemoChange(uiModel.memo.id, expanded)
+        },
+        anchoredAfterKey = anchoredAfterKey,
+        isExiting = isExiting,
+    )
 }
 
 @Composable

@@ -316,7 +316,10 @@ class SearchViewModelTest : AppFunSpec() {
 
                 viewModel.onDeleteAnimationSettled(memo.id)
                 runCurrent()
+                viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
 
+                viewModel.exitAnimationRegistry.updateSourceKeys(emptySet())
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
                 memoRepository.currentDeletedMemos() shouldBe listOf(memo.copy(isDeleted = true))
             }

@@ -120,8 +120,16 @@ internal fun buildModernMarkdownRenderItems(
             index = gallery.nextIndex
         } else {
             val node = renderableBlocks[index]
-            val semanticBlock = parseSemanticBlock(node, content, references).firstOrNull()?.parseHighlights()
-            items += ModernMarkdownRenderItem.Block(node = node, semanticBlock = semanticBlock)
+            items +=
+                ModernMarkdownRenderItem.Block(
+                    renderNode =
+                        buildModernMarkdownRenderNode(
+                            node = node,
+                            content = content,
+                            references = references,
+                            path = "block.$index",
+                        ),
+                )
             index++
         }
     }
