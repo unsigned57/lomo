@@ -333,10 +333,17 @@ class MemoEditorViewModelTest : AppFunSpec() {
             createMemoException = null
         }
 
-        override suspend fun invoke(content: String, timestampMillis: Long, geoLocation: String?) {
+        override suspend fun invoke(content: String, timestampMillis: Long, geoLocation: String?): Memo {
             createMemoException?.let { throw it }
             createMemoCalledWithContent = content
             createMemoCalledWithTimestamp = timestampMillis
+            return Memo(
+                id = timestampMillis.toString(),
+                timestamp = timestampMillis,
+                content = content,
+                rawContent = content,
+                dateKey = "test",
+            )
         }
     }
 

@@ -4,12 +4,29 @@ import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: main-screen app-action consumption policy.
- * - Behavior focus: FocusMemo jump events must remain pending when the main list cannot yet locate the target, then be consumed only after a successful focus.
- * - Observable outcomes: boolean consume/retain decision for create, open, successful focus, and failed focus actions.
- * - Red phase: Fails before the fix because HandleAppActionEvents consumes FocusMemo immediately even when focusMemoInList returns false.
- * - Excludes: Compose LaunchedEffect scheduling, NavHost back-stack transitions, and LazyListState scroll physics.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: decide which pending app actions remain queued after one handling attempt.
+ *
+ * Scenarios:
+ * - Given a focus action cannot locate its target, when handling completes, then the action remains pending.
+ * - Given a focus action locates its target, when handling completes, then the action is consumed.
+ * - Given create, start-recording, or open actions are handled once, when handling completes, then the actions are consumed.
+ *
+ * Observable outcomes: boolean consume/retain decision.
+ *
+ * TDD proof: Fails before the fix because HandleAppActionEvents consumes FocusMemo immediately even when focusMemoInList returns false.
+ *
+ * Excludes: Compose LaunchedEffect scheduling, NavHost back-stack transitions, and LazyListState scroll physics.
+ *
+ * Test Change Justification:
+ * - Reason category: entry contract extension.
+ * - Old behavior/assertion being replaced: one-shot app actions only covered create and open actions.
+ * - Why old assertion is no longer correct: start recording is now an external app action with the same one-shot consume contract.
+ * - Coverage preserved by: focus retain/consume and create/open consume scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: the test asserts the public consume policy decision.
  */
 class MainScreenAppActionConsumptionPolicyTest : AppFunSpec() {
     init {
@@ -28,12 +45,14 @@ class MainScreenAppActionConsumptionPolicyTest : AppFunSpec() {
                     handled = true,
                 )) shouldBe (true)
         }
-    }
 
-    init {
-        test("create and open actions are consumed after one handling attempt") {
+        test("create start-recording and open actions are consumed after one handling attempt") {
             (shouldConsumeAppActionAfterHandling(
                     action = MainViewModel.AppAction.CreateMemo,
+                    handled = false,
+                )) shouldBe (true)
+            (shouldConsumeAppActionAfterHandling(
+                    action = MainViewModel.AppAction.StartRecording,
                     handled = false,
                 )) shouldBe (true)
             (shouldConsumeAppActionAfterHandling(
@@ -42,5 +61,4 @@ class MainScreenAppActionConsumptionPolicyTest : AppFunSpec() {
                 )) shouldBe (true)
         }
     }
-
 }

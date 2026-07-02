@@ -8,6 +8,8 @@ import androidx.core.net.toUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
@@ -22,47 +24,51 @@ class AudioRecorder
         private var outputFileDescriptor: ParcelFileDescriptor? = null
         private var isRecording = false
 
-        override fun start(outputLocation: StorageLocation) {
-            if (isRecording) {
-                stop()
-            }
-            val targetUri = outputLocation.raw.toUri()
-
-            val mediaRecorder = createRecorder()
-            runCatching {
-                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-
-                val openedDescriptor =
-                    context.contentResolver.openFileDescriptor(targetUri, "w")
-                        ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
-                outputFileDescriptor = openedDescriptor
-                mediaRecorder.setOutputFile(openedDescriptor.fileDescriptor)
-
-                mediaRecorder.prepare()
-                mediaRecorder.start()
-                recorder = mediaRecorder
-                isRecording = true
-            }
-                .onFailure { error ->
-                    if (error is CancellationException) throw error
-                    Timber.tag(TAG).e(error, "Failed to start recording")
-                    releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
-                    closeOutputFileDescriptor()
+        override suspend fun start(outputLocation: StorageLocation) {
+            withContext(Dispatchers.IO) {
+                if (isRecording) {
+                    stop()
                 }
+                val targetUri = outputLocation.raw.toUri()
+
+                val mediaRecorder = createRecorder()
+                runCatching {
+                    mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                    mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+
+                    val openedDescriptor =
+                        context.contentResolver.openFileDescriptor(targetUri, "w")
+                            ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
+                    outputFileDescriptor = openedDescriptor
+                    mediaRecorder.setOutputFile(openedDescriptor.fileDescriptor)
+
+                    mediaRecorder.prepare()
+                    mediaRecorder.start()
+                    recorder = mediaRecorder
+                    isRecording = true
+                }
+                    .onFailure { error ->
+                        if (error is CancellationException) throw error
+                        Timber.tag(TAG).e(error, "Failed to start recording")
+                        releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
+                        closeOutputFileDescriptor()
+                    }
+            }
         }
 
-        override fun stop() {
-            if (!isRecording) return
+        override suspend fun stop() {
+            withContext(Dispatchers.IO) {
+                if (!isRecording) return@withContext
 
-            runCatching {
-                recorder?.stop()
-            }.onFailure { error ->
-                if (error is CancellationException) throw error
-                Timber.tag(TAG).e(error, "Failed to stop recording")
-            }.also {
-                release()
+                runCatching {
+                    recorder?.stop()
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    Timber.tag(TAG).e(error, "Failed to stop recording")
+                }.also {
+                    release()
+                }
             }
         }
 

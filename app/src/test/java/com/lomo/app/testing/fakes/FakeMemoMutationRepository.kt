@@ -19,7 +19,7 @@ class FakeMemoMutationRepository(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) = store.addSavedMemo(content, timestamp, geoLocation)
+    ): Memo = store.addSavedMemo(content, timestamp, geoLocation)
 
     override suspend fun updateMemo(
         memo: Memo,

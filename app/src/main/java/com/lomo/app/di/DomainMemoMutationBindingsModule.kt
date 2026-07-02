@@ -1,10 +1,12 @@
 package com.lomo.app.di
 
 import com.lomo.domain.repository.MemoMutationRepository
+import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.RecordingSessionUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.SetMemoPinnedUseCase
@@ -90,4 +92,10 @@ object DomainMemoMutationBindingsModule {
             initializeWorkspaceUseCase = initializeWorkspaceUseCase,
             validator = validateMemoContentUseCase,
         )
+
+    @Provides
+    @Singleton
+    fun provideRecordingSessionUseCase(
+        recordingSession: RecordingSession,
+    ): RecordingSessionUseCase = RecordingSessionUseCase(recordingSession)
 }

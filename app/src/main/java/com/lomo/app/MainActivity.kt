@@ -163,6 +163,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val ACTION_NEW_MEMO = "com.lomo.app.ACTION_NEW_MEMO"
+        const val ACTION_START_RECORDING = "com.lomo.app.ACTION_START_RECORDING"
         const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
         const val EXTRA_MEMO_ID = "memo_id"
     }
@@ -435,6 +436,7 @@ private fun DispatchPendingLaunchCommands(
                 is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
                 is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
                 PendingLaunchAction.CreateMemo -> viewModel.requestCreateMemo()
+                PendingLaunchAction.StartRecording -> viewModel.requestStartRecording()
                 is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
             }
         }

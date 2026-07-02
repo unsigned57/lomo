@@ -199,20 +199,21 @@ class FakeMemoStore(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) {
+    ): Memo {
         savedMemos += SavedMemo(content = content, timestamp = timestamp, geoLocation = geoLocation)
         val date = Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
-        memos.value =
-            memos.value +
-                Memo(
-                    id = timestamp.toString(),
-                    timestamp = timestamp,
-                    content = content,
-                    rawContent = content,
-                    dateKey = date.toString(),
-                    localDate = date,
-                    geoLocation = geoLocation,
-                )
+        val memo =
+            Memo(
+                id = timestamp.toString(),
+                timestamp = timestamp,
+                content = content,
+                rawContent = content,
+                dateKey = date.toString(),
+                localDate = date,
+                geoLocation = geoLocation,
+            )
+        memos.value = memos.value + memo
+        return memo
     }
 
     internal suspend fun replaceMemoContent(

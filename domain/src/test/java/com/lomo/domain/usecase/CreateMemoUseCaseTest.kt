@@ -42,6 +42,7 @@ import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
 
@@ -90,6 +91,19 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
                                     geoLocation = null,
                                 ),
                             )
+                    }
+        }
+
+        test("invoke returns saved Memo so callers can use the new memo id for deep links") {
+            runTest {
+                        directorySettingsRepository.setLocation(StorageArea.ROOT, StorageLocation("/workspace"))
+
+                        val saved = useCase(content = "voice memo", timestampMillis = 789L)
+
+                        saved.content shouldBe "voice memo"
+                        saved.timestamp shouldBe 789L
+                        saved.id shouldNotBe null
+                        saved.id shouldNotBe ""
                     }
         }
     }

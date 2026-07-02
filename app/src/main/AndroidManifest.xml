@@ -49,6 +49,26 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="com.lomo.app.ACTION_NEW_MEMO" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="com.lomo.app.ACTION_START_RECORDING" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="com.lomo.app.ACTION_OPEN_MEMO" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="com.lomo.recording.action.OPEN_SAVED_MEMO" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <!-- Add Share Intent Support -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -56,6 +76,10 @@
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <provider
@@ -91,6 +115,28 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/lomo_widget_info" />
         </receiver>
+
+        <service
+            android:name=".widget.NewMemoTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_note_add"
+            android:label="@string/tile_new_memo_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".widget.RecordingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_mic"
+            android:label="@string/tile_start_recording_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
     </application>
 

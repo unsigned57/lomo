@@ -2,9 +2,9 @@ package com.lomo.app
 
 import android.content.Intent
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.RecordingDeepLink
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
-import io.mockk.every
 import io.mockk.mockk
 
 /*
@@ -19,6 +19,9 @@ import io.mockk.mockk
  * Scenarios:
  * - Given an Intent with action "com.lomo.reminder.action.OPEN" and a memo ID extra, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.OpenMemo(memoId).
  * - Given an Intent with action "com.lomo.reminder.action.OPEN" and no memo ID extra, when calling extractPendingLaunchActions, then it extracts nothing.
+ * - Given an Intent with ACTION_START_RECORDING, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.StartRecording.
+ * - Given an Intent with RecordingDeepLink.ACTION_OPEN_SAVED_MEMO and a memo ID extra, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.OpenMemo(memoId).
+ * - Given StartRecording entry capabilities are inspected, when routing the command, then only RootWorkspace is required before Activity dispatch.
  * - Given an external pending command while app lock is resolving, when resolving entry flow, then the state waits and preserves the queued command identity.
  * - Given an external pending command while app lock is active, when resolving entry flow, then the state is blocked and preserves the queued command identity.
  * - Given a configured workspace that is still preparing, when resolving an external pending command, then the state waits without dropping the queued command identity.
@@ -42,13 +45,22 @@ import io.mockk.mockk
  *
  * Excludes:
  * - Actual execution of launch actions on the navigation stack, Compose rendering, biometric prompt wiring, and persistence of transient payloads across process death.
+ *
+ * Test Change Justification:
+ * - Reason category: entry contract extension.
+ * - Old behavior/assertion being replaced: launch routing only covered memo/share/reminder actions.
+ * - Why old assertion is no longer correct: recording shortcuts and saved-recording notifications are now supported entry points.
+ * - Coverage preserved by: existing memo/share/reminder routing scenarios remain, with recording scenarios added.
+ * - Why this is not fitting the test to the implementation: assertions verify public launch actions and capability gates.
  */
 class MainActivityLaunchRoutingTest : AppFunSpec() {
     init {
         test("extractPendingLaunchActions parses reminder action and returns OpenMemo action") {
-            val intent = mockk<Intent>()
-            every { intent.action } returns "com.lomo.reminder.action.OPEN"
-            every { intent.getStringExtra("memo_id") } returns "memo-123"
+            val intent =
+                TestIntent(
+                    actionValue = "com.lomo.reminder.action.OPEN",
+                    stringExtras = mapOf("memo_id" to "memo-123"),
+                )
 
             val actions = extractPendingLaunchActions(intent)
 
@@ -56,13 +68,35 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
         }
 
         test("extractPendingLaunchActions parses reminder action with missing memo ID and returns empty list") {
-            val intent = mockk<Intent>()
-            every { intent.action } returns "com.lomo.reminder.action.OPEN"
-            every { intent.getStringExtra("memo_id") } returns null
+            val intent = TestIntent(actionValue = "com.lomo.reminder.action.OPEN")
 
             val actions = extractPendingLaunchActions(intent)
 
             actions shouldBe emptyList()
+        }
+
+        test("extractPendingLaunchActions parses start recording action") {
+            val intent = TestIntent(actionValue = MainActivity.ACTION_START_RECORDING)
+
+            val actions = extractPendingLaunchActions(intent)
+
+            actions shouldBe listOf(PendingLaunchAction.StartRecording)
+        }
+
+        test("extractPendingLaunchActions parses recording saved memo action") {
+            val intent =
+                TestIntent(
+                    actionValue = RecordingDeepLink.ACTION_OPEN_SAVED_MEMO,
+                    stringExtras = mapOf(RecordingDeepLink.EXTRA_MEMO_ID to "memo-recording"),
+                )
+
+            val actions = extractPendingLaunchActions(intent)
+
+            actions shouldBe listOf(PendingLaunchAction.OpenMemo("memo-recording"))
+        }
+
+        test("start recording launch action requires root workspace only") {
+            requiredEntryCapabilities(PendingLaunchAction.StartRecording) shouldBe setOf(EntryCapability.RootWorkspace)
         }
 
         test("entry flow waits for app lock resolution while preserving pending command identity") {
@@ -278,4 +312,13 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             rawActionResolverMethods.shouldBeEmpty()
         }
     }
+}
+
+private class TestIntent(
+    private val actionValue: String,
+    private val stringExtras: Map<String, String> = emptyMap(),
+) : Intent() {
+    override fun getAction(): String = actionValue
+
+    override fun getStringExtra(name: String): String? = stringExtras[name]
 }

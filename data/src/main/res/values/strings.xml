@@ -15,4 +15,12 @@
     <string name="reminder_action_open">Open</string>
     <string name="reminder_action_snooze">Snooze</string>
     <string name="reminder_action_done">Done</string>
+    <string name="recording_channel_name">Recording</string>
+    <string name="recording_channel_description">Used while Lomo is recording audio</string>
+    <string name="recording_notification_title">Recording</string>
+    <string name="recording_notification_stop">Stop</string>
+    <string name="recording_notification_cancel">Cancel</string>
+    <string name="recording_saved_notification_title">Recording saved</string>
+    <string name="recording_saved_notification_text">Tap to edit</string>
+    <string name="recording_saved_notification_action">Edit</string>
 </resources>

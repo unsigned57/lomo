@@ -9,6 +9,13 @@ package com.lomo.data.git
  * - Observable outcomes: factory functions return configured GitCredentialStrategy instances
  * - TDD proof: used as building blocks by GitCredentialStrategyTest; no standalone observable change
  * - Excludes: JGit authentication, network credential providers, UI integration.
+ *
+ * Test Change Justification:
+ * - Reason category: security session contract extension.
+ * - Old behavior/assertion being replaced: fixture policies only implemented credential-read authorization.
+ * - Why old assertion is no longer correct: SecuritySessionPolicy now also exposes app-lock satisfaction for tile entry checks.
+ * - Coverage preserved by: credential strategy tests still receive authorized credential-read behavior.
+ * - Why this is not fitting the test to the implementation: fixture values model the same authorized session state.
  */
 
 import com.lomo.domain.model.CredentialField
@@ -24,6 +31,8 @@ import kotlinx.coroutines.flow.flowOf
 internal object AuthorizedCredentialReadSessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Authorized
+
+    override suspend fun isAppLockSatisfied(): Boolean = true
 }
 
 internal fun gitCredentialStrategy(token: String?): GitCredentialStrategy =

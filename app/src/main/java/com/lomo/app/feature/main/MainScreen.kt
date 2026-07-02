@@ -28,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.R
@@ -48,6 +49,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoRevision
 import com.lomo.app.feature.memo.MemoMenuSelection
+import com.lomo.ui.component.common.HeadEnterBaseline
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +62,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filterNotNull
 
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
@@ -236,6 +239,15 @@ private fun MainScreenPendingNewMemoCreationEffect(
                 scrollListToAbsoluteTop = {
                     listState.animateScrollToItem(0)
                 },
+                awaitTopBaseline = {
+                    snapshotFlow { pagedUiMemos.resolveHeadEnterBaseline() }
+                        .filterNotNull()
+                        .first()
+                },
+                prepareNewTopEnter = { baseline ->
+                    latestDependencies.value.mainViewModel.enterAnimationRegistry
+                        .beginPendingHeadEnter(baseline)
+                },
                 createMemo = { request, _ ->
                     // The feed renders loaded rows from the paging snapshot and only calls
                     // pagedUiMemos[index] for placeholders, so scrolling up to the top never updates
@@ -243,7 +255,9 @@ private fun MainScreenPendingNewMemoCreationEffect(
                     // Room refresh reloads anchored at the top (placeholdersBefore=0) instead of the
                     // stale deep anchor — otherwise the top rows briefly become placeholders during
                     // the refresh, which reads as the whole-list "flash".
-                    pagedUiMemos[0]
+                    if (pagedUiMemos.itemCount > 0) {
+                        pagedUiMemos[0]
+                    }
                     val consumedRequest =
                         latestDependencies.value.mainViewModel.consumePendingNewMemoCreationRequest(request.requestId)
                     if (consumedRequest != null) {
@@ -254,21 +268,19 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         )
                     }
                 },
-                currentTopMemoId = {
-                    pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
-                },
-                awaitNewTopItemAndReveal = { previousTopId ->
-                    val newTopId =
-                        withTimeoutOrNull(NEW_MEMO_REVEAL_TIMEOUT_MS) {
-                            snapshotFlow { pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id }
-                                .first { topId -> topId != null && topId != previousTopId }
-                        }
-                    if (newTopId != null) {
-                        // Pin the freshly-inserted (initially zero-height) row to the viewport top so its
-                        // two-phase enter (expand then fade) plays in view instead of above the fold.
-                        latestDependencies.value.mainViewModel.enterAnimationRegistry.beginEnter(newTopId)
-                        listState.scrollToItem(0)
+                awaitNewTopItem = { baseline ->
+                    withTimeoutOrNull(NEW_MEMO_REVEAL_TIMEOUT_MS) {
+                        snapshotFlow { pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id }
+                            .first { topId -> topId != null && baseline.isResolvedByHeadId(topId) }
                     }
+                },
+                revealNewTopItem = {
+                    // Pin the freshly-inserted row to the viewport top so its two-phase enter
+                    // (expand then fade) plays in view instead of above the fold.
+                    listState.scrollToItem(0)
+                },
+                cancelPreparedEnter = { requestId ->
+                    latestDependencies.value.mainViewModel.enterAnimationRegistry.cancelEnterRequest(requestId)
                 },
             )
         }
@@ -277,6 +289,26 @@ private fun MainScreenPendingNewMemoCreationEffect(
         pendingRequest?.let(creationCoordinator::submit)
     }
 }
+
+private fun LazyPagingItems<MemoUiModel>.resolveHeadEnterBaseline(): HeadEnterBaseline? {
+    val snapshot = itemSnapshotList
+    val firstLoadedHeadId = snapshot.items.firstOrNull()?.memo?.id
+    return when {
+        snapshot.placeholdersBefore == 0 && firstLoadedHeadId != null ->
+            HeadEnterBaseline.ExistingHead(firstLoadedHeadId)
+
+        itemCount == 0 && loadState.refresh is LoadState.NotLoading ->
+            HeadEnterBaseline.EmptyList
+
+        else -> null
+    }
+}
+
+private fun HeadEnterBaseline.isResolvedByHeadId(headId: String): Boolean =
+    when (this) {
+        HeadEnterBaseline.EmptyList -> true
+        is HeadEnterBaseline.ExistingHead -> id != headId
+    }
 
 internal data class DraftAutosaveState(
     val editingMemoId: String?,
@@ -391,6 +423,9 @@ private fun MainScreenTransientEffects(
             }
         },
         onOpenEditMemo = editorController::openForEdit,
+        onStartRecording = {
+            dependencies.recordingViewModel.startRecording()
+        },
         onFocusMemoInList = { memoId ->
             focusMemoInMainScreenWithFallback(
                 memoId = memoId,
