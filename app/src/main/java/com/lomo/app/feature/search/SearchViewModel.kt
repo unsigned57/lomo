@@ -182,7 +182,7 @@ class SearchViewModel
         }
 
         fun onDeleteAnimationSettled(memoId: String) {
-            exitAnimationRegistry.settleExit(memoId)
+            exitAnimationRegistry.markExitAnimationSettled(memoId)
         }
 
         fun updateMemo(

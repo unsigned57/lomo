@@ -23,8 +23,9 @@ import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.updateExpandedMemoIds
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.LomoListExitRenderEntry
-import com.lomo.ui.component.common.LomoListItemExitScope
+import com.lomo.ui.component.common.LomoListExitPhase
 import com.lomo.ui.component.common.WithDraggableScrollbar
+import com.lomo.ui.component.common.lomoListItemExitPhaseMotion
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
 import com.lomo.ui.component.common.ExitAnimationRegistry
@@ -137,7 +138,7 @@ fun MemoCardList(
                         onImageClick = onImageClick,
                         onTodoClick = onTodoClick,
                         onTagClick = onTagClick,
-                        isExiting = entry.isExiting,
+                        exitPhase = entry.exitPhase,
                         onExitSettled = { onItemExitSettled(entry.snapshotMemo.memo.id) },
                         lazyItemScope = this,
                         anchoredAfterKey = anchoredAfterKey,
@@ -185,12 +186,13 @@ private fun MemoCardListItem(
     onImageClick: (ImageViewerRequest) -> Unit,
     onTodoClick: ((Memo, Int, Boolean) -> Unit)?,
     onTagClick: (String) -> Unit,
-    isExiting: Boolean,
+    exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
     lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
     anchoredAfterKey: String? = null,
 ) {
     val bottomSpacing = if (isLastItem) 0.dp else MEMO_CARD_LIST_ITEM_SPACING
+    val isExiting = exitPhase != null
     val stableImageClick =
         remember(uiModel.imageUrls, onImageClick) {
             { url: String ->
@@ -223,28 +225,26 @@ private fun MemoCardListItem(
                 .padding(bottom = bottomSpacing)
         }
 
-    LomoListItemExitScope(
+    MemoCardEntry(
+        uiModel = uiModel,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+        doubleTapEditEnabled = doubleTapEditEnabled,
+        freeTextCopyEnabled = freeTextCopyEnabled,
+        onMemoEdit = onMemoEdit,
+        onShowMenu = onShowMenu,
+        onImageClick = stableImageClick,
+        onTodoClick = stableTodoClick,
+        onTagClick = onTagClick,
+        modifier = itemModifier.lomoListItemExitPhaseMotion(
+            exitPhase = exitPhase,
+            onExitSettled = onExitSettled,
+        ),
+        isExpanded = isExpanded,
+        onExpandedChange = onExpandedChange,
+        anchoredAfterKey = anchoredAfterKey,
         isExiting = isExiting,
-        onExitSettled = onExitSettled,
-        modifier = itemModifier,
-    ) {
-        MemoCardEntry(
-            uiModel = uiModel,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
-            doubleTapEditEnabled = doubleTapEditEnabled,
-            freeTextCopyEnabled = freeTextCopyEnabled,
-            onMemoEdit = onMemoEdit,
-            onShowMenu = onShowMenu,
-            onImageClick = stableImageClick,
-            onTodoClick = stableTodoClick,
-            onTagClick = onTagClick,
-            isExpanded = isExpanded,
-            onExpandedChange = onExpandedChange,
-            anchoredAfterKey = anchoredAfterKey,
-            isExiting = isExiting,
-        )
-    }
+    )
 }
 
 private fun memoCardExpandedMemoIdsSaver() =
@@ -252,5 +252,3 @@ private fun memoCardExpandedMemoIdsSaver() =
         save = { state -> state.value.toList() },
         restore = { restored -> mutableStateOf(restored.toPersistentSet()) },
     )
-
-

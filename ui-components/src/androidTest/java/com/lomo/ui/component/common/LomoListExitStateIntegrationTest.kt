@@ -19,18 +19,18 @@ import org.junit.runner.RunWith
  * - Unit under test: rememberLomoListExitState Compose integration with ExitAnimationRegistry.
  * - Owning layer: ui-components common.
  * - Priority tier: P1.
- * - Capability: retain exiting items in the Compose render list when they are removed from allItems, and settle them when onExitSettled is called.
+ * - Capability: retain exiting items in the Compose render list when they are removed from allItems, and remove them only after mutation commit, source absence, and onExitSettled are all observed.
  *
  * Scenarios:
  * - Given a list of items and a registry, when an item is marked exiting and removed from the source list, then it is still retained in the Compose render list at its anchored position.
- * - Given a retained exiting item, when onExitSettled is called, then the item is removed from the Compose render list.
+ * - Given a retained exiting item whose mutation is committed and source is absent, when onExitSettled is called, then the item is removed from the Compose render list.
  *
  * Observable outcomes:
  * - The items and their exit states inside the resolved render list during Compose state updates.
  *
  * TDD proof:
- * - RED: Fails when we make onExitSettled a no-op (or don't call settleExit), so the exiting item is never removed from the render list.
- * - GREEN: Fails initially (before registry.settleExit runs), and passes once settleExit is called and registry emits the updated entries.
+ * - RED: Fails when animation settlement directly removes the entry before mutation commit/source absence are modeled.
+ * - GREEN: Passes only after registry lifecycle gates converge.
  *
  * Excludes:
  * - Layout placement specs, animations, and main feed item renderer details.
@@ -73,6 +73,7 @@ class LomoListExitStateIntegrationTest {
         // Begin exit on item 'b' and update items list (remove 'b')
         composeRule.runOnIdle {
             registry.beginExit("b", TestItem("b"), "a")
+            registry.markExitMutationCommitted("b")
             itemsState = listOf(TestItem("a"), TestItem("c"))
         }
 

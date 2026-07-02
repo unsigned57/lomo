@@ -29,10 +29,7 @@ import com.lomo.ui.text.MemoTextSelectionRegistrar
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.toImmutableList
-import org.intellij.markdown.MarkdownElementTypes
-import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.flavours.gfm.GFMElementTypes
 
 @Composable
 internal fun ModernMarkdownRenderPlanContent(
@@ -75,8 +72,7 @@ internal fun ModernMarkdownRenderPlanContent(
             when (item) {
                 is ModernMarkdownRenderItem.Block -> {
                     ModernMarkdownBlock(
-                        node = item.node,
-                        semanticBlock = item.semanticBlock,
+                        renderNode = item.renderNode,
                         content = plan.content,
                         tokenSpec = tokenSpec,
                         onTodoClick = onTodoClick,
@@ -113,8 +109,7 @@ private const val PROGRESSIVE_RENDER_INITIAL_BATCH = 20
 private const val PROGRESSIVE_RENDER_INCREMENT = 30
 @Composable
 internal fun ModernMarkdownBlock(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock?,
+    renderNode: ModernMarkdownRenderNode,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -131,52 +126,70 @@ internal fun ModernMarkdownBlock(
     hideImages: Boolean = false,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
-    resolveModernMarkdownHeadingStyle(node = node, tokenSpec = tokenSpec)?.let { headingStyle ->
-        val headingBlock = semanticBlock as? MarkdownSemanticBlock.Heading
-        ModernMarkdownHeading(
-            semanticBlock = headingBlock,
-            blockStartOffset = node.startOffset,
-            style = headingStyle,
-            tokenSpec = tokenSpec,
-            enableTextSelection = enableTextSelection,
-            selectionRegistrar = textSelectionRegistrar,
-            onTextTapFeedback = onTextTapFeedback,
-            onTextBodyClick = onTextBodyClick,
-            onTextDoubleClick = onTextDoubleClick,
-            onTextLongClick = onTextLongClick,
-        )
-        return
-    }
+    when (renderNode) {
+        is ModernMarkdownRenderNode.BlockQuote ->
+            ModernMarkdownBlockQuote(
+                renderNode = renderNode,
+                content = content,
+                tokenSpec = tokenSpec,
+                onTodoClick = onTodoClick,
+                todoOverrides = todoOverrides,
+                onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
+                enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
+                onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
+                onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
+            )
 
-    RenderModernMarkdownStandardBlock(
-        node = node,
-        semanticBlock = semanticBlock,
-        content = content,
-        tokenSpec = tokenSpec,
-        onTodoClick = onTodoClick,
-        todoOverrides = todoOverrides,
-        onImageClick = onImageClick,
-        mediaPresentationResolver = mediaPresentationResolver,
-        mediaContent = mediaContent,
-        enableTextSelection = enableTextSelection,
-        textSelectionRegistrar = textSelectionRegistrar,
-        onTextTapFeedback = onTextTapFeedback,
-        onTextBodyClick = onTextBodyClick,
-        onTextDoubleClick = onTextDoubleClick,
-        onTextLongClick = onTextLongClick,
-        baseParagraphStyle = baseParagraphStyle,
-        hideImages = hideImages,
-    )
+        is ModernMarkdownRenderNode.ListBlock ->
+            ModernMarkdownList(
+                renderNode = renderNode,
+                content = content,
+                tokenSpec = tokenSpec,
+                onTodoClick = onTodoClick,
+                todoOverrides = todoOverrides,
+                onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                mediaContent = mediaContent,
+                enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
+                onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
+                onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                hideImages = hideImages,
+            )
+
+        else ->
+            ModernMarkdownLeafBlock(
+                renderNode = renderNode,
+                content = content,
+                tokenSpec = tokenSpec,
+                onImageClick = onImageClick,
+                mediaPresentationResolver = mediaPresentationResolver,
+                enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
+                onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
+                onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+                baseParagraphStyle = baseParagraphStyle,
+                hideImages = hideImages,
+                mediaContent = mediaContent,
+            )
+    }
 }
 
 @Composable
-private fun RenderModernMarkdownStandardBlock(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock?,
+private fun ModernMarkdownLeafBlock(
+    renderNode: ModernMarkdownRenderNode,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
@@ -186,14 +199,14 @@ private fun RenderModernMarkdownStandardBlock(
     onTextDoubleClick: (() -> Unit)?,
     onTextLongClick: (() -> Unit)?,
     baseParagraphStyle: TextStyle?,
-    hideImages: Boolean = false,
+    hideImages: Boolean,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
-    when (node.type) {
-        MarkdownElementTypes.PARAGRAPH ->
+    when (renderNode) {
+        is ModernMarkdownRenderNode.Paragraph ->
             ModernMarkdownParagraph(
-                semanticBlock = semanticBlock as MarkdownSemanticBlock.Paragraph,
-                blockStartOffset = node.startOffset,
+                semanticBlock = renderNode.paragraph,
+                blockStartOffset = renderNode.node.startOffset,
                 tokenSpec = tokenSpec,
                 textStyle = baseParagraphStyle ?: tokenSpec.paragraphStyle,
                 onImageClick = onImageClick,
@@ -208,10 +221,15 @@ private fun RenderModernMarkdownStandardBlock(
                 hideImages = hideImages,
             )
 
-        MarkdownElementTypes.CODE_FENCE ->
-            ModernMarkdownCodeFence(
-                node = node,
-                content = content,
+        is ModernMarkdownRenderNode.Heading ->
+            ModernMarkdownHeading(
+                semanticBlock = renderNode.heading,
+                blockStartOffset = renderNode.node.startOffset,
+                style =
+                    resolveModernMarkdownHeadingStyle(
+                        node = renderNode.node,
+                        tokenSpec = tokenSpec,
+                    ) ?: tokenSpec.heading1Style,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
                 selectionRegistrar = textSelectionRegistrar,
@@ -221,50 +239,23 @@ private fun RenderModernMarkdownStandardBlock(
                 onTextLongClick = onTextLongClick,
             )
 
-        MarkdownElementTypes.CODE_BLOCK ->
-            ModernMarkdownIndentedCodeBlock(
-                node = node,
+        is ModernMarkdownRenderNode.CodeBlock ->
+            ModernMarkdownCodeBlock(
+                renderNode = renderNode,
                 content = content,
                 tokenSpec = tokenSpec,
-                enableTextSelection = enableTextSelection,
-                selectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-            )
-
-        MarkdownElementTypes.BLOCK_QUOTE,
-        MarkdownElementTypes.UNORDERED_LIST,
-        MarkdownElementTypes.ORDERED_LIST,
-        GFMElementTypes.TABLE ->
-            RenderModernMarkdownStructuredBlock(
-                node = node,
-                semanticBlock = semanticBlock,
-                content = content,
-                tokenSpec = tokenSpec,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
                 enableTextSelection = enableTextSelection,
                 textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
                 onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
                 onTextLongClick = onTextLongClick,
-                hideImages = hideImages,
             )
 
-        MarkdownTokenTypes.HORIZONTAL_RULE ->
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = MarkdownComponentTokens.HorizontalRuleVerticalPadding),
-            )
-
-        else ->
-            ModernMarkdownFallbackBlock(
-                node = node,
+        is ModernMarkdownRenderNode.Table ->
+            ModernMarkdownTable(
+                node = renderNode.node,
+                semanticBlock = renderNode.table,
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
@@ -274,102 +265,67 @@ private fun RenderModernMarkdownStandardBlock(
                 onTextDoubleClick = onTextDoubleClick,
                 onTextLongClick = onTextLongClick,
             )
+
+        is ModernMarkdownRenderNode.ThematicBreak ->
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = MarkdownComponentTokens.HorizontalRuleVerticalPadding),
+            )
+
+        is ModernMarkdownRenderNode.Fallback ->
+            ModernMarkdownFallbackBlock(
+                node = renderNode.node,
+                content = content,
+                tokenSpec = tokenSpec,
+                enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
+                onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
+                onTextDoubleClick = onTextDoubleClick,
+                onTextLongClick = onTextLongClick,
+            )
+
+        is ModernMarkdownRenderNode.BlockQuote,
+        is ModernMarkdownRenderNode.ListBlock ->
+            error("Container render nodes must be handled by ModernMarkdownBlock")
     }
 }
 
 @Composable
-private fun RenderModernMarkdownStructuredBlock(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock?,
+private fun ModernMarkdownCodeBlock(
+    renderNode: ModernMarkdownRenderNode.CodeBlock,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     enableTextSelection: Boolean,
     textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
     onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
     onTextLongClick: (() -> Unit)?,
-    hideImages: Boolean = false,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
-    when (node.type) {
-        MarkdownElementTypes.BLOCK_QUOTE ->
-            ModernMarkdownBlockQuote(
-                node = node,
-                semanticBlock = semanticBlock as? MarkdownSemanticBlock.BlockQuote,
-                content = content,
-                tokenSpec = tokenSpec,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
-                enableTextSelection = enableTextSelection,
-                textSelectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-                hideImages = hideImages,
-            )
-
-        MarkdownElementTypes.UNORDERED_LIST ->
-            ModernMarkdownUnorderedList(
-                node = node,
-                semanticBlock = semanticBlock as? MarkdownSemanticBlock.ListBlock,
-                content = content,
-                tokenSpec = tokenSpec,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
-                enableTextSelection = enableTextSelection,
-                textSelectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-                hideImages = hideImages,
-            )
-
-        MarkdownElementTypes.ORDERED_LIST ->
-            ModernMarkdownOrderedList(
-                node = node,
-                semanticBlock = semanticBlock as? MarkdownSemanticBlock.ListBlock,
-                content = content,
-                tokenSpec = tokenSpec,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
-                enableTextSelection = enableTextSelection,
-                textSelectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-                hideImages = hideImages,
-            )
-
-        else ->
-            ModernMarkdownTable(
-                node = node,
-                semanticBlock = semanticBlock as? MarkdownSemanticBlock.Table,
-                content = content,
-                tokenSpec = tokenSpec,
-                enableTextSelection = enableTextSelection,
-                selectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-            )
+    if (renderNode.fenced) {
+        ModernMarkdownCodeFence(
+            node = renderNode.node,
+            content = content,
+            tokenSpec = tokenSpec,
+            enableTextSelection = enableTextSelection,
+            selectionRegistrar = textSelectionRegistrar,
+            onTextTapFeedback = onTextTapFeedback,
+            onTextBodyClick = onTextBodyClick,
+            onTextDoubleClick = onTextDoubleClick,
+            onTextLongClick = onTextLongClick,
+        )
+    } else {
+        ModernMarkdownIndentedCodeBlock(
+            node = renderNode.node,
+            content = content,
+            tokenSpec = tokenSpec,
+            enableTextSelection = enableTextSelection,
+            selectionRegistrar = textSelectionRegistrar,
+            onTextTapFeedback = onTextTapFeedback,
+            onTextBodyClick = onTextBodyClick,
+            onTextDoubleClick = onTextDoubleClick,
+            onTextLongClick = onTextLongClick,
+        )
     }
 }
 
@@ -645,8 +601,7 @@ private fun ModernMarkdownTable(
 
 @Composable
 private fun ModernMarkdownBlockQuote(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock.BlockQuote?,
+    renderNode: ModernMarkdownRenderNode.BlockQuote,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -684,12 +639,10 @@ private fun ModernMarkdownBlockQuote(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
             ) {
-                node.children
-                    .filter(::isRenderableNestedBlock)
-                    .forEachIndexed { index, child ->
+                renderNode.blocks
+                    .forEach { child ->
                         ModernMarkdownBlock(
-                            node = child,
-                            semanticBlock = semanticBlock?.blocks?.getOrNull(index),
+                            renderNode = child,
                             content = content,
                             tokenSpec = tokenSpec,
                             onTodoClick = onTodoClick,
@@ -705,7 +658,7 @@ private fun ModernMarkdownBlockQuote(
                             onTextLongClick = onTextLongClick,
                             baseParagraphStyle =
                                 resolveModernMarkdownBlockTextStyle(
-                                    node = node,
+                                    node = renderNode.node,
                                     tokenSpec = tokenSpec,
                                     baseParagraphStyle = tokenSpec.paragraphStyle,
                                 ),

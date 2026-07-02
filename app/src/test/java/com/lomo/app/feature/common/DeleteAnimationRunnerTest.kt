@@ -8,7 +8,7 @@ package com.lomo.app.feature.common
  * - Capability: run a delete action with animated exit markers in a registry, rolling back the marker on failure or cancellation.
  *
  * Scenarios:
- * - Given an item id and registry, when the delete action succeeds, then the deleting marker is retained in the registry.
+ * - Given an item id and registry, when the delete action succeeds, then the deleting marker is retained and marked mutation-committed in the registry.
  * - Given an item id and registry, when the delete action throws, then the deleting marker is rolled back.
  * - Given an item id and registry, when the delete action is cancelled, then the deleting marker is rolled back.
  *
@@ -16,7 +16,8 @@ package com.lomo.app.feature.common
  * - ExitAnimationRegistry entry presence and result success/failure.
  *
  * TDD proof:
- * - Fails before the fix because DeleteViewportEntry files are removed in favor of LomoList exit animation contracts.
+ * - Fails before the fix because successful mutation completion is not modeled separately from
+ *   animation settlement and source absence, so a row can be released too early.
  *
  * Excludes:
  * - Compose rendering, actual delete persistence, and multi-item batch animation coordination.
@@ -39,7 +40,7 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class DeleteAnimationRunnerTest : AppFunSpec() {
     init {
-        test("marks deleting on success and retains registry entries") {
+        test("marks deleting on success and records mutation commit without removing registry entries") {
             runTest {
                 val registry = ExitAnimationRegistry<String>()
 
@@ -56,7 +57,13 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
 
                 result.isSuccess shouldBe true
                 registry.entries.value shouldBe mapOf(
-                    "memo_1" to ExitAnimationRegistry.ExitEntry("snapshot_1", "anchor_1")
+                    "memo_1" to ExitAnimationRegistry.ExitEntry(
+                        item = "snapshot_1",
+                        anchoredAfterKey = "anchor_1",
+                        animationSettled = false,
+                        mutationCommitted = true,
+                        sourceAbsent = false,
+                    )
                 )
             }
         }
@@ -122,8 +129,20 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
 
                 result.isSuccess shouldBe true
                 registry.entries.value shouldBe mapOf(
-                    "memo_1" to ExitAnimationRegistry.ExitEntry("snapshot_1", "anchor_1"),
-                    "memo_2" to ExitAnimationRegistry.ExitEntry("snapshot_2", "anchor_2")
+                    "memo_1" to ExitAnimationRegistry.ExitEntry(
+                        item = "snapshot_1",
+                        anchoredAfterKey = "anchor_1",
+                        animationSettled = false,
+                        mutationCommitted = true,
+                        sourceAbsent = false,
+                    ),
+                    "memo_2" to ExitAnimationRegistry.ExitEntry(
+                        item = "snapshot_2",
+                        anchoredAfterKey = "anchor_2",
+                        animationSettled = false,
+                        mutationCommitted = true,
+                        sourceAbsent = false,
+                    )
                 )
             }
         }
@@ -165,7 +184,13 @@ class DeleteAnimationRunnerTest : AppFunSpec() {
 
                 mutationCalled shouldBe true
                 registry.entries.value shouldBe mapOf(
-                    "memo_1" to ExitAnimationRegistry.ExitEntry("snapshot_1", "anchor_1")
+                    "memo_1" to ExitAnimationRegistry.ExitEntry(
+                        item = "snapshot_1",
+                        anchoredAfterKey = "anchor_1",
+                        animationSettled = false,
+                        mutationCommitted = true,
+                        sourceAbsent = false,
+                    )
                 )
             }
         }

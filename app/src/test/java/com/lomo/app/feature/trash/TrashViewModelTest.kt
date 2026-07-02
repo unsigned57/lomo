@@ -36,14 +36,15 @@ import kotlinx.coroutines.test.runTest
  *
  * Scenarios:
  * - Given clearTrash is called with multiple memos, when the operation runs, then all memos transition into the deleting state and one batch clear command is issued to the repository.
- * - Given deletePermanently is triggered for a memo, when the repository completes removal, then the row deletion indicator is retained until the trash animation settles.
- * - Given restoreMemo is triggered for a memo, when the repository completes the restore, then the row deletion indicator is retained until the trash animation settles.
+ * - Given deletePermanently is triggered for a memo, when the repository completes removal, then the row deletion indicator is retained until animation and source absence have both settled.
+ * - Given restoreMemo is triggered for a memo, when the repository completes the restore, then the row deletion indicator is retained until animation and source absence have both settled.
  *
  * Observable outcomes:
  * - deletingMemoIds StateFlow values, pagedUiMemos flow emissions, recorded page calls, and repository call checks.
  *
  * TDD proof:
- * - Asserts timing alignment, collapse marker settlement, and single-batch repo actions were not present before the LomoList exit animation contract.
+ * - Asserts timing alignment, mutation commit, animation settlement, source-absence cleanup, and
+ *   single-batch repo actions were not present before the LomoList exit animation contract.
  *
  * Excludes:
  * - Compose UI trash layouts and pixel details.
@@ -118,6 +119,10 @@ class TrashViewModelTest : AppFunSpec() {
                 viewModel.onDeleteAnimationSettled(firstMemo.id)
                 viewModel.onDeleteAnimationSettled(secondMemo.id)
                 runCurrent()
+                viewModel.deletingMemoIds.value shouldBe setOf(firstMemo.id, secondMemo.id)
+
+                viewModel.exitAnimationRegistry.updateSourceKeys(emptySet())
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
                 collectJob.cancel()
             }
@@ -152,6 +157,10 @@ class TrashViewModelTest : AppFunSpec() {
 
                 viewModel.onDeleteAnimationSettled(memo.id)
                 runCurrent()
+                viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
+
+                viewModel.exitAnimationRegistry.updateSourceKeys(emptySet())
+                runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
                 collectJob.cancel()
             }
@@ -185,6 +194,10 @@ class TrashViewModelTest : AppFunSpec() {
                 viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
 
                 viewModel.onDeleteAnimationSettled(memo.id)
+                runCurrent()
+                viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
+
+                viewModel.exitAnimationRegistry.updateSourceKeys(emptySet())
                 runCurrent()
                 viewModel.deletingMemoIds.value.isEmpty() shouldBe true
                 collectJob.cancel()

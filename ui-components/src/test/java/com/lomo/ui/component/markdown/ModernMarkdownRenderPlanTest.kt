@@ -25,16 +25,19 @@ import org.intellij.markdown.MarkdownElementTypes
  * - Given content with reminder tokens, when sanitizing modern markdown known tags, then reminder tokens are stripped from plain text blocks but preserved in code and headings.
  * - Given content with reminder tokens and tags, when sanitizing collapsed summary, then both tags and reminder tokens are completely stripped.
  * - Given tag/reminder sanitization executes, when completed, then no debug files or filesystem side effects are written to host-bound paths.
+ * - Given nested markdown lists and quotes, when the render plan is built, then every renderable block is represented by a typed render node with a stable key before Compose rendering starts.
  *
  * Observable outcomes:
  * - Render item kinds, image gallery destinations, and media presentation sources produced by caller resolver.
  * - Returned string with tags and reminder tokens completely and cleanly removed, preserving correct spacing.
  * - No side-effect debug files are created or appended in host-bound filesystem paths.
+ * - Typed render node kinds, nested child nodes, and unique render keys produced by the plan.
  *
  * TDD proof:
  * - The media-resolved gallery scenario fails before the fix because createModernMarkdownRenderPlan has no media resolver input and consecutive audio image paragraphs are grouped as ModernMarkdownRenderItem.Gallery.
  * - The precomputed render-state scenarios fail before the follow-up fix because resolver-aware rendering reuses the no-resolver Gallery item unchanged.
  * - Fails because sanitization writes internal trace/debug segments to a host-bound filesystem path at /home/ephemeral/Projects/lomo/debug_segments.txt.
+ * - Fails before the typed render-node fix because render items only expose raw AST plus nullable semantic blocks, leaving nested list and quote children to be re-paired by index during Compose rendering.
  *
  * Excludes:
  * - Compose layout, click logic, and notification routing.
@@ -72,6 +75,36 @@ class ModernMarkdownRenderPlanTest : UiComponentsFunSpec() {
             plan.items.first().shouldBeInstanceOf<ModernMarkdownRenderItem.Block>()
             val gallery = plan.items[1].shouldBeInstanceOf<ModernMarkdownRenderItem.Gallery>()
             (gallery.images.map { it.destination }) shouldBe (listOf("one.png", "two.png"))
+        }
+
+        test("given nested lists and quotes when render plan is built then typed render nodes own child pairing and stable keys") {
+            val plan =
+                createModernMarkdownRenderPlan(
+                    content =
+                        """
+                        - [ ] root task
+                          > quoted **child**
+
+                          - nested child
+                        - [x] done task
+                        """.trimIndent(),
+                    knownTagsToStrip = emptyList(),
+                )
+
+            val block = plan.items.single().shouldBeInstanceOf<ModernMarkdownRenderItem.Block>()
+            val listNode = block.renderNode.shouldBeInstanceOf<ModernMarkdownRenderNode.ListBlock>()
+
+            listNode.items.size shouldBe 2
+            val firstItem = listNode.items.first()
+            firstItem.blocks.size shouldBe 3
+            firstItem.blocks[0].shouldBeInstanceOf<ModernMarkdownRenderNode.Paragraph>()
+            val quoteNode = firstItem.blocks[1].shouldBeInstanceOf<ModernMarkdownRenderNode.BlockQuote>()
+            quoteNode.blocks.map { node -> node::class.simpleName } shouldBe listOf("Paragraph")
+            val nestedListNode = firstItem.blocks[2].shouldBeInstanceOf<ModernMarkdownRenderNode.ListBlock>()
+            nestedListNode.items.single().blocks.single().shouldBeInstanceOf<ModernMarkdownRenderNode.Paragraph>()
+
+            val keys = listNode.flattenKeys()
+            keys.size shouldBe keys.toSet().size
         }
 
         test("given media resolver claims consecutive image paragraphs when render plan is built then no top level gallery is emitted") {

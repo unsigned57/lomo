@@ -50,6 +50,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.ui.component.common.EnterAnimationRegistry
+import com.lomo.ui.component.common.HeadEnterBaseline
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -134,6 +135,14 @@ class MainScreenNewMemoAnimationDeviceTest {
                     scrollListToAbsoluteTop = {
                         listState.scrollToItem(0)
                     },
+                    awaitTopBaseline = {
+                        pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
+                            ?.let(HeadEnterBaseline::ExistingHead)
+                            ?: HeadEnterBaseline.EmptyList
+                    },
+                    prepareNewTopEnter = { baseline ->
+                        enterAnimationRegistry.beginPendingHeadEnter(baseline)
+                    },
                     createMemo = { content, _ ->
                         nextNewMemoIndex += 1
                         harness.memos.value =
@@ -146,20 +155,18 @@ class MainScreenNewMemoAnimationDeviceTest {
                                 ) + harness.memos.value
                             ).toImmutableList()
                     },
-                    currentTopMemoId = {
-                        pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
-                    },
-                    awaitNewTopItemAndReveal = { previousTopId ->
-                        val newTopId =
-                            kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                                androidx.compose.runtime.snapshotFlow {
-                                    pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
-                                }.first { topId -> topId != null && topId != previousTopId }
-                            }
-                        if (newTopId != null) {
-                            enterAnimationRegistry.beginEnter(newTopId)
-                            listState.scrollToItem(0)
+                    awaitNewTopItem = { baseline ->
+                        kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                            androidx.compose.runtime.snapshotFlow {
+                                pagedMemos.itemSnapshotList.items.firstOrNull()?.memo?.id
+                            }.first { topId -> topId != null && baseline.isResolvedByHeadId(topId) }
                         }
+                    },
+                    revealNewTopItem = {
+                        listState.scrollToItem(0)
+                    },
+                    cancelPreparedEnter = { requestId ->
+                        enterAnimationRegistry.cancelEnterRequest(requestId)
                     },
                 )
             }
@@ -268,6 +275,12 @@ class MainScreenNewMemoAnimationDeviceTest {
             tags = persistentListOf(),
         )
     }
+
+    private fun HeadEnterBaseline.isResolvedByHeadId(headId: String): Boolean =
+        when (this) {
+            HeadEnterBaseline.EmptyList -> true
+            is HeadEnterBaseline.ExistingHead -> id != headId
+        }
 
     private class AnimationHarness(
         val memos: MutableState<ImmutableList<MemoUiModel>>,

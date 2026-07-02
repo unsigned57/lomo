@@ -31,15 +31,10 @@ import com.lomo.ui.theme.memoListTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableMap
-import org.intellij.markdown.MarkdownElementTypes
-import org.intellij.markdown.MarkdownTokenTypes
-import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 @Composable
-internal fun ModernMarkdownUnorderedList(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock.ListBlock?,
+internal fun ModernMarkdownList(
+    renderNode: ModernMarkdownRenderNode.ListBlock,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -62,66 +57,16 @@ internal fun ModernMarkdownUnorderedList(
                 .padding(start = MarkdownComponentTokens.ListIndent),
         verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
     ) {
-        node.children
-            .filter { it.type == MarkdownElementTypes.LIST_ITEM }
-            .forEachIndexed { index, listItemNode ->
+        renderNode.items.forEachIndexed { index, item ->
+                val bullet =
+                    if (renderNode.ordered) {
+                        item.node.extractOrderedListMarker(content) ?: "${renderNode.startNumber + index}."
+                    } else {
+                        "•"
+                    }
                 ModernMarkdownListItem(
                     content = content,
-                    listItemNode = listItemNode,
-                    semanticItem = semanticBlock?.items?.getOrNull(index),
-                    tokenSpec = tokenSpec,
-                    bullet = "•",
-                    onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    mediaContent = mediaContent,
-                    enableTextSelection = enableTextSelection,
-                    textSelectionRegistrar = textSelectionRegistrar,
-                    onTextTapFeedback = onTextTapFeedback,
-                    onTextBodyClick = onTextBodyClick,
-                    onTextDoubleClick = onTextDoubleClick,
-                    onTextLongClick = onTextLongClick,
-                    hideImages = hideImages,
-                )
-            }
-    }
-}
-
-@Composable
-internal fun ModernMarkdownOrderedList(
-    node: ASTNode,
-    semanticBlock: MarkdownSemanticBlock.ListBlock?,
-    content: String,
-    tokenSpec: ModernMarkdownTokenSpec,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
-    enableTextSelection: Boolean,
-    textSelectionRegistrar: MemoTextSelectionRegistrar?,
-    onTextTapFeedback: (() -> Unit)?,
-    onTextBodyClick: (() -> Unit)?,
-    onTextDoubleClick: (() -> Unit)?,
-    onTextLongClick: (() -> Unit)?,
-    hideImages: Boolean = false,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
-) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(start = MarkdownComponentTokens.ListIndent),
-        verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
-    ) {
-        node.children
-            .filter { it.type == MarkdownElementTypes.LIST_ITEM }
-            .forEachIndexed { index, listItemNode ->
-                val bullet = listItemNode.extractOrderedListMarker(content) ?: "${index + 1}."
-                ModernMarkdownListItem(
-                    content = content,
-                    listItemNode = listItemNode,
-                    semanticItem = semanticBlock?.items?.getOrNull(index),
+                    item = item,
                     tokenSpec = tokenSpec,
                     bullet = bullet,
                     onTodoClick = onTodoClick,
@@ -144,8 +89,7 @@ internal fun ModernMarkdownOrderedList(
 @Composable
 private fun ModernMarkdownListItem(
     content: String,
-    listItemNode: ASTNode,
-    semanticItem: MarkdownSemanticListItem?,
+    item: ModernMarkdownListItemRenderNode,
     tokenSpec: ModernMarkdownTokenSpec,
     bullet: String,
     onTodoClick: ((Int, Boolean) -> Unit)?,
@@ -161,10 +105,10 @@ private fun ModernMarkdownListItem(
     hideImages: Boolean = false,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
-    val presentation = remember(content, listItemNode, todoOverrides) {
+    val presentation = remember(content, item.node, todoOverrides) {
         resolveModernTaskListPresentation(
             content = content,
-            listItemNode = listItemNode,
+            listItemNode = item.node,
             todoOverrides = todoOverrides,
         )
     }
@@ -191,12 +135,10 @@ private fun ModernMarkdownListItem(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
         ) {
-            listItemNode.children
-                .filter(::isRenderableListItemChild)
-                .forEachIndexed { index, child ->
+            item.blocks
+                .forEach { child ->
                     ModernMarkdownBlock(
-                        node = child,
-                        semanticBlock = semanticItem?.blocks?.getOrNull(index),
+                        renderNode = child,
                         content = content,
                         tokenSpec = tokenSpec,
                         onTodoClick = onTodoClick,
@@ -306,16 +248,3 @@ private fun ModernMarkdownListLeadingSlot(content: @Composable BoxScope.() -> Un
         )
     }
 }
-
-private fun ASTNode.extractOrderedListMarker(content: String): String? =
-    children
-        .firstOrNull { it.type == MarkdownTokenTypes.LIST_NUMBER }
-        ?.extractNodeText(content)
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-
-private fun isRenderableListItemChild(node: ASTNode): Boolean =
-    node.type != MarkdownTokenTypes.LIST_BULLET &&
-        node.type != MarkdownTokenTypes.LIST_NUMBER &&
-        node.type != GFMTokenTypes.CHECK_BOX &&
-        node.type != MarkdownTokenTypes.EOL
