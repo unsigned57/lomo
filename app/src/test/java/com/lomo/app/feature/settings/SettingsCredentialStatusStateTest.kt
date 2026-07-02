@@ -5,6 +5,7 @@ import com.lomo.app.testing.fakes.FakeCredentialRepository
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
@@ -161,7 +162,13 @@ private class NoOpMemoMutationRepository : MemoMutationRepository {
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) = Unit
+    ): Memo = Memo(
+        id = timestamp.toString(),
+        timestamp = timestamp,
+        content = content,
+        rawContent = content,
+        dateKey = "test",
+    )
 
     override suspend fun updateMemo(
         memo: com.lomo.domain.model.Memo,

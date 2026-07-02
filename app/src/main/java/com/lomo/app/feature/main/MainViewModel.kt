@@ -138,6 +138,8 @@ class MainViewModel
         sealed interface AppAction {
             data object CreateMemo : AppAction
 
+            data object StartRecording : AppAction
+
             data class OpenMemo(
                 val memoId: String,
             ) : AppAction
@@ -266,6 +268,10 @@ class MainViewModel
 
         val requestCreateMemo: () -> Unit = {
             appActionQueue.enqueue(AppAction.CreateMemo)
+        }
+
+        val requestStartRecording: () -> Unit = {
+            appActionQueue.enqueue(AppAction.StartRecording)
         }
 
         val requestOpenMemo: (String) -> Unit = { memoId ->
@@ -401,7 +407,8 @@ class MainViewModel
         }
 
         internal fun onPagedDeleteAnimationSettled(memoId: String) {
-            exitAnimationRegistry.settleExit(memoId)
+            exitAnimationRegistry.markExitAnimationSettled(memoId)
+            exitAnimationRegistry.markExitSourceAbsent(memoId)
         }
 
 

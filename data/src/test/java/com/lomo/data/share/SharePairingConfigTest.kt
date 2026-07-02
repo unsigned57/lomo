@@ -258,9 +258,13 @@ private class FakeCredentialRepository(
 private object AuthorizedSecuritySessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Authorized
+
+    override suspend fun isAppLockSatisfied(): Boolean = true
 }
 
 private object LockedSecuritySessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Denied(CredentialReadDenialReason.SecuritySessionLocked)
+
+    override suspend fun isAppLockSatisfied(): Boolean = false
 }

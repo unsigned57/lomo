@@ -1,34 +1,44 @@
-package com.lomo.app.feature.main
-
-/**
+/*
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
+ * - Unit under test: RecordingViewModel
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: RecordingViewModel delegates start/stop/cancel to RecordingSessionUseCase and exposes state to the UI.
+ *
+ * Scenarios:
+ * - Given Idle session, when startRecording, then isRecording becomes true.
+ * - Given Recording session, when stopRecording, then isRecording becomes false and onResult receives markdown.
+ * - Given Recording session, when cancelRecording, then isRecording becomes false.
+ * - Given session start failure, when startRecording, then isRecording stays false and errorMessage is set.
+ * - Given errorMessage is set, when clearError, then errorMessage becomes null.
+ *
+ * Observable outcomes: isRecording, errorMessage, recordingDuration, recordingAmplitude, onResult callback.
+ *
+ * TDD proof: Static quality fails when RecordingViewModel depends directly on RecordingSession; tests keep the same observable UI delegation contract after moving the boundary to RecordingSessionUseCase.
+ *
+ * Excludes: RecordingSessionImpl internals (covered by RecordingSessionImplTest), MediaRecorder platform behavior.
+ *
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: architecture boundary migration.
+ * - Old behavior/assertion being replaced: ViewModel tests used the Activity-scoped RecordingCoordinator path.
+ * - Why old assertion is no longer correct: recording state is now process-scoped through RecordingSessionUseCase.
+ * - Coverage preserved by: start, stop, cancel, error, and clear-error observable ViewModel scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: assertions stay at the ViewModel state/callback boundary.
  */
 
+package com.lomo.app.feature.main
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
-import com.lomo.app.testing.fakes.FakeAppConfigRepository
-import com.lomo.domain.model.MediaCategory
-import com.lomo.domain.model.MediaEntryId
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.VoiceRecordingRepository
+import com.lomo.domain.repository.RecordingSession
+import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.usecase.RecordingSessionUseCase
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -36,45 +46,30 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
-    private val appConfigRepository = FakeAppConfigRepository()
-    private val mediaRepository = FakeMediaRepository()
-    private val voiceRecordingRepository = FakeVoiceRecordingRepository()
-
-    private val recordingCoordinator = FakeRecordingCoordinator(
-        directorySettingsRepository = appConfigRepository,
-        mediaRepository = mediaRepository,
-        voiceRecordingRepository = voiceRecordingRepository
-    )
+    private val fakeSession = FakeRecordingSession()
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
 
         beforeTest {
-            appConfigRepository.setLocation(StorageArea.VOICE, StorageLocation("/voice"))
-            mediaRepository.reset()
-            voiceRecordingRepository.reset()
-            recordingCoordinator.reset()
+            fakeSession.reset()
         }
 
-        test("startRecording enters recording mode with generated filename") {
+        test("startRecording enters recording mode") {
             runTest(testDispatcher) {
-                val viewModel = RecordingViewModel(recordingCoordinator)
+                val viewModel = RecordingViewModel(RecordingSessionUseCase(fakeSession))
 
                 viewModel.startRecording()
                 advanceUntilIdle()
 
                 viewModel.isRecording.value shouldBe true
                 viewModel.errorMessage.value shouldBe null
-                mediaRepository.allocateVoiceCalled?.startsWith("voice_") shouldBe true
-
-                viewModel.cancelRecording()
-                advanceUntilIdle()
             }
         }
 
-        test("stopRecording returns markdown for current filename and resets state") {
+        test("stopRecording returns markdown and resets state") {
             runTest(testDispatcher) {
-                val viewModel = RecordingViewModel(recordingCoordinator)
+                val viewModel = RecordingViewModel(RecordingSessionUseCase(fakeSession))
                 var resultMarkdown: String? = null
 
                 viewModel.startRecording()
@@ -85,63 +80,42 @@ class RecordingViewModelTest : AppFunSpec() {
                 viewModel.isRecording.value shouldBe false
                 viewModel.recordingDuration.value shouldBe 0L
                 viewModel.recordingAmplitude.value shouldBe 0
-                resultMarkdown?.startsWith("![voice](voice_") shouldBe true
-                recordingCoordinator.stopCalledCount shouldBe 1
+                resultMarkdown?.startsWith("![voice](") shouldBe true
             }
         }
 
-        test("startRecording failure reports error and discards recording") {
+        test("startRecording failure reports error and stays Idle") {
             runTest(testDispatcher) {
-                recordingCoordinator.startException = IllegalStateException("mic unavailable")
-                val viewModel = RecordingViewModel(recordingCoordinator)
+                fakeSession.startException = IllegalStateException("mic unavailable")
+                val viewModel = RecordingViewModel(RecordingSessionUseCase(fakeSession))
 
                 viewModel.startRecording()
                 advanceUntilIdle()
 
                 viewModel.isRecording.value shouldBe false
                 viewModel.errorMessage.value shouldBe "Failed to start recording: mic unavailable"
-                mediaRepository.removeVoiceCaptureCalled shouldBe null
             }
         }
 
-        test("cancelRecording discards current filename and resets state") {
+        test("cancelRecording resets state") {
             runTest(testDispatcher) {
-                val viewModel = RecordingViewModel(recordingCoordinator)
+                val viewModel = RecordingViewModel(RecordingSessionUseCase(fakeSession))
 
                 viewModel.startRecording()
                 advanceUntilIdle()
-                val filename = mediaRepository.allocateVoiceCalled
                 viewModel.cancelRecording()
                 advanceUntilIdle()
 
                 viewModel.isRecording.value shouldBe false
                 viewModel.recordingDuration.value shouldBe 0L
                 viewModel.recordingAmplitude.value shouldBe 0
-                mediaRepository.removeVoiceCaptureCalled shouldBe filename
-            }
-        }
-
-        test("stopRecording failure reports error and still clears active state") {
-            runTest(testDispatcher) {
-                recordingCoordinator.stopException = IllegalStateException("stop failed")
-                val viewModel = RecordingViewModel(recordingCoordinator)
-
-                viewModel.startRecording()
-                advanceUntilIdle()
-                viewModel.stopRecording {}
-                advanceUntilIdle()
-
-                viewModel.isRecording.value shouldBe false
-                viewModel.recordingDuration.value shouldBe 0L
-                viewModel.recordingAmplitude.value shouldBe 0
-                viewModel.errorMessage.value shouldBe "Failed to stop recording: stop failed"
             }
         }
 
         test("clearError removes existing failure message") {
             runTest(testDispatcher) {
-                recordingCoordinator.startException = IllegalStateException("mic unavailable")
-                val viewModel = RecordingViewModel(recordingCoordinator)
+                fakeSession.startException = IllegalStateException("mic unavailable")
+                val viewModel = RecordingViewModel(RecordingSessionUseCase(fakeSession))
 
                 viewModel.startRecording()
                 advanceUntilIdle()
@@ -153,106 +127,60 @@ class RecordingViewModelTest : AppFunSpec() {
             }
         }
     }
-
-    class FakeRecordingCoordinator(
-        directorySettingsRepository: com.lomo.domain.repository.DirectorySettingsRepository,
-        private val mediaRepository: MediaRepository,
-        private val voiceRecordingRepository: VoiceRecordingRepository,
-    ) : RecordingCoordinator(directorySettingsRepository, mediaRepository, voiceRecordingRepository) {
-        var startException: Throwable? = null
-        var stopException: Throwable? = null
-        var stopCalledCount = 0
-        var discardCalledWith: String? = null
-
-        fun reset() {
-            startException = null
-            stopException = null
-            stopCalledCount = 0
-            discardCalledWith = null
-        }
-
-        override fun voiceDirectory(): Flow<String?> = kotlinx.coroutines.flow.flowOf("/voice")
-
-        override suspend fun startRecording(filename: String): String {
-            startException?.let { throw it }
-            val target = mediaRepository.allocateVoiceCaptureTarget(MediaEntryId(filename)).raw
-            voiceRecordingRepository.start(StorageLocation(target))
-            return target
-        }
-
-        override suspend fun stopRecording() {
-            stopException?.let { throw it }
-            voiceRecordingRepository.stop()
-            stopCalledCount++
-        }
-
-        override fun currentAmplitude(): Int = voiceRecordingRepository.getAmplitude()
-
-        override suspend fun discardRecording(filename: String?) {
-            voiceRecordingRepository.stop()
-            discardCalledWith = filename
-            if (!filename.isNullOrBlank()) {
-                mediaRepository.removeVoiceCapture(MediaEntryId(filename))
-            }
-        }
-
-        override fun stopSilently() {
-            voiceRecordingRepository.stop()
-        }
-    }
-
-    class FakeMediaRepository : MediaRepository {
-        var allocateVoiceCalled: String? = null
-        var removeVoiceCaptureCalled: String? = null
-
-        fun reset() {
-            allocateVoiceCalled = null
-            removeVoiceCaptureCalled = null
-        }
-
-        override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation {
-            allocateVoiceCalled = entryId.raw
-            return StorageLocation("/voice/${entryId.raw}.m4a")
-        }
-
-        override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
-            removeVoiceCaptureCalled = entryId.raw
-        }
-
-        override suspend fun importImage(source: StorageLocation): StorageLocation = TODO()
-        override suspend fun removeImage(entryId: MediaEntryId) = TODO()
-        override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = TODO()
-        override suspend fun refreshImageLocations() = TODO()
-        override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = TODO()
-    }
-
-    class FakeVoiceRecordingRepository : VoiceRecordingRepository {
-        var startCalledWith: StorageLocation? = null
-        var stopCalledCount = 0
-        var currentAmplitudeValue = 42
-        var startException: Throwable? = null
-        var stopException: Throwable? = null
-
-        fun reset() {
-            startCalledWith = null
-            stopCalledCount = 0
-            currentAmplitudeValue = 42
-            startException = null
-            stopException = null
-        }
-
-        override fun start(outputLocation: StorageLocation) {
-            startException?.let { throw it }
-            startCalledWith = outputLocation
-        }
-
-        override fun stop() {
-            stopException?.let { throw it }
-            stopCalledCount++
-        }
-
-        override fun getAmplitude(): Int = currentAmplitudeValue
-    }
 }
 
+private class FakeRecordingSession : RecordingSession {
+    private val _state = MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle)
+    override val state: StateFlow<RecordingSessionState> = _state.asStateFlow()
 
+    private val _durationMillis = MutableStateFlow(0L)
+    override val durationMillis: StateFlow<Long> = _durationMillis.asStateFlow()
+
+    private val _amplitude = MutableStateFlow(0)
+    override val amplitude: StateFlow<Int> = _amplitude.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    override val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    var startException: Throwable? = null
+
+    fun reset() {
+        _state.value = RecordingSessionState.Idle
+        _durationMillis.value = 0L
+        _amplitude.value = 0
+        _errorMessage.value = null
+        startException = null
+    }
+
+    override suspend fun startRecording() {
+        startException?.let {
+            _errorMessage.value = "Failed to start recording: ${it.message}"
+            return
+        }
+        _state.value =
+            RecordingSessionState.Recording(
+                filename = "voice_20260324_100000.m4a",
+                startedAtMillis = System.currentTimeMillis(),
+            )
+        _durationMillis.value = 0
+        _amplitude.value = 0
+    }
+
+    override suspend fun stopRecording(): String? {
+        val recording = _state.value as? RecordingSessionState.Recording ?: return null
+        _state.value = RecordingSessionState.Idle
+        _durationMillis.value = 0
+        _amplitude.value = 0
+        return "![voice](${recording.filename})"
+    }
+
+    override suspend fun cancelRecording() {
+        _state.value = RecordingSessionState.Idle
+        _durationMillis.value = 0
+        _amplitude.value = 0
+    }
+
+    override fun clearError() {
+        _errorMessage.value = null
+    }
+}

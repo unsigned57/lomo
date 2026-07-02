@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoMutationRepository
 
 open class CreateMemoUseCase
@@ -12,11 +13,11 @@ open class CreateMemoUseCase
             content: String,
             timestampMillis: Long = System.currentTimeMillis(),
             geoLocation: String? = null,
-        ) {
+        ): Memo {
             checkNotNull(initializeWorkspaceUseCase.currentRootLocation()) {
                 "Please select a folder first"
             }
             validator.requireValidForCreate(content)
-            memoRepository.saveMemo(content, timestampMillis, geoLocation)
+            return memoRepository.saveMemo(content, timestampMillis, geoLocation)
         }
     }

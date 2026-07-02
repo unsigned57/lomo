@@ -219,6 +219,12 @@
     <string name="widget_no_memos">暂无备忘录。点击 + 创建！</string>
     <string name="widget_preview_recent_time">2 分钟前</string>
     <string name="widget_preview_placeholder">最近的备忘录会显示在这里…</string>
+    <string name="tile_new_memo_label">新建备忘录</string>
+    <string name="tile_start_recording_label">开始录音</string>
+    <string name="shortcut_new_memo_short_label">新建备忘录</string>
+    <string name="shortcut_new_memo_long_label">创建一条新备忘录</string>
+    <string name="shortcut_start_recording_short_label">开始录音</string>
+    <string name="shortcut_start_recording_long_label">开始录制音频</string>
     
     <!-- Share -->
     <string name="copied_to_clipboard">已复制到剪贴板</string>

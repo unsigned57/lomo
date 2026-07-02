@@ -25,6 +25,8 @@ interface CredentialRepository {
 
 interface SecuritySessionPolicy {
     suspend fun authorizeCredentialRead(): CredentialReadAuthorization
+
+    suspend fun isAppLockSatisfied(): Boolean
 }
 
 interface SecuritySessionController {

@@ -22,6 +22,7 @@ fun MainScreenEventEffectsHost(
     onEnsureEditorVisible: () -> Unit,
     onOpenCreateMemo: () -> Unit,
     onOpenEditMemo: (Memo) -> Unit,
+    onStartRecording: () -> Unit,
     onFocusMemoInList: suspend (String) -> Boolean,
     focusRetryKey: Any?,
     onResolveMemoById: suspend (String) -> Memo?,
@@ -48,6 +49,7 @@ fun MainScreenEventEffectsHost(
         resolveMemoById = onResolveMemoById,
         openCreate = onOpenCreateMemo,
         openEdit = onOpenEditMemo,
+        startRecording = onStartRecording,
         focusRetryKey = focusRetryKey,
         onConsume = onConsumeAppActionEvent,
         snackbarHostState = snackbarHostState,
@@ -98,6 +100,7 @@ fun HandleAppActionEvents(
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     openCreate: () -> Unit,
     openEdit: (com.lomo.domain.model.Memo) -> Unit,
+    startRecording: () -> Unit,
     focusRetryKey: Any?,
     onConsume: (Long) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -110,6 +113,11 @@ fun HandleAppActionEvents(
                 when (action) {
                 MainViewModel.AppAction.CreateMemo -> {
                     openCreate()
+                    true
+                }
+
+                MainViewModel.AppAction.StartRecording -> {
+                    startRecording()
                     true
                 }
 
@@ -141,6 +149,7 @@ internal fun shouldConsumeAppActionAfterHandling(
     when (action) {
         is MainViewModel.AppAction.FocusMemo -> handled
         MainViewModel.AppAction.CreateMemo,
+        MainViewModel.AppAction.StartRecording,
         is MainViewModel.AppAction.OpenMemo,
         -> true
     }

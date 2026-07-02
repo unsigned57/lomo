@@ -15,4 +15,12 @@
     <string name="reminder_action_open">打开</string>
     <string name="reminder_action_snooze">贪睡</string>
     <string name="reminder_action_done">完成</string>
+    <string name="recording_channel_name">录音</string>
+    <string name="recording_channel_description">Lomo 录音时使用</string>
+    <string name="recording_notification_title">录音中</string>
+    <string name="recording_notification_stop">停止</string>
+    <string name="recording_notification_cancel">取消</string>
+    <string name="recording_saved_notification_title">录音已保存</string>
+    <string name="recording_saved_notification_text">点击编辑</string>
+    <string name="recording_saved_notification_action">编辑</string>
 </resources>

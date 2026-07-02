@@ -3,6 +3,7 @@ package com.lomo.app
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.IntentCompat
+import com.lomo.domain.model.RecordingDeepLink
 
 internal sealed interface PendingLaunchAction {
     data class SharedText(
@@ -14,6 +15,8 @@ internal sealed interface PendingLaunchAction {
     ) : PendingLaunchAction
 
     data object CreateMemo : PendingLaunchAction
+
+    data object StartRecording : PendingLaunchAction
 
     data class OpenMemo(
         val memoId: String,
@@ -156,6 +159,7 @@ internal fun requiredEntryCapabilities(action: PendingLaunchAction?): Set<EntryC
     when (action) {
         null,
         PendingLaunchAction.CreateMemo,
+        PendingLaunchAction.StartRecording,
         is PendingLaunchAction.OpenMemo,
         is PendingLaunchAction.SharedText,
         -> setOf(EntryCapability.RootWorkspace)
@@ -178,8 +182,16 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
 
         MainActivity.ACTION_NEW_MEMO -> listOf(PendingLaunchAction.CreateMemo)
 
+        MainActivity.ACTION_START_RECORDING -> listOf(PendingLaunchAction.StartRecording)
+
         MainActivity.ACTION_OPEN_MEMO ->
             intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)
+                ?.takeIf(String::isNotBlank)
+                ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
+                .orEmpty()
+
+        RecordingDeepLink.ACTION_OPEN_SAVED_MEMO ->
+            intent.getStringExtra(RecordingDeepLink.EXTRA_MEMO_ID)
                 ?.takeIf(String::isNotBlank)
                 ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
                 .orEmpty()

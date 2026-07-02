@@ -94,7 +94,7 @@ interface MemoMutationRepository {
         content: String,
         timestamp: Long,
         geoLocation: String? = null,
-    )
+    ): Memo
 
     suspend fun updateMemo(
         memo: Memo,

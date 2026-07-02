@@ -30,9 +30,10 @@ class MemoMutationRepositoryImpl
             content: String,
             timestamp: Long,
             geoLocation: String?,
-        ) {
+        ): Memo {
             val savedMemo = synchronizer.saveMemo(content, timestamp, geoLocation)
             reminderCoordinator.get().syncForMemo(savedMemo.id, savedMemo.content)
+            return savedMemo
         }
 
         override suspend fun updateMemo(

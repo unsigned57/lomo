@@ -9,6 +9,13 @@ package com.lomo.data.repository
  * - Observable outcomes: factory values return configured CredentialReadAuthorization instances
  * - TDD proof: used as building blocks by integration tests; no standalone observable change
  * - Excludes: production authorization, SecuritySessionController, UI integration.
+ *
+ * Test Change Justification:
+ * - Reason category: security session contract extension.
+ * - Old behavior/assertion being replaced: fixture policies only implemented credential-read authorization.
+ * - Why old assertion is no longer correct: SecuritySessionPolicy now also exposes app-lock satisfaction for tile entry checks.
+ * - Coverage preserved by: authorized and locked credential-read fixture behavior remains explicit.
+ * - Why this is not fitting the test to the implementation: fixture values model the same security session states.
  */
 
 import com.lomo.domain.model.CredentialField
@@ -26,11 +33,15 @@ import kotlinx.coroutines.flow.flowOf
 internal object AuthorizedCredentialReadSessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Authorized
+
+    override suspend fun isAppLockSatisfied(): Boolean = true
 }
 
 internal object LockedCredentialReadSessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Denied(com.lomo.domain.model.CredentialReadDenialReason.SecuritySessionLocked)
+
+    override suspend fun isAppLockSatisfied(): Boolean = false
 }
 
 internal fun testS3CredentialRepository(

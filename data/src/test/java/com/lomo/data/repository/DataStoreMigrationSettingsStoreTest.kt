@@ -1019,6 +1019,8 @@ private data class CredentialFixtureState(
 
 private object AuthorizedSecuritySessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization = CredentialReadAuthorization.Authorized
+
+    override suspend fun isAppLockSatisfied(): Boolean = true
 }
 
 private class FakeCredentialRepository(

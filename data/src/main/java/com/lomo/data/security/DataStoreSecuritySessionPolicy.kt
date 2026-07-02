@@ -28,6 +28,11 @@ class DataStoreSecuritySessionPolicy
             }
         }
 
+        override suspend fun isAppLockSatisfied(): Boolean {
+            val appLockEnabled = dataStore.appLockEnabled.first()
+            return !appLockEnabled || appLockSessionUnlocked
+        }
+
         override fun markCredentialReadsAuthorized() {
             appLockSessionUnlocked = true
         }

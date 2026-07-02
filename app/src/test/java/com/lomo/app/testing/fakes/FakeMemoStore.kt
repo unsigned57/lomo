@@ -242,7 +242,7 @@ class FakeMemoStore(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) {
+    ): Memo {
         saveMemoCallCount += 1
         val memo =
             Memo(
@@ -255,6 +255,7 @@ class FakeMemoStore(
                 geoLocation = geoLocation,
             )
         activeMemos.value = activeMemos.value + memo
+        return memo
     }
 
     var deleteMemoFailure: Throwable? = null

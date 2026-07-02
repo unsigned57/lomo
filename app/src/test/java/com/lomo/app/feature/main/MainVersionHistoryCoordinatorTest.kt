@@ -41,6 +41,13 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Compose rendering, ViewModel wiring, repository persistence internals, and data-layer restore execution.
+ *
+ * Test Change Justification:
+ * - Reason category: domain contract return type extension.
+ * - Old behavior/assertion being replaced: fake MemoMutationRepository.saveMemo returned Unit.
+ * - Why old assertion is no longer correct: saveMemo now returns the saved Memo so callers can deep link to it.
+ * - Coverage preserved by: version history restore scenarios and mutation recording remain unchanged.
+ * - Why this is not fitting the test to the implementation: the fake now satisfies the domain contract while preserving observable version-history behavior.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainVersionHistoryCoordinatorTest : AppFunSpec() {
@@ -186,7 +193,13 @@ private class FakeMemoMutationRepository(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) = Unit
+    ): Memo = Memo(
+        id = timestamp.toString(),
+        timestamp = timestamp,
+        content = content,
+        rawContent = content,
+        dateKey = "test",
+    )
 
     override suspend fun updateMemo(
         memo: Memo,
