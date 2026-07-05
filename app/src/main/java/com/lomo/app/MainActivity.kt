@@ -25,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,10 +36,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.util.activityHiltViewModel
@@ -287,7 +286,7 @@ private fun MainActivityScreen(
             onCredentialReadsAuthorized = onCredentialReadsAuthorized,
             onCredentialReadsLocked = onCredentialReadsLocked,
         )
-    val foregroundEntryId = rememberProcessForegroundEntryId()
+    val foregroundEntryId = rememberActivityForegroundEntryId()
 
     MainActivityRoot(
         appPreferences = appPreferences,
@@ -303,29 +302,26 @@ private fun MainActivityScreen(
 }
 
 @Composable
-private fun rememberProcessForegroundEntryId(): Long {
-    val processLifecycle = remember { ProcessLifecycleOwner.get().lifecycle }
-    var foregroundEntryId by remember {
-        mutableLongStateOf(
-            if (processLifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                1L
-            } else {
-                0L
-            },
-        )
+private fun rememberActivityForegroundEntryId(): Long {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycle = lifecycleOwner.lifecycle
+    var foregroundEntryState by remember(lifecycleOwner) {
+        mutableStateOf(ForegroundEntryPolicy.initialState(lifecycle.currentState))
     }
 
-    androidx.compose.runtime.DisposableEffect(processLifecycle) {
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_START) {
-                    foregroundEntryId += 1L
-                }
+                foregroundEntryState =
+                    ForegroundEntryPolicy.applyLifecycleEvent(
+                        state = foregroundEntryState,
+                        event = event,
+                    )
             }
-        processLifecycle.addObserver(observer)
-        onDispose { processLifecycle.removeObserver(observer) }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
-    return foregroundEntryId
+    return foregroundEntryState.entryId
 }
 
 @Composable

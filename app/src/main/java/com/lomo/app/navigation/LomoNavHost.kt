@@ -36,10 +36,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
-private val MAIN_ROUTE_NAME =
-    checkNotNull(NavRoute.Main::class.qualifiedName) {
-        "NavRoute.Main must have a qualified route name"
-    }
+private const val MAIN_ROUTE_NAME = NavRouteSerialNames.MAIN
 
 /**
  * Main navigation host for the Memos app.
@@ -71,8 +68,8 @@ fun LomoNavHost(
                 foregroundEntryId = foregroundEntryId,
                 evaluatedForegroundEntryId = evaluatedForegroundEntryId,
                 currentMainForegroundEntryId = mainForegroundEntryId,
-                currentRoute = currentRoute,
-                mainRouteName = MAIN_ROUTE_NAME,
+                hasVisibleDestination = currentRoute != null,
+                isMainVisible = currentRoute == MAIN_ROUTE_NAME,
                 suppressForegroundAutoInput = suppressForegroundAutoInput,
             )
         evaluatedForegroundEntryId = nextState.evaluatedForegroundEntryId

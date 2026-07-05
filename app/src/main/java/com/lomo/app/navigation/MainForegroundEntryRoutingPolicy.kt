@@ -10,11 +10,10 @@ internal object MainForegroundEntryRoutingPolicy {
         foregroundEntryId: Long,
         evaluatedForegroundEntryId: Long,
         currentMainForegroundEntryId: Long,
-        currentRoute: String?,
-        mainRouteName: String,
+        hasVisibleDestination: Boolean,
+        isMainVisible: Boolean,
         suppressForegroundAutoInput: Boolean,
     ): State {
-        val isMainVisible = currentRoute == mainRouteName
         val visibleMainEntryId =
             if (isMainVisible) {
                 currentMainForegroundEntryId
@@ -22,7 +21,7 @@ internal object MainForegroundEntryRoutingPolicy {
                 0L
             }
 
-        if (foregroundEntryId <= 0L || foregroundEntryId == evaluatedForegroundEntryId || currentRoute == null) {
+        if (foregroundEntryId <= 0L || foregroundEntryId == evaluatedForegroundEntryId || !hasVisibleDestination) {
             return State(
                 evaluatedForegroundEntryId = evaluatedForegroundEntryId,
                 mainForegroundEntryId = visibleMainEntryId,
