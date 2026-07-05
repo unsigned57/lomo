@@ -1,43 +1,31 @@
 package com.lomo.app.widget
 
-import android.Manifest
 import android.app.PendingIntent
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import androidx.core.content.ContextCompat
 import androidx.core.service.quicksettings.PendingIntentActivityWrapper
 import androidx.core.service.quicksettings.TileServiceCompat
-import com.lomo.app.MainActivity
-import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.app.R
+import com.lomo.app.TrustedLaunchIntents
 import com.lomo.domain.model.RecordingSessionState
-import com.lomo.domain.repository.SecuritySessionPolicy
-import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.RecordingSessionUseCase
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 @AndroidEntryPoint
 class RecordingTileService : TileService() {
     @Inject lateinit var recordingSessionUseCase: RecordingSessionUseCase
 
-    @Inject lateinit var securitySessionPolicy: SecuritySessionPolicy
-
-    @Inject lateinit var directorySettingsRepository: DirectorySettingsRepository
-
-    @Inject lateinit var createMemoUseCase: CreateMemoUseCase
+    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
 
     private val policy = RecordingTileClickPolicy()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -62,15 +50,11 @@ class RecordingTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        serviceScope.launch {
-            try {
-                handleClick()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                Timber.e(error, "Failed to handle recording tile click")
-                updateTile(recordingSessionUseCase.state.value)
-            }
+        try {
+            handleClick()
+        } catch (error: Exception) {
+            Timber.e(error, "Failed to handle recording tile click")
+            updateTile(recordingSessionUseCase.state.value)
         }
     }
 
@@ -79,52 +63,31 @@ class RecordingTileService : TileService() {
         super.onDestroy()
     }
 
-    private suspend fun handleClick() {
+    private fun handleClick() {
         when (
-            policy.decide(
-                preconditions = resolvePreconditions(),
-                state = recordingSessionUseCase.state.value,
-            )
+            policy.decide(recordingSessionUseCase.state.value)
         ) {
-            TileClickAction.StartRecording -> recordingSessionUseCase.startRecording()
-            TileClickAction.StopRecording -> stopRecordingAndSaveMemo()
-            TileClickAction.LaunchMainActivityWithStartRecording -> launchMainActivityStartRecording()
+            TileClickAction.LaunchStartRecording ->
+                launchTrustedRecordingAction(
+                    requestCode = START_RECORDING_REQUEST_CODE,
+                    intent = trustedLaunchIntents.trustedQuickSettingsStartRecordingIntent(),
+                )
+            TileClickAction.LaunchStopRecording ->
+                launchTrustedRecordingAction(
+                    requestCode = STOP_RECORDING_REQUEST_CODE,
+                    intent = trustedLaunchIntents.trustedQuickSettingsStopRecordingIntent(),
+                )
         }
         updateTile(recordingSessionUseCase.state.value)
     }
 
-    private suspend fun resolvePreconditions(): RecordingPreconditions =
-        RecordingPreconditions(
-            hasRecordAudioPermission =
-                ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
-                    PackageManager.PERMISSION_GRANTED,
-            isVoiceWorkspaceReady =
-                withContext(Dispatchers.IO) {
-                    directorySettingsRepository.currentLocation(StorageArea.VOICE) != null
-                },
-            isAppLockSatisfied = securitySessionPolicy.isAppLockSatisfied(),
-        )
-
-    private suspend fun stopRecordingAndSaveMemo(): Memo? {
-        val startedAtMillis =
-            (recordingSessionUseCase.state.value as? RecordingSessionState.Recording)
-                ?.startedAtMillis
-                ?: System.currentTimeMillis()
-        val markdown = recordingSessionUseCase.stopRecording()?.takeIf(String::isNotBlank) ?: return null
-        return createMemoUseCase(
-            content = markdown,
-            timestampMillis = startedAtMillis,
-        )
-    }
-
-    private fun launchMainActivityStartRecording() {
+    private fun launchTrustedRecordingAction(
+        requestCode: Int,
+        intent: Intent,
+    ) {
         startMainActivityAndCollapse(
-            requestCode = START_RECORDING_REQUEST_CODE,
-            intent =
-                Intent(this, MainActivity::class.java).apply {
-                    action = MainActivity.ACTION_START_RECORDING
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                },
+            requestCode = requestCode,
+            intent = intent,
         )
     }
 
@@ -145,16 +108,28 @@ class RecordingTileService : TileService() {
 
     private fun updateTile(state: RecordingSessionState) {
         qsTile?.let { tile ->
+            val presentation = policy.presentation(state)
             tile.state =
-                when (state) {
-                    RecordingSessionState.Idle -> Tile.STATE_INACTIVE
-                    is RecordingSessionState.Recording -> Tile.STATE_ACTIVE
+                when (presentation) {
+                    RecordingTilePresentation.Start -> Tile.STATE_INACTIVE
+                    RecordingTilePresentation.Stop -> Tile.STATE_ACTIVE
                 }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val labelRes =
+                    when (presentation) {
+                        RecordingTilePresentation.Start -> R.string.tile_start_recording_label
+                        RecordingTilePresentation.Stop -> R.string.tile_stop_recording_label
+                    }
+                val label = getString(labelRes)
+                tile.label = label
+                tile.contentDescription = label
+            }
             tile.updateTile()
         }
     }
 
     private companion object {
         const val START_RECORDING_REQUEST_CODE = 51_002
+        const val STOP_RECORDING_REQUEST_CODE = 51_003
     }
 }

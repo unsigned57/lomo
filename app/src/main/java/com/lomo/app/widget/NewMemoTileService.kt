@@ -5,18 +5,19 @@ import android.content.Intent
 import android.service.quicksettings.TileService
 import androidx.core.service.quicksettings.PendingIntentActivityWrapper
 import androidx.core.service.quicksettings.TileServiceCompat
-import com.lomo.app.MainActivity
+import com.lomo.app.TrustedLaunchIntents
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class NewMemoTileService : TileService() {
+    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
+
     override fun onClick() {
         super.onClick()
         startMainActivityAndCollapse(
             requestCode = NEW_MEMO_REQUEST_CODE,
-            intent =
-                Intent(this, MainActivity::class.java).apply {
-                    action = MainActivity.ACTION_NEW_MEMO
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                },
+            intent = trustedLaunchIntents.trustedQuickSettingsCreateMemoIntent(),
         )
     }
 

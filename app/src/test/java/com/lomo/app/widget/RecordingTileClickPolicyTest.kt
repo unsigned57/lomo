@@ -3,17 +3,17 @@
  * - Unit under test: RecordingTileClickPolicy
  * - Owning layer: app
  * - Priority tier: P1
- * - Capability: map Quick Settings recording tile clicks to one command after enforcing entry preconditions.
+ * - Capability: map Quick Settings recording tile clicks to trusted Activity launch commands.
  *
  * Scenarios:
- * - Given audio permission, voice workspace, and app-lock session are satisfied while idle, when the tile is clicked, then recording starts in place.
- * - Given audio permission, voice workspace, and app-lock session are satisfied while already recording, when the tile is clicked, then recording stops in place.
- * - Given any required precondition is missing, when the tile is clicked, then MainActivity is launched with StartRecording instead of background recording.
+ * - Given the session is idle, when the tile is clicked, then the trusted Activity start-recording command is launched.
+ * - Given the session is recording, when the tile is clicked, then the trusted Activity stop-recording command is launched.
+ * - Given the tile observes session state, when presentation is resolved, then idle maps to Start and recording maps to Stop.
  *
  * Observable outcomes: TileClickAction returned by the policy.
  *
  * TDD proof:
- * - RED before implementation because RecordingTileClickPolicy, RecordingPreconditions, and TileClickAction do not exist.
+ * - RED before implementation because the tile policy still accepted background-recording preconditions and could return direct recording actions.
  *
  * Excludes: TileService lifecycle, Android permission APIs, app-lock prompt UI, and RecordingSession side effects.
  */
@@ -25,54 +25,34 @@ import io.kotest.matchers.shouldBe
 
 class RecordingTileClickPolicyTest : AppFunSpec() {
     init {
-        test("given all preconditions satisfied and session idle when clicked then start recording") {
-            val action =
-                RecordingTileClickPolicy().decide(
-                    preconditions = satisfiedPreconditions(),
-                    state = RecordingSessionState.Idle,
-                )
+        test("given idle session when clicked then launch trusted start recording activity command") {
+            val action = RecordingTileClickPolicy().decide(RecordingSessionState.Idle)
 
-            action shouldBe TileClickAction.StartRecording
+            action shouldBe TileClickAction.LaunchStartRecording
         }
 
-        test("given all preconditions satisfied and session recording when clicked then stop recording") {
+        test("given recording session when clicked then launch trusted stop recording activity command") {
             val action =
                 RecordingTileClickPolicy().decide(
-                    preconditions = satisfiedPreconditions(),
-                    state =
-                        RecordingSessionState.Recording(
-                            filename = "voice_20260702_100000.m4a",
-                            startedAtMillis = 1_000L,
-                        ),
+                    RecordingSessionState.Recording(
+                        filename = "voice_20260702_100000.m4a",
+                        startedAtMillis = 1_000L,
+                    ),
                 )
 
-            action shouldBe TileClickAction.StopRecording
+            action shouldBe TileClickAction.LaunchStopRecording
         }
 
-        test("given any precondition is missing when clicked then launch main activity start recording flow") {
-            val missingPermission =
-                satisfiedPreconditions().copy(hasRecordAudioPermission = false)
-            val missingVoiceWorkspace =
-                satisfiedPreconditions().copy(isVoiceWorkspaceReady = false)
-            val appLocked =
-                satisfiedPreconditions().copy(isAppLockSatisfied = false)
+        test("presentation marks idle tile inactive with start label and recording tile active with stop label") {
+            RecordingTileClickPolicy().presentation(RecordingSessionState.Idle) shouldBe
+                RecordingTilePresentation.Start
 
-            listOf(missingPermission, missingVoiceWorkspace, appLocked).forEach { preconditions ->
-                val action =
-                    RecordingTileClickPolicy().decide(
-                        preconditions = preconditions,
-                        state = RecordingSessionState.Idle,
-                    )
-
-                action shouldBe TileClickAction.LaunchMainActivityWithStartRecording
-            }
+            RecordingTileClickPolicy().presentation(
+                RecordingSessionState.Recording(
+                    filename = "voice_20260702_100000.m4a",
+                    startedAtMillis = 1_000L,
+                ),
+            ) shouldBe RecordingTilePresentation.Stop
         }
     }
 }
-
-private fun satisfiedPreconditions(): RecordingPreconditions =
-    RecordingPreconditions(
-        hasRecordAudioPermission = true,
-        isVoiceWorkspaceReady = true,
-        isAppLockSatisfied = true,
-    )

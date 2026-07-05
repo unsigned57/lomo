@@ -33,6 +33,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.lomo.app.MainActivity
 import com.lomo.app.R
+import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.model.Memo
 import dagger.hilt.android.EntryPointAccessors
@@ -134,10 +135,7 @@ private fun WidgetHeader(context: Context) {
                     .background(GlanceTheme.colors.primaryContainer)
                     .clickable(
                         actionStartActivity(
-                            Intent(context, MainActivity::class.java).apply {
-                                action = MainActivity.ACTION_NEW_MEMO
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            },
+                            TrustedLaunchIntents.create(context).trustedWidgetCreateMemoIntent(),
                         ),
                     ),
             contentAlignment = Alignment.Center,

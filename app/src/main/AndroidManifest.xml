@@ -50,16 +50,6 @@
             </intent-filter>
 
             <intent-filter>
-                <action android:name="com.lomo.app.ACTION_NEW_MEMO" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="com.lomo.app.ACTION_START_RECORDING" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-            <intent-filter>
                 <action android:name="com.lomo.app.ACTION_OPEN_MEMO" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -77,9 +67,6 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
 
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
         </activity>
 
         <provider

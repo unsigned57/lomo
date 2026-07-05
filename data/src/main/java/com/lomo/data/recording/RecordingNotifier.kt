@@ -58,6 +58,7 @@ class RecordingNotifier
             openIntent.apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 action = RecordingIntents.ACTION_OPEN_SAVED_MEMO
+                setPackage(context.packageName)
                 putExtra(RecordingIntents.EXTRA_MEMO_ID, memoId)
             }
             val openPending =
@@ -66,11 +67,6 @@ class RecordingNotifier
                     RecordingIntents.SAVED_NOTIFICATION_ID,
                     openIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            val editActionPending =
-                actionBroadcast(
-                    action = RecordingIntents.ACTION_STOP,
-                    requestCodeBase = RecordingIntents.SAVED_NOTIFICATION_ID,
                 )
             val notification =
                 NotificationCompat
@@ -81,7 +77,7 @@ class RecordingNotifier
                     .setAutoCancel(true)
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .setContentIntent(openPending)
-                    .addAction(0, context.getString(R.string.recording_saved_notification_action), editActionPending)
+                    .addAction(0, context.getString(R.string.recording_saved_notification_action), openPending)
                     .build()
             notificationManager.notify(RecordingIntents.SAVED_NOTIFICATION_ID, notification)
         }

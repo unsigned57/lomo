@@ -3,6 +3,10 @@ package com.lomo.app.feature.main
 import androidx.paging.PagingData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.ExternalAppCommand
+import com.lomo.app.ExternalAppCommandStatus
+import com.lomo.app.ExternalAppCommandStore
+import com.lomo.app.ExternalAppCommandTerminalResult
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
@@ -72,6 +76,7 @@ class MainViewModel
         private val startupCoordinator: MainStartupCoordinator,
         private val markReminderDoneUseCase: MarkReminderDoneUseCase,
         private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+        private val externalAppCommandStore: ExternalAppCommandStore,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
         private val collectionActionStateHolder =
@@ -136,10 +141,6 @@ class MainViewModel
         val pendingSharedImageEvents: StateFlow<List<PendingUiEvent<android.net.Uri>>> = pendingSharedImageQueue.events
 
         sealed interface AppAction {
-            data object CreateMemo : AppAction
-
-            data object StartRecording : AppAction
-
             data class OpenMemo(
                 val memoId: String,
             ) : AppAction
@@ -151,6 +152,7 @@ class MainViewModel
 
         private val appActionQueue = MainEventQueueCoordinator<AppAction>()
         val appActionEvents: StateFlow<List<PendingUiEvent<AppAction>>> = appActionQueue.events
+        val externalAppCommands: StateFlow<List<ExternalAppCommand>> = externalAppCommandStore.commands
         private val pendingNewMemoCreationCoordinator = PendingNewMemoCreationCoordinator()
         private val _pendingNewMemoCreationRequest = MutableStateFlow<PendingNewMemoCreationRequest?>(null)
         internal val pendingNewMemoCreationRequest: StateFlow<PendingNewMemoCreationRequest?> =
@@ -266,14 +268,6 @@ class MainViewModel
             pendingSharedImageQueue.consume(eventId)
         }
 
-        val requestCreateMemo: () -> Unit = {
-            appActionQueue.enqueue(AppAction.CreateMemo)
-        }
-
-        val requestStartRecording: () -> Unit = {
-            appActionQueue.enqueue(AppAction.StartRecording)
-        }
-
         val requestOpenMemo: (String) -> Unit = { memoId ->
             if (memoId.isNotBlank()) {
                 appActionQueue.enqueue(AppAction.OpenMemo(memoId))
@@ -297,6 +291,16 @@ class MainViewModel
         val consumeAppActionEvent: (Long) -> Unit = { eventId ->
             appActionQueue.consume(eventId)
         }
+
+        val updateExternalAppCommandStatus: (String, ExternalAppCommandStatus) -> Unit = { commandId, status ->
+            externalAppCommandStore.updateStatus(commandId = commandId, status = status)
+        }
+
+        val completeExternalAppCommand: (String, ExternalAppCommandTerminalResult) -> Unit = { commandId, result ->
+            externalAppCommandStore.complete(commandId = commandId, result = result)
+        }
+
+        val expireExternalAppCommands: (Long) -> List<String> = externalAppCommandStore::expire
 
         internal fun requestPendingNewMemoCreation(
             content: String,
