@@ -6,7 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.History
@@ -253,7 +253,7 @@ private fun memoEditorToolbarTool(
             toolbarTool(
                 actionId = actionId,
                 contentDescriptionRes = R.string.cd_memo_editor_add_reminder,
-                icon = Icons.Rounded.Alarm,
+                icon = Icons.Rounded.Notifications,
             )
         MemoEditorToolbarActionIds.underline ->
             InputToolbarTool(

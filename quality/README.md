@@ -48,7 +48,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
 | I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
 | I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
-| I changed release-sensitive resources or strings | `quality/scripts/check_string_resource_parity.sh` and review `quality/resources-release-checklist.md` |
+| I changed release-sensitive resources or strings | `./gradlew staticQualityCheck` includes string parity; use `quality/scripts/check_string_resource_parity.sh` for a quick focused check and review `quality/resources-release-checklist.md` |
 | Final handoff or pre-merge gate | `./gradlew qualityCheck` |
 
 AI agents inside the sandbox should normally use:
@@ -151,6 +151,8 @@ Task roles:
   - Detekt-based architecture guardrails.
 - `androidLintCheck`
   - Android Lint for the configured app and library modules.
+- `stringResourceParityCheck`
+  - Verifies Android string resource keys match across shipped `values` and `values-zh-rCN` files.
 - `composeCompilerAnalysisCheck`
   - Generates Compose compiler metrics and reports for `app` and `ui-components`.
 - `composeStaticAnalysisCheck`

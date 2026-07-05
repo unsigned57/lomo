@@ -77,11 +77,23 @@
     <string name="settings_color_preset_sand">Sand</string>
     <string name="settings_color_history_section">Recent Colors</string>
     <string name="settings_color_picker_hex">HEX Color Code</string>
+    <string name="settings_color_picker_hex_placeholder">#RRGGBB</string>
+    <string name="settings_color_preview_avatar_initial">L</string>
+    <string name="settings_color_preview_source">Lomo Inspiration</string>
+    <string name="settings_color_preview_time">10 minutes ago</string>
+    <string name="settings_color_preview_tag">Design</string>
+    <plurals name="settings_color_preview_word_count">
+        <item quantity="one">%1$d word</item>
+        <item quantity="other">%1$d words</item>
+    </plurals>
+    <string name="settings_color_preview_edited_time">Edited 2h ago</string>
     <string name="settings_color_preview_note_title">Summer Solstice Inspiration</string>
     <string name="settings_color_preview_note_body">The sun is warm, the breeze is gentle. Capture every fleeting moment of inspiration inside Lomo.</string>
     <string name="settings_font">Font</string>
     <string name="settings_font_preview_title">Preview</string>
     <string name="settings_font_preview_sample">The quick brown fox jumps over the lazy dog.</string>
+    <string name="settings_font_preview_alphabet_sample">A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 1 2 3 4 5 6 7 8 9 0</string>
+    <string name="settings_font_preview_glyph_sample">Aa</string>
     <string name="settings_font_system_default">System default</string>
     <string name="settings_font_system_default_subtitle">Variable sans-serif on Android 12+</string>
     <string name="settings_font_import_action">Import font (.ttf / .otf)</string>
@@ -144,6 +156,8 @@
     <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
+    <string name="settings_auto_open_input_on_foreground">Auto-open input on foreground</string>
+    <string name="settings_auto_open_input_on_foreground_subtitle">Open the memo input and show the keyboard when Lomo returns to the foreground on the main screen</string>
     <string name="settings_scrollbar">Show scrollbar</string>
     <string name="settings_scrollbar_subtitle">Display a draggable scrollbar on the main list</string>
     <string name="settings_check_updates">Check updates on startup</string>
@@ -224,6 +238,7 @@
     <string name="widget_preview_placeholder">Your recent memos will appear here…</string>
     <string name="tile_new_memo_label">New Memo</string>
     <string name="tile_start_recording_label">Start Recording</string>
+    <string name="tile_stop_recording_label">Stop Recording</string>
     <string name="shortcut_new_memo_short_label">New Memo</string>
     <string name="shortcut_new_memo_long_label">Create a new memo</string>
     <string name="shortcut_start_recording_short_label">Start Recording</string>

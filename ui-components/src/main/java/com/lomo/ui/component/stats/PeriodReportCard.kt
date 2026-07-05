@@ -12,7 +12,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import com.lomo.ui.R
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlin.math.roundToInt
@@ -56,13 +59,13 @@ fun PeriodReportCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "$count memos",
+                    text = pluralStringResource(R.plurals.period_report_memo_count, count, count),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "%.1f / day".format(dailyAvg),
+                    text = stringResource(R.string.period_report_daily_average, dailyAvg),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

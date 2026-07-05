@@ -403,6 +403,13 @@ tasks.register("meaningfulTestCheck", Exec::class.java) {
     commandLine("echo", "Bypassed meaningful test check")
 }
 
+tasks.register("stringResourceParityCheck", Exec::class.java) {
+    group = "verification"
+    description = "Checks that Android string resource keys stay aligned across shipped locales."
+    workingDir = rootProject.projectDir
+    commandLine("bash", "quality/scripts/check_string_resource_parity.sh")
+}
+
 tasks.register("qualityWorkflowContractCheck", Exec::class.java) {
     group = "verification"
     description = "Checks quality workflow routing so network maintenance stays out of high-frequency gates."
@@ -451,6 +458,7 @@ tasks.register("staticQualityCheck") {
         "testStyleCheck",
         "androidLintCheck",
         "meaningfulTestCheck",
+        "stringResourceParityCheck",
         "qualityWorkflowContractCheck",
     )
     mustRunAfter("unitTestCheck")

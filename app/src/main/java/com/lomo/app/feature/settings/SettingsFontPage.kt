@@ -241,7 +241,7 @@ private fun FontPreviewCard() {
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 1 2 3 4 5 6 7 8 9 0",
+                    text = stringResource(R.string.settings_font_preview_alphabet_sample),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -283,7 +283,7 @@ private fun SystemFontCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Aa",
+                    text = stringResource(R.string.settings_font_preview_glyph_sample),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

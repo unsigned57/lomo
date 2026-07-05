@@ -73,6 +73,7 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
                 RuleName("NoSwallowedResult") to ::NoSwallowedResultRule,
                 RuleName("NoDeprecatedKept") to ::NoDeprecatedKeptRule,
+                RuleName("NoHardcodedVisibleText") to ::NoHardcodedVisibleTextRule,
                 RuleName("ShouldBeInstanceOfAssertion") to ::ShouldBeInstanceOfAssertionRule,
             ),
         )

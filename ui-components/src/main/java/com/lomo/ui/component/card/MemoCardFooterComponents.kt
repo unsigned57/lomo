@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -83,7 +83,7 @@ internal fun MemoCardReminderPills(
                 modifier = Modifier.padding(horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Alarm,
+                    imageVector = Icons.Rounded.Notifications,
                     contentDescription = null,
                     tint = colors.contentColor,
                     modifier = Modifier.size(MemoCardTokens.PinnedIconSize),

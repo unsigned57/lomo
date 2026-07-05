@@ -142,3 +142,5 @@ lomo-architecture:
     active: true
   NoDeprecatedKept:
     active: true
+  NoHardcodedVisibleText:
+    active: true
