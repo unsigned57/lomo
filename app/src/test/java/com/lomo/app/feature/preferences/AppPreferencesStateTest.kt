@@ -1,22 +1,5 @@
 package com.lomo.app.feature.preferences
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
@@ -36,13 +19,15 @@ import kotlinx.coroutines.test.runTest
  * - Capability: combines all individual preference streams into a single clean app-preferences snapshot.
  *
  * Scenarios:
- * - Given all preference streams configured, when observeAppPreferences is observed, then emit a single consolidated snapshot matching all configurations.
+ * - Given all preference streams configured, when observeAppPreferences is observed, then emit a
+ *   single consolidated snapshot matching all configurations, including foreground auto-input.
  *
  * Observable outcomes:
- * - Consolidated AppPreferencesState snapshot fields perfectly aggregate all values from the backing repository.
+ * - Consolidated AppPreferencesState fields aggregate all values from the backing repository.
  *
  * TDD proof:
- * - Compilation failure on Kotest transition - test-only migration; no production change.
+ * - RED: before auto-open input was part of AppPreferenceSnapshot/AppPreferencesState, the new
+ *   aggregation assertion could not compile.
  *
  * Excludes:
  * - Compose rendering and repository implementation details.
@@ -72,10 +57,11 @@ class AppPreferencesStateTest : AppFunSpec() {
                 appConfigRepository.setLetterSpacingScale(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
                 appConfigRepository.setParagraphSpacingScale(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
                 appConfigRepository.setMemoActionAutoReorderEnabled(true)
+                appConfigRepository.setAutoOpenInputOnForegroundEnabled(true)
                 appConfigRepository.setMemoActionOrder(order = listOf("history", "copy"))
                 appConfigRepository.setMemoActionOrder(
                     scope = MemoActionOrderScopes.SEARCH,
-                    order = listOf("jump", "copy")
+                    order = listOf("jump", "copy"),
                 )
                 appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
@@ -90,6 +76,7 @@ class AppPreferencesStateTest : AppFunSpec() {
                 state.doubleTapEditEnabled shouldBe false
                 state.freeTextCopyEnabled shouldBe true
                 state.memoActionAutoReorderEnabled shouldBe true
+                state.autoOpenInputOnForeground shouldBe true
                 state.memoActionOrder shouldBe listOf("history", "copy")
                 state.memoActionOrderFor(MemoActionOrderScopes.SEARCH) shouldBe listOf("jump", "copy")
                 state.inputToolbarToolOrder shouldBe listOf("backfill", "camera")

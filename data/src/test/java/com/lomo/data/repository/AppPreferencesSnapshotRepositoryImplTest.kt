@@ -84,6 +84,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 dataStore.updateDoubleTapEditEnabled(false)
                 dataStore.updateFreeTextCopyEnabled(true)
                 dataStore.updateMemoActionAutoReorderEnabled(true)
+                dataStore.updateAutoOpenInputOnForeground(true)
                 dataStore.updateMemoActionOrder("history|copy")
                 dataStore.updateMemoActionOrdersByScope("""{"orders":{"search":["jump","copy"]}}""")
                 dataStore.updateInputToolbarToolOrder("backfill|camera")
@@ -112,6 +113,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                         doubleTapEditEnabled = false,
                         freeTextCopyEnabled = true,
                         memoActionAutoReorderEnabled = true,
+                        autoOpenInputOnForeground = true,
                         memoActionOrder = listOf("history", "copy"),
                         memoActionOrdersByScope = mapOf("main" to listOf("history", "copy"), "search" to listOf("jump", "copy")),
                         inputToolbarToolOrder = listOf("backfill", "camera"),
@@ -143,6 +145,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
                 snapshot.fontPreference shouldBe expectedDefaults.fontPreference
                 snapshot.memoActionOrder shouldContainExactly emptyList()
                 snapshot.inputToolbarToolOrder shouldContainExactly emptyList()
+                snapshot.autoOpenInputOnForeground shouldBe expectedDefaults.autoOpenInputOnForeground
                 snapshot.shareCardSignatureText shouldBe expectedDefaults.shareCardSignatureText
                 snapshot.typographyFontSizeScale shouldBe expectedDefaults.typographyFontSizeScale
             }
@@ -247,6 +250,7 @@ class AppPreferencesSnapshotRepositoryImplTest : DataFunSpec() {
             AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> SettingValue.Bool(false)
             AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> SettingValue.Bool(true)
             AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> SettingValue.Bool(true)
+            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> SettingValue.Bool(true)
             AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> SettingValue.Text("history|copy")
             AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> SettingValue.Text("""{"orders":{"search":["jump","copy"]}}""")
             AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> SettingValue.Text("backfill|camera")

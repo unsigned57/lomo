@@ -1,5 +1,7 @@
 package com.lomo.app.feature.main
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -24,6 +26,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -91,6 +94,7 @@ fun MainScreen(
     onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     lanShareEnabled: Boolean = true,
+    foregroundEntryId: Long = 0L,
     viewModel: MainViewModel = activityHiltViewModel(),
     sidebarViewModel: SidebarViewModel = injectedHiltViewModel(),
     editorViewModel: MemoEditorViewModel = injectedHiltViewModel(),
@@ -169,6 +173,9 @@ fun MainScreen(
         canOpenCreateMemo =
             renderState.uiState is MainViewModel.MainScreenState.Ready &&
                 renderState.pendingNewMemoCreationRequest == null,
+        foregroundEntryId = foregroundEntryId,
+        autoOpenInputOnForeground = renderState.autoOpenInputOnForeground,
+        pendingNewMemoCreationRequest = renderState.pendingNewMemoCreationRequest,
     )
     MainScreenConflictHost(dependencies = dependencies)
     MainScreenContentHost(
@@ -330,6 +337,7 @@ internal data class MainScreenUiSnapshot(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val inputToolbarToolOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
@@ -396,14 +404,48 @@ private fun MainScreenTransientEffects(
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     canOpenCreateMemo: Boolean,
+    foregroundEntryId: Long,
+    autoOpenInputOnForeground: Boolean,
+    pendingNewMemoCreationRequest: PendingNewMemoCreationRequest?,
 ) {
     val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
     val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
+    val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
     val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
     val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
     val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
+    val externalAppCommands by dependencies.mainViewModel.externalAppCommands.collectAsStateWithLifecycle()
     val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
+    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val draftText by dependencies.editorViewModel.draftText.collectAsStateWithLifecycle()
+    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
+
+    MainScreenForegroundAutoInputEffect(
+        foregroundEntryId = foregroundEntryId,
+        enabled = autoOpenInputOnForeground,
+        uiState = uiState,
+        explicitEntryPending =
+            sharedContentEvents.isNotEmpty() ||
+                pendingSharedImageEvents.isNotEmpty() ||
+                appActionEvents.isNotEmpty() ||
+                externalAppCommands.isNotEmpty(),
+        editorController = editorController,
+        isRecording = isRecording,
+        hasPendingNewMemoCreation = pendingNewMemoCreationRequest != null,
+        draftText = draftText,
+    )
+
+    MainScreenExternalAppCommandEffects(
+        dependencies = dependencies,
+        externalAppCommands = remember(externalAppCommands) { externalAppCommands.toImmutableList() },
+        uiState = uiState,
+        voiceDirectoryConfigured = voiceDirectory != null,
+        canOpenCreateMemo = canOpenCreateMemo,
+        isRecording = isRecording,
+        draftText = draftText,
+        directoryGuideController = directoryGuideController,
+        editorController = editorController,
+    )
 
     MainScreenEventEffectsHost(
         sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },
@@ -417,15 +459,7 @@ private fun MainScreenTransientEffects(
         onAppendMarkdown = editorController::appendMarkdownBlock,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
-        onOpenCreateMemo = {
-            if (canOpenCreateMemo) {
-                editorController.openForCreate(draftText)
-            }
-        },
         onOpenEditMemo = editorController::openForEdit,
-        onStartRecording = {
-            dependencies.recordingViewModel.startRecording()
-        },
         onFocusMemoInList = { memoId ->
             focusMemoInMainScreenWithFallback(
                 memoId = memoId,
@@ -622,7 +656,7 @@ private fun rememberMainScreenInteractionCallbacks(
             },
             onStopRecording = {
                 dependencies.recordingViewModel.stopRecording { markdown ->
-                    editorController.appendMarkdownBlock(markdown)
+                    markdown?.let(editorController::appendMarkdownBlock)
                 }
             },
             onVersionHistory = { state ->

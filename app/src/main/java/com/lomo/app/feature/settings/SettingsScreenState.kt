@@ -111,6 +111,7 @@ data class InteractionSectionState(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
     val appLockEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,

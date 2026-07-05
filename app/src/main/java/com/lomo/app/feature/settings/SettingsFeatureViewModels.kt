@@ -275,6 +275,10 @@ class SettingsInteractionFeatureViewModel(
         scope.launch { appConfigCoordinator.updateScrollbarEnabled(enabled) }
     }
 
+    fun updateAutoOpenInputOnForeground(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateAutoOpenInputOnForeground(enabled) }
+    }
+
     fun updateAppLockEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateAppLockEnabled(enabled) }
     }

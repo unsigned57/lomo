@@ -61,6 +61,10 @@ interface InteractionBehaviorPreferencesRepository {
     fun isScrollbarEnabled(): Flow<Boolean>
 
     suspend fun setScrollbarEnabled(enabled: Boolean)
+
+    fun isAutoOpenInputOnForegroundEnabled(): Flow<Boolean>
+
+    suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean)
 }
 
 interface MemoActionPreferencesRepository {

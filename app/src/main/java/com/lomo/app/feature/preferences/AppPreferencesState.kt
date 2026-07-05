@@ -38,6 +38,7 @@ data class AppPreferencesState(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val memoActionOrdersByScope: ImmutableMap<String, ImmutableList<String>> = persistentMapOf(),
     val inputToolbarToolOrder: ImmutableList<String>,
@@ -104,6 +105,7 @@ private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontReso
         doubleTapEditEnabled = doubleTapEditEnabled,
         freeTextCopyEnabled = freeTextCopyEnabled,
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        autoOpenInputOnForeground = autoOpenInputOnForeground,
         memoActionOrder = memoActionOrder.toImmutableList(),
         memoActionOrdersByScope =
             memoActionOrdersByScope

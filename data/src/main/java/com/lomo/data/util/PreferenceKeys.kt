@@ -45,6 +45,7 @@ object PreferenceKeys {
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
+    const val AUTO_OPEN_INPUT_ON_FOREGROUND = "auto_open_input_on_foreground"
     const val MEMO_ACTION_ORDER = "memo_action_order"
     const val MEMO_ACTION_ORDERS_BY_SCOPE = "memo_action_orders_by_scope"
     const val INPUT_TOOLBAR_TOOL_ORDER = "input_toolbar_tool_order"
@@ -118,6 +119,7 @@ object PreferenceKeys {
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
         const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
+        const val AUTO_OPEN_INPUT_ON_FOREGROUND = PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND
         const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
         const val MEMO_ACTION_ORDERS_BY_SCOPE = PreferenceDefaults.MEMO_ACTION_ORDERS_BY_SCOPE
         const val INPUT_TOOLBAR_TOOL_ORDER = PreferenceDefaults.INPUT_TOOLBAR_TOOL_ORDER

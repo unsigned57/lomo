@@ -9,6 +9,7 @@ object PreferenceDefaults {
     const val DOUBLE_TAP_EDIT_ENABLED = true
     const val FREE_TEXT_COPY_ENABLED = false
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = false
+    const val AUTO_OPEN_INPUT_ON_FOREGROUND = false
     const val MEMO_ACTION_ORDER = ""
     const val MEMO_ACTION_ORDERS_BY_SCOPE = ""
     const val INPUT_TOOLBAR_TOOL_ORDER = ""

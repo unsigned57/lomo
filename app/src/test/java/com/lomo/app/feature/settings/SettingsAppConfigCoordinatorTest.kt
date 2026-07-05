@@ -1,22 +1,5 @@
 package com.lomo.app.feature.settings
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
@@ -36,19 +19,29 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Capability: Settings app config coordination and preference state updates.
+ * - Unit under test: SettingsAppConfigCoordinator.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: coordinates settings UI commands into repository-backed state updates.
+ *
  * - Scenarios:
  *   - Given initial state, directory display states remain Loading until values are emitted.
  *   - Given emitted location display names, directory display states are resolved.
  *   - Given root directory updates, switch-root use case is delegated to and updates repository/state.
  *   - Given image/voice/sync inbox directory updates, correct repository storage locations are applied.
  *   - Given preference toggle updates (double-tap, free-text copy), each updates its own repository state and never touches the other.
- *   - Given date/time/theme/haptic/etc. preference updates, correct repository settings are applied.
+ *   - Given date/time/theme/haptic/foreground auto-input preference updates, correct repository
+ *     settings are applied.
+ *
  * - Observable outcomes:
  *   - Directory display state Flow emissions.
  *   - Backing repository preference states and storage locations.
  *   - Rebuild call count from WorkspaceStateResolver.
- * - TDD proof: Ensures all coordinate actions map directly to repository states without side effects.
+ *
+ * - TDD proof:
+ *   - RED: before foreground auto-input was exposed by the settings coordinator, the new update
+ *     assertion could not compile.
+ *
  * - Excludes: Datastore file serialization, Android system settings integration.
  */
 class SettingsAppConfigCoordinatorTest : AppFunSpec() {
@@ -245,6 +238,9 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
 
                 coordinator.updateQuickSaveOnBackEnabled(true)
                 appConfigRepository.isQuickSaveOnBackEnabled().first() shouldBe true
+
+                coordinator.updateAutoOpenInputOnForeground(true)
+                appConfigRepository.isAutoOpenInputOnForegroundEnabled().first() shouldBe true
 
                 coordinator.updateAppLockEnabled(true)
                 appConfigRepository.isAppLockEnabled().first() shouldBe true

@@ -861,6 +861,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED -> false.toString()
             AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED -> true.toString()
             AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED -> true.toString()
+            AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND -> true.toString()
             AppPreferenceSnapshotField.MEMO_ACTION_ORDER -> "copy,edit,delete"
             AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE -> "main=edit,copy"
             AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER -> "text,image,voice"

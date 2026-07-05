@@ -8,15 +8,21 @@
  * Scenarios:
  * - Given Idle, when startRecording, then state becomes Recording(filename, startedAtMillis) and foreground service starts.
  * - Given Recording, when stopRecording, then state returns to Idle, markdown is ![voice](filename), foreground service stops.
+ * - Given the recorder fails to stop, when stopRecording, then no markdown is returned and the error is surfaced.
  * - Given Recording, when cancelRecording, then state returns to Idle, foreground service stops, no markdown produced.
  * - Given Idle, when stopRecording, then returns null without side effects (idempotent).
  * - Given Idle, when cancelRecording, then no side effects (idempotent).
  * - Given Recording, when startRecording, then no-op (idempotent singleton invariant: exactly one recording at a time).
+ * - Given two callers start concurrently from Idle, when the first start is still preparing, then only one recorder start reaches the hardware boundary.
  * - Given startRecording throws, when caught, then state stays Idle, errorMessage set, service not started.
  *
  * Observable outcomes: state transitions, returned markdown, service start/stop call counts, errorMessage.
  *
- * TDD proof: Fails before the fix because the stub returns null/Idle and never calls voice repo or service controller.
+ * TDD proof:
+ * - RED command: env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain :data:testDebugUnitTest --tests 'com.lomo.data.recording.RecordingSessionImplTest'
+ * - RED symptom: stopRecording failure returned ![voice](...) instead of null, and concurrent startRecording calls reached the fake recorder twice.
+ * - GREEN command: env HOME="$PWD/.gradle/home" XDG_DATA_HOME="$PWD/.gradle/xdg-data" XDG_CACHE_HOME="$PWD/.gradle/xdg-cache" GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain -Pksp.incremental=false :data:testDebugUnitTest --tests 'com.lomo.data.recording.RecordingSessionImplTest'
+ * - GREEN symptom: BUILD SUCCESSFUL with stop failures surfaced without markdown and concurrent starts serialized to one recorder-backed session.
  *
  * Excludes: MediaRecorder platform behavior, foreground service lifecycle, notification building, VoiceRecordingRepository call counts (coverage instrumentation can double-call suspend functions; service controller call counts are stable as they are non-suspend).
  */
@@ -32,134 +38,216 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.types.shouldBeInstanceOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingSessionImplTest : DataFunSpec() {
-    private val testDispatcher = UnconfinedTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
-    private val timerScheduler = TestCoroutineScheduler()
-    private val timerDispatcher = StandardTestDispatcher(timerScheduler)
-
-    private val voiceRecordingRepository = FakeVoiceRecordingRepository()
-    private val mediaRepository = RecordingMediaRepository()
-    private val serviceController = FakeRecordingServiceController()
-
-    private val session = RecordingSessionImpl(
-        appScope = testScope,
-        voiceRecordingRepository = voiceRecordingRepository,
-        mediaRepository = mediaRepository,
-        serviceController = serviceController,
-    ).also {
-        it.recordingTimerDispatcher = timerDispatcher
-    }
+    private val testScheduler = TestCoroutineScheduler()
+    private val testDispatcher = UnconfinedTestDispatcher(testScheduler)
 
     init {
         test("startRecording transitions to Recording and starts foreground service") {
             runTest(testDispatcher) {
-                session.startRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                val state = session.state.value
+                val state = fixture.session.state.value
                 state.shouldBeInstanceOf<RecordingSessionState.Recording>()
                 state.filename shouldNotBe null
                 state.startedAtMillis shouldNotBe 0L
-                serviceController.startCallCount shouldBe 1
+                fixture.serviceController.startCallCount shouldBe 1
             }
         }
 
         test("stopRecording returns markdown, returns to Idle, and stops foreground service") {
             runTest(testDispatcher) {
-                session.startRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                val recordingState = session.state.value as RecordingSessionState.Recording
-                val markdown = session.stopRecording()
+                val recordingState = fixture.session.state.value as RecordingSessionState.Recording
+                val markdown = fixture.session.stopRecording()
                 advanceUntilIdle()
 
                 markdown shouldBe "![voice](${recordingState.filename})"
-                session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
-                session.durationMillis.value shouldBe 0L
-                session.amplitude.value shouldBe 0
-                serviceController.stopCallCount shouldNotBe 0
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.session.durationMillis.value shouldBe 0L
+                fixture.session.amplitude.value shouldBe 0
+                fixture.serviceController.stopCallCount shouldNotBe 0
+            }
+        }
+
+        test("stopRecording failure returns null, returns to Idle, and surfaces error") {
+            runTest(testDispatcher) {
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
+                advanceUntilIdle()
+                fixture.voiceRecordingRepository.stopException = IllegalStateException("encoder failed")
+
+                val markdown = fixture.session.stopRecording()
+                advanceUntilIdle()
+
+                markdown.shouldBeNull()
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.session.errorMessage.value shouldBe "Failed to stop recording: encoder failed"
+                fixture.serviceController.stopCallCount shouldNotBe 0
             }
         }
 
         test("cancelRecording returns to Idle, stops foreground service, without markdown") {
             runTest(testDispatcher) {
-                session.startRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                session.cancelRecording()
+                fixture.session.cancelRecording()
                 advanceUntilIdle()
 
-                session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
-                session.durationMillis.value shouldBe 0L
-                session.amplitude.value shouldBe 0
-                serviceController.stopCallCount shouldNotBe 0
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.session.durationMillis.value shouldBe 0L
+                fixture.session.amplitude.value shouldBe 0
+                fixture.serviceController.stopCallCount shouldNotBe 0
             }
         }
 
         test("stopRecording while Idle is idempotent and returns null without side effects") {
             runTest(testDispatcher) {
-                val markdown = session.stopRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                val markdown = fixture.session.stopRecording()
 
                 markdown.shouldBeNull()
-                session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
-                serviceController.stopCallCount shouldBe 0
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.serviceController.stopCallCount shouldBe 0
             }
         }
 
         test("cancelRecording while Idle is idempotent without side effects") {
             runTest(testDispatcher) {
-                session.cancelRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
 
-                session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
-                serviceController.stopCallCount shouldBe 0
+                fixture.session.cancelRecording()
+
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.serviceController.stopCallCount shouldBe 0
             }
         }
 
         test("startRecording while Recording is idempotent: does not start a second service") {
             runTest(testDispatcher) {
-                session.startRecording()
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                session.startRecording()
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                serviceController.startCallCount shouldBe 1
+                fixture.serviceController.startCallCount shouldBe 1
+            }
+        }
+
+        test("concurrent startRecording calls publish exactly one recorder-backed session") {
+            runTest(StandardTestDispatcher()) {
+                val startMayComplete = CompletableDeferred<Unit>()
+                val fixture =
+                    createFixture(backgroundScope, testScheduler).also {
+                        it.voiceRecordingRepository.awaitStartCompletion = startMayComplete
+                    }
+
+                val first = async { fixture.session.startRecording() }
+                val second = async { fixture.session.startRecording() }
+                runCurrent()
+
+                fixture.voiceRecordingRepository.startCallCount shouldBe 1
+                fixture.serviceController.startCallCount shouldBe 0
+
+                startMayComplete.complete(Unit)
+                advanceUntilIdle()
+
+                first.await()
+                second.await()
+                fixture.voiceRecordingRepository.startCallCount shouldBe 1
+                fixture.serviceController.startCallCount shouldBe 1
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>()
             }
         }
 
         test("startRecording failure keeps state Idle, sets errorMessage, does not start service") {
             runTest(testDispatcher) {
-                voiceRecordingRepository.startException = IllegalStateException("mic unavailable")
+                val fixture = createFixture(backgroundScope, testScheduler)
+                fixture.voiceRecordingRepository.startException = IllegalStateException("mic unavailable")
 
-                session.startRecording()
+                fixture.session.startRecording()
                 advanceUntilIdle()
 
-                session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
-                session.errorMessage.value shouldBe "Failed to start recording: mic unavailable"
-                serviceController.startCallCount shouldBe 0
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.session.errorMessage.value shouldBe "Failed to start recording: mic unavailable"
+                fixture.serviceController.startCallCount shouldBe 0
             }
         }
     }
 }
 
+private data class RecordingSessionFixture(
+    val session: RecordingSessionImpl,
+    val voiceRecordingRepository: FakeVoiceRecordingRepository,
+    val serviceController: FakeRecordingServiceController,
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun createFixture(
+    appScope: CoroutineScope,
+    scheduler: TestCoroutineScheduler,
+): RecordingSessionFixture {
+    val voiceRecordingRepository = FakeVoiceRecordingRepository()
+    val serviceController = FakeRecordingServiceController()
+    val session =
+        RecordingSessionImpl(
+            appScope = appScope,
+            voiceRecordingRepository = voiceRecordingRepository,
+            mediaRepository = RecordingMediaRepository(),
+            serviceController = serviceController,
+        ).also {
+            it.recordingTimerDispatcher = StandardTestDispatcher(scheduler)
+        }
+    return RecordingSessionFixture(
+        session = session,
+        voiceRecordingRepository = voiceRecordingRepository,
+        serviceController = serviceController,
+    )
+}
+
 private class FakeVoiceRecordingRepository : VoiceRecordingRepository {
     var startException: Throwable? = null
+    var stopException: Throwable? = null
+    var awaitStartCompletion: CompletableDeferred<Unit>? = null
+    var startCallCount = 0
+        private set
 
     override suspend fun start(outputLocation: StorageLocation) {
+        startCallCount += 1
+        awaitStartCompletion?.await()
         startException?.let { throw it }
     }
 
-    override suspend fun stop() {}
+    override suspend fun stop() {
+        stopException?.let { throw it }
+    }
 
     override fun getAmplitude(): Int = 0
 }

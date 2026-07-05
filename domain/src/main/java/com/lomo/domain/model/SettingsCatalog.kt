@@ -33,6 +33,7 @@ enum class AppPreferenceSnapshotField {
     DOUBLE_TAP_EDIT_ENABLED,
     FREE_TEXT_COPY_ENABLED,
     MEMO_ACTION_AUTO_REORDER_ENABLED,
+    AUTO_OPEN_INPUT_ON_FOREGROUND,
     MEMO_ACTION_ORDER,
     MEMO_ACTION_ORDERS_BY_SCOPE,
     INPUT_TOOLBAR_TOOL_ORDER,
@@ -254,6 +255,13 @@ object SettingsCatalog {
                 facet = SettingsFacet.EDITOR,
                 snapshotField = AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED,
             ),
+            bool(
+                id = "editor.autoOpenInputOnForeground",
+                storageKey = "auto_open_input_on_foreground",
+                defaultValue = PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND,
+                facet = SettingsFacet.EDITOR,
+                snapshotField = AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND,
+            ),
             text(
                 id = "editor.memoActionOrder",
                 storageKey = "memo_action_order",
@@ -377,6 +385,8 @@ object SettingsCatalog {
             freeTextCopyEnabled = valuesByField.requireBool(fields, AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED),
             memoActionAutoReorderEnabled =
                 valuesByField.requireBool(fields, AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED),
+            autoOpenInputOnForeground =
+                valuesByField.requireBool(fields, AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND),
             memoActionOrder =
                 PreferenceValueCodecs.decodeMemoActionOrder(
                     valuesByField.requireText(fields, AppPreferenceSnapshotField.MEMO_ACTION_ORDER),

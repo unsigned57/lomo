@@ -38,6 +38,8 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 fun LomoAppRoot(
     shareServiceManager: LanShareService,
     modifier: Modifier = Modifier,
+    foregroundEntryId: Long = 0L,
+    suppressForegroundAutoInput: Boolean = false,
     appUpdateViewModel: AppUpdateViewModel = injectedHiltViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
@@ -64,7 +66,11 @@ fun LomoAppRoot(
         color = MaterialTheme.colorScheme.background,
     ) {
         val navController = rememberNavController()
-        LomoNavHost(navController = navController)
+        LomoNavHost(
+            navController = navController,
+            foregroundEntryId = foregroundEntryId,
+            suppressForegroundAutoInput = suppressForegroundAutoInput,
+        )
 
         val incomingShare by shareServiceManager.incomingShare.collectAsStateWithLifecycle()
         IncomingShareDialog(

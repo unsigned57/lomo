@@ -164,6 +164,13 @@ class InteractionBehaviorPreferencesRepositoryImpl
         override suspend fun setScrollbarEnabled(enabled: Boolean) {
             dataStore.updateScrollbarEnabled(enabled)
         }
+
+        override fun isAutoOpenInputOnForegroundEnabled(): Flow<Boolean> =
+            dataStore.autoOpenInputOnForeground
+
+        override suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean) {
+            dataStore.updateAutoOpenInputOnForeground(enabled)
+        }
     }
 
 @Singleton

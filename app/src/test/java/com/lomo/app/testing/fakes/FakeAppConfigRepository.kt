@@ -50,6 +50,7 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
 
     private val quickSaveOnBack = MutableStateFlow(PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
     private val scrollbarEnabled = MutableStateFlow(PreferenceDefaults.SCROLLBAR_ENABLED)
+    private val autoOpenInputOnForeground = MutableStateFlow(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
 
     private val memoActionAutoReorder = MutableStateFlow(PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED)
     private val memoActionOrders = MutableStateFlow<Map<String, List<String>>>(emptyMap())
@@ -116,6 +117,7 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
                 doubleTapEditEnabled = editor.doubleTapEditEnabled,
                 freeTextCopyEnabled = editor.freeTextCopyEnabled,
                 memoActionAutoReorderEnabled = editor.memoActionAutoReorderEnabled,
+                autoOpenInputOnForeground = editor.autoOpenInputOnForeground,
                 memoActionOrder =
                     editor.memoActionOrdersByScope[
                         MemoActionPreferencesRepository.DEFAULT_MEMO_ACTION_ORDER_SCOPE,
@@ -169,9 +171,8 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
             observeEditorToggleSnapshot(),
             memoActionOrders,
             inputToolbarToolOrder,
-            quickSaveOnBack,
-            scrollbarEnabled,
-        ) { toggles, memoActionOrders, inputToolbarToolOrder, quickSaveOnBack, scrollbarEnabled ->
+            observeEditorBehaviorSnapshot(),
+        ) { toggles, memoActionOrders, inputToolbarToolOrder, behavior ->
             FakeEditorSnapshot(
                 hapticFeedbackEnabled = toggles.hapticFeedbackEnabled,
                 showInputHints = toggles.showInputHints,
@@ -180,8 +181,9 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
                 memoActionAutoReorderEnabled = toggles.memoActionAutoReorderEnabled,
                 memoActionOrdersByScope = memoActionOrders,
                 inputToolbarToolOrder = inputToolbarToolOrder,
-                quickSaveOnBackEnabled = quickSaveOnBack,
-                scrollbarEnabled = scrollbarEnabled,
+                quickSaveOnBackEnabled = behavior.quickSaveOnBackEnabled,
+                scrollbarEnabled = behavior.scrollbarEnabled,
+                autoOpenInputOnForeground = behavior.autoOpenInputOnForeground,
             )
         }
 
@@ -199,6 +201,19 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
                 doubleTapEditEnabled = doubleTapEdit,
                 freeTextCopyEnabled = freeTextCopy,
                 memoActionAutoReorderEnabled = memoActionAutoReorder,
+            )
+        }
+
+    private fun observeEditorBehaviorSnapshot(): Flow<FakeEditorBehaviorSnapshot> =
+        combine(
+            quickSaveOnBack,
+            scrollbarEnabled,
+            autoOpenInputOnForeground,
+        ) { quickSaveOnBack, scrollbarEnabled, autoOpenInputOnForeground ->
+            FakeEditorBehaviorSnapshot(
+                quickSaveOnBackEnabled = quickSaveOnBack,
+                scrollbarEnabled = scrollbarEnabled,
+                autoOpenInputOnForeground = autoOpenInputOnForeground,
             )
         }
 
@@ -341,6 +356,13 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
         scrollbarEnabled.value = enabled
     }
 
+    override fun isAutoOpenInputOnForegroundEnabled(): Flow<Boolean> =
+        autoOpenInputOnForeground.asStateFlow()
+
+    override suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean) {
+        autoOpenInputOnForeground.value = enabled
+    }
+
     override fun isMemoActionAutoReorderEnabled(): Flow<Boolean> = memoActionAutoReorder.asStateFlow()
 
     override suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean) {
@@ -465,6 +487,12 @@ private data class FakeEditorToggleSnapshot(
     val memoActionAutoReorderEnabled: Boolean,
 )
 
+private data class FakeEditorBehaviorSnapshot(
+    val quickSaveOnBackEnabled: Boolean,
+    val scrollbarEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
+)
+
 private data class FakeEditorSnapshot(
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
@@ -475,6 +503,7 @@ private data class FakeEditorSnapshot(
     val inputToolbarToolOrder: List<String>,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
 )
 
 private data class FakeShareSnapshot(

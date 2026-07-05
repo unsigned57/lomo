@@ -268,6 +268,13 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
         )
 
+    override val autoOpenInputOnForeground: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.AUTO_OPEN_INPUT_ON_FOREGROUND,
+            flowName = "autoOpenInputOnForeground",
+            default = PreferenceKeys.Defaults.AUTO_OPEN_INPUT_ON_FOREGROUND,
+        )
+
     override val memoActionOrder: Flow<String> =
         dataStore.stringFlow(
             key = LomoDataStoreKeys.MEMO_ACTION_ORDER,
@@ -321,6 +328,10 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED] = enabled }
+    }
+
+    override suspend fun updateAutoOpenInputOnForeground(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.AUTO_OPEN_INPUT_ON_FOREGROUND] = enabled }
     }
 
     override suspend fun updateMemoActionOrder(order: String) {

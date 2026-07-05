@@ -2,6 +2,7 @@ package com.lomo.app.navigation
 
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -9,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
@@ -34,6 +36,10 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
+private val MAIN_ROUTE_NAME =
+    checkNotNull(NavRoute.Main::class.qualifiedName) {
+        "NavRoute.Main must have a qualified route name"
+    }
 
 /**
  * Main navigation host for the Memos app.
@@ -42,9 +48,15 @@ private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
 @Composable
 fun LomoNavHost(
     navController: NavHostController,
+    foregroundEntryId: Long = 0L,
+    suppressForegroundAutoInput: Boolean = false,
 ) {
     val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityHiltViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
+    var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
+    var evaluatedForegroundEntryId by remember { mutableLongStateOf(0L) }
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
     val navigateToShare =
         rememberShareNavigationAction(
@@ -53,12 +65,27 @@ fun LomoNavHost(
         )
     val navigateToImage = rememberImageNavigationAction(navController = navController)
 
+    LaunchedEffect(foregroundEntryId, currentRoute, suppressForegroundAutoInput) {
+        val nextState =
+            MainForegroundEntryRoutingPolicy.resolve(
+                foregroundEntryId = foregroundEntryId,
+                evaluatedForegroundEntryId = evaluatedForegroundEntryId,
+                currentMainForegroundEntryId = mainForegroundEntryId,
+                currentRoute = currentRoute,
+                mainRouteName = MAIN_ROUTE_NAME,
+                suppressForegroundAutoInput = suppressForegroundAutoInput,
+            )
+        evaluatedForegroundEntryId = nextState.evaluatedForegroundEntryId
+        mainForegroundEntryId = nextState.mainForegroundEntryId
+    }
+
     LomoNavigationGraph(
         navController = navController,
         popBackStackSafely = popBackStackSafely,
         navigateToShare = navigateToShare,
         navigateToImage = navigateToImage,
         lanShareEnabled = lanShareEnabled,
+        mainForegroundEntryId = mainForegroundEntryId,
     )
 }
 
@@ -130,6 +157,7 @@ private fun LomoNavigationGraph(
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
     lanShareEnabled: Boolean,
+    mainForegroundEntryId: Long,
 ) {
     NavHost(
         navController = navController,
@@ -145,6 +173,7 @@ private fun LomoNavigationGraph(
             navigateToShare = navigateToShare,
             navigateToImage = navigateToImage,
             lanShareEnabled = lanShareEnabled,
+            mainForegroundEntryId = mainForegroundEntryId,
         )
         addNonSharedDestinations(
             navController = navController,
@@ -168,6 +197,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
     lanShareEnabled: Boolean,
+    mainForegroundEntryId: Long,
 ) {
     composable<NavRoute.Main> {
         // No SharedTransitionLayout: it creates a LookaheadScope around the whole feed, and any
@@ -186,6 +216,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
             onNavigateToShare = navigateToShare,
             lanShareEnabled = lanShareEnabled,
+            foregroundEntryId = mainForegroundEntryId,
         )
     }
 

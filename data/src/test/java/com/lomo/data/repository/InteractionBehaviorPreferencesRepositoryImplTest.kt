@@ -1,44 +1,35 @@
 package com.lomo.data.repository
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
-import java.io.File
 import java.nio.file.Files
-import kotlinx.coroutines.CoroutineScope
 
 /*
  * Behavior Contract:
  * - Unit under test: InteractionBehaviorPreferencesRepositoryImpl.
- * - Behavior focus: behavioral interaction preference flow exposure and datastore mutation
- *   delegation. The secure-wipe-before-delete preference is intentionally not part of this
- *   surface anymore — it was internalized as a non-configurable application behavior.
- * - Observable outcomes: emitted booleans for quick-save and scrollbar flags and the
- *   corresponding update* datastore calls.
- * - TDD proof: green — regression coverage maintained while the interface shrank with the
- *   secure-wipe internalization.
+ * - Owning layer: data
+ * - Priority tier: P1
+ * - Capability: exposes behavioral interaction preferences from DataStore and persists updates
+ *   through the repository contract.
+ *
+ * Scenarios:
+ * - Given DataStore has quick-save, scrollbar, and foreground auto-input values, when repository
+ *   flows are read, then each emitted value matches storage.
+ * - Given repository setters update quick-save, scrollbar, and foreground auto-input, when
+ *   DataStore flows are read, then each stored value reflects the repository command.
+ *
+ * Observable outcomes:
+ * - emitted booleans from repository flows and persisted booleans from DataStore flows.
+ *
+ * TDD proof:
+ * - RED: before foreground auto-input was modeled on InteractionBehaviorPreferencesRepository,
+ *   the new flow and setter assertions could not compile.
+ *
  * - Excludes: DataStore serialization behavior and higher-level settings aggregation.
  */
 class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
@@ -48,9 +39,11 @@ class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
                 val (dataStore, repository) = setUpTest()
                 dataStore.updateQuickSaveOnBackEnabled(true)
                 dataStore.updateScrollbarEnabled(false)
+                dataStore.updateAutoOpenInputOnForeground(true)
 
                 repository.isQuickSaveOnBackEnabled().first() shouldBe true
                 repository.isScrollbarEnabled().first() shouldBe false
+                repository.isAutoOpenInputOnForegroundEnabled().first() shouldBe true
             }
         }
 
@@ -60,9 +53,11 @@ class InteractionBehaviorPreferencesRepositoryImplTest : DataFunSpec() {
 
                 repository.setQuickSaveOnBackEnabled(true)
                 repository.setScrollbarEnabled(false)
+                repository.setAutoOpenInputOnForegroundEnabled(true)
 
                 dataStore.quickSaveOnBackEnabled.first() shouldBe true
                 dataStore.scrollbarEnabled.first() shouldBe false
+                dataStore.autoOpenInputOnForeground.first() shouldBe true
             }
         }
     }

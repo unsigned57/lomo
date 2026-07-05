@@ -92,6 +92,7 @@ internal fun collectMainScreenUiSnapshot(
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        autoOpenInputOnForeground = appPreferences.autoOpenInputOnForeground,
         memoActionOrder = appPreferences.memoActionOrder,
         inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
