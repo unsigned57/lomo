@@ -151,6 +151,11 @@ class SettingsAppConfigCoordinator(
             .isScrollbarEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
 
+    val autoOpenInputOnForeground: StateFlow<Boolean> =
+        appConfigRepository
+            .isAutoOpenInputOnForegroundEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
+
     val appLockEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isAppLockEnabled()
@@ -340,6 +345,9 @@ class SettingsAppConfigCoordinator(
 
     val updateScrollbarEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setScrollbarEnabled(enabled) }
+
+    val updateAutoOpenInputOnForeground: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setAutoOpenInputOnForegroundEnabled(enabled) }
 
     val updateAppLockEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setAppLockEnabled(enabled) }

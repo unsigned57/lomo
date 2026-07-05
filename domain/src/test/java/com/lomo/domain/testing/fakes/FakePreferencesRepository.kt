@@ -1,8 +1,9 @@
 package com.lomo.domain.testing.fakes
 
-import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
@@ -26,6 +27,7 @@ class FakePreferencesRepository : PreferencesRepository {
     private val freeTextCopyEnabled = MutableStateFlow(false)
     private val quickSaveOnBackEnabled = MutableStateFlow(true)
     private val scrollbarEnabled = MutableStateFlow(true)
+    private val autoOpenInputOnForeground = MutableStateFlow(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
     private val memoActionAutoReorderEnabled = MutableStateFlow(false)
     private val memoActionOrders = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     private val inputToolbarToolOrder = MutableStateFlow<List<String>>(emptyList())
@@ -145,6 +147,12 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setScrollbarEnabled(enabled: Boolean) {
         scrollbarEnabled.value = enabled
+    }
+
+    override fun isAutoOpenInputOnForegroundEnabled(): Flow<Boolean> = autoOpenInputOnForeground.asStateFlow()
+
+    override suspend fun setAutoOpenInputOnForegroundEnabled(enabled: Boolean) {
+        autoOpenInputOnForeground.value = enabled
     }
 
     override fun isMemoActionAutoReorderEnabled(): Flow<Boolean> = memoActionAutoReorderEnabled.asStateFlow()

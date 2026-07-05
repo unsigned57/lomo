@@ -68,6 +68,8 @@ class SettingsCatalogTest : FunSpec({
             SettingValue.Text(PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS)
         descriptorsByField.getValue(AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED).defaultValue shouldBe
             SettingValue.Bool(PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED)
+        descriptorsByField.getValue(AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND).defaultValue shouldBe
+            SettingValue.Bool(PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
         descriptorsByField.getValue(AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE).defaultValue shouldBe
             SettingValue.Decimal(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
 

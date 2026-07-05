@@ -108,6 +108,7 @@ interface LomoInteractionPreferencesStore {
     val doubleTapEditEnabled: Flow<Boolean>
     val freeTextCopyEnabled: Flow<Boolean>
     val memoActionAutoReorderEnabled: Flow<Boolean>
+    val autoOpenInputOnForeground: Flow<Boolean>
     val memoActionOrder: Flow<String>
     val memoActionOrdersByScope: Flow<String>
     val inputToolbarToolOrder: Flow<String>
@@ -123,6 +124,8 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateFreeTextCopyEnabled(enabled: Boolean)
 
     suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
+
+    suspend fun updateAutoOpenInputOnForeground(enabled: Boolean)
 
     suspend fun updateMemoActionOrder(order: String)
 
@@ -542,6 +545,7 @@ internal object LomoDataStoreKeys {
     val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
     val MEMO_ACTION_AUTO_REORDER_ENABLED =
         booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
+    val AUTO_OPEN_INPUT_ON_FOREGROUND = booleanPreferencesKey(PreferenceKeys.AUTO_OPEN_INPUT_ON_FOREGROUND)
     val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
     val MEMO_ACTION_ORDERS_BY_SCOPE = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDERS_BY_SCOPE)
     val INPUT_TOOLBAR_TOOL_ORDER = stringPreferencesKey(PreferenceKeys.INPUT_TOOLBAR_TOOL_ORDER)

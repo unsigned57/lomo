@@ -30,10 +30,9 @@ class RecordingViewModel
             viewModelScope.launch { recordingSessionUseCase.startRecording() }
         }
 
-        fun stopRecording(onResult: (String) -> Unit) {
+        fun stopRecording(onResult: (String?) -> Unit) {
             viewModelScope.launch {
-                val markdown = recordingSessionUseCase.stopRecording()
-                if (!markdown.isNullOrBlank()) onResult(markdown)
+                onResult(recordingSessionUseCase.stopRecording()?.takeIf(String::isNotBlank))
             }
         }
 

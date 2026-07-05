@@ -43,6 +43,7 @@ class SettingsStateProvider(
     private data class InteractionSecondaryState(
         val quickSaveOnBackEnabled: Boolean,
         val scrollbarEnabled: Boolean,
+        val autoOpenInputOnForeground: Boolean,
     )
 
     private data class PrimaryUiSections(
@@ -424,8 +425,9 @@ class SettingsStateProvider(
             combine(
                 appConfigCoordinator.quickSaveOnBackEnabled,
                 appConfigCoordinator.scrollbarEnabled,
-            ) { quickSave, scrollbar ->
-                InteractionSecondaryState(quickSave, scrollbar)
+                appConfigCoordinator.autoOpenInputOnForeground,
+            ) { quickSave, scrollbar, autoOpenInputOnForeground ->
+                InteractionSecondaryState(quickSave, scrollbar, autoOpenInputOnForeground)
             },
         ) {
                 primary,
@@ -443,6 +445,7 @@ class SettingsStateProvider(
                 appLockEnabled = appLockEnabled,
                 quickSaveOnBackEnabled = secondary.quickSaveOnBackEnabled,
                 scrollbarEnabled = secondary.scrollbarEnabled,
+                autoOpenInputOnForeground = secondary.autoOpenInputOnForeground,
             )
         }.stateIn(
             scope = scope,
@@ -457,6 +460,7 @@ class SettingsStateProvider(
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
                     scrollbarEnabled = appConfigCoordinator.scrollbarEnabled.value,
+                    autoOpenInputOnForeground = appConfigCoordinator.autoOpenInputOnForeground.value,
                 ),
         )
 

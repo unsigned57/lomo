@@ -29,17 +29,13 @@ class AudioRecorder
                 if (isRecording) {
                     stop()
                 }
-                val targetUri = outputLocation.raw.toUri()
-
                 val mediaRecorder = createRecorder()
-                runCatching {
+                try {
                     mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                     mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                     mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
 
-                    val openedDescriptor =
-                        context.contentResolver.openFileDescriptor(targetUri, "w")
-                            ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
+                    val openedDescriptor = openOutputFileDescriptor(outputLocation)
                     outputFileDescriptor = openedDescriptor
                     mediaRecorder.setOutputFile(openedDescriptor.fileDescriptor)
 
@@ -47,28 +43,34 @@ class AudioRecorder
                     mediaRecorder.start()
                     recorder = mediaRecorder
                     isRecording = true
+                } catch (cancellation: CancellationException) {
+                    releaseRecorder(mediaRecorder, "Failed to release recorder after start cancellation")
+                    closeOutputFileDescriptor()
+                    throw cancellation
+                } catch (error: Exception) {
+                    Timber.tag(TAG).e(error, "Failed to start recording")
+                    releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
+                    closeOutputFileDescriptor()
+                    throw error
                 }
-                    .onFailure { error ->
-                        if (error is CancellationException) throw error
-                        Timber.tag(TAG).e(error, "Failed to start recording")
-                        releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
-                        closeOutputFileDescriptor()
-                    }
             }
         }
 
         override suspend fun stop() {
             withContext(Dispatchers.IO) {
                 if (!isRecording) return@withContext
-
-                runCatching {
-                    recorder?.stop()
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    Timber.tag(TAG).e(error, "Failed to stop recording")
-                }.also {
+                val activeRecorder = requireActiveRecorder()
+                try {
+                    activeRecorder.stop()
+                } catch (cancellation: CancellationException) {
                     release()
+                    throw cancellation
+                } catch (error: Exception) {
+                    Timber.tag(TAG).e(error, "Failed to stop recording")
+                    release()
+                    throw error
                 }
+                release()
             }
         }
 
@@ -97,6 +99,18 @@ class AudioRecorder
             } else {
                 MediaRecorder::class.java.getDeclaredConstructor().newInstance()
             }
+
+        private fun openOutputFileDescriptor(outputLocation: StorageLocation): ParcelFileDescriptor {
+            val targetUri = outputLocation.raw.toUri()
+            return context.contentResolver.openFileDescriptor(targetUri, "w")
+                ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
+        }
+
+        private fun requireActiveRecorder(): MediaRecorder =
+            recorder
+                ?: error(
+                    "Recording state requires an active MediaRecorder.",
+                )
 
         private fun release() {
             runCatching {

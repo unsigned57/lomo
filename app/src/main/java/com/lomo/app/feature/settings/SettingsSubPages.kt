@@ -364,6 +364,7 @@ internal fun InteractionSecuritySettingsPage(
                 onToggleMemoActionAutoReorder = features.interaction::updateMemoActionAutoReorderEnabled,
                 onToggleQuickSaveOnBack = features.interaction::updateQuickSaveOnBackEnabled,
                 onToggleScrollbar = features.interaction::updateScrollbarEnabled,
+                onToggleAutoOpenInputOnForeground = features.interaction::updateAutoOpenInputOnForeground,
             )
         }
     }

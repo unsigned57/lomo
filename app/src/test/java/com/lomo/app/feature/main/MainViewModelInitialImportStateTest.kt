@@ -10,6 +10,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeAppVersionRepository
 import com.lomo.app.testing.fakes.FakeAppWidgetRepository
 import com.lomo.app.testing.fakes.FakeAudioPlayerManager
+import com.lomo.app.testing.fakes.FakeExternalAppCommandStore
 import com.lomo.app.testing.fakes.FakeGitSyncRepository
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoVersionRepository
@@ -387,6 +388,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             markReminderDoneUseCase =
                 MarkReminderDoneUseCase(com.lomo.app.testing.fakes.FakeReminderCoordinator()),
             dispatcherProvider = dispatcherProvider,
+            externalAppCommandStore = FakeExternalAppCommandStore(),
         )
 
     private fun mainMemoListQueryUseCase(): MainMemoListQueryUseCase {

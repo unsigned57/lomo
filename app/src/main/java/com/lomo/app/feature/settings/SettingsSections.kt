@@ -10,6 +10,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.HorizontalDivider
@@ -191,6 +192,7 @@ fun InteractionSettingsSection(
     onToggleMemoActionAutoReorder: (Boolean) -> Unit,
     onToggleQuickSaveOnBack: (Boolean) -> Unit,
     onToggleScrollbar: (Boolean) -> Unit,
+    onToggleAutoOpenInputOnForeground: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
         SwitchPreferenceItem(
@@ -231,6 +233,14 @@ fun InteractionSettingsSection(
             icon = Icons.Outlined.Info,
             checked = state.quickSaveOnBackEnabled,
             onCheckedChange = onToggleQuickSaveOnBack,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_auto_open_input_on_foreground),
+            subtitle = stringResource(R.string.settings_auto_open_input_on_foreground_subtitle),
+            icon = Icons.Outlined.Keyboard,
+            checked = state.autoOpenInputOnForeground,
+            onCheckedChange = onToggleAutoOpenInputOnForeground,
         )
         SettingsDivider()
         SwitchPreferenceItem(

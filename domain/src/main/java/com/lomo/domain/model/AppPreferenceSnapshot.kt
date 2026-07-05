@@ -12,6 +12,7 @@ data class AppPreferenceSnapshot(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
+    val autoOpenInputOnForeground: Boolean,
     val memoActionOrder: List<String>,
     val memoActionOrdersByScope: Map<String, List<String>>,
     val inputToolbarToolOrder: List<String>,

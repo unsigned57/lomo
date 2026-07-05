@@ -2,43 +2,54 @@
 
 This is the AI-first entrypoint for the repository. Read it first, route to the smallest useful next document, and stop descending once the current layer is sufficient.
 
-## 0. Systemic Fix Mandate
+## 0. First-Principles Fix Mandate
 
-The default fix is a systemic fix: change the owning model, abstraction, boundary, policy, or workflow so the whole class of failure becomes impossible or centrally handled.
+The default fix is a first-principles fix: decompose the failure to its fundamental invariants, then rebuild the solution from those truths upward.
 
-Do not start from the smallest code edit. Start from the durable design.
+Do not start from the smallest code edit. Do not start from design patterns or precedent. Start from the axioms — the irreducible constraints, types, and invariants the system must satisfy.
 
-Patch-style fixes are rejected by default:
+### Decomposition protocol
 
-- no one-off conditionals for a symptom
-- no defensive fallback that hides a broken contract
-- no duplicate helper or local utility when a shared concept is missing
-- no compatibility parameter to avoid updating callers
+Before any production code change, decompose:
+
+1. **First truth** — What fundamental invariant, type law, domain constraint, or resource property must hold? (e.g. "balance must never be negative", "the ID exists before any reference", "write order to the log is append-only")
+2. **Violation** — Which code path allowed the invariant to be false? Identify at the axiom level, not the symptom level.
+3. **Rebuild** — Encode the invariant so that the violation becomes structurally impossible (types, state machines, parsers, canonical workflows, permission boundaries).
+
+### Rejected by default
+
+Any change that compensates for a broken axiom instead of restoring it:
+
+- no one-off conditionals that paper over an invariant gap
+- no defensive fallback that swallows an axiom violation
+- no duplicate helper or local utility when a fundamental property is unmodeled
+- no compatibility parameter or optional argument added to avoid correcting callers
 - no deprecated old path, feature flag, TODO migration, or parallel implementation
-- no `NoOp`, `Disabled`, or `Empty` placeholder for unfinished architecture
-- no `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` to silence design/static failures
+- no `NoOp`, `Disabled`, `Empty`, or sentinel placeholder for an undefined state
+- no `@Suppress`, `@SuppressLint`, `@SuppressWarnings` that silence a structural failure
+- no pattern copied from existing code unless the pattern itself was derived from first principles
 
-If the correct fix requires an abstraction, contract, policy, parser, state model, repository boundary, static rule, or canonical workflow, build that instead of patching the caller.
+If the fix requires a new type, a stricter state machine, a parser that rejects invalid input at the boundary, or a policy layer that enforces the axiom centrally, build that. Do not patch around the gap.
 
-## 1. Systemic Design Gate
+## 1. First-Principles Design Gate
 
 Before any non-trivial bug fix, refactor, architecture change, or behavior change, state and satisfy this gate:
 
-1. **Problem class**: What class of failures does this represent, beyond the observed symptom?
-2. **Owning concept**: Which model, contract, use case, repository boundary, UI state model, parser/formatter, planner, policy object, or static rule should own the behavior?
-3. **Global fix**: What design change makes the behavior ordinary, centralized, or impossible to misuse?
-4. **Enforcement**: How will types, interfaces, tests, static checks, or one canonical path prevent recurrence?
-5. **Tail deletion**: Which old APIs, duplicate helpers, fallback branches, feature flags, TODOs, DI bindings, tests, and resources must be removed in the same change?
+1. **Fundamental invariant**: What is the simplest irreducible truth the system relies on? State it as a type law, a state transition rule, or an algebraic property.
+2. **Axiom violation**: Exactly which code path let the invariant become false? Trace to the input, boundary, or missing type — not to the observed symptom.
+3. **Rebuild from truth**: What type, parser, state machine, permission boundary, or canonical workflow makes the violation structurally impossible?
+4. **Enforcement at the edge**: How does the system reject invalid state at the furthest boundary — before it reaches any domain logic?
+5. **Tail deletion**: Which old code, fallback branches, feature flags, workarounds, duplicate validations, and null-vs-empty ambiguities relied on the missing axiom and must be removed in the same change?
 
-If these cannot be answered, do not edit code. Investigate until the systemic fix is clear.
+If these cannot be answered, do not edit code. Investigate until the violated first principle is clear.
 
-Scope search is evidence for the design gate, not the goal. The point is not merely to find similar lines; the point is to identify the missing system concept and fix it once at the correct owner.
+Scope search is evidence for the design gate, not the goal. The point is to find the missing fundamental invariant and encode it once at the correct boundary.
 
 ## 2. Patch Exception
 
 A local patch is allowed only for mechanical non-behavioral edits, or when the user explicitly asks for an emergency hotfix.
 
-When applying an emergency hotfix, label it as temporary in the response and state the systemic fix that should replace it. Do not use emergency hotfix logic as precedent for normal work.
+When applying an emergency hotfix, label it as temporary in the response and state the first-principles fix that should replace it. Do not use emergency hotfix logic as precedent for normal work.
 
 ## 3. Architecture Gate
 
@@ -48,11 +59,11 @@ Before any architecture-sensitive change:
 
 1. Read `ARCHITECTURE.md`.
 2. Identify the owning layer and boundary being changed.
-3. Apply the systemic fix at the owning layer, not at the caller.
+3. Apply the first-principles fix at the owning layer, not at the caller.
 4. Do not treat existing architecture violations as precedent.
 5. Include an `Architecture Impact` note naming the owning layer, boundary effect, and any exception.
 
-If the systemic fix changes module ownership, dependency direction, or change routing, update `ARCHITECTURE.md` in the same change.
+If the first-principles fix changes module ownership, dependency direction, or change routing, update `ARCHITECTURE.md` in the same change.
 
 ## 4. Contracts, Fallbacks, And Migration Tails
 
@@ -66,7 +77,7 @@ If the systemic fix changes module ownership, dependency direction, or change ro
 
 Read in this order only when the task needs the next layer:
 
-1. `AGENTS.md`: workflow, systemic-fix rules, and architecture gate.
+1. `AGENTS.md`: workflow, first-principles fix rules, and architecture gate.
 2. `ARCHITECTURE.md`: stable module responsibilities, dependency direction, and change routing.
 3. `quality/README.md`: verification commands, quality scripts, and static check policy.
 4. `quality/testing/ai-meaningful-tests.md`: mandatory before writing, editing, or reviewing tests.
@@ -79,7 +90,7 @@ Verify concrete paths, files, and APIs against the repository before acting. Mod
 - Use BDD + TDD for feature work, bug fixes, contract changes, and behavior-affecting test edits.
 - State the behavior contract first: capability, Given/When/Then scenarios, observable outcomes, and exclusions.
 - Write or update the failing test before production code, run the targeted test or `quality/scripts/ai_static_quality_check.sh`, and observe a real RED failure for that behavior.
-- Implement the systemic fix needed to reach GREEN, then refactor under GREEN.
+- Implement the first-principles fix needed to reach GREEN, then refactor under GREEN.
 - Kotlin tests must follow `quality/testing/ai-kotlin-test-style.md`: single `FunSpec({ ... })` or single `init { ... }`, fake-first stateful collaborators, and no interaction-only tests without observable behavior.
 
 ## 7. Verification
