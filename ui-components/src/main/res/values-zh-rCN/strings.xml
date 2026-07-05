@@ -27,6 +27,10 @@
     <plurals name="calendar_heatmap_memo_count">
         <item quantity="other">%1$d 条备忘录</item>
     </plurals>
+    <plurals name="period_report_memo_count">
+        <item quantity="other">%1$d 条备忘录</item>
+    </plurals>
+    <string name="period_report_daily_average">平均每天 %1$.1f 条</string>
 
     <!-- Memo Sheet -->
     <string name="action_copy">复制</string>

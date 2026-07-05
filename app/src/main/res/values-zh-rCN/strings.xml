@@ -78,11 +78,22 @@
     <string name="settings_color_preset_sand">细沙</string>
     <string name="settings_color_history_section">最近使用的颜色</string>
     <string name="settings_color_picker_hex">16 进制颜色代码</string>
+    <string name="settings_color_picker_hex_placeholder">#RRGGBB</string>
+    <string name="settings_color_preview_avatar_initial">L</string>
+    <string name="settings_color_preview_source">Lomo 灵感</string>
+    <string name="settings_color_preview_time">10 分钟前</string>
+    <string name="settings_color_preview_tag">设计</string>
+    <plurals name="settings_color_preview_word_count">
+        <item quantity="other">%1$d 字</item>
+    </plurals>
+    <string name="settings_color_preview_edited_time">2 小时前编辑</string>
     <string name="settings_color_preview_note_title">夏至灵感</string>
     <string name="settings_color_preview_note_body">阳光温热，微风不燥。在 Lomo 中记录下每一个转瞬即逝的灵感。</string>
     <string name="settings_font">字体</string>
     <string name="settings_font_preview_title">预览</string>
     <string name="settings_font_preview_sample">敏捷的棕色狐狸跃过懒狗。The quick brown fox.</string>
+    <string name="settings_font_preview_alphabet_sample">A B C D E F G H I J K L M N O P Q R S T U V W X Y Z 1 2 3 4 5 6 7 8 9 0</string>
+    <string name="settings_font_preview_glyph_sample">Aa</string>
     <string name="settings_font_system_default">系统默认字体</string>
     <string name="settings_font_system_default_subtitle">Android 12+ 自带可变字体</string>
     <string name="settings_font_import_action">导入字体（.ttf / .otf）</string>
@@ -145,6 +156,8 @@
     <string name="settings_menu_auto_reorder_subtitle">根据长期使用热度逐步把常用备忘录菜单磁贴移动到前面</string>
     <string name="settings_quick_save_on_back">返回快速保存</string>
     <string name="settings_quick_save_on_back_subtitle">新建备忘录时按返回键自动保存，而非显示丢弃确认对话框</string>
+    <string name="settings_auto_open_input_on_foreground">回到前台自动打开输入框</string>
+    <string name="settings_auto_open_input_on_foreground_subtitle">在主屏回到前台时自动打开输入框并弹出键盘</string>
     <string name="settings_scrollbar">显示滚动条</string>
     <string name="settings_scrollbar_subtitle">在主列表上显示可拖拽的滚动条</string>
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
@@ -221,6 +234,7 @@
     <string name="widget_preview_placeholder">最近的备忘录会显示在这里…</string>
     <string name="tile_new_memo_label">新建备忘录</string>
     <string name="tile_start_recording_label">开始录音</string>
+    <string name="tile_stop_recording_label">停止录音</string>
     <string name="shortcut_new_memo_short_label">新建备忘录</string>
     <string name="shortcut_new_memo_long_label">创建一条新备忘录</string>
     <string name="shortcut_start_recording_short_label">开始录音</string>

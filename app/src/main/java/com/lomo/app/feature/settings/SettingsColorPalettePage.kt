@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -51,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,6 +73,7 @@ private const val SATURATION_MAX = 1f
 private const val LIGHTNESS_MAX = 1f
 private const val SEED_PREVIEW_SWATCH_DP = 56
 private const val DEFAULT_CUSTOM_SEED_ARGB: Int = 0xFF4F63D6.toInt()
+private const val COLOR_PREVIEW_WORD_COUNT = 284
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -234,19 +238,14 @@ private fun MockNotePreviewCard(
     Surface(
         shape = MaterialTheme.shapes.large,
         color = colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = colorScheme.outlineVariant
-        ),
+        border = BorderStroke(width = 1.dp, color = colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            // Header Row
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Avatar Circle mockup
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -255,7 +254,7 @@ private fun MockNotePreviewCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "L",
+                        text = stringResource(R.string.settings_color_preview_avatar_initial),
                         style = MaterialTheme.typography.titleMedium,
                         color = colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold
@@ -264,18 +263,17 @@ private fun MockNotePreviewCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Lomo Inspiration",
+                        text = stringResource(R.string.settings_color_preview_source),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.onSurface,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "10 minutes ago",
+                        text = stringResource(R.string.settings_color_preview_time),
                         style = MaterialTheme.typography.labelSmall,
                         color = colorScheme.onSurfaceVariant
                     )
                 }
-                // Tag Badge mockup
                 Surface(
                     shape = CircleShape,
                     color = colorScheme.secondaryContainer,
@@ -286,7 +284,7 @@ private fun MockNotePreviewCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Design",
+                            text = stringResource(R.string.settings_color_preview_tag),
                             style = MaterialTheme.typography.labelSmall,
                             color = colorScheme.onSecondaryContainer,
                             fontWeight = FontWeight.Bold
@@ -295,7 +293,6 @@ private fun MockNotePreviewCard(
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-            // Title mockup
             Text(
                 text = stringResource(R.string.settings_color_preview_note_title),
                 style = MaterialTheme.typography.titleMedium,
@@ -303,7 +300,6 @@ private fun MockNotePreviewCard(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
-            // Body text mockup
             Text(
                 text = stringResource(R.string.settings_color_preview_note_body),
                 style = MaterialTheme.typography.bodyMedium,
@@ -311,25 +307,25 @@ private fun MockNotePreviewCard(
                 lineHeight = 22.sp
             )
             Spacer(modifier = Modifier.height(16.dp))
-            // Subtle Divider
-            androidx.compose.material3.HorizontalDivider(
-                color = colorScheme.outlineVariant.copy(alpha = 0.5f),
-                thickness = 0.5.dp
-            )
+            HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f), thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(12.dp))
-            // Footer Row
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "284 words",
+                    text =
+                        pluralStringResource(
+                            R.plurals.settings_color_preview_word_count,
+                            COLOR_PREVIEW_WORD_COUNT,
+                            COLOR_PREVIEW_WORD_COUNT,
+                        ),
                     style = MaterialTheme.typography.labelSmall,
                     color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
                 Text(
-                    text = "Edited 2h ago",
+                    text = stringResource(R.string.settings_color_preview_edited_time),
                     style = MaterialTheme.typography.labelSmall,
                     color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -554,7 +550,7 @@ private fun CustomSeedHexInput(
         value = hexInput,
         onValueChange = onHexInputChanged,
         label = { Text(stringResource(R.string.settings_color_picker_hex)) },
-        placeholder = { Text("#RRGGBB") },
+        placeholder = { Text(stringResource(R.string.settings_color_picker_hex_placeholder)) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium

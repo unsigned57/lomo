@@ -31,6 +31,11 @@
         <item quantity="one">%1$d memo</item>
         <item quantity="other">%1$d memos</item>
     </plurals>
+    <plurals name="period_report_memo_count">
+        <item quantity="one">%1$d memo</item>
+        <item quantity="other">%1$d memos</item>
+    </plurals>
+    <string name="period_report_daily_average">%1$.1f / day</string>
 
     <!-- Memo Sheet -->
     <string name="action_copy">Copy</string>
