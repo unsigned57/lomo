@@ -10,6 +10,7 @@
  * - Given theme synchronization is registered as the application-owned task, when Activity observes theme state, then Activity does not perform the global night-mode side effect.
  * - Given startup updates are enabled, when startup runs, then the update check is triggered by the workflow path instead of ViewModel initialization.
  * - Given security abstractions support session locking, when startup runs, then credential reads start locked before UI unlock can authorize them.
+ * - Given dynamic shortcuts are published on startup, when publishing fails, then the failure is recorded as best-effort and required startup can continue.
  *
  * Observable outcomes:
  * - Ordered task log, task run counts, workflow result failures, update check trigger count, theme application count, and security lock state.
@@ -172,6 +173,32 @@ class AppStartupWorkflowTest : AppFunSpec() {
                 securitySession.events shouldContainExactly listOf("locked")
             }
         }
+
+        test("given dynamic shortcut task fails when workflow runs then failure is best effort") {
+            runTest(dispatcher.scheduler) {
+                val publisher =
+                    RecordingDynamicShortcutPublisher(
+                        failure = IllegalStateException("launcher unavailable"),
+                    )
+                val workflow =
+                    AppStartupWorkflow(
+                        tasks =
+                            listOf(
+                                DynamicShortcutStartupTask(publisher),
+                                SecuritySessionRestoreTask(RecordingSecuritySessionController()),
+                            ),
+                    )
+
+                val result = workflow.runStartup()
+
+                publisher.publishCount shouldBe 1
+                assertSoftly(result) {
+                    completedTasks shouldContainExactly listOf(StartupTaskId.SECURITY_SESSION_RESTORE)
+                    bestEffortFailures.map { failure -> failure.taskId } shouldContainExactly
+                        listOf(StartupTaskId.DYNAMIC_SHORTCUTS)
+                }
+            }
+        }
     }
 }
 
@@ -216,5 +243,17 @@ private class RecordingSecuritySessionController : com.lomo.domain.repository.Se
 
     override fun markCredentialReadsLocked() {
         events += "locked"
+    }
+}
+
+private class RecordingDynamicShortcutPublisher(
+    private val failure: Throwable? = null,
+) : DynamicShortcutPublisher {
+    var publishCount = 0
+        private set
+
+    override fun publishExternalEntryShortcuts() {
+        publishCount += 1
+        failure?.let { throw it }
     }
 }

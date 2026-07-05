@@ -2,35 +2,27 @@ package com.lomo.app.widget
 
 import com.lomo.domain.model.RecordingSessionState
 
-data class RecordingPreconditions(
-    val hasRecordAudioPermission: Boolean,
-    val isVoiceWorkspaceReady: Boolean,
-    val isAppLockSatisfied: Boolean,
-) {
-    val areSatisfied: Boolean
-        get() = hasRecordAudioPermission && isVoiceWorkspaceReady && isAppLockSatisfied
+sealed interface TileClickAction {
+    data object LaunchStartRecording : TileClickAction
+
+    data object LaunchStopRecording : TileClickAction
 }
 
-sealed interface TileClickAction {
-    data object StartRecording : TileClickAction
-
-    data object StopRecording : TileClickAction
-
-    data object LaunchMainActivityWithStartRecording : TileClickAction
+enum class RecordingTilePresentation {
+    Start,
+    Stop,
 }
 
 class RecordingTileClickPolicy {
-    fun decide(
-        preconditions: RecordingPreconditions,
-        state: RecordingSessionState,
-    ): TileClickAction {
-        if (!preconditions.areSatisfied) {
-            return TileClickAction.LaunchMainActivityWithStartRecording
+    fun decide(state: RecordingSessionState): TileClickAction =
+        when (state) {
+            RecordingSessionState.Idle -> TileClickAction.LaunchStartRecording
+            is RecordingSessionState.Recording -> TileClickAction.LaunchStopRecording
         }
 
-        return when (state) {
-            RecordingSessionState.Idle -> TileClickAction.StartRecording
-            is RecordingSessionState.Recording -> TileClickAction.StopRecording
+    fun presentation(state: RecordingSessionState): RecordingTilePresentation =
+        when (state) {
+            RecordingSessionState.Idle -> RecordingTilePresentation.Start
+            is RecordingSessionState.Recording -> RecordingTilePresentation.Stop
         }
-    }
 }

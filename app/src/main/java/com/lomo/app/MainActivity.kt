@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -35,11 +36,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.util.activityHiltViewModel
 import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.SecuritySessionController
@@ -68,6 +72,10 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var securitySessionController: SecuritySessionController
 
+    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
+
+    @Inject lateinit var externalAppCommandStore: ExternalAppCommandStore
+
     private val viewModel: MainViewModel by viewModels()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
     private var nextPendingLaunchCommandId = 0L
@@ -82,9 +90,10 @@ class MainActivity : AppCompatActivity() {
 
         splashScreen.setKeepOnScreenCondition(::shouldKeepSplashScreenVisible)
         enableEdgeToEdge()
-        if (savedInstanceState == null) {
-            handleIntent(intent)
-        }
+        handleInitialIntent(
+            intent = intent,
+            savedInstanceState = savedInstanceState,
+        )
         setMainContent()
         // Network service bootstrap is not required for first frame rendering.
         lifecycleScope.launch {
@@ -113,7 +122,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        extractPendingLaunchActions(intent).forEach(::enqueuePendingLaunchAction)
+        trustedLaunchIntents.extractTrustedExternalAppCommand(intent)?.let(externalAppCommandStore::enqueue)
+        extractPendingLaunchActions(intent = intent).forEach(::enqueuePendingLaunchAction)
+    }
+
+    private fun handleInitialIntent(
+        intent: Intent?,
+        savedInstanceState: Bundle?,
+    ) {
+        val activityInstanceState =
+            if (savedInstanceState == null) {
+                ActivityInstanceState.Fresh
+            } else {
+                ActivityInstanceState.Restored
+        }
+        if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState, intent = intent)) {
+            trustedLaunchIntents.extractTrustedExternalAppCommand(intent)?.let(externalAppCommandStore::enqueue)
+        }
+        extractInitialPendingLaunchActions(
+            activityInstanceState = activityInstanceState,
+            intent = intent,
+        ).forEach(::enqueuePendingLaunchAction)
     }
 
     private fun enqueuePendingLaunchAction(action: PendingLaunchAction) {
@@ -162,8 +191,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val ACTION_NEW_MEMO = "com.lomo.app.ACTION_NEW_MEMO"
-        const val ACTION_START_RECORDING = "com.lomo.app.ACTION_START_RECORDING"
+        const val ACTION_EXTERNAL_APP_COMMAND = "com.lomo.app.ACTION_EXTERNAL_APP_COMMAND"
         const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
         const val EXTRA_MEMO_ID = "memo_id"
     }
@@ -259,17 +287,45 @@ private fun MainActivityScreen(
             onCredentialReadsAuthorized = onCredentialReadsAuthorized,
             onCredentialReadsLocked = onCredentialReadsLocked,
         )
+    val foregroundEntryId = rememberProcessForegroundEntryId()
 
     MainActivityRoot(
         appPreferences = appPreferences,
         appLockEnabled = appLockEnabled,
         appLockUiState = appLockUiState,
+        foregroundEntryId = foregroundEntryId,
         pendingLaunchCommands = pendingLaunchCommands,
         onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
         audioPlayerController = audioPlayerController,
         shareServiceManager = shareServiceManager,
         currentUiMode = currentUiMode,
     )
+}
+
+@Composable
+private fun rememberProcessForegroundEntryId(): Long {
+    val processLifecycle = remember { ProcessLifecycleOwner.get().lifecycle }
+    var foregroundEntryId by remember {
+        mutableLongStateOf(
+            if (processLifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                1L
+            } else {
+                0L
+            },
+        )
+    }
+
+    androidx.compose.runtime.DisposableEffect(processLifecycle) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_START) {
+                    foregroundEntryId += 1L
+                }
+            }
+        processLifecycle.addObserver(observer)
+        onDispose { processLifecycle.removeObserver(observer) }
+    }
+    return foregroundEntryId
 }
 
 @Composable
@@ -348,6 +404,7 @@ private fun MainActivityRoot(
     appPreferences: AppPreferencesState,
     appLockEnabled: Boolean?,
     appLockUiState: AppLockUiState,
+    foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     audioPlayerController: AudioPlayerController,
@@ -388,6 +445,7 @@ private fun MainActivityRoot(
                     )
                 } else {
                     UnlockedAppRoot(
+                        foregroundEntryId = foregroundEntryId,
                         pendingLaunchCommands = pendingLaunchCommands,
                         onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
                         audioPlayerController = audioPlayerController,
@@ -401,6 +459,7 @@ private fun MainActivityRoot(
 
 @Composable
 private fun UnlockedAppRoot(
+    foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     audioPlayerController: AudioPlayerController,
@@ -417,6 +476,8 @@ private fun UnlockedAppRoot(
     ) {
         LomoAppRoot(
             shareServiceManager = shareServiceManager,
+            foregroundEntryId = foregroundEntryId,
+            suppressForegroundAutoInput = pendingLaunchCommands.isNotEmpty(),
         )
     }
 }
@@ -425,7 +486,7 @@ private fun UnlockedAppRoot(
 private fun DispatchPendingLaunchCommands(
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
-    viewModel: MainViewModel = injectedHiltViewModel(),
+    viewModel: MainViewModel = activityHiltViewModel(),
 ) {
     if (pendingLaunchCommands.isEmpty()) {
         return
@@ -435,8 +496,6 @@ private fun DispatchPendingLaunchCommands(
             when (val action = command.action) {
                 is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
                 is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
-                PendingLaunchAction.CreateMemo -> viewModel.requestCreateMemo()
-                PendingLaunchAction.StartRecording -> viewModel.requestStartRecording()
                 is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
             }
         }

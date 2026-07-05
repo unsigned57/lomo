@@ -19,9 +19,9 @@ import io.mockk.mockk
  * Scenarios:
  * - Given an Intent with action "com.lomo.reminder.action.OPEN" and a memo ID extra, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.OpenMemo(memoId).
  * - Given an Intent with action "com.lomo.reminder.action.OPEN" and no memo ID extra, when calling extractPendingLaunchActions, then it extracts nothing.
- * - Given an Intent with ACTION_START_RECORDING, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.StartRecording.
+ * - Given external command Intents, when calling extractPendingLaunchActions, then it extracts nothing because external commands use the durable command queue.
+ * - Given a restored Activity instance is launched from task history, when initial launch actions are extracted, then old commands are not replayed.
  * - Given an Intent with RecordingDeepLink.ACTION_OPEN_SAVED_MEMO and a memo ID extra, when calling extractPendingLaunchActions, then it extracts PendingLaunchAction.OpenMemo(memoId).
- * - Given StartRecording entry capabilities are inspected, when routing the command, then only RootWorkspace is required before Activity dispatch.
  * - Given an external pending command while app lock is resolving, when resolving entry flow, then the state waits and preserves the queued command identity.
  * - Given an external pending command while app lock is active, when resolving entry flow, then the state is blocked and preserves the queued command identity.
  * - Given a configured workspace that is still preparing, when resolving an external pending command, then the state waits without dropping the queued command identity.
@@ -38,10 +38,14 @@ import io.mockk.mockk
  * - Public-in-module resolver method shape available to app callers.
  *
  * TDD proof:
- * - RED command: KOTEST_INCLUDE_PATTERN='com.lomo.app.MainActivityLaunchRoutingTest' ./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest
- * - RED symptom: MainActivityLaunchRoutingTest > entry flow API exposes no raw action resolver that can synthesize a fake command identity FAILED because the raw PendingLaunchAction resolver overload was still declared.
- * - GREEN command: KOTEST_INCLUDE_PATTERN='com.lomo.app.MainActivityLaunchRoutingTest' ./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest -x :data:kspDebugKotlin -x :data:compileDebugKotlin -x :data:compileDebugJavaWithJavac -x :data:processDebugJavaRes -x :data:transformDebugClassesWithAsm -x :data:bundleLibCompileToJarDebug -x :data:bundleLibRuntimeToJarDebug
- * - GREEN symptom: BUILD SUCCESSFUL with MainActivityLaunchRoutingTest passing. The unexcluded command was blocked before app tests by unrelated parallel data compile error: data/src/main/java/com/lomo/data/git/GitSyncConflictRecoveryCoordinator.kt:194:56 Unresolved reference 'file'.
+ * - RED command: env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest --tests 'com.lomo.app.MainActivityLaunchRoutingTest'
+ * - RED symptom: tests fail because launch routing has no trusted verifier seam for stop-recording and still exposes OpenRecordingEntry as a separate command.
+ * - RED command: env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest --tests 'com.lomo.app.MainActivityLaunchRoutingTest'
+ * - RED symptom: tests fail because restored Activity initial launch extraction does not exist, and onCreate gates all restored launches behind savedInstanceState == null.
+ * - RED command: env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain :app:testDebugUnitTest --tests 'com.lomo.app.MainActivityLaunchRoutingTest'
+ * - RED symptom: tests fail because durable external commands are still modeled as transient PendingLaunchAction values.
+ * - GREEN command: env HOME="$PWD/.gradle/home" XDG_DATA_HOME="$PWD/.gradle/xdg-data" XDG_CACHE_HOME="$PWD/.gradle/xdg-cache" GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain -Pksp.incremental=false :app:testDebugUnitTest --tests 'com.lomo.app.MainActivityLaunchRoutingTest'
+ * - GREEN symptom: BUILD SUCCESSFUL with external command actions excluded from transient launch routing.
  *
  * Excludes:
  * - Actual execution of launch actions on the navigation stack, Compose rendering, biometric prompt wiring, and persistence of transient payloads across process death.
@@ -75,12 +79,31 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             actions shouldBe emptyList()
         }
 
-        test("extractPendingLaunchActions parses start recording action") {
-            val intent = TestIntent(actionValue = MainActivity.ACTION_START_RECORDING)
+        test("extractPendingLaunchActions ignores external command actions") {
+            listOf(
+                "com.lomo.app.ACTION_NEW_MEMO",
+                "com.lomo.app.ACTION_START_RECORDING",
+                "com.lomo.app.ACTION_STOP_RECORDING",
+                MainActivity.ACTION_EXTERNAL_APP_COMMAND,
+            ).forEach { action ->
+                val actions = extractPendingLaunchActions(TestIntent(actionValue = action))
 
-            val actions = extractPendingLaunchActions(intent)
+                actions shouldBe emptyList()
+            }
+        }
 
-            actions shouldBe listOf(PendingLaunchAction.StartRecording)
+        test("extractInitialPendingLaunchActions skips replay when restored from task history") {
+            val historyIntent =
+                TestIntent("com.lomo.app.ACTION_START_RECORDING")
+                    .addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+
+            val actions =
+                extractInitialPendingLaunchActions(
+                    activityInstanceState = ActivityInstanceState.Restored,
+                    intent = historyIntent,
+                )
+
+            actions shouldBe emptyList()
         }
 
         test("extractPendingLaunchActions parses recording saved memo action") {
@@ -93,10 +116,6 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             val actions = extractPendingLaunchActions(intent)
 
             actions shouldBe listOf(PendingLaunchAction.OpenMemo("memo-recording"))
-        }
-
-        test("start recording launch action requires root workspace only") {
-            requiredEntryCapabilities(PendingLaunchAction.StartRecording) shouldBe setOf(EntryCapability.RootWorkspace)
         }
 
         test("entry flow waits for app lock resolution while preserving pending command identity") {
@@ -318,7 +337,29 @@ private class TestIntent(
     private val actionValue: String,
     private val stringExtras: Map<String, String> = emptyMap(),
 ) : Intent() {
+    private val mutableStringExtras = stringExtras.toMutableMap()
+    private var mutableFlags: Int = 0
+
     override fun getAction(): String = actionValue
 
-    override fun getStringExtra(name: String): String? = stringExtras[name]
+    override fun getFlags(): Int = mutableFlags
+
+    override fun addFlags(flags: Int): Intent {
+        mutableFlags = mutableFlags or flags
+        return this
+    }
+
+    override fun getStringExtra(name: String): String? = mutableStringExtras[name]
+
+    override fun putExtra(
+        name: String,
+        value: String?,
+    ): Intent {
+        if (value == null) {
+            mutableStringExtras.remove(name)
+        } else {
+            mutableStringExtras[name] = value
+        }
+        return this
+    }
 }

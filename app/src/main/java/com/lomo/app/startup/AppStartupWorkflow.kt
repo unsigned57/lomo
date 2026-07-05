@@ -33,6 +33,7 @@ enum class StartupTaskId {
     SECURITY_SESSION_RESTORE,
     THEME_APPLICATION,
     WORKSPACE_MAINTENANCE,
+    DYNAMIC_SHORTCUTS,
     STARTUP_UPDATE_CHECK,
 }
 
@@ -70,6 +71,10 @@ interface StartupTask {
     val definition: StartupTaskDefinition
 
     suspend fun run(scope: StartupTaskScope)
+}
+
+fun interface DynamicShortcutPublisher {
+    fun publishExternalEntryShortcuts()
 }
 
 class AppStartupWorkflow(
@@ -161,6 +166,24 @@ class StartupUpdateCheckTask
 
         override suspend fun run(scope: StartupTaskScope) {
             updateStartupOrchestrator.triggerStartupCheck(scope.coroutineScope)
+        }
+    }
+
+class DynamicShortcutStartupTask
+    @Inject
+    constructor(
+        private val dynamicShortcutPublisher: DynamicShortcutPublisher,
+    ) : StartupTask {
+        override val definition: StartupTaskDefinition =
+            StartupTaskDefinition(
+                id = StartupTaskId.DYNAMIC_SHORTCUTS,
+                order = STARTUP_ORDER_DYNAMIC_SHORTCUTS,
+                idempotency = StartupTaskIdempotency.RUN_ONCE,
+                failurePolicy = StartupTaskFailurePolicy.BEST_EFFORT,
+            )
+
+        override suspend fun run(scope: StartupTaskScope) {
+            dynamicShortcutPublisher.publishExternalEntryShortcuts()
         }
     }
 
@@ -294,6 +317,7 @@ class AppStartupCoordinator
         securitySessionRestoreTask: SecuritySessionRestoreTask,
         private val themeApplicationStartupTask: ThemeApplicationStartupTask,
         workspaceMaintenanceStartupTask: WorkspaceMaintenanceStartupTask,
+        dynamicShortcutStartupTask: DynamicShortcutStartupTask,
         startupUpdateCheckTask: StartupUpdateCheckTask,
     ) {
         private val workflow =
@@ -303,6 +327,7 @@ class AppStartupCoordinator
                         securitySessionRestoreTask,
                         themeApplicationStartupTask,
                         workspaceMaintenanceStartupTask,
+                        dynamicShortcutStartupTask,
                         startupUpdateCheckTask,
                     ),
             )
@@ -337,4 +362,5 @@ class AppStartupCoordinator
 private const val STARTUP_ORDER_SECURITY_SESSION_RESTORE = 10
 private const val STARTUP_ORDER_THEME_APPLICATION = 20
 private const val STARTUP_ORDER_WORKSPACE_MAINTENANCE = 30
+private const val STARTUP_ORDER_DYNAMIC_SHORTCUTS = 35
 private const val STARTUP_ORDER_UPDATE_CHECK = 40

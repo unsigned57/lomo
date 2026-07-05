@@ -16,6 +16,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeAppVersionRepository
 import com.lomo.app.testing.fakes.FakeMemoVersionRepository
 import com.lomo.app.testing.fakes.FakeAppWidgetRepository
+import com.lomo.app.testing.fakes.FakeExternalAppCommandStore
 import com.lomo.app.testing.fakes.FakeGitSyncRepository
 import com.lomo.app.testing.fakes.FakeMediaRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
@@ -95,7 +96,8 @@ import kotlinx.coroutines.test.runTest
  * - Given a workspace root is missing, when the ViewModel initializes, then UI state stays in a non-ready state.
  * - Given a cold-start asynchronously restores the root, when the ViewModel observes the restored root, then it starts paging without treating it as a root switch.
  * - Given the user searches for memos or filters by date, when the filter changes, then pagedUiMemos and galleryUiMemos emit filtered content.
- * - Given an external entry requests recording, when the ViewModel queues app actions, then StartRecording is emitted in command order.
+ * - Given navigation requests open or focus memos, when the ViewModel queues app actions, then the
+ *   memo actions are emitted in command order.
  * - Given a delete operation is triggered, when the repository completes, then visual stability collapse markers are removed.
  * - Given a memo has a reminder, when the user marks it done, then the repository is updated via the reminder coordinator.
  *
@@ -103,7 +105,7 @@ import kotlinx.coroutines.test.runTest
  * - uiState reflects root availability.
  * - pagedUiMemos and galleryUiMemos emit filtered/remapped content.
  * - collectionUiState, deletingMemoIds, and errorMessage show collection-action state without absorbing Main-specific failures.
- * - appActionEvents correctly sequence navigation requests (Create/StartRecording/Open/Focus).
+ * - appActionEvents correctly sequence memo navigation requests (Open/Focus).
  *
  * TDD proof:
  * - Fails before the fix when image-directory changes are not debounced, when concurrent gallery image-cache sync requests are not coalesced, when gallery initial loading is exposed as a true empty state, when observed root changes still route through the ordinary sync refresh pipeline, when image-map changes do not remap paged main-list rows, when cold-start Paging waits for the restored root before starting, when an asynchronously restored cold-start root is treated as a root switch, rebuilds the workspace, or recreates the DB paging source, when Main collection mutations are still locally owned instead of delegated to common collection state, or when marking a reminder as done is not propagated through ViewModel to ReminderCoordinator.
@@ -697,21 +699,17 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("requestCreateMemo startRecording open and focus enqueue ordered app actions") {
+        test("requestOpenMemo and requestFocusMemo enqueue ordered app actions") {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
 
-                viewModel.requestCreateMemo()
-                viewModel.requestStartRecording()
                 viewModel.requestOpenMemo("memo-open")
                 viewModel.requestFocusMemo("memo-focus")
 
                 val events = viewModel.appActionEvents.value
-                (events.size) shouldBe (4)
-                (events[0].payload) shouldBe (MainViewModel.AppAction.CreateMemo)
-                (events[1].payload) shouldBe (MainViewModel.AppAction.StartRecording)
-                (events[2].payload) shouldBe (MainViewModel.AppAction.OpenMemo("memo-open"))
-                (events[3].payload) shouldBe (MainViewModel.AppAction.FocusMemo("memo-focus"))
+                (events.size) shouldBe (2)
+                (events[0].payload) shouldBe (MainViewModel.AppAction.OpenMemo("memo-open"))
+                (events[1].payload) shouldBe (MainViewModel.AppAction.FocusMemo("memo-focus"))
             }
         }
 
@@ -1076,6 +1074,7 @@ class MainViewModelTest : AppFunSpec() {
             ),
             markReminderDoneUseCase = MarkReminderDoneUseCase(reminderCoordinator),
             dispatcherProvider = dispatcherProvider,
+            externalAppCommandStore = FakeExternalAppCommandStore(),
         ).also(createdViewModels::add)
     }
 
