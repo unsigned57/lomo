@@ -30,6 +30,13 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Navigation Compose runtime, keyboard rendering, and editor controller side effects.
+ *
+ * Test Change Justification:
+ * - Reason category: Refactoring / Contract update
+ * - Old behavior/assertion being replaced: We passed currentRoute and mainRouteName to resolve the visibility.
+ * - Why old assertion is no longer correct: We decoupled visibility checks from route names to make the routing policy robust and avoid class name coupling.
+ * - Coverage preserved by: Decoupled visibility parameters in the same tests.
+ * - Why this is not fitting the test to the implementation: Decoupling parameters is a mechanical signature change and does not leak production internals.
  */
 class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
     init {
@@ -39,8 +46,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 7L,
                     evaluatedForegroundEntryId = 6L,
                     currentMainForegroundEntryId = 0L,
-                    currentRoute = MAIN_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = true,
                     suppressForegroundAutoInput = false,
                 )
 
@@ -57,8 +64,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 7L,
                     evaluatedForegroundEntryId = 7L,
                     currentMainForegroundEntryId = 7L,
-                    currentRoute = SETTINGS_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = false,
                     suppressForegroundAutoInput = false,
                 )
             val returnedState =
@@ -66,8 +73,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 7L,
                     evaluatedForegroundEntryId = awayState.evaluatedForegroundEntryId,
                     currentMainForegroundEntryId = awayState.mainForegroundEntryId,
-                    currentRoute = MAIN_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = true,
                     suppressForegroundAutoInput = false,
                 )
 
@@ -89,8 +96,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 8L,
                     evaluatedForegroundEntryId = 7L,
                     currentMainForegroundEntryId = 0L,
-                    currentRoute = SETTINGS_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = false,
                     suppressForegroundAutoInput = false,
                 )
             val returnedState =
@@ -98,8 +105,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 8L,
                     evaluatedForegroundEntryId = foregroundOnSettingsState.evaluatedForegroundEntryId,
                     currentMainForegroundEntryId = foregroundOnSettingsState.mainForegroundEntryId,
-                    currentRoute = MAIN_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = true,
                     suppressForegroundAutoInput = false,
                 )
 
@@ -121,8 +128,8 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
                     foregroundEntryId = 9L,
                     evaluatedForegroundEntryId = 8L,
                     currentMainForegroundEntryId = 0L,
-                    currentRoute = MAIN_ROUTE,
-                    mainRouteName = MAIN_ROUTE,
+                    hasVisibleDestination = true,
+                    isMainVisible = true,
                     suppressForegroundAutoInput = true,
                 )
 
@@ -134,8 +141,4 @@ class MainForegroundEntryRoutingPolicyTest : AppFunSpec() {
         }
     }
 
-    private companion object {
-        const val MAIN_ROUTE = "com.lomo.app.navigation.NavRoute.Main"
-        const val SETTINGS_ROUTE = "com.lomo.app.navigation.NavRoute.Settings"
-    }
 }
