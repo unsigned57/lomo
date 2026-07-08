@@ -1,5 +1,6 @@
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
@@ -54,6 +55,14 @@ val unitTestTasksByProject =
         "domain" to "test",
         "ui-components" to "testDebugUnitTest",
     )
+val defaultMaxParallelTestForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1).coerceAtMost(2)
+val lomoTestMaxParallelForks =
+    providers
+        .gradleProperty("lomo.test.maxParallelForks")
+        .map { rawValue ->
+            rawValue.toIntOrNull()?.takeIf { it >= 1 }
+                ?: error("lomo.test.maxParallelForks must be a positive integer, but was '$rawValue'.")
+        }.orElse(defaultMaxParallelTestForks)
 val koverProjects = setOf("app", "domain", "data", "ui-components")
 val coverageExcludedPackages =
     listOf(
@@ -251,6 +260,10 @@ subprojects {
         }
     }
 
+    tasks.withType(Test::class.java).configureEach {
+        maxParallelForks = lomoTestMaxParallelForks.get()
+    }
+
     configurations.configureEach {
         resolutionStrategy {
             force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
@@ -400,7 +413,7 @@ tasks.register("meaningfulTestCheck", Exec::class.java) {
     group = "verification"
     description = "Checks that changed test files document their tested contract, red phase, and exclusions."
     workingDir = rootProject.projectDir
-    commandLine("echo", "Bypassed meaningful test check")
+    commandLine("bash", meaningfulTestCheckScript.absolutePath)
 }
 
 tasks.register("stringResourceParityCheck", Exec::class.java) {
