@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.AppPreferenceSnapshot
 import com.lomo.domain.model.SettingsCatalog
@@ -8,13 +7,8 @@ import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class AppPreferencesSnapshotRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
     ) : AppPreferencesSnapshotRepository {
         override fun observeAppPreferenceSnapshot(): Flow<AppPreferenceSnapshot> {
@@ -25,7 +19,6 @@ class AppPreferencesSnapshotRepositoryImpl
                         descriptor.snapshotField to value
                     }
                 }
-
             return combine(fieldValueFlows) { values ->
                 SettingsCatalog.appPreferenceSnapshotFrom(values.toMap())
             }

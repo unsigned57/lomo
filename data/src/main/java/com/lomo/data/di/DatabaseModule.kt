@@ -1,6 +1,5 @@
 package com.lomo.data.di
 
-import android.content.Context
 import androidx.room3.Room
 import androidx.room3.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -43,189 +42,65 @@ import com.lomo.data.repository.RoomBackedS3SyncMetadataStore
 import com.lomo.data.repository.RoomBackedWebDavSyncMetadataStore
 import com.lomo.data.repository.RoomPendingSyncConflictStore
 import com.lomo.data.repository.RoomPendingSyncReviewStore
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
+import org.koin.dsl.module
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.module.dsl.singleOf
+import org.koin.dsl.bind
 
-@Module
-@InstallIn(SingletonComponent::class)
-object DatabaseModule {
-    @Provides
-    @Singleton
-    fun provideMemoDatabase(
-        @ApplicationContext context: Context,
-    ): MemoDatabase {
+val databaseModule = module {
+    single<MemoDatabase> {
         DatabaseTransitionStrategy.prepareBeforeOpen(
-            context = context,
+            context = androidContext(),
             targetVersion = MEMO_DATABASE_VERSION,
             migrationEdges = ALL_DATABASE_MIGRATION_EDGES,
         )
-
-        return buildMemoDatabase(context)
-    }
-
-    private fun buildMemoDatabase(context: Context): MemoDatabase =
-        Room
-            .databaseBuilder(context, MemoDatabase::class.java, DatabaseTransitionStrategy.DATABASE_NAME)
+        Room.databaseBuilder(androidContext(), MemoDatabase::class.java, DatabaseTransitionStrategy.DATABASE_NAME)
             .setDriver(BundledSQLiteDriver())
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .addMigrations(*ALL_DATABASE_MIGRATIONS)
             .addCallback(DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback())
             .fallbackToDestructiveMigrationOnDowngrade(true)
             .build()
+    }
 
-    @Provides
-    @Singleton
-    fun provideMemoDao(database: MemoDatabase): MemoDao = database.memoDao()
+    single<MemoDao> { get<MemoDatabase>().memoDao() }
+    single<MemoBrowseDao> { get<MemoDatabase>().memoBrowseDao() }
+    single<MemoPinDao> { get<MemoDatabase>().memoPinDao() }
+    single<MemoSearchDao> { get<MemoDatabase>().memoSearchDao() }
+    single<MemoWriteDao> { get<MemoDatabase>().memoWriteDao() }
+    single<MemoTagDao> { get<MemoDatabase>().memoTagDao() }
+    single<MemoFtsDao> { RoomMemoFtsDao(get()) }
+    single<MemoIdentityDao> { get<MemoDatabase>().memoIdentityDao() }
+    single<MemoTrashDao> { get<MemoDatabase>().memoTrashDao() }
 
-    @Provides
-    @Singleton
-    fun provideMemoBrowseDao(database: MemoDatabase): MemoBrowseDao = database.memoBrowseDao()
+    single<MemoStatisticsDao> { get<MemoDatabase>().memoStatisticsDao() }
 
-    @Provides
-    @Singleton
-    fun provideMemoPinDao(database: MemoDatabase): MemoPinDao = database.memoPinDao()
+    single<LocalFileStateDao> { get<MemoDatabase>().localFileStateDao() }
+    single<MemoImageDao> { get<MemoDatabase>().memoImageDao() }
+    single<MemoVersionDao> { get<MemoDatabase>().memoVersionDao() }
 
-    @Provides
-    @Singleton
-    fun provideMemoSearchDao(database: MemoDatabase): MemoSearchDao = database.memoSearchDao()
+    single<RawWebDavSyncMetadataDao> { get<MemoDatabase>().rawWebDavSyncMetadataDao() }
+    single { RoomBackedWebDavSyncMetadataStore(get(), get()) }
+    single<WebDavSyncMetadataDao> { get<RoomBackedWebDavSyncMetadataStore>() }
 
-    @Provides
-    @Singleton
-    fun provideMemoWriteDao(database: MemoDatabase): MemoWriteDao = database.memoWriteDao()
+    single<RawS3SyncMetadataDao> { get<MemoDatabase>().rawS3SyncMetadataDao() }
+    single { RoomBackedS3SyncMetadataStore(get(), get()) }
+    single<S3SyncMetadataDao> { get<RoomBackedS3SyncMetadataStore>() }
 
-    @Provides
-    @Singleton
-    fun provideMemoTagDao(database: MemoDatabase): MemoTagDao = database.memoTagDao()
+    single<S3RemoteIndexDao> { get<MemoDatabase>().s3RemoteIndexDao() }
+    single<S3RemoteShardStateDao> { get<MemoDatabase>().s3RemoteShardStateDao() }
+    single<S3SyncProtocolStateDao> { get<MemoDatabase>().s3SyncProtocolStateDao() }
+    single<S3LocalChangeJournalDao> { get<MemoDatabase>().s3LocalChangeJournalDao() }
+    single<SyncStateResetDao> { get<MemoDatabase>().syncStateResetDao() }
 
-    @Provides
-    @Singleton
-    fun provideMemoFtsDao(database: MemoDatabase): MemoFtsDao = RoomMemoFtsDao(database)
+    single<PendingSyncConflictDao> { get<MemoDatabase>().pendingSyncConflictDao() }
+    single<PendingSyncReviewDao> { get<MemoDatabase>().pendingSyncReviewDao() }
 
-    @Provides
-    @Singleton
-    fun provideMemoIdentityDao(database: MemoDatabase): MemoIdentityDao = database.memoIdentityDao()
+    singleOf(::RoomPendingSyncConflictStore) bind PendingSyncConflictStore::class
+    singleOf(::RoomPendingSyncReviewStore) bind PendingSyncReviewStore::class
 
-    @Provides
-    @Singleton
-    fun provideMemoTrashDao(database: MemoDatabase): MemoTrashDao = database.memoTrashDao()
-}
+    single<WebDavLocalFingerprintDao> { get<MemoDatabase>().webDavLocalFingerprintDao() }
+    single<WebDavLocalChangeJournalDao> { get<MemoDatabase>().webDavLocalChangeJournalDao() }
 
-@Module
-@InstallIn(SingletonComponent::class)
-object MemoStatisticsDatabaseModule {
-    @Provides
-    @Singleton
-    fun provideMemoStatisticsDao(database: MemoDatabase): MemoStatisticsDao = database.memoStatisticsDao()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object DatabaseSupportModule {
-    @Provides
-    @Singleton
-    fun provideLocalFileStateDao(database: MemoDatabase): LocalFileStateDao = database.localFileStateDao()
-
-    @Provides
-    @Singleton
-    fun provideMemoImageDao(database: MemoDatabase): MemoImageDao = database.memoImageDao()
-
-    @Provides
-    @Singleton
-    fun provideMemoVersionDao(database: MemoDatabase): MemoVersionDao = database.memoVersionDao()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object RemoteSyncStateDatabaseModule {
-    @Provides
-    @Singleton
-    fun provideRawWebDavSyncMetadataDao(database: MemoDatabase): RawWebDavSyncMetadataDao =
-        database.rawWebDavSyncMetadataDao()
-
-    @Provides
-    @Singleton
-    fun provideWebDavSyncMetadataDao(store: RoomBackedWebDavSyncMetadataStore): WebDavSyncMetadataDao = store
-
-    @Provides
-    @Singleton
-    fun provideRawS3SyncMetadataDao(database: MemoDatabase): RawS3SyncMetadataDao = database.rawS3SyncMetadataDao()
-
-    @Provides
-    @Singleton
-    fun provideS3SyncMetadataDao(store: RoomBackedS3SyncMetadataStore): S3SyncMetadataDao = store
-
-    @Provides
-    @Singleton
-    fun provideS3RemoteIndexDao(database: MemoDatabase): S3RemoteIndexDao = database.s3RemoteIndexDao()
-
-    @Provides
-    @Singleton
-    fun provideS3RemoteShardStateDao(database: MemoDatabase): S3RemoteShardStateDao =
-        database.s3RemoteShardStateDao()
-
-    @Provides
-    @Singleton
-    fun provideS3SyncProtocolStateDao(database: MemoDatabase): S3SyncProtocolStateDao =
-        database.s3SyncProtocolStateDao()
-
-    @Provides
-    @Singleton
-    fun provideS3LocalChangeJournalDao(database: MemoDatabase): S3LocalChangeJournalDao =
-        database.s3LocalChangeJournalDao()
-
-    @Provides
-    @Singleton
-    fun provideSyncStateResetDao(database: MemoDatabase): SyncStateResetDao = database.syncStateResetDao()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object PendingSyncDatabaseModule {
-    @Provides
-    @Singleton
-    fun providePendingSyncConflictDao(database: MemoDatabase): PendingSyncConflictDao =
-        database.pendingSyncConflictDao()
-
-    @Provides
-    @Singleton
-    fun providePendingSyncReviewDao(database: MemoDatabase): PendingSyncReviewDao =
-        database.pendingSyncReviewDao()
-
-    @Provides
-    @Singleton
-    fun providePendingSyncConflictStore(
-        store: RoomPendingSyncConflictStore,
-    ): PendingSyncConflictStore = store
-
-    @Provides
-    @Singleton
-    fun providePendingSyncReviewStore(
-        store: RoomPendingSyncReviewStore,
-    ): PendingSyncReviewStore = store
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object WebDavDatabaseSupportModule {
-    @Provides
-    @Singleton
-    fun provideWebDavLocalFingerprintDao(database: MemoDatabase): WebDavLocalFingerprintDao =
-        database.webDavLocalFingerprintDao()
-
-    @Provides
-    @Singleton
-    fun provideWebDavLocalChangeJournalDao(database: MemoDatabase): WebDavLocalChangeJournalDao =
-        database.webDavLocalChangeJournalDao()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object MemoOutboxDatabaseModule {
-    @Provides
-    @Singleton
-    fun provideMemoOutboxDao(database: MemoDatabase): MemoOutboxDao = database.memoOutboxDao()
+    single<MemoOutboxDao> { get<MemoDatabase>().memoOutboxDao() }
 }

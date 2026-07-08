@@ -7,20 +7,16 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AudioPlaybackUriResolverImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : AudioPlaybackResolverRepository {
+
+class AudioPlaybackUriResolverImpl(
+    private val context: Context,
+) : AudioPlaybackResolverRepository {
         @Volatile
         private var rootLocation: StorageLocation? = null
 

@@ -1,18 +1,12 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.repository.DailyReviewSessionRepository
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class DailyReviewSessionRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
     ) : DailyReviewSessionRepository {
         override suspend fun getSession(): DailyReviewSession? =
@@ -29,7 +23,6 @@ class DailyReviewSessionRepositoryImpl
                     pageIndex = pageIndex ?: 0,
                 )
             }.first()
-
         override suspend fun saveSession(session: DailyReviewSession) {
             dataStore.updateDailyReviewSession(
                 date = session.date.toString(),
@@ -37,7 +30,6 @@ class DailyReviewSessionRepositoryImpl
                 pageIndex = session.pageIndex,
             )
         }
-
         // behavior-contract: silent-result-ok: corrupt stored date string → null treated as no session
         private fun parseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value) }.getOrNull()
     }

@@ -103,7 +103,7 @@ import java.time.ZoneId
  * - Compilation failure on Kotest transition - test-only migration; no production change.
  *
  * Excludes:
- * - Hilt wiring, repository persistence, detailed easing-curve fidelity, and full app navigation.
+ * - DI wiring, repository persistence, detailed easing-curve fidelity, and full app navigation.
  */
 @org.junit.runner.RunWith(AndroidJUnit4::class)
 class MainScreenListRegressionTest {

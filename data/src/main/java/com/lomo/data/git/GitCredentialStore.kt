@@ -10,17 +10,13 @@ import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
+
 class GitCredentialStore private constructor(
     secureStringStoreFactory: () -> SecureStringStore,
 ) {
-    @Inject
     constructor(
-        @ApplicationContext context: Context,
+        context: Context,
     ) : this(
         {
             KeystoreBackedPreferences(

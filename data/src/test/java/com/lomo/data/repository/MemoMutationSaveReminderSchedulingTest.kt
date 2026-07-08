@@ -62,8 +62,8 @@ class MemoMutationSaveReminderSchedulingTest : FunSpec({
                 MemoMutationRepositoryImpl(
                     memoPinDao = mockk<MemoPinDao>(),
                     synchronizer = synchronizer,
-                    reminderCoordinator = daggerLazy(reminderCoordinator),
-                    memoQueryRepository = daggerLazy(queryRepository),
+                    reminderScheduler = reminderCoordinator,
+                    memoQueryRepository = queryRepository,
                 )
 
             repository.saveMemo(savedMemo.content, savedMemo.timestamp, null)
@@ -72,8 +72,3 @@ class MemoMutationSaveReminderSchedulingTest : FunSpec({
         }
     }
 })
-
-private fun <T> daggerLazy(value: T): dagger.Lazy<T> =
-    object : dagger.Lazy<T> {
-        override fun get(): T = value
-    }

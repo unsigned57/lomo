@@ -42,8 +42,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.util.activityHiltViewModel
-import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.app.util.activityKoinViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.ui.benchmark.BenchmarkAnchorConfig
@@ -55,27 +55,22 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.TypographyScales
-import dagger.hilt.android.AndroidEntryPoint
+import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.viewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
-    @Inject lateinit var audioPlayerController: AudioPlayerController
+    private val audioPlayerController: AudioPlayerController by inject()
+    private val shareServiceManager: LanShareService by inject()
+    private val securitySessionController: SecuritySessionController by inject()
+    private val trustedLaunchIntents: TrustedLaunchIntents by inject()
+    private val externalAppCommandStore: ExternalAppCommandStore by inject()
 
-    @Inject lateinit var shareServiceManager: LanShareService
-
-    @Inject lateinit var securitySessionController: SecuritySessionController
-
-    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
-
-    @Inject lateinit var externalAppCommandStore: ExternalAppCommandStore
-
-    private val viewModel: MainViewModel by viewModels()
+    private val viewModel: MainViewModel by viewModel()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
     private var nextPendingLaunchCommandId = 0L
     private var pendingLaunchCommands by
@@ -275,7 +270,7 @@ private fun MainActivityScreen(
     onCredentialReadsLocked: () -> Unit,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
-    viewModel: MainViewModel = injectedHiltViewModel(),
+    viewModel: MainViewModel = injectedKoinViewModel(),
 ) {
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
@@ -482,7 +477,7 @@ private fun UnlockedAppRoot(
 private fun DispatchPendingLaunchCommands(
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
     onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
-    viewModel: MainViewModel = activityHiltViewModel(),
+    viewModel: MainViewModel = activityKoinViewModel(),
 ) {
     if (pendingLaunchCommands.isEmpty()) {
         return

@@ -9,7 +9,6 @@ import com.lomo.app.feature.search.SearchViewModel
 import com.lomo.app.feature.tag.TagFilterViewModel
 import com.lomo.app.feature.trash.TrashViewModel
 import com.lomo.app.testing.AppFunSpec
-import com.lomo.app.widget.WidgetEntryPoint
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
@@ -34,7 +33,7 @@ import java.io.File
  * Scenarios:
  * - Given a memo use case constructor is inspected, when it declares repository needs, then it
  *   must not accept the aggregate MemoRepository facade.
- * - Given a production app memo consumer is inspected, when Hilt resolves dependencies, then it
+ * - Given a production app memo consumer is inspected, when Koin resolves dependencies, then it
  *   must not accept MemoUiCoordinator or a replacement all-capability app memo facade.
  * - Given production app source files are inspected, when a class owns memo ports, then no app
  *   class may gather query, mutation, search, statistics, and trash ports.
@@ -65,14 +64,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                         }.map { constructor -> "${owner.simpleName}${constructor.parameterTypes.toList()}" }
                 }
 
-            val entryPointLeaks =
-                WidgetEntryPoint::class.java.methods
-                    .filter { method ->
-                        method.returnType.name == AGGREGATE_MEMO_REPOSITORY ||
-                            method.parameterTypes.any { parameter ->
-                                parameter.name == AGGREGATE_MEMO_REPOSITORY
-                            }
-                    }.map { method -> "WidgetEntryPoint.${method.name}" }
+            val entryPointLeaks = emptyList<String>()
 
             val aggregateTypeLeak = existingTypeLeak(AGGREGATE_MEMO_REPOSITORY)
 

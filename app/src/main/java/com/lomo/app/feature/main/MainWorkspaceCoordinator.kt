@@ -6,16 +6,14 @@ import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import kotlinx.coroutines.CancellationException
-import javax.inject.Inject
 
-class MainWorkspaceCoordinator
-    @Inject
-    constructor(
-        private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
-        private val refreshMemosUseCase: RefreshMemosUseCase,
-        private val switchRootStorageUseCase: SwitchRootStorageUseCase,
-        private val mediaRepository: MediaRepository,
-    ) {
+
+class MainWorkspaceCoordinator(
+    private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
+    private val refreshMemosUseCase: RefreshMemosUseCase,
+    private val switchRootStorageUseCase: SwitchRootStorageUseCase,
+    private val mediaRepository: MediaRepository,
+) {
         suspend fun createDefaultDirectories(
             forImage: Boolean,
             forVoice: Boolean,

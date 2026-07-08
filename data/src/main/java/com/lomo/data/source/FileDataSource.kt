@@ -3,7 +3,7 @@ package com.lomo.data.source
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
+
 
 interface WorkspaceConfigSource {
     suspend fun setRoot(
@@ -121,13 +121,11 @@ data class FileMetadataWithId(
     val size: Long? = null,
 )
 
-class FileDataSourceImpl
-    @Inject
-    constructor(
-        workspaceConfigSource: FileWorkspaceConfigSourceDelegate,
-        markdownStorageDataSource: FileMarkdownStorageDataSourceDelegate,
-        mediaStorageDataSource: FileMediaStorageDataSourceDelegate,
-    ) : FileDataSource,
+class FileDataSourceImpl(
+    workspaceConfigSource: FileWorkspaceConfigSourceDelegate,
+    markdownStorageDataSource: FileMarkdownStorageDataSourceDelegate,
+    mediaStorageDataSource: FileMediaStorageDataSourceDelegate,
+) : FileDataSource,
         WorkspaceConfigSource by workspaceConfigSource,
         MarkdownStorageDataSource by markdownStorageDataSource,
         MediaStorageDataSource by mediaStorageDataSource

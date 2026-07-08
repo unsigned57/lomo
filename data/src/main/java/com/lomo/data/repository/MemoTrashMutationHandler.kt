@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
@@ -7,14 +6,11 @@ import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.domain.model.Memo
 import timber.log.Timber
-import javax.inject.Inject
-
 /**
  * Encapsulates memo -> trash lifecycle mutations.
  */
 class MemoTrashMutationHandler
-    @Inject
-    constructor(
+constructor(
         private val workspaceStore: MemoWorkspaceStore,
         private val memoWriteDao: MemoWriteDao,
         private val memoTagDao: MemoTagDao,
@@ -33,7 +29,6 @@ class MemoTrashMutationHandler
                 origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
             )
         }
-
         suspend fun moveToTrashInDb(memo: Memo) {
             memoWriteDao.deleteMemoById(memo.id)
             memoTagDao.deleteTagRefsByMemoId(memo.id)
@@ -41,12 +36,10 @@ class MemoTrashMutationHandler
             memoTrashDao.insertTrashMemo(trashProjection.entity)
             memoImageDao.replaceImageRefsForTrashMemo(trashProjection)
         }
-
         suspend fun moveToTrashFileOnly(memo: Memo): Boolean {
             requireSafeMemoDateKey(memo.dateKey)
             return workspaceStore.moveActiveMemoBlockToTrash(memo) == MemoWorkspaceBlockMutationResult.Applied
         }
-
         /**
          * Idempotent finisher used by the outbox retry path. Safe to invoke after a crash
          * between [moveToTrashFileOnly]'s main rewrite and its trash append: if the block is
@@ -55,7 +48,6 @@ class MemoTrashMutationHandler
          */
         internal suspend fun ensureMemoPresentInTrashFile(command: MemoLifecycleCommand): Boolean =
             workspaceStore.ensureTrashMemoBlock(command.sourceMemo) == MemoWorkspaceBlockMutationResult.Applied
-
         suspend fun restoreFromTrash(memo: Memo) {
             if (!restoreFromTrashFileOnly(memo)) {
                 throw UnsafeWorkspaceMutationException("Unable to restore trash memo safely: ${memo.id}")
@@ -67,14 +59,12 @@ class MemoTrashMutationHandler
                 origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
             )
         }
-
         suspend fun restoreFromTrashInDb(memo: Memo): Boolean {
             val sourceMemo = memoTrashDao.getTrashMemo(memo.id)?.toDomain()?.copy(isDeleted = false) ?: return false
             persistRestoredMainMemo(memoWriteDao, memoTagDao, memoImageDao, sourceMemo)
             memoTrashDao.deleteTrashMemoById(sourceMemo.id)
             return true
         }
-
         suspend fun restoreFromTrashFileOnly(memo: Memo): Boolean {
             requireSafeMemoDateKey(memo.dateKey)
             val restored = workspaceStore.restoreTrashMemoBlockToActive(memo)
@@ -83,7 +73,6 @@ class MemoTrashMutationHandler
             }
             return restored == MemoWorkspaceBlockMutationResult.Applied
         }
-
         internal suspend fun deleteFromTrashFileOnly(
             command: MemoLifecycleCommand,
         ): PermanentDeleteTrashFileCompletion {
@@ -93,7 +82,6 @@ class MemoTrashMutationHandler
             }
             return deleteFromTrashFileOnly(command.sourceMemo)
         }
-
         private suspend fun deleteFromTrashFileOnly(memo: Memo): PermanentDeleteTrashFileCompletion {
             requireSafeMemoDateKey(memo.dateKey)
             return when (workspaceStore.removeTrashMemoBlock(memo)) {
@@ -104,15 +92,11 @@ class MemoTrashMutationHandler
                 }
             }
         }
-
     }
-
 internal sealed interface PermanentDeleteTrashFileCompletion {
     data object Completed : PermanentDeleteTrashFileCompletion
-
     data object MissingTrashBlock : PermanentDeleteTrashFileCompletion
 }
-
 private suspend fun persistRestoredMainMemo(
     memoWriteDao: MemoWriteDao,
     memoTagDao: MemoTagDao,

@@ -6,16 +6,12 @@ import com.lomo.domain.model.CredentialReadDenialReason
 import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.flow.first
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class DataStoreSecuritySessionPolicy
-    @Inject
-    constructor(
-        private val dataStore: LomoDataStore,
-    ) : SecuritySessionPolicy,
-        SecuritySessionController {
+
+class DataStoreSecuritySessionPolicy(
+    private val dataStore: LomoDataStore,
+) : SecuritySessionPolicy,
+    SecuritySessionController {
         @Volatile
         private var appLockSessionUnlocked: Boolean = false
 

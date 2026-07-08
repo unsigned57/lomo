@@ -9,50 +9,44 @@ import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.data.sync.S3SyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncScheduledWork
 import com.lomo.data.sync.SyncWorkPayload
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class S3SyncScheduler
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-        private val policyPlanner: S3SyncWorkPolicyPlanner,
-    ) : S3ScheduledSyncWorkEnqueuer {
-        suspend fun reschedule() {
-            val enabled = dataStore.s3SyncEnabled.first()
-            val autoSyncEnabled = dataStore.s3AutoSyncEnabled.first()
-            if (!enabled || !autoSyncEnabled) {
-                cancel()
-                return
-            }
-
-            val interval = dataStore.s3AutoSyncInterval.first()
-            enqueue(policyPlanner.planAutoSchedule(interval).scheduledWork)
-            Timber.d("S3 auto-sync scheduled with interval: %s", interval)
+class S3SyncScheduler(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+    private val policyPlanner: S3SyncWorkPolicyPlanner,
+) : S3ScheduledSyncWorkEnqueuer {
+    suspend fun reschedule() {
+        val enabled = dataStore.s3SyncEnabled.first()
+        val autoSyncEnabled = dataStore.s3AutoSyncEnabled.first()
+        if (!enabled || !autoSyncEnabled) {
+            cancel()
+            return
         }
 
-        fun cancel() {
-            WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.WORK_NAME)
-            WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.RECONCILE_WORK_NAME)
-            WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.RECONCILE_CATCH_UP_WORK_NAME)
-            Timber.d("S3 auto-sync cancelled")
-        }
+        val interval = dataStore.s3AutoSyncInterval.first()
+        enqueue(policyPlanner.planAutoSchedule(interval).scheduledWork)
+        Timber.d("S3 auto-sync scheduled with interval: %s", interval)
+    }
 
-        override suspend fun enqueue(work: List<SyncScheduledWork>) {
-            val workManager = WorkManager.getInstance(context)
-            work.forEach { scheduledWork ->
-                workManager.enqueueSyncScheduledWork<S3SyncWorker>(
-                    scheduledWork = scheduledWork,
-                    inputData = scheduledWork.payload.toS3InputData(),
-                )
-            }
+    fun cancel() {
+        WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.RECONCILE_WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork(S3SyncWorker.RECONCILE_CATCH_UP_WORK_NAME)
+        Timber.d("S3 auto-sync cancelled")
+    }
+
+    override suspend fun enqueue(work: List<SyncScheduledWork>) {
+        val workManager = WorkManager.getInstance(context)
+        work.forEach { scheduledWork ->
+            workManager.enqueueSyncScheduledWork<S3SyncWorker>(
+                scheduledWork = scheduledWork,
+                inputData = scheduledWork.payload.toS3InputData(),
+            )
         }
     }
+}
 
 private fun SyncWorkPayload.toS3InputData(): androidx.work.Data =
     when (this) {

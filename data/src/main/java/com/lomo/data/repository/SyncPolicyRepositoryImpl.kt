@@ -13,24 +13,20 @@ import com.lomo.data.worker.SyncWorker
 import com.lomo.data.worker.WebDavSyncScheduler
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.SyncPolicyRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.Duration
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SyncPolicyRepositoryImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-        private val gitSyncScheduler: GitSyncScheduler,
-        private val webDavSyncScheduler: WebDavSyncScheduler,
-        private val s3SyncScheduler: S3SyncScheduler,
-    ) : SyncPolicyRepository {
+
+class SyncPolicyRepositoryImpl(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+    private val gitSyncScheduler: GitSyncScheduler,
+    private val webDavSyncScheduler: WebDavSyncScheduler,
+    private val s3SyncScheduler: S3SyncScheduler,
+) : SyncPolicyRepository {
         override fun ensureCoreSyncActive() {
             val syncRequest =
                 PeriodicWorkRequestBuilder<SyncWorker>(Duration.ofHours(1))

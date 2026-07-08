@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.data.webdav.WebDavClient
@@ -14,25 +13,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
-
 internal data class WebDavResolvedConfig(
     val endpointUrl: String,
     val username: String,
     val password: String,
 )
-
-@Singleton
 class WebDavSyncRepositorySupport
-    @Inject
-    constructor(
+constructor(
         private val runtime: WebDavSyncRepositoryContext,
         private val credentialRepository: CredentialRepository,
         private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         suspend fun <T> runWebDavIo(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
-
         internal suspend fun resolveConfig(): WebDavResolvedConfig? {
             if (!runtime.dataStore.webDavSyncEnabled.first()) {
                 runtime.stateHolder.state.value = WebDavSyncState.NotConfigured
@@ -65,36 +57,29 @@ class WebDavSyncRepositorySupport
             }
             return resolved
         }
-
         internal fun createClient(config: WebDavResolvedConfig): WebDavClient =
             runtime.clientFactory.create(config.endpointUrl, config.username, config.password)
-
         fun notConfiguredResult(): WebDavSyncResult {
             runtime.stateHolder.state.value = WebDavSyncState.NotConfigured
             return WebDavSyncResult.NotConfigured
         }
-
         fun mapError(error: Throwable): WebDavSyncResult.Error {
             if (error is CancellationException) {
                 throw error
             }
-
             val message = error.message?.takeIf(String::isNotBlank) ?: "WebDAV sync failed"
             Timber.e(error, "WebDAV sync failed")
             runtime.stateHolder.state.value = WebDavSyncState.Error(message, System.currentTimeMillis())
             return WebDavSyncResult.Error(message, error)
         }
-
         fun mapConnectionTestError(error: Throwable): WebDavSyncResult.Error {
             if (error is CancellationException) {
                 throw error
             }
-
             val message = error.message?.takeIf(String::isNotBlank) ?: "WebDAV connection test failed"
             Timber.e(error, "WebDAV connection test failed")
             return WebDavSyncResult.Error(message, error)
         }
-
         private suspend fun CredentialRepository.readWebDavRequiredCredential(
             field: CredentialField,
         ): RequiredCredentialRead =
@@ -121,6 +106,5 @@ class WebDavSyncRepositorySupport
                 },
             )
     }
-
 private fun webDavCredentialDeniedMessage(denied: CredentialSecretReadResult.Unauthorized): String =
     "WebDAV credential read denied: ${denied.reason}"

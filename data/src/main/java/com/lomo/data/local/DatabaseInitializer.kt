@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.room3.useReaderConnection
 import com.lomo.data.util.throwIfFatal
 import com.lomo.domain.repository.DatabaseInitializationRepository
-import dagger.Lazy
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.lang.Exception
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,24 +14,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
 class DatabaseInitializer internal constructor(
     private val databasePath: String,
     private val ioDispatcher: CoroutineDispatcher,
     private val performOpen: suspend () -> Unit,
 ) : DatabaseInitializationRepository {
-    @Inject
     constructor(
-        @ApplicationContext context: Context,
-        databaseProvider: Lazy<MemoDatabase>,
+        context: Context,
+        database: MemoDatabase,
     ) : this(
         databasePath = context.getDatabasePath(DatabaseTransitionStrategy.DATABASE_NAME).path,
         ioDispatcher = Dispatchers.IO,
         performOpen = {
-            val database = databaseProvider.get()
             try {
                 probeMemoDatabaseReadiness(database)
             } catch (error: Exception) {

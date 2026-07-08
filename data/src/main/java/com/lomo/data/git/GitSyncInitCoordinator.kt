@@ -1,14 +1,8 @@
 package com.lomo.data.git
-
 import com.lomo.domain.model.GitSyncResult
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 internal class GitSyncInitCoordinator
-    @Inject
-    constructor(
+constructor(
         private val workflow: GitSyncWorkflow,
     ) {
         suspend fun initOrClone(

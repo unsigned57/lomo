@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
@@ -10,13 +9,8 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class DirectorySettingsRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val dataSource: WorkspaceConfigSource,
         private val dataStore: LomoDataStore,
     ) : DirectorySettingsRepository {
@@ -24,7 +18,6 @@ class DirectorySettingsRepositoryImpl
             dataSource
                 .getRootFlow(area.toStorageRootType())
                 .map { raw -> raw?.let(::StorageLocation) }
-
         override suspend fun currentLocation(area: StorageArea): StorageLocation? =
             when (area) {
                 StorageArea.ROOT -> dataStore.rootUri.first() ?: dataStore.rootDirectory.first()
@@ -32,10 +25,8 @@ class DirectorySettingsRepositoryImpl
                 StorageArea.VOICE -> dataStore.voiceUri.first() ?: dataStore.voiceDirectory.first()
                 StorageArea.SYNC_INBOX -> dataStore.syncInboxUri.first() ?: dataStore.syncInboxDirectory.first()
             }?.let(::StorageLocation)
-
         override fun observeDisplayName(area: StorageArea): Flow<String?> =
             dataSource.getRootDisplayNameFlow(area.toStorageRootType())
-
         override suspend fun applyLocation(update: StorageAreaUpdate) {
             dataSource.setRoot(
                 type = update.area.toStorageRootType(),
@@ -43,7 +34,6 @@ class DirectorySettingsRepositoryImpl
             )
         }
     }
-
 internal fun StorageArea.toStorageRootType(): StorageRootType =
     when (this) {
         StorageArea.ROOT -> StorageRootType.MAIN

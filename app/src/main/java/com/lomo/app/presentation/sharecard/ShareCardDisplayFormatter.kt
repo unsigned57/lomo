@@ -1,13 +1,9 @@
 package com.lomo.app.presentation.sharecard
 
 import com.lomo.app.util.MarkdownCleanupFormatter
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ShareCardDisplayFormatter
-    @Inject
-    constructor() {
+
+class ShareCardDisplayFormatter {
         fun formatTagsForDisplay(tags: List<String>): List<String> =
             tags
                 .asSequence()

@@ -18,15 +18,14 @@ import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SettingValue
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import timber.log.Timber
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val LOMO_DATA_STORE_TAG = "LomoDataStore"
 
@@ -387,7 +386,6 @@ internal data class LomoOrdinarySettingsRestoreTransaction(
 /**
  * DataStore-backed settings shell. The API remains stable while implementation is split by concern.
  */
-@Singleton
 class LomoDataStore private constructor(
     private val dataStore: DataStore<Preferences>,
 ) : LomoRootLocationStore by RootLocationStoreImpl(dataStore),
@@ -411,9 +409,8 @@ class LomoDataStore private constructor(
     LomoS3ScheduleStore by S3ScheduleStoreImpl(dataStore),
     LomoDraftStore by DraftStoreImpl(dataStore),
     LomoTypographyPreferencesStore by TypographyPreferencesStoreImpl(dataStore) {
-    @Inject
     constructor(
-        @ApplicationContext context: Context,
+        context: Context,
     ) : this(context.dataStore)
 
     fun settingValueFlow(descriptor: SettingDescriptor): Flow<SettingValue> =

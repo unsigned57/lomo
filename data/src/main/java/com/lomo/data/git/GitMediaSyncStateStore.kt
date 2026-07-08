@@ -1,15 +1,14 @@
 package com.lomo.data.git
 
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 interface GitMediaSyncStateStore {
     suspend fun read(): Map<String, GitMediaSyncMetadataEntry>
@@ -27,12 +26,9 @@ interface RawGitMediaSyncStateStore {
     suspend fun clear()
 }
 
-@Singleton
-class FileGitMediaSyncStateStore
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : RawGitMediaSyncStateStore {
+class FileGitMediaSyncStateStore(
+    private val context: Context,
+) : RawGitMediaSyncStateStore {
         private val json = Json { ignoreUnknownKeys = true }
 
         override suspend fun readSnapshot(): GitMediaSyncMetadataSnapshot =
@@ -64,13 +60,10 @@ class FileGitMediaSyncStateStore
         private fun stateFile(): File = File(context.filesDir, "git_media_sync_state.json")
     }
 
-@Singleton
-class GitMediaSyncWorkspaceStateStore
-    @Inject
-    constructor(
-        private val rawStore: RawGitMediaSyncStateStore,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : GitMediaSyncStateStore {
+class GitMediaSyncWorkspaceStateStore(
+    private val rawStore: RawGitMediaSyncStateStore,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : GitMediaSyncStateStore {
         override suspend fun read(): Map<String, GitMediaSyncMetadataEntry> {
             val generation = activeGeneration()
             val snapshot = rawStore.readSnapshot()

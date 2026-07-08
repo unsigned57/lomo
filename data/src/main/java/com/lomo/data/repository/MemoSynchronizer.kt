@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 
-import com.lomo.data.di.ApplicationScope
+
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.Memo
@@ -17,25 +17,26 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val OUTBOX_COMPLETION_FAILURE_PREFIX = "completion:"
 
-@Singleton
-class MemoSynchronizer
-    internal constructor(
-        private val refreshEngine: MemoRefreshEngine,
-        private val mutationHandler: MemoMutationHandler,
-        outboxScope: CoroutineScope,
-        private val startOutboxCoordinator: Boolean,
-    ) {
-        @Inject
+class MemoSynchronizer internal constructor(
+    private val refreshEngine: MemoRefreshEngine,
+    private val mutationHandler: MemoMutationHandler,
+    private val outboxScope: CoroutineScope,
+    startOutboxCoordinator: Boolean,
+) {
         constructor(
             refreshEngine: MemoRefreshEngine,
             mutationHandler: MemoMutationHandler,
-            @ApplicationScope outboxScope: CoroutineScope,
-        ) : this(refreshEngine, mutationHandler, outboxScope, true)
+            outboxScope: CoroutineScope,
+        ) : this(
+            refreshEngine = refreshEngine,
+            mutationHandler = mutationHandler,
+            outboxScope = outboxScope,
+            startOutboxCoordinator = true,
+        )
 
         private val mutex = Mutex()
         private val outboxCoordinator = MemoOutboxDrainCoordinator(mutationHandler, mutex, outboxScope)

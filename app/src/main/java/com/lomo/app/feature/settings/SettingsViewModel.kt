@@ -9,25 +9,22 @@ import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
 
-@HiltViewModel
-class SettingsViewModel
-    @Inject
-    constructor(
-        coordinatorFactory: SettingsCoordinatorFactory,
-        exportAllNotesArchiveUseCase: ExportAllNotesArchiveUseCase,
-        importAllNotesArchiveUseCase: ImportAllNotesArchiveUseCase,
-        exportEncryptedSettingsUseCase: ExportEncryptedSettingsUseCase,
-        importEncryptedSettingsUseCase: ImportEncryptedSettingsUseCase,
-        appUpdateChecker: AppUpdateChecker? = null,
-        getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
-        appUpdateDownloadManager: AppUpdateDownloadManager? = null,
-    ) : ViewModel() {
+
+class SettingsViewModel(
+    coordinatorFactory: SettingsCoordinatorFactory,
+    exportAllNotesArchiveUseCase: ExportAllNotesArchiveUseCase,
+    importAllNotesArchiveUseCase: ImportAllNotesArchiveUseCase,
+    exportEncryptedSettingsUseCase: ExportEncryptedSettingsUseCase,
+    importEncryptedSettingsUseCase: ImportEncryptedSettingsUseCase,
+    appUpdateChecker: AppUpdateChecker? = null,
+    getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
+    appUpdateDownloadManager: AppUpdateDownloadManager? = null,
+) : ViewModel() {
         private val appConfigCoordinator =
             coordinatorFactory.createAppConfigCoordinator(viewModelScope)
 

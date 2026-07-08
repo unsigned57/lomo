@@ -3,16 +3,12 @@ package com.lomo.app
 import android.content.ComponentCallbacks2
 import com.lomo.domain.repository.AppBackgroundWorkRepository
 import com.lomo.domain.repository.AppUpdateTransportLifecycleRepository
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AppShutdownCoordinator
-    @Inject
-    constructor(
-        private val appUpdateTransportLifecycleRepository: AppUpdateTransportLifecycleRepository,
-        private val appBackgroundWorkRepository: AppBackgroundWorkRepository,
-    ) {
+
+class AppShutdownCoordinator(
+    private val appUpdateTransportLifecycleRepository: AppUpdateTransportLifecycleRepository,
+    private val appBackgroundWorkRepository: AppBackgroundWorkRepository,
+) {
         fun closeAppResources(onCloseFailure: (Throwable) -> Unit = {}) {
             closeUpdateTransport(onCloseFailure)
             cancelAppBackgroundWork(onCloseFailure)

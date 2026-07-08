@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3SyncResult
@@ -17,13 +16,8 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.S3SyncConflictRepository
 import com.lomo.domain.repository.S3SyncReviewRepository
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class S3SyncConflictRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val resolver: S3ConflictResolver,
     ) : S3SyncConflictRepository {
         override suspend fun resolveConflicts(
@@ -31,11 +25,8 @@ class S3SyncConflictRepositoryImpl
             conflictSet: SyncConflictSet,
         ): S3SyncResult = resolver.resolveConflicts(resolution, conflictSet)
     }
-
-@Singleton
 class S3SyncReviewRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val resolver: S3ReviewResolver,
     ) : S3SyncReviewRepository {
         override suspend fun resolveReview(
@@ -43,10 +34,7 @@ class S3SyncReviewRepositoryImpl
             review: SyncReviewSession,
         ): S3SyncResult = resolver.resolveReview(resolution, review)
     }
-
-@Singleton
 class S3ConflictResolver
-    @Inject
     internal constructor(
         private val runtime: S3SyncRepositoryContext,
         private val support: S3SyncRepositorySupport,
@@ -91,7 +79,6 @@ class S3ConflictResolver
                 }
             }.getOrElse(support::mapError)
         }
-
         private suspend fun resolveConflictsWithClient(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
@@ -157,7 +144,6 @@ class S3ConflictResolver
             }
             return buildFinalResult(conflictSet, pendingDescriptor, applied.unresolvedFiles)
         }
-
         private suspend fun validatePendingConflictBeforeResolve(
             descriptor: PendingSyncConflictDescriptor?,
             client: com.lomo.data.s3.LomoS3Client,
@@ -215,7 +201,6 @@ class S3ConflictResolver
             }
             return null
         }
-
         private suspend fun loadResolutionContext(
             conflictSet: SyncConflictSet,
         ): S3ResolutionContext {
@@ -233,7 +218,6 @@ class S3ConflictResolver
                 remoteFiles = loadRemoteFiles(conflictPaths, metadataByPath),
             )
         }
-
         private suspend fun loadRemoteFiles(
             conflictPaths: List<String>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
@@ -255,7 +239,6 @@ class S3ConflictResolver
                         )
                 }
             }
-
         private suspend fun applyChoices(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
@@ -306,7 +289,6 @@ class S3ConflictResolver
                 actionOutcomes = actionOutcomes,
             )
         }
-
         private suspend fun buildFinalResult(
             conflictSet: SyncConflictSet,
             pendingDescriptor: PendingSyncConflictDescriptor?,
@@ -330,7 +312,6 @@ class S3ConflictResolver
             runtime.stateHolder.state.value = S3SyncState.Success(now, "Conflicts resolved")
             return S3SyncResult.Success("Conflicts resolved")
         }
-
         private suspend fun applyChoice(
             file: com.lomo.domain.model.SyncConflictFile,
             choice: SyncConflictResolutionChoice,
@@ -354,7 +335,6 @@ class S3ConflictResolver
                         fileBridgeScope,
                         mode,
                     )
-
                 SyncConflictResolutionChoice.KEEP_REMOTE ->
                     return downloadRemoteVersion(
                         file,
@@ -365,7 +345,6 @@ class S3ConflictResolver
                         metadataByPath,
                         fileBridgeScope,
                     )
-
                 SyncConflictResolutionChoice.MERGE_TEXT ->
                     return mergeTextVersion(
                         file,
@@ -377,11 +356,9 @@ class S3ConflictResolver
                         fileBridgeScope,
                         mode,
                     )
-
                 SyncConflictResolutionChoice.SKIP_FOR_NOW -> return null
             }
         }
-
         private suspend fun mergeTextVersion(
             file: com.lomo.domain.model.SyncConflictFile,
             client: com.lomo.data.s3.LomoS3Client,
@@ -430,7 +407,6 @@ class S3ConflictResolver
                 reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
             )
         }
-
         private suspend fun uploadLocalVersion(
             file: com.lomo.domain.model.SyncConflictFile,
             client: com.lomo.data.s3.LomoS3Client,
@@ -483,7 +459,6 @@ class S3ConflictResolver
                 )
             }
         }
-
         private suspend fun downloadRemoteVersion(
             file: com.lomo.domain.model.SyncConflictFile,
             client: com.lomo.data.s3.LomoS3Client,
@@ -525,12 +500,8 @@ class S3ConflictResolver
                 )
             }
         }
-
     }
-
-@Singleton
 class S3ReviewResolver
-    @Inject
     internal constructor(
         private val runtime: S3SyncRepositoryContext,
         private val support: S3SyncRepositorySupport,
@@ -575,7 +546,6 @@ class S3ReviewResolver
                 }
             }.getOrElse(support::mapError)
         }
-
         private suspend fun resolveReviewWithClient(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
@@ -660,7 +630,6 @@ class S3ReviewResolver
             }
             return buildFinalResult(validatedReview, pendingDescriptor, applied.unresolvedItems)
         }
-
         private suspend fun loadResolutionContext(
             review: SyncReviewSession,
         ): S3ResolutionContext {
@@ -678,7 +647,6 @@ class S3ReviewResolver
                 remoteFiles = loadRemoteFiles(reviewPaths, metadataByPath),
             )
         }
-
         private suspend fun loadRemoteFiles(
             reviewPaths: List<String>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
@@ -700,7 +668,6 @@ class S3ReviewResolver
                         )
                 }
             }
-
         private suspend fun applyChoices(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
@@ -755,7 +722,6 @@ class S3ReviewResolver
                 actionOutcomes = actionOutcomes,
             )
         }
-
         private suspend fun buildFinalResult(
             review: SyncReviewSession,
             pendingDescriptor: PendingSyncReviewDescriptor?,
@@ -776,7 +742,6 @@ class S3ReviewResolver
             runtime.stateHolder.state.value = S3SyncState.Success(now, "Review resolved")
             return S3SyncResult.Success("Review resolved")
         }
-
         private suspend fun applyChoice(
             item: SyncReviewItem,
             choice: SyncReviewResolutionChoice,
@@ -791,16 +756,12 @@ class S3ReviewResolver
             when (choice) {
                 SyncReviewResolutionChoice.KEEP_LOCAL ->
                     uploadLocalVersion(item, client, layout, config, remoteFiles, metadataByPath, fileBridgeScope, mode)
-
                 SyncReviewResolutionChoice.KEEP_INCOMING ->
                     downloadIncomingVersion(item, client, layout, config, remoteFiles, metadataByPath, fileBridgeScope)
-
                 SyncReviewResolutionChoice.MERGE_TEXT ->
                     mergeTextVersion(item, client, layout, config, remoteFiles, metadataByPath, fileBridgeScope, mode)
-
                 SyncReviewResolutionChoice.SKIP_FOR_NOW -> null
             }
-
         private suspend fun mergeTextVersion(
             item: SyncReviewItem,
             client: com.lomo.data.s3.LomoS3Client,
@@ -849,7 +810,6 @@ class S3ReviewResolver
                 reason = com.lomo.domain.model.S3SyncReason.LOCAL_NEWER,
             )
         }
-
         private suspend fun uploadLocalVersion(
             item: SyncReviewItem,
             client: com.lomo.data.s3.LomoS3Client,
@@ -902,7 +862,6 @@ class S3ReviewResolver
                 )
             }
         }
-
         private suspend fun downloadIncomingVersion(
             item: SyncReviewItem,
             client: com.lomo.data.s3.LomoS3Client,
@@ -944,9 +903,7 @@ class S3ReviewResolver
                 )
             }
         }
-
     }
-
 private suspend fun refreshS3ResolutionMemoCache(
     runtime: S3SyncRepositoryContext,
     sessionKind: String,
@@ -957,7 +914,6 @@ private suspend fun refreshS3ResolutionMemoCache(
         Timber.w(error, "Memo refresh after S3 %s resolution failed", sessionKind)
     }
 }
-
 private suspend fun commitIncrementalS3ResolutionState(
     protocolStateStore: S3SyncProtocolStateStore,
     localChangeJournalStore: S3LocalChangeJournalStore,
@@ -1012,13 +968,11 @@ private suspend fun commitIncrementalS3ResolutionState(
             .map(S3LocalChangeJournalEntry::id)
     localChangeJournalStore.remove(removableJournalIds)
 }
-
 private data class S3ResolutionContext(
     val protocolState: S3SyncProtocolState?,
     val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
     val remoteFiles: Map<String, RemoteS3File>,
 )
-
 private fun PendingSyncConflictDescriptor.toRestoredRemoteFiles(
     config: S3ResolvedConfig,
     objectKeyPolicy: S3RemoteObjectKeyPolicy,
@@ -1035,7 +989,6 @@ private fun PendingSyncConflictDescriptor.toRestoredRemoteFiles(
                 verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
             )
     }
-
 private fun PendingSyncReviewDescriptor.toRestoredRemoteFiles(
     config: S3ResolvedConfig,
     objectKeyPolicy: S3RemoteObjectKeyPolicy,
@@ -1052,13 +1005,10 @@ private fun PendingSyncReviewDescriptor.toRestoredRemoteFiles(
                 verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
             )
     }
-
 private fun PendingSyncConflictDescriptor.filterFiles(relativePaths: Set<String>): PendingSyncConflictDescriptor =
     copy(files = files.filter { file -> file.relativePath in relativePaths })
-
 private fun PendingSyncReviewDescriptor.filterItems(relativePaths: Set<String>): PendingSyncReviewDescriptor =
     copy(items = items.filter { item -> item.relativePath in relativePaths })
-
 private fun S3RemoteObjectKeyPolicy.resolveS3OperationKey(
     relativePath: String,
     explicitExistingKey: String? = null,
@@ -1073,7 +1023,6 @@ private fun S3RemoteObjectKeyPolicy.resolveS3OperationKey(
             remoteFile = remoteFile,
             metadata = metadata,
         )
-
 private class S3PendingReviewRestorer(
     private val client: com.lomo.data.s3.LomoS3Client,
     private val layout: SyncDirectoryLayout,
@@ -1105,7 +1054,6 @@ private class S3PendingReviewRestorer(
                 ),
             )
     }
-
     private suspend fun restoreItem(item: PendingSyncReviewItemDescriptor): S3PendingReviewItemRestore {
         val local =
             fileBridgeScope.pendingValidationLocalFile(
@@ -1133,7 +1081,6 @@ private class S3PendingReviewRestorer(
         }
         return restoreContents(item, local, remoteKey, remoteLastModified)
     }
-
     private suspend fun restoreContents(
         item: PendingSyncReviewItemDescriptor,
         local: LocalS3File,
@@ -1170,21 +1117,17 @@ private class S3PendingReviewRestorer(
                 )
         }
     }
-
     private fun remoteKeyFor(item: PendingSyncReviewItemDescriptor): S3RemoteObjectKey =
         objectKeyPolicy.validatedExistingKey(item.incoming.locator, config)
 }
-
 private sealed interface S3PendingReviewItemRestore {
     data class Restored(
         val item: SyncReviewItem,
     ) : S3PendingReviewItemRestore
-
     data class Invalidated(
         val reason: PendingSyncInvalidationReason,
     ) : S3PendingReviewItemRestore
 }
-
 private class S3ResolutionLifecycleStages(
     private val client: com.lomo.data.s3.LomoS3Client,
     private val workItemCount: Int,
@@ -1196,41 +1139,33 @@ private class S3ResolutionLifecycleStages(
             backend = SyncBackendType.S3,
             budget = RemoteSyncBudgetPolicy.Limited(DEFAULT_REMOTE_SYNC_NETWORK_OPERATION_BUDGET),
         )
-
     private lateinit var meteredClient: com.lomo.data.s3.LomoS3Client
-
     override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession) {
         meteredClient = session.meter(client)
     }
-
     override suspend fun plan(
         snapshot: Unit,
         session: RemoteSyncLifecycleSession,
     ): Int = workItemCount
-
     override suspend fun verify(
         plan: Int,
         session: RemoteSyncLifecycleSession,
     ): Int = plan
-
     override suspend fun materializeConflicts(
         verified: Int,
         session: RemoteSyncLifecycleSession,
     ) = Unit
-
     override suspend fun apply(
         verified: Int,
         conflicts: Unit,
         session: RemoteSyncLifecycleSession,
     ): S3SyncResult = resolve(meteredClient)
-
     override suspend fun commitMetadata(
         verified: Int,
         conflicts: Unit,
         applied: S3SyncResult,
         session: RemoteSyncLifecycleSession,
     ): S3SyncResult = applied
-
     override suspend fun finalize(
         verified: Int,
         conflicts: Unit,
@@ -1238,37 +1173,28 @@ private class S3ResolutionLifecycleStages(
         metadata: S3SyncResult,
         session: RemoteSyncLifecycleSession,
     ): S3SyncResult = metadata
-
     override fun summarizeSnapshot(snapshot: Unit): RemoteSyncSnapshotTelemetry =
         RemoteSyncSnapshotTelemetry(
             localFileCount = workItemCount,
             remoteFileCount = workItemCount,
             metadataEntryCount = workItemCount,
         )
-
     override fun summarizePlan(plan: Int): RemoteSyncActionTelemetry =
         RemoteSyncActionTelemetry(total = plan, conflict = plan)
-
     override fun summarizeVerification(verified: Int): RemoteSyncActionTelemetry =
         RemoteSyncActionTelemetry(total = verified, conflict = verified)
-
     override fun summarizeRefresh(finalized: S3SyncResult): RemoteSyncRefreshTelemetry =
         RemoteSyncRefreshTelemetry(durationMillis = 0)
-
     override fun summarizeResult(finalized: S3SyncResult): RemoteSyncLifecycleResultTelemetry =
         if (finalized is S3SyncResult.Error) {
             RemoteSyncLifecycleResultTelemetry.Failure
         } else {
             RemoteSyncLifecycleResultTelemetry.Success
         }
-
     override fun mapResult(finalized: S3SyncResult): S3SyncResult = finalized
-
     override fun mapError(error: Throwable): S3SyncResult = mapError.invoke(error)
-
     override suspend fun release() = Unit
 }
-
 private data class S3AppliedConflictResolution(
     val resolvedLocalFiles: Map<String, LocalS3File>,
     val resolvedRemoteFiles: MutableMap<String, RemoteS3File>,
@@ -1283,11 +1209,9 @@ private data class S3AppliedConflictResolution(
         >,
 ) {
     fun hasResolvedActions(): Boolean = actionOutcomes.isNotEmpty()
-
     fun unresolvedPaths(): Set<String> =
         unresolvedFiles.mapTo(linkedSetOf(), com.lomo.domain.model.SyncConflictFile::relativePath)
 }
-
 private data class S3ConflictResolutionOutcome(
     val path: String,
     val localFile: LocalS3File?,
@@ -1295,7 +1219,6 @@ private data class S3ConflictResolutionOutcome(
     val direction: com.lomo.domain.model.S3SyncDirection,
     val reason: com.lomo.domain.model.S3SyncReason,
 )
-
 private data class S3AppliedReviewResolution(
     val resolvedLocalFiles: Map<String, LocalS3File>,
     val resolvedRemoteFiles: MutableMap<String, RemoteS3File>,
@@ -1310,11 +1233,9 @@ private data class S3AppliedReviewResolution(
         >,
 ) {
     fun hasResolvedActions(): Boolean = actionOutcomes.isNotEmpty()
-
     fun unresolvedPaths(): Set<String> =
         unresolvedItems.mapTo(linkedSetOf(), SyncReviewItem::relativePath)
 }
-
 private data class S3ReviewResolutionOutcome(
     val path: String,
     val localFile: LocalS3File?,

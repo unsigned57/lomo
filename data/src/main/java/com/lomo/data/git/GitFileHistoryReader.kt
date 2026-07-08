@@ -1,24 +1,17 @@
 package com.lomo.data.git
-
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import org.eclipse.jgit.api.Git
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
 data class GitFileHistoryEntry(
     val commitHash: String,
     val commitTime: Long,
     val commitMessage: String,
     val fileContent: String,
 )
-
-@Singleton
 class GitFileHistoryReader
-    @Inject
-    constructor(
+constructor(
         private val primitives: GitRepositoryPrimitives,
     ) {
         fun getFileHistory(
@@ -28,7 +21,6 @@ class GitFileHistoryReader
         ): List<GitFileHistoryEntry> {
             val gitDir = File(rootDir, ".git")
             if (!gitDir.exists()) return emptyList()
-
             return runNonFatalCatching {
                 val git = Git.open(rootDir)
                 git.use { g ->
@@ -39,7 +31,6 @@ class GitFileHistoryReader
                             .setMaxCount(maxCount)
                             .call()
                             .toList()
-
                     val result = mutableListOf<GitFileHistoryEntry>()
                     for (commit in commits) {
                         val content = primitives.readFileAtCommit(g, commit, filename) ?: continue

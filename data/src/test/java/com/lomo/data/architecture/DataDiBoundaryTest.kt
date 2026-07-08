@@ -7,7 +7,7 @@
  *
  * Scenarios:
  * - Given data DI is inspected, when infrastructure bindings are organized, then no catch-all DataModule file exists.
- * - Given sync provider registration is inspected, when data owns concrete sync repositories, then each provider is contributed through Hilt multibinding.
+ * - Given sync provider registration is inspected, when data owns concrete sync repositories, then each provider is contributed through Koin multibinding.
  *
  * Observable outcomes:
  * - Architecture assertions over data DI source ownership and multibinding registration.
@@ -16,7 +16,7 @@
  * - RED: before this fix DataModule.kt still contains unrelated database, repository, sync, update, and media bindings.
  *
  * Excludes:
- * - Hilt code generation, Android runtime behavior, and repository sync behavior.
+ * - Koin graph verification internals, Android runtime behavior, and repository sync behavior.
  */
 package com.lomo.data.architecture
 
@@ -40,20 +40,20 @@ class DataDiBoundaryTest : DataFunSpec() {
             val diRoot = resolveModuleRoot("data").resolve("src/main/java/com/lomo/data/di")
             val content = collectKotlinFiles(diRoot).joinToString(separator = "\n") { it.readText() }
 
-            withClue("Data DI must use Hilt set multibindings for UnifiedSyncProvider contributions") {
-                content.contains("@IntoSet") shouldBe true
+            withClue("Data DI must declare UnifiedSyncProvider bindings") {
+                content.contains("single<UnifiedSyncProvider>") shouldBe true
             }
             withClue("Git provider must be contributed by the sync capability module") {
-                content.contains("GitUnifiedSyncProvider(") shouldBe true
+                content.contains("GitUnifiedSyncProvider") shouldBe true
             }
             withClue("WebDAV provider must be contributed by the sync capability module") {
-                content.contains("WebDavUnifiedSyncProvider(") shouldBe true
+                content.contains("WebDavUnifiedSyncProvider") shouldBe true
             }
             withClue("S3 provider must be contributed by the sync capability module") {
-                content.contains("S3UnifiedSyncProvider(") shouldBe true
+                content.contains("S3UnifiedSyncProvider") shouldBe true
             }
             withClue("Inbox provider must be contributed by the sync capability module") {
-                content.contains("InboxUnifiedSyncProvider(") shouldBe true
+                content.contains("InboxUnifiedSyncProvider") shouldBe true
             }
         }
     }

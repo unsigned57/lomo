@@ -9,28 +9,25 @@ import com.lomo.app.feature.common.toUserMessage
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
+
 
 data class StatisticsShareImageEvent(
     val id: Long,
     val filePath: String,
 )
 
-@HiltViewModel
-class StatisticsViewModel
-    @Inject
-    constructor(
-        private val memoStatisticsUseCase: MemoStatisticsUseCase,
-        private val persistShareImageUseCase: PersistShareImageUseCase,
-        appConfigStateProvider: AppConfigStateProvider,
-    ) : ViewModel() {
+class StatisticsViewModel(
+    private val memoStatisticsUseCase: MemoStatisticsUseCase,
+    private val persistShareImageUseCase: PersistShareImageUseCase,
+    appConfigStateProvider: AppConfigStateProvider,
+) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<MemoStatistics>>(UiState.Loading)
         val uiState: StateFlow<UiState<MemoStatistics>> = _uiState.asStateFlow()
         private val _shareImageEvent = MutableStateFlow<StatisticsShareImageEvent?>(null)

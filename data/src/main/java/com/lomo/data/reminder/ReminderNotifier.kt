@@ -8,16 +8,11 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.lomo.data.R
 import com.lomo.domain.model.ReminderMarker
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ReminderNotifier
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) {
+
+class ReminderNotifier(
+    private val context: Context,
+) {
         private val notificationManager: NotificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 

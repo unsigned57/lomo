@@ -35,7 +35,7 @@ import com.lomo.app.feature.conflict.SyncConflictStateViewModel
 import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
-import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -103,9 +103,9 @@ data class MigrationPickerActions(
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
-    viewModel: SettingsViewModel = injectedHiltViewModel(),
-    conflictViewModel: SyncConflictViewModel = injectedHiltViewModel(),
-    conflictStateViewModel: SyncConflictStateViewModel = injectedHiltViewModel(),
+    viewModel: SettingsViewModel = injectedKoinViewModel(),
+    conflictViewModel: SyncConflictViewModel = injectedKoinViewModel(),
+    conflictStateViewModel: SyncConflictStateViewModel = injectedKoinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val conflictSyncStates by conflictStateViewModel.syncStates.collectAsStateWithLifecycle()

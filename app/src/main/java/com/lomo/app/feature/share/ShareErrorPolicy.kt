@@ -1,14 +1,10 @@
 package com.lomo.app.feature.share
 
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val TECHNICAL_MESSAGE_MAX_LENGTH = 200
 
-@Singleton
-class ShareErrorPolicy
-    @Inject
-    constructor() {
+class ShareErrorPolicy {
         fun sanitizeUserFacingMessage(
             rawMessage: String?,
             fallbackMessage: String,

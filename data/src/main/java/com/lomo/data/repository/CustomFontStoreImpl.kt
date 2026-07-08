@@ -3,7 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.repository.CustomFontStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,18 +11,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val CUSTOM_FONT_DIR_NAME = "custom_fonts"
 private val SUPPORTED_FONT_EXTENSIONS = setOf("ttf", "otf")
 
-@Singleton
-class CustomFontStoreImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : CustomFontStore {
+class CustomFontStoreImpl(
+    private val context: Context,
+) : CustomFontStore {
         private val fontDir: File by lazy {
             File(context.filesDir, CUSTOM_FONT_DIR_NAME).apply { if (!exists()) mkdirs() }
         }

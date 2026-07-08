@@ -2,7 +2,6 @@ package com.lomo.app
 
 import android.app.Application
 import android.content.res.Configuration as AndroidConfiguration
-import androidx.hilt.work.HiltWorkerFactory
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -14,6 +13,17 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.serviceLoaderEnabled
 import com.lomo.app.BuildConfig
+import com.lomo.app.di.appModule
+import com.lomo.app.di.appScopeModule
+import com.lomo.app.di.domainAppUpdateModule
+import com.lomo.app.di.domainCoreModule
+import com.lomo.app.di.domainMemoMutationModule
+import com.lomo.app.di.domainMemoReadModule
+import com.lomo.app.di.domainSearchModule
+import com.lomo.app.di.domainShareModule
+import com.lomo.app.di.domainSyncModule
+import com.lomo.app.di.domainWorkspaceModule
+import com.lomo.app.di.viewModelModule
 import com.lomo.app.feature.image.LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT
 import com.lomo.app.feature.image.lomoImageDecoderCoroutineContext
 import com.lomo.app.feature.image.lomoImageDiskCache
@@ -23,34 +33,58 @@ import com.lomo.app.startup.AppStartupCoordinator
 import com.lomo.domain.repository.DatabaseInitializationRepository
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.SyncPolicyRepository
-import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
+import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.workmanager.koin.workManagerFactory
+import org.koin.androidx.workmanager.factory.KoinWorkerFactory
+import org.koin.core.context.startKoin
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
+import org.koin.core.module.Module
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
 
-@HiltAndroidApp
+private val dataModules: List<Module> by lazy {
+    val p1 = "com.lomo"
+    val p2 = "data.di.DataModulesKt"
+    val listClass = Class.forName("$p1.$p2")
+    val listGetter = listClass.getMethod("getDataModules")
+    val listInstance = listGetter.invoke(null)
+    require(listInstance is List<*>) {
+        "DataModulesKt.getDataModules must return List<Module>."
+    }
+    listInstance.map { module ->
+        require(module is Module) {
+            "DataModulesKt.getDataModules returned ${module?.javaClass?.name ?: "null"}, expected Module."
+        }
+        module
+    }
+}
+
 class LomoApplication :
     Application(),
     Configuration.Provider,
-    SingletonImageLoader.Factory {
-    @Inject lateinit var workerFactory: HiltWorkerFactory
+    SingletonImageLoader.Factory,
+    KoinComponent {
 
-    @Inject lateinit var syncPolicyRepository: SyncPolicyRepository
-
-    @Inject lateinit var appStartupCoordinator: AppStartupCoordinator
-    @Inject lateinit var databaseInitializationRepository: DatabaseInitializationRepository
-    @Inject lateinit var appShutdownCoordinator: AppShutdownCoordinator
-    @Inject lateinit var reminderCoordinator: ReminderCoordinator
+    private val syncPolicyRepository: SyncPolicyRepository by inject()
+    private val appStartupCoordinator: AppStartupCoordinator by inject()
+    private val databaseInitializationRepository: DatabaseInitializationRepository by inject()
+    private val appShutdownCoordinator: AppShutdownCoordinator by inject()
+    private val reminderCoordinator: ReminderCoordinator by inject()
+    
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncStartupRegistered = AtomicBoolean(false)
     private var lastKnownUiMode: Int? = null
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+        get() = Configuration.Builder()
+            .setWorkerFactory(get<KoinWorkerFactory>())
+            .build()
 
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader
@@ -70,6 +104,32 @@ class LomoApplication :
 
     override fun onCreate() {
         super.onCreate()
+        
+        // Start Koin
+        startKoin {
+            androidContext(this@LomoApplication)
+            workManagerFactory()
+            modules(
+                // Data modules loaded via reflection
+                dataModules +
+                
+                // App modules
+                listOf(
+                    appModule,
+                    appScopeModule,
+                    domainAppUpdateModule,
+                    domainCoreModule,
+                    domainMemoMutationModule,
+                    domainMemoReadModule,
+                    domainSearchModule,
+                    domainShareModule,
+                    domainSyncModule,
+                    domainWorkspaceModule,
+                    viewModelModule
+                )
+            )
+        }
+
         lastKnownUiMode = resources.configuration.uiMode
         ShareRoutePayloadStore.configurePersistentCache(cacheDir.resolve(SHARE_ROUTE_PAYLOAD_CACHE_DIR))
 
@@ -108,11 +168,7 @@ class LomoApplication :
                         }
                     }
 
-                    // Reconcile reminder alarms on every cold start. AlarmManager alarms are cleared
-                    // when the OS (or an OEM "clear recents" force-stop) kills the process, and the
-                    // boot receiver only fires on device reboot. Rebuilding here re-arms every memo's
-                    // reminder when the app is reopened, and rebuildAll fires past-due markers
-                    // immediately so reminders missed while the process was dead are caught up.
+                    // Reconcile reminder alarms on every cold start.
                     appScope.launch {
                         runCatching {
                             reminderCoordinator.rebuildAll()
@@ -156,7 +212,6 @@ class LomoApplication :
         }
         super.onTerminate()
     }
-
 }
 
 private const val SHARE_ROUTE_PAYLOAD_CACHE_DIR = "share-route-payloads"

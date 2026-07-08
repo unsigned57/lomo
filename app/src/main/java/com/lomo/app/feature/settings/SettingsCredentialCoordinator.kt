@@ -8,13 +8,11 @@ import com.lomo.domain.repository.CredentialRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
 
-class SettingsCredentialCoordinator
-    @Inject
-    constructor(
-        private val credentialRepository: CredentialRepository,
-    ) {
+
+class SettingsCredentialCoordinator(
+    private val credentialRepository: CredentialRepository,
+) {
         private val statusStates =
             linkedMapOf<
                 Pair<CredentialProvider, CredentialField>,

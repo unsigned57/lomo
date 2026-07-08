@@ -42,7 +42,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.common.UiState
@@ -69,7 +69,7 @@ import kotlin.math.roundToInt
 fun StatisticsScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: StatisticsViewModel = hiltViewModel(),
+    viewModel: StatisticsViewModel = injectedKoinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()

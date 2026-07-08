@@ -13,26 +13,23 @@ import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class MemoEditorViewModel
-    @Inject
-    constructor(
-        private val createMemoUseCase: CreateMemoUseCase,
-        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-        private val saveImageUseCase: SaveImageUseCase,
-        private val discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase,
-        private val appWidgetRepository: AppWidgetRepository,
-        private val observeDraftTextUseCase: ObserveDraftTextUseCase,
-        private val setDraftTextUseCase: SetDraftTextUseCase,
-    ) : ViewModel() {
+
+class MemoEditorViewModel(
+    private val createMemoUseCase: CreateMemoUseCase,
+    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    private val saveImageUseCase: SaveImageUseCase,
+    private val discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase,
+    private val appWidgetRepository: AppWidgetRepository,
+    private val observeDraftTextUseCase: ObserveDraftTextUseCase,
+    private val setDraftTextUseCase: SetDraftTextUseCase,
+) : ViewModel() {
         private val trackedImageFilenames = mutableSetOf<String>()
         private var hasLocalDraftMutation = false
 

@@ -6,17 +6,12 @@ import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AndroidDynamicShortcutPublisher
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val trustedLaunchIntents: TrustedLaunchIntents,
-    ) : DynamicShortcutPublisher {
+
+class AndroidDynamicShortcutPublisher(
+    private val context: Context,
+    private val trustedLaunchIntents: TrustedLaunchIntents,
+) : DynamicShortcutPublisher {
         override fun publishExternalEntryShortcuts() {
             val shortcutManager = context.getSystemService(ShortcutManager::class.java) ?: return
             val managedShortcutIds = setOf(NEW_MEMO_SHORTCUT_ID, START_RECORDING_SHORTCUT_ID)

@@ -28,7 +28,7 @@ import com.lomo.domain.usecase.SearchMemosPageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.app.feature.common.MemoCollectionUiState
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -44,7 +44,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import javax.inject.Inject
+
 
 private const val SEARCH_QUERY_DEBOUNCE_MILLIS = 300L
 private const val SEARCH_PAGE_SIZE = 20
@@ -52,21 +52,18 @@ private const val SEARCH_INITIAL_LOAD_SIZE = 60
 private const val SEARCH_PREFETCH_DISTANCE = 10
 private const val SEARCH_ENABLE_PLACEHOLDERS = true
 
-@HiltViewModel
-class SearchViewModel
-    @Inject
-    constructor(
-        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-        private val appConfigStateProvider: AppConfigStateProvider,
-        private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        private val imageMapProvider: ImageMapProvider,
-        private val projectionMapper: MemoCollectionProjectionMapper,
-        private val searchMemosPageUseCase: SearchMemosPageUseCase,
-        private val deleteMemoUseCase: DeleteMemoUseCase,
-        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-        private val saveImageUseCase: SaveImageUseCase,
-        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-    ) : ViewModel() {
+class SearchViewModel(
+    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    private val appConfigStateProvider: AppConfigStateProvider,
+    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    private val imageMapProvider: ImageMapProvider,
+    private val projectionMapper: MemoCollectionProjectionMapper,
+    private val searchMemosPageUseCase: SearchMemosPageUseCase,
+    private val deleteMemoUseCase: DeleteMemoUseCase,
+    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    private val saveImageUseCase: SaveImageUseCase,
+    private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
         val searchFilterController = com.lomo.app.feature.common.MemoListFilterController()

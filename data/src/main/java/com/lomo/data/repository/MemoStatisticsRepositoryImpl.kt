@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.local.dao.MemoStatisticsProjectionRow
 import com.lomo.data.local.dao.TagCountRow
@@ -14,13 +13,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class MemoStatisticsRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val memoStatisticsDao: MemoStatisticsDao,
         private val dispatcherProvider: DispatcherProvider,
     ) : MemoStatisticsRepository {
@@ -39,11 +33,8 @@ class MemoStatisticsRepositoryImpl
                     today = today,
                 )
             }
-
         override fun getMemoCountFlow() = memoStatisticsDao.getMemoCount()
-
         override fun getMemoTimestampsFlow() = memoStatisticsDao.getAllTimestamps()
-
         override fun getMemoCountByDateFlow() =
             memoStatisticsDao
                 .getMemoCountByDateFlow()
@@ -54,18 +45,14 @@ class MemoStatisticsRepositoryImpl
                         }
                     }
                 }.flowOn(dispatcherProvider.io)
-
         override fun getTagCountsFlow() =
             memoStatisticsDao
                 .getTagCountsFlow()
                 .map { rows -> rows.map(TagCountRow::toDomain) }
                 .flowOn(dispatcherProvider.io)
-
         override fun getActiveDayCount() = memoStatisticsDao.getActiveDayCount()
     }
-
 private fun TagCountRow.toDomain(): MemoTagCount = MemoTagCount(name = name, count = count)
-
 private fun MemoStatisticsProjectionRow.toDomainProjection(): MemoStatisticsMemoProjection =
     MemoStatisticsMemoProjection(
         timestamp = timestamp,

@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
     alias(libs.plugins.kover)
     alias(libs.plugins.kotlinSerialization)
 }
@@ -57,11 +56,9 @@ dependencies {
     implementation(libs.androidx.sqlite.bundled)
     ksp(libs.androidx.room3.compiler)
 
-    // Hilt
-    api(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    api(libs.androidx.hilt.work)
-    ksp(libs.androidx.hilt.compiler.work)
+    // Koin
+    api(libs.koin.android)
+    api(libs.koin.androidx.workmanager)
 
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)

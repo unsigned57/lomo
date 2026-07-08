@@ -43,7 +43,7 @@ import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
-import com.lomo.app.util.activityHiltViewModel
+import com.lomo.app.util.activityKoinViewModel
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
@@ -67,7 +67,7 @@ fun GalleryScreen(
     onNavigateToMain: () -> Unit = onBackClick,
     lanShareEnabled: Boolean = true,
 ) {
-    val viewModel: MainViewModel = activityHiltViewModel()
+    val viewModel: MainViewModel = activityKoinViewModel()
     val galleryState by viewModel.galleryUiMemosState.collectAsStateWithLifecycle()
     val memos =
         remember(galleryState) {

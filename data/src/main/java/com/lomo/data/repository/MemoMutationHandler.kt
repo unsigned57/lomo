@@ -1,7 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.MemoDatabase
-import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoImageDao
@@ -15,7 +13,6 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.util.MemoTextProcessor
-import com.lomo.data.di.ApplicationScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.model.StorageFilenameFormats
@@ -28,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
 import java.time.ZoneId
-import javax.inject.Inject
 
 internal const val MAX_OUTBOX_ERROR_LENGTH = 512
 internal const val OUTBOX_CLAIM_STALE_MS = 2 * 60_000L
@@ -161,72 +157,6 @@ class MemoMutationHandler private constructor(
         storageFormatProvider = MemoStorageFormatProvider(dataStore, backgroundScope),
     )
 
-    @Inject
-    constructor(
-        markdownStorageDataSource: MarkdownStorageDataSource,
-        mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
-        memoDao: MemoDao,
-        memoWriteDao: MemoWriteDao,
-        memoTagDao: MemoTagDao,
-        memoImageDao: MemoImageDao,
-        memoIdentityDao: MemoIdentityDao,
-        memoTrashDao: MemoTrashDao,
-        memoOutboxDao: MemoOutboxDao,
-        memoStatisticsDao: MemoStatisticsDao,
-        database: MemoDatabase,
-        localFileStateDao: LocalFileStateDao,
-        workspaceStore: MemoWorkspaceStore,
-        workspaceMediaAccess: WorkspaceMediaAccess,
-        savePlanFactory: MemoSavePlanFactory,
-        textProcessor: MemoTextProcessor,
-        dataStore: LomoDataStore,
-        trashMutationHandler: MemoTrashMutationHandler,
-        memoIdentityPolicy: MemoIdentityPolicy,
-        memoVersionRecorder: AsyncMemoVersionRecorder,
-        memoVersionJournal: MemoVersionJournal,
-        mediaRepository: MediaRepository,
-        s3LocalChangeRecorder: S3LocalChangeRecorder,
-        webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
-        mutationGate: MemoMutationGate,
-        @ApplicationScope backgroundScope: CoroutineScope,
-    ) : this(
-        runtime =
-            MemoMutationRuntime(
-                markdownStorageDataSource = markdownStorageDataSource,
-                mediaStorageDataSource = mediaStorageDataSource,
-                daoBundle =
-                    MemoMutationDaoBundle(
-                        memoDao = memoDao,
-                        memoWriteDao = memoWriteDao,
-                        memoTagDao = memoTagDao,
-                        memoImageDao = memoImageDao,
-                        memoIdentityDao = memoIdentityDao,
-                        memoTrashDao = memoTrashDao,
-                        memoOutboxDao = memoOutboxDao,
-                        runInTransaction = { block ->
-                            database.withDriverTransaction {
-                                block()
-                            }
-                        },
-                    ),
-                memoStatisticsDao = memoStatisticsDao,
-                localFileStateDao = localFileStateDao,
-                workspaceStore = workspaceStore,
-                workspaceMediaAccess = workspaceMediaAccess,
-                savePlanFactory = savePlanFactory,
-                textProcessor = textProcessor,
-                trashMutationHandler = trashMutationHandler,
-                memoIdentityPolicy = memoIdentityPolicy,
-                memoVersionJournal = memoVersionJournal,
-                memoVersionRestoreSupport = JournalMemoVersionRestoreSupport(memoVersionJournal),
-                memoVersionRecorder = memoVersionRecorder,
-                mediaRepository = mediaRepository,
-                s3LocalChangeRecorder = s3LocalChangeRecorder,
-                webDavLocalChangeRecorder = webDavLocalChangeRecorder,
-                mutationGate = mutationGate,
-            ),
-        storageFormatProvider = MemoStorageFormatProvider(dataStore, backgroundScope),
-    )
 }
 
 internal class MemoMutationRuntime(

@@ -2,19 +2,15 @@ package com.lomo.data.source
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FileStorageBackendResolver
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-    ) {
+
+class FileStorageBackendResolver(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+) {
         private val backendCacheMutex = Mutex()
         private var currentMarkdownBackend: MarkdownStorageBackend? = null
         private var currentWorkspaceBackend: WorkspaceConfigBackend? = null

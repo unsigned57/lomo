@@ -4,19 +4,15 @@ import android.content.Context
 import android.content.pm.PackageInfo
 import androidx.core.content.pm.PackageInfoCompat
 import com.lomo.domain.repository.AppRuntimeInfoRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AppRuntimeInfoRepositoryImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : AppRuntimeInfoRepository {
+
+class AppRuntimeInfoRepositoryImpl(
+    private val context: Context,
+) : AppRuntimeInfoRepository {
         override suspend fun getCurrentVersionName(): String =
             withContext(Dispatchers.Default) {
                 runCatching {

@@ -3,12 +3,11 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.OutputStream
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class WorkspaceMediaDescriptor(
     val filename: String,
@@ -45,13 +44,10 @@ interface WorkspaceMediaAccess {
     )
 }
 
-@Singleton
-class DefaultWorkspaceMediaAccess
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val workspaceConfigSource: WorkspaceConfigSource,
-    ) : WorkspaceMediaAccess {
+class DefaultWorkspaceMediaAccess(
+    private val context: Context,
+    private val workspaceConfigSource: WorkspaceConfigSource,
+) : WorkspaceMediaAccess {
         override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
                 if (isContentUriRoot(root)) {

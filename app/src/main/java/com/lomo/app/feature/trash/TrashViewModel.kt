@@ -15,23 +15,20 @@ import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoTrashUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
-import javax.inject.Inject
 
-@HiltViewModel
-class TrashViewModel
-    @Inject
-    constructor(
-        memoTrashUseCase: MemoTrashUseCase,
-        appConfigStateProvider: AppConfigStateProvider,
-        imageMapProvider: ImageMapProvider,
-        memoUiMapper: MemoUiMapper,
-    ) : ViewModel() {
+
+class TrashViewModel(
+    memoTrashUseCase: MemoTrashUseCase,
+    appConfigStateProvider: AppConfigStateProvider,
+    imageMapProvider: ImageMapProvider,
+    memoUiMapper: MemoUiMapper,
+) : ViewModel() {
 
         private val mappingInput =
             combine(

@@ -20,7 +20,7 @@ package com.lomo.app.feature.main
  *   "断言终态，不断言中间帧".
  *
  * Excludes:
- * - repository persistence, Hilt wiring, exact easing curves, and full MainScreen integration.
+ * - repository persistence, DI wiring, exact easing curves, and full MainScreen integration.
  *
  * Test Change Justification:
  * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.

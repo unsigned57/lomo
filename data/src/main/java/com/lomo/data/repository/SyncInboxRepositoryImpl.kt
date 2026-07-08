@@ -20,28 +20,24 @@ import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 internal const val INBOX_PREFIX = "inbox/"
 
-@Singleton
-class SyncInboxRepositoryImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val preferencesRepository: PreferencesRepository,
-        private val workspaceConfigSource: WorkspaceConfigSource,
-        private val markdownStorageDataSource: MarkdownStorageDataSource,
-        private val workspaceMediaAccess: WorkspaceMediaAccess,
-        private val memoSynchronizer: MemoSynchronizer,
-        private val pendingReviewStore: PendingSyncReviewStore,
-    ) : SyncInboxRepository {
+class SyncInboxRepositoryImpl(
+    private val context: Context,
+    private val preferencesRepository: PreferencesRepository,
+    private val workspaceConfigSource: WorkspaceConfigSource,
+    private val markdownStorageDataSource: MarkdownStorageDataSource,
+    private val workspaceMediaAccess: WorkspaceMediaAccess,
+    private val memoSynchronizer: MemoSynchronizer,
+    private val pendingReviewStore: PendingSyncReviewStore,
+) : SyncInboxRepository {
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
     private val pendingReviewRestorer =
         SyncInboxPendingReviewRestorer(

@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncErrorCode
@@ -9,19 +8,13 @@ import com.lomo.domain.model.CredentialSecretReadResult
 import com.lomo.domain.repository.SecuritySessionPolicy
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitCredentialStrategy
-    @Inject
-    constructor(
+constructor(
         private val credentialRepository: CredentialRepository,
         private val securitySessionPolicy: SecuritySessionPolicy,
     ) {
         @Volatile
         private var cachedCredentialIndex: Int = -1
-
         suspend fun credentialProviders(): List<UsernamePasswordCredentialsProvider> {
             val tokenRead =
                 credentialRepository
@@ -36,14 +29,12 @@ class GitCredentialStrategy
             if (token.isBlank()) {
                 throw gitPatRequiredFailure()
             }
-
             return listOf(
                 UsernamePasswordCredentialsProvider("x-access-token", token),
                 UsernamePasswordCredentialsProvider(token, ""),
                 UsernamePasswordCredentialsProvider(token, "x-oauth-basic"),
             )
         }
-
         fun <T> runWithCredentialFallback(
             providers: List<UsernamePasswordCredentialsProvider>,
             operation: String,
@@ -60,7 +51,6 @@ class GitCredentialStrategy
                     cachedCredentialIndex = -1
                 }
             }
-
             var lastError: Throwable? = null
             providers.forEachIndexed { index, provider ->
                 if (index == cached) return@forEachIndexed
@@ -74,21 +64,17 @@ class GitCredentialStrategy
                     Timber.w(error, "$operation failed with credential strategy #${index + 1}")
                 }
             }
-
             throw lastError ?: IllegalStateException("$operation failed without a captured exception")
         }
     }
-
 private sealed interface GitTokenRead {
     data class Present(
         val value: String,
     ) : GitTokenRead
-
     data class Failure(
         val error: GitSyncFailureException,
     ) : GitTokenRead
 }
-
 private fun CredentialSecretReadResult.toGitTokenRead(): GitTokenRead =
     when (this) {
         CredentialSecretReadResult.Missing -> GitTokenRead.Failure(gitPatRequiredFailure())
@@ -108,7 +94,6 @@ private fun CredentialSecretReadResult.toGitTokenRead(): GitTokenRead =
                 ),
             )
     }
-
 private fun gitPatRequiredFailure(): GitSyncFailureException =
     GitSyncFailureException(
         code = GitSyncErrorCode.PAT_REQUIRED,

@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.sanitizePathForLog
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -14,15 +14,11 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URLConnection
 import java.security.MessageDigest
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SafGitMirrorBridge
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) {
+
+class SafGitMirrorBridge(
+    private val context: Context,
+) {
         suspend fun mirrorDirectoryFor(rootUriString: String): File =
             withContext(Dispatchers.IO) {
                 val baseDir = File(context.filesDir, "git_sync_mirror")

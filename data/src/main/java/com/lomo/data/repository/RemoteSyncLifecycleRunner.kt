@@ -1,11 +1,5 @@
 package com.lomo.data.repository
 
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 
 internal interface RemoteSyncLifecycleSummaries<TSnapshot, TPlan, TVerified, TFinalized> {
@@ -102,12 +96,9 @@ internal interface RemoteSyncLifecycleRunner {
     ): TResult
 }
 
-@Singleton
-internal class DefaultRemoteSyncLifecycleRunner
-    @Inject
-    constructor(
-        private val executionOwner: SyncLifecycleExecutionOwner,
-    ) : RemoteSyncLifecycleRunner {
+internal class DefaultRemoteSyncLifecycleRunner(
+    private val executionOwner: SyncLifecycleExecutionOwner,
+) : RemoteSyncLifecycleRunner {
     override suspend fun <
         TSnapshot,
         TPlan,
@@ -195,15 +186,7 @@ internal class DefaultRemoteSyncLifecycleRunner
     }
 }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface RemoteSyncLifecycleRunnerModule {
-    @Binds
-    fun bindRemoteSyncLifecycleRunner(impl: DefaultRemoteSyncLifecycleRunner): RemoteSyncLifecycleRunner
 
-    @Binds
-    fun bindSyncLifecycleExecutionOwner(impl: TimberSyncLifecycleExecutionOwner): SyncLifecycleExecutionOwner
-}
 
 private sealed interface RemoteSyncLifecycleOutcome<out TResult> {
     data class Success<TResult>(

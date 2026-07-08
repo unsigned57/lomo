@@ -7,7 +7,7 @@ import com.lomo.domain.model.AppUpdateInstallPhase
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.model.AppUpdateInstallerOutcome
 import com.lomo.domain.repository.AppUpdateDownloadRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,21 +19,17 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.io.File
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AppUpdateDownloadRepositoryImpl
-    @Inject
-    internal constructor(
-        @ApplicationContext private val context: android.content.Context,
-        private val downloader: AppUpdateApkDownloader,
-        private val apkVerifier: AppUpdateApkVerifier,
-        private val installerResultObserver: AppUpdateInstallerResultObserver,
-        private val attemptStore: AppUpdateInstallAttemptStore =
-            JsonFileAppUpdateInstallAttemptStore(File(context.filesDir, "update-install/attempt.json")),
-        private val installerLauncher: AppUpdateInstallerLauncher = FileProviderAppUpdateInstallerLauncher(context),
-    ) : AppUpdateDownloadRepository {
+
+class AppUpdateDownloadRepositoryImpl internal constructor(
+    private val context: android.content.Context,
+    private val downloader: AppUpdateApkDownloader,
+    private val apkVerifier: AppUpdateApkVerifier,
+    private val installerResultObserver: AppUpdateInstallerResultObserver,
+    private val attemptStore: AppUpdateInstallAttemptStore =
+        JsonFileAppUpdateInstallAttemptStore(File(context.filesDir, "update-install/attempt.json")),
+    private val installerLauncher: AppUpdateInstallerLauncher = FileProviderAppUpdateInstallerLauncher(context),
+) : AppUpdateDownloadRepository {
         @Volatile
         private var currentDownloadJob: Job? = null
 

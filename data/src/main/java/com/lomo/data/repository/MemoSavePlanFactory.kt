@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
@@ -9,8 +8,6 @@ import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.usecase.MemoIdentityPolicy
 import java.time.Instant
 import java.time.ZoneId
-import javax.inject.Inject
-
 data class MemoSavePlan(
     val filename: String,
     val dateKey: String,
@@ -18,14 +15,12 @@ data class MemoSavePlan(
     val rawContent: String,
     val memo: Memo,
 )
-
 /**
  * Produces deterministic save metadata for a memo before file/db persistence.
  * Keeps collision handling and timestamp normalization out of mutation workflow orchestration.
  */
 class MemoSavePlanFactory
-    @Inject
-    constructor(
+constructor(
         private val parser: MarkdownParser,
         private val textProcessor: MemoTextProcessor,
         private val memoIdentityPolicy: MemoIdentityPolicy,
@@ -52,7 +47,6 @@ class MemoSavePlanFactory
                     .withZone(zoneId)
                     .format(instant)
             val dateString = filename.removeSuffix(".md")
-
             val baseCanonicalTimestamp =
                 parser.resolveTimestamp(
                     dateStr = dateString,
@@ -69,10 +63,8 @@ class MemoSavePlanFactory
                     baseTimestampMillis = baseCanonicalTimestamp,
                     occurrenceIndex = ordinal,
                 )
-
             val id = memoIdentityPolicy.buildId(dateString, timeString, ordinal)
             val rawContent = "- $timeString $content"
-
             val memo =
                 Memo(
                     id = id,
@@ -86,7 +78,6 @@ class MemoSavePlanFactory
                     isDeleted = false,
                     geoLocation = geoLocation,
                 )
-
             return MemoSavePlan(
                 filename = filename,
                 dateKey = dateString,
@@ -95,7 +86,6 @@ class MemoSavePlanFactory
                 memo = memo,
             )
         }
-
         private fun countTimestampOccurrences(
             fileContent: String,
             timestamp: String,

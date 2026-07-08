@@ -31,7 +31,7 @@ import com.lomo.domain.model.S3PathStyle
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
-import javax.inject.Inject
+
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -155,12 +155,10 @@ interface LomoS3Client : LomoS3ObjectReader, LomoS3ObjectWriter, AutoCloseable {
     suspend fun verifyAccess(prefix: String)
 }
 
-class AwsSdkS3ClientFactory
-    @Inject
-    constructor(
-        private val httpClientProvider: SyncHttpClientProvider,
-        private val performanceTuner: com.lomo.data.repository.SyncPerformanceTuner,
-    ) : LomoS3ClientFactory {
+class AwsSdkS3ClientFactory(
+    private val httpClientProvider: SyncHttpClientProvider,
+    private val performanceTuner: com.lomo.data.repository.SyncPerformanceTuner,
+) : LomoS3ClientFactory {
         override fun create(config: S3ResolvedConfig): LomoS3Client =
             AwsSdkS3Client(
                 config = config,

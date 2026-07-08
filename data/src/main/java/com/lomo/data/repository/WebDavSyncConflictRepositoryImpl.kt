@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
@@ -21,13 +20,8 @@ import timber.log.Timber
 import java.io.File
 import java.nio.charset.StandardCharsets
 import kotlin.io.path.createTempFile
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class WebDavSyncConflictRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val resolver: WebDavConflictResolver,
     ) : WebDavSyncConflictRepository {
         override suspend fun resolveConflicts(
@@ -35,11 +29,8 @@ class WebDavSyncConflictRepositoryImpl
             conflictSet: SyncConflictSet,
         ): WebDavSyncResult = resolver.resolveConflicts(resolution, conflictSet)
     }
-
-@Singleton
 class WebDavSyncReviewRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val resolver: WebDavReviewResolver,
     ) : WebDavSyncReviewRepository {
         override suspend fun resolveReview(
@@ -47,10 +38,7 @@ class WebDavSyncReviewRepositoryImpl
             review: SyncReviewSession,
         ): WebDavSyncResult = resolver.resolveReview(resolution, review)
     }
-
-@Singleton
 class WebDavConflictResolver
-    @Inject
     internal constructor(
         private val runtime: WebDavSyncRepositoryContext,
         private val support: WebDavSyncRepositorySupport,
@@ -80,7 +68,6 @@ class WebDavConflictResolver
                 }
             }.getOrElse(support::mapError)
         }
-
         private suspend fun resolveConflictsWithClient(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
@@ -112,7 +99,6 @@ class WebDavConflictResolver
             refreshAfterResolution()
             return buildFinalResult(conflictSet, applied.unresolvedFiles)
         }
-
         private suspend fun validatePendingConflictBeforeResolve(
             descriptor: PendingSyncConflictDescriptor?,
             client: WebDavClient,
@@ -149,7 +135,6 @@ class WebDavConflictResolver
             }
             return null
         }
-
         private suspend fun applyChoices(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
@@ -180,7 +165,6 @@ class WebDavConflictResolver
                 actionOutcomes = batch.appliedChoices.associate { applied -> applied.path to applied.value },
             )
         }
-
         private suspend fun buildFinalResult(
             conflictSet: SyncConflictSet,
             unresolvedFiles: List<com.lomo.domain.model.SyncConflictFile>,
@@ -196,7 +180,6 @@ class WebDavConflictResolver
             runtime.stateHolder.state.value = WebDavSyncState.Success(now, "Conflicts resolved")
             return WebDavSyncResult.Success("Conflicts resolved")
         }
-
         private suspend fun applyChoice(
             file: com.lomo.domain.model.SyncConflictFile,
             choice: SyncConflictResolutionChoice,
@@ -212,17 +195,13 @@ class WebDavConflictResolver
             return when (choice) {
                 SyncConflictResolutionChoice.KEEP_LOCAL ->
                     keepLocalChoice(file, client, layout, isMemoPath)
-
                 SyncConflictResolutionChoice.KEEP_REMOTE ->
                     keepRemoteChoice(file, client, layout, isMemoPath)
-
                 SyncConflictResolutionChoice.MERGE_TEXT ->
                     mergeTextChoice(file, client, layout, isMemoPath)
-
                 SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
             }
         }
-
         private suspend fun keepLocalChoice(
             file: com.lomo.domain.model.SyncConflictFile,
             client: WebDavClient,
@@ -262,7 +241,6 @@ class WebDavConflictResolver
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
         }
-
         private suspend fun keepRemoteChoice(
             file: com.lomo.domain.model.SyncConflictFile,
             client: WebDavClient,
@@ -294,7 +272,6 @@ class WebDavConflictResolver
             return com.lomo.domain.model.WebDavSyncDirection.DOWNLOAD to
                 com.lomo.domain.model.WebDavSyncReason.REMOTE_NEWER
         }
-
         private suspend fun mergeTextChoice(
             file: com.lomo.domain.model.SyncConflictFile,
             client: WebDavClient,
@@ -327,7 +304,6 @@ class WebDavConflictResolver
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
         }
-
         private suspend fun refreshAfterResolution() {
             runNonFatalCatching {
                 runtime.memoSynchronizer.refresh()
@@ -336,10 +312,7 @@ class WebDavConflictResolver
             }
         }
     }
-
-@Singleton
 class WebDavReviewResolver
-    @Inject
     internal constructor(
         private val runtime: WebDavSyncRepositoryContext,
         private val support: WebDavSyncRepositorySupport,
@@ -369,7 +342,6 @@ class WebDavReviewResolver
                 }
             }.getOrElse(support::mapError)
         }
-
         private suspend fun resolveReviewWithClient(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
@@ -419,7 +391,6 @@ class WebDavReviewResolver
             }
             return buildFinalResult(validatedReview, applied.unresolvedItems)
         }
-
         private suspend fun applyChoices(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
@@ -450,7 +421,6 @@ class WebDavReviewResolver
                 actionOutcomes = actionOutcomes,
             )
         }
-
         private suspend fun buildFinalResult(
             review: SyncReviewSession,
             unresolvedItems: List<SyncReviewItem>,
@@ -466,7 +436,6 @@ class WebDavReviewResolver
             runtime.stateHolder.state.value = WebDavSyncState.Success(now, "Review resolved")
             return WebDavSyncResult.Success("Review resolved")
         }
-
         private suspend fun applyChoice(
             item: SyncReviewItem,
             choice: SyncReviewResolutionChoice,
@@ -482,17 +451,13 @@ class WebDavReviewResolver
             return when (choice) {
                 SyncReviewResolutionChoice.KEEP_LOCAL ->
                     keepLocalChoice(item, client, layout, isMemoPath)
-
                 SyncReviewResolutionChoice.KEEP_INCOMING ->
                     keepIncomingChoice(item, client, layout, isMemoPath)
-
                 SyncReviewResolutionChoice.MERGE_TEXT ->
                     mergeTextChoice(item, client, layout, isMemoPath)
-
                 SyncReviewResolutionChoice.SKIP_FOR_NOW -> null
             }
         }
-
         private suspend fun keepLocalChoice(
             item: SyncReviewItem,
             client: WebDavClient,
@@ -532,7 +497,6 @@ class WebDavReviewResolver
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
         }
-
         private suspend fun keepIncomingChoice(
             item: SyncReviewItem,
             client: WebDavClient,
@@ -564,7 +528,6 @@ class WebDavReviewResolver
             return com.lomo.domain.model.WebDavSyncDirection.DOWNLOAD to
                 com.lomo.domain.model.WebDavSyncReason.REMOTE_NEWER
         }
-
         private suspend fun mergeTextChoice(
             item: SyncReviewItem,
             client: WebDavClient,
@@ -597,7 +560,6 @@ class WebDavReviewResolver
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
         }
-
         private suspend fun refreshAfterResolution() {
             runNonFatalCatching {
                 runtime.memoSynchronizer.refresh()
@@ -606,7 +568,6 @@ class WebDavReviewResolver
             }
         }
     }
-
 private suspend fun <T> withTempFile(
     suffix: String,
     block: suspend (File) -> T,
@@ -618,10 +579,8 @@ private suspend fun <T> withTempFile(
         file.delete()
     }
 }
-
 private fun String.transferSuffix(): String =
     substringAfterLast('.', "").takeIf(String::isNotBlank)?.let { ".$it" } ?: ".tmp"
-
 private class WebDavPendingReviewRestorer(
     private val runtime: WebDavSyncRepositoryContext,
     private val client: WebDavClient,
@@ -650,7 +609,6 @@ private class WebDavPendingReviewRestorer(
                 ),
             )
     }
-
     private suspend fun restoreItem(item: PendingSyncReviewItemDescriptor): WebDavPendingReviewItemRestore {
         val local =
             fileBridge.localFile(item.relativePath, layout)
@@ -675,7 +633,6 @@ private class WebDavPendingReviewRestorer(
         }
         return restoreContents(item, local, remote.lastModified)
     }
-
     private suspend fun restoreContents(
         item: PendingSyncReviewItemDescriptor,
         local: LocalWebDavFile,
@@ -718,17 +675,14 @@ private class WebDavPendingReviewRestorer(
         }
     }
 }
-
 private sealed interface WebDavPendingReviewItemRestore {
     data class Restored(
         val item: SyncReviewItem,
     ) : WebDavPendingReviewItemRestore
-
     data class Invalidated(
         val reason: PendingSyncInvalidationReason,
     ) : WebDavPendingReviewItemRestore
 }
-
 private class WebDavResolutionLifecycleStages(
     private val client: WebDavClient,
     private val workItemCount: Int,
@@ -749,41 +703,33 @@ private class WebDavResolutionLifecycleStages(
             backend = com.lomo.domain.model.SyncBackendType.WEBDAV,
             budget = RemoteSyncBudgetPolicy.Limited(DEFAULT_REMOTE_SYNC_NETWORK_OPERATION_BUDGET),
         )
-
     private lateinit var meteredClient: WebDavClient
-
     override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession) {
         meteredClient = session.meter(client)
     }
-
     override suspend fun plan(
         snapshot: Unit,
         session: RemoteSyncLifecycleSession,
     ): Int = workItemCount
-
     override suspend fun verify(
         plan: Int,
         session: RemoteSyncLifecycleSession,
     ): Int = plan
-
     override suspend fun materializeConflicts(
         verified: Int,
         session: RemoteSyncLifecycleSession,
     ) = Unit
-
     override suspend fun apply(
         verified: Int,
         conflicts: Unit,
         session: RemoteSyncLifecycleSession,
     ): WebDavSyncResult = resolve(meteredClient)
-
     override suspend fun commitMetadata(
         verified: Int,
         conflicts: Unit,
         applied: WebDavSyncResult,
         session: RemoteSyncLifecycleSession,
     ): WebDavSyncResult = applied
-
     override suspend fun finalize(
         verified: Int,
         conflicts: Unit,
@@ -791,37 +737,28 @@ private class WebDavResolutionLifecycleStages(
         metadata: WebDavSyncResult,
         session: RemoteSyncLifecycleSession,
     ): WebDavSyncResult = metadata
-
     override fun summarizeSnapshot(snapshot: Unit): RemoteSyncSnapshotTelemetry =
         RemoteSyncSnapshotTelemetry(
             localFileCount = workItemCount,
             remoteFileCount = workItemCount,
             metadataEntryCount = workItemCount,
         )
-
     override fun summarizePlan(plan: Int): RemoteSyncActionTelemetry =
         RemoteSyncActionTelemetry(total = plan, conflict = plan)
-
     override fun summarizeVerification(verified: Int): RemoteSyncActionTelemetry =
         RemoteSyncActionTelemetry(total = verified, conflict = verified)
-
     override fun summarizeRefresh(finalized: WebDavSyncResult): RemoteSyncRefreshTelemetry =
         RemoteSyncRefreshTelemetry(durationMillis = 0)
-
     override fun summarizeResult(finalized: WebDavSyncResult): RemoteSyncLifecycleResultTelemetry =
         if (finalized is WebDavSyncResult.Error) {
             RemoteSyncLifecycleResultTelemetry.Failure
         } else {
             RemoteSyncLifecycleResultTelemetry.Success
         }
-
     override fun mapResult(finalized: WebDavSyncResult): WebDavSyncResult = finalized
-
     override fun mapError(error: Throwable): WebDavSyncResult = mapError.invoke(error)
-
     override suspend fun release() = Unit
 }
-
 private data class WebDavAppliedConflictResolution(
     val unresolvedFiles: List<com.lomo.domain.model.SyncConflictFile>,
     val actionOutcomes:
@@ -836,7 +773,6 @@ private data class WebDavAppliedConflictResolution(
     fun unresolvedPaths(): Set<String> =
         unresolvedFiles.mapTo(linkedSetOf(), com.lomo.domain.model.SyncConflictFile::relativePath)
 }
-
 private data class WebDavAppliedReviewResolution(
     val unresolvedItems: List<SyncReviewItem>,
     val actionOutcomes:

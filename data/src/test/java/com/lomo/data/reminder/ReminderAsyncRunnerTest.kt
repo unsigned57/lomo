@@ -27,7 +27,7 @@ package com.lomo.data.reminder
  *   PendingResult.finish() ran exactly once from a finally path after both successful and failing receiver work.
  *
  * Excludes:
- * - Android BroadcastReceiver dispatch, Hilt injection wiring, reminder business decisions, and manifest registration.
+ * - Android BroadcastReceiver dispatch, DI injection wiring, reminder business decisions, and manifest registration.
  */
 
 import android.content.BroadcastReceiver

@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
@@ -15,36 +14,26 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncEngine
-    @Inject
-    constructor(
+constructor(
         dataStore: LomoDataStore,
         credentialStrategy: GitCredentialStrategy,
         primitives: GitRepositoryPrimitives,
     ) {
         private val workflow = GitSyncWorkflow(dataStore, credentialStrategy, primitives)
-
         private val initCoordinator = GitSyncInitCoordinator(workflow)
         private val commitSyncCoordinator = GitSyncCommitSyncCoordinator(workflow, dataStore)
         private val conflictRecoveryCoordinator =
             GitSyncConflictRecoveryCoordinator(workflow, dataStore, credentialStrategy, primitives)
-
         private val mutex = Mutex()
         private val _syncState = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
         val syncState: StateFlow<UnifiedSyncState> = _syncState
-
         fun markNotConfigured() {
             _syncState.value = UnifiedSyncState.NotConfigured(SyncBackendType.GIT)
         }
-
         fun markError(message: String) {
             _syncState.value = errorState(message = message)
         }
-
         suspend fun initOrClone(
             rootDir: File,
             remoteUrl: String,
@@ -60,7 +49,6 @@ class GitSyncEngine
                     GitSyncResult.Error(message, error)
                 }
             }
-
         suspend fun commitLocal(rootDir: File): GitSyncResult =
             mutex.withLock {
                 runNonFatalCatching {
@@ -70,7 +58,6 @@ class GitSyncEngine
                     GitSyncResult.Error("Local commit failed: ${error.message}", error)
                 }
             }
-
         suspend fun sync(
             rootDir: File,
             remoteUrl: String,
@@ -88,16 +75,13 @@ class GitSyncEngine
                             val syncedAt = outcome.syncedAtMs ?: System.currentTimeMillis()
                             _syncState.value = UnifiedSyncState.Success(SyncBackendType.GIT, syncedAt, result.message)
                         }
-
                         is GitSyncResult.Error -> {
                             _syncState.value = errorState(result)
                         }
-
                         is GitSyncResult.Conflict -> {
                             _syncState.value =
                                 UnifiedSyncState.ConflictDetected(SyncBackendType.GIT, result.conflicts)
                         }
-
                         else -> {
                             _syncState.value = UnifiedSyncState.Idle
                         }
@@ -110,7 +94,6 @@ class GitSyncEngine
                     GitSyncResult.Error(message, error)
                 }
             }
-
         suspend fun resetRepository(rootDir: File): GitSyncResult =
             mutex.withLock {
                 val result = conflictRecoveryCoordinator.resetRepository(rootDir)
@@ -119,7 +102,6 @@ class GitSyncEngine
                 }
                 result
             }
-
         suspend fun resetLocalBranchToRemote(
             rootDir: File,
             remoteUrl: String,
@@ -131,7 +113,6 @@ class GitSyncEngine
                 }
                 result
             }
-
         suspend fun forcePushLocalToRemote(
             rootDir: File,
             remoteUrl: String,
@@ -150,7 +131,6 @@ class GitSyncEngine
                 }
                 outcome.result
             }
-
         suspend fun resolveConflicts(
             rootDir: File,
             remoteUrl: String,
@@ -176,7 +156,6 @@ class GitSyncEngine
                     GitSyncResult.Error(message, error)
                 }
             }
-
         private fun publishResultState(result: GitSyncResult) {
             when (result) {
                 is GitSyncResult.Success -> {
@@ -187,38 +166,31 @@ class GitSyncEngine
                             summary = result.message,
                         )
                 }
-
                 is GitSyncResult.Error -> {
                     _syncState.value = errorState(result)
                 }
-
                 is GitSyncResult.Conflict -> {
                     _syncState.value =
                         UnifiedSyncState.ConflictDetected(SyncBackendType.GIT, result.conflicts)
                     }
-
                 else -> {
                     _syncState.value = UnifiedSyncState.Idle
                 }
             }
         }
-
         companion object {
             private const val UNKNOWN_ERROR_MESSAGE = "Unknown error"
-
             fun runningState(phase: UnifiedSyncPhase): UnifiedSyncState =
                 UnifiedSyncState.Running(
                     provider = SyncBackendType.GIT,
                     phase = phase,
                 )
-
             fun errorState(result: GitSyncResult.Error): UnifiedSyncState =
                 errorState(
                     message = result.message,
                     providerCode = result.code.name,
                     cause = result.exception,
                 )
-
             fun errorState(
                 message: String,
                 providerCode: String? = null,

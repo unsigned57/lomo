@@ -9,7 +9,7 @@ import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,16 +17,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class SyncConflictViewModel
-    @Inject
-    constructor(
-        private val syncConflictResolutionUseCase: SyncConflictResolutionUseCase,
-        private val syncReviewResolutionUseCase: SyncReviewResolutionUseCase,
-        private val backupSyncConflictFilesUseCase: BackupSyncConflictFilesUseCase,
-    ) : ViewModel() {
+
+class SyncConflictViewModel(
+    private val syncConflictResolutionUseCase: SyncConflictResolutionUseCase,
+    private val syncReviewResolutionUseCase: SyncReviewResolutionUseCase,
+    private val backupSyncConflictFilesUseCase: BackupSyncConflictFilesUseCase,
+) : ViewModel() {
         private val _state = MutableStateFlow<SyncConflictDialogState>(SyncConflictDialogState.Hidden)
         val state: StateFlow<SyncConflictDialogState> = _state.asStateFlow()
 

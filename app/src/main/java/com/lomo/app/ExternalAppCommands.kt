@@ -2,9 +2,7 @@ package com.lomo.app
 
 import android.content.Context
 import androidx.core.content.edit
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -152,12 +150,9 @@ interface ExternalAppCommandStore {
     fun expire(nowMillis: Long = System.currentTimeMillis()): List<String>
 }
 
-@Singleton
-class AndroidExternalAppCommandStore
-    @Inject
-    constructor(
-        @ApplicationContext context: Context,
-    ) : ExternalAppCommandStore {
+class AndroidExternalAppCommandStore(
+    context: Context,
+) : ExternalAppCommandStore {
         private val preferences =
             context.getSharedPreferences(EXTERNAL_APP_COMMAND_PREFS_NAME, Context.MODE_PRIVATE)
         private val lock = Any()

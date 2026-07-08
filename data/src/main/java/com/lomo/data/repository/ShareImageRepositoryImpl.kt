@@ -2,7 +2,7 @@ package com.lomo.data.repository
 
 import android.content.Context
 import com.lomo.domain.repository.ShareImageRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -11,15 +11,11 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ShareImageRepositoryImpl
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : ShareImageRepository {
+
+class ShareImageRepositoryImpl(
+    private val context: Context,
+) : ShareImageRepository {
         override suspend fun storeShareImage(
             fileNamePrefix: String,
             writer: suspend (OutputStream) -> Unit,

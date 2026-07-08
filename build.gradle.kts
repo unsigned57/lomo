@@ -7,7 +7,6 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 plugins {
     alias(libs.plugins.androidApplication) apply false
     alias(libs.plugins.androidLibrary) apply false
-    alias(libs.plugins.hilt) apply false
     alias(libs.plugins.jetbrainsKotlinJvm) apply false
     alias(libs.plugins.kover)
     alias(libs.plugins.ksp) apply false
@@ -81,15 +80,11 @@ val coverageExcludedClasses =
         "*.R",
         "*.R$*",
         "*.ComposableSingletons*",
-        "dagger.hilt.internal.aggregatedroot.codegen.*",
-        "hilt_aggregated_deps.*",
         "*_Factory",
         "*_Factory$*",
         "*_Provide*Factory",
         "*_MembersInjector",
         "*_GeneratedInjector",
-        "*_HiltModules*",
-        "*Hilt_*",
         "*Dao_Impl*",
         "*Database_Impl*",
         "com.lomo.ui.util.AppHapticFeedback*",

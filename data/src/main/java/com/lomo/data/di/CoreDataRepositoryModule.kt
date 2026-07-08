@@ -1,5 +1,7 @@
 package com.lomo.data.di
 
+import android.content.Context
+
 import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
 import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
 import com.lomo.data.repository.DataStoreMigrationSettingsStore
@@ -9,13 +11,34 @@ import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MigrationArchiveRepositoryImpl
 import com.lomo.data.repository.MigrationArchiveStagingWorkspaceFactory
 import com.lomo.data.repository.MigrationSettingsStore
+import com.lomo.data.repository.MigrationArchiveImportBudgets
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
+import com.lomo.data.repository.DirectorySettingsRepositoryImpl
+import com.lomo.data.repository.PreferencesRepositoryImpl
+import com.lomo.data.repository.DateTimePreferencesRepositoryImpl
+import com.lomo.data.repository.StoragePreferencesRepositoryImpl
+import com.lomo.data.repository.InteractionPreferencesRepositoryImpl
+import com.lomo.data.repository.InteractionBehaviorPreferencesRepositoryImpl
+import com.lomo.data.repository.MemoActionPreferencesRepositoryImpl
+import com.lomo.data.repository.InputToolbarPreferencesRepositoryImpl
+import com.lomo.data.repository.SidebarTagOrderPreferencesRepositoryImpl
+import com.lomo.data.repository.SecurityPreferencesRepositoryImpl
+import com.lomo.data.repository.ShareCardPreferencesRepositoryImpl
+import com.lomo.data.repository.DraftPreferencesRepositoryImpl
+import com.lomo.data.repository.SyncInboxPreferencesRepositoryImpl
+import com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl
+import com.lomo.data.repository.TypographyPreferencesRepositoryImpl
+import com.lomo.data.repository.ColorSchemePreferencesRepositoryImpl
+import com.lomo.data.repository.FontPreferencesRepositoryImpl
+import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.security.DataStoreSecuritySessionPolicy
 import com.lomo.data.security.DefaultCredentialRepository
+import com.lomo.data.git.GitCredentialStore
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.CredentialRepository
@@ -36,142 +59,94 @@ import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 import com.lomo.domain.repository.WorkspaceTransitionRepository
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
+import org.koin.dsl.module
+import org.koin.core.module.dsl.singleOf
+import org.koin.android.ext.koin.androidContext
+import org.koin.dsl.bind
+import org.koin.dsl.binds
 
-@Module
-@InstallIn(SingletonComponent::class)
-object CoreRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideShareImageRepository(impl: ShareImageRepositoryImpl): ShareImageRepository = impl
+val coreDataRepositoryModule = module {
+    singleOf(::ShareImageRepositoryImpl) bind ShareImageRepository::class
 
-    @Provides
-    @Singleton
-    fun provideAppConfigRepository(impl: SettingsRepositoryImpl): AppConfigRepository = impl
+    single { LomoDataStore(androidContext()) }
 
-    @Provides
-    @Singleton
-    fun provideDirectorySettingsRepository(impl: SettingsRepositoryImpl): DirectorySettingsRepository = impl
+    // Pref delegates
+    single { DirectorySettingsRepositoryImpl(get(), get()) }
+    single { DateTimePreferencesRepositoryImpl(get()) }
+    single { StoragePreferencesRepositoryImpl(get()) }
+    single { InteractionPreferencesRepositoryImpl(get()) }
+    single { InteractionBehaviorPreferencesRepositoryImpl(get()) }
+    single { MemoActionPreferencesRepositoryImpl(get()) }
+    single { InputToolbarPreferencesRepositoryImpl(get()) }
+    single { SidebarTagOrderPreferencesRepositoryImpl(get()) }
+    single { SecurityPreferencesRepositoryImpl(get()) }
+    single { ShareCardPreferencesRepositoryImpl(get()) }
+    single { DraftPreferencesRepositoryImpl(get()) }
+    single { SyncInboxPreferencesRepositoryImpl(get()) }
+    single { MemoSnapshotPreferencesRepositoryImpl(get()) }
+    single { TypographyPreferencesRepositoryImpl(get()) }
+    single { ColorSchemePreferencesRepositoryImpl(get()) }
+    single { FontPreferencesRepositoryImpl(get()) }
 
-    @Provides
-    @Singleton
-    fun providePreferencesRepository(impl: SettingsRepositoryImpl): PreferencesRepository = impl
+    single {
+        PreferencesRepositoryImpl(
+            get(), get(), get(), get(), get(),
+            get(), get(), get(), get(), get(),
+            get(), get(), get(), get()
+        )
+    }
 
-    @Provides
-    @Singleton
-    fun provideAppPreferencesSnapshotRepository(
-        impl: AppPreferencesSnapshotRepositoryImpl,
-    ): AppPreferencesSnapshotRepository = impl
+    single { SettingsRepositoryImpl(get(), get()) } binds arrayOf(
+        AppConfigRepository::class,
+        DirectorySettingsRepository::class,
+        PreferencesRepository::class,
+        InteractionPreferencesRepository::class,
+        SecurityPreferencesRepository::class,
+        SidebarTagOrderPreferencesRepository::class
+    )
 
-    @Provides
-    @Singleton
-    fun provideCustomFontStore(
-        impl: com.lomo.data.repository.CustomFontStoreImpl,
-    ): CustomFontStore = impl
+    singleOf(::AppPreferencesSnapshotRepositoryImpl) bind AppPreferencesSnapshotRepository::class
+    single { com.lomo.data.repository.CustomFontStoreImpl(androidContext()) } bind CustomFontStore::class
 
-    @Provides
-    @Singleton
-    fun provideWorkspaceTransitionRepository(
-        impl: WorkspaceTransitionRepositoryImpl,
-    ): WorkspaceTransitionRepository = impl
+    single {
+        WorkspaceTransitionRepositoryImpl(
+            memoWriteDao = get(),
+            memoOutboxDao = get(),
+            memoTagDao = get(),
+            memoImageDao = get(),
+            memoTrashDao = get(),
+            localFileStateDao = get(),
+            syncStateResetRepository = get(),
+            runInTransaction = { block ->
+                get<com.lomo.data.local.MemoDatabase>().withDriverTransaction {
+                    block()
+                }
+            }
+        )
+    } bind WorkspaceTransitionRepository::class
 
-    @Provides
-    @Singleton
-    fun provideSyncStateResetRepository(
-        impl: SyncStateResetRepositoryImpl,
-    ): SyncStateResetRepository = impl
+    singleOf(::SyncStateResetRepositoryImpl) bind SyncStateResetRepository::class
+    singleOf(::DataStoreWorkspaceSyncGenerationProvider) bind WorkspaceSyncGenerationProvider::class
+    singleOf(::MediaRepositoryImpl) bind MediaRepository::class
 
-    @Provides
-    @Singleton
-    fun provideWorkspaceSyncGenerationProvider(
-        impl: DataStoreWorkspaceSyncGenerationProvider,
-    ): WorkspaceSyncGenerationProvider = impl
+    // Credentials / Security
+    single { GitCredentialStore(get<Context>()) }
+    singleOf(::DefaultCredentialRepository) bind CredentialRepository::class
+    single { DataStoreSecuritySessionPolicy(get()) } binds arrayOf(
+        SecuritySessionPolicy::class,
+        SecuritySessionController::class
+    )
 
-    @Provides
-    @Singleton
-    fun provideMediaRepository(impl: MediaRepositoryImpl): MediaRepository = impl
-}
+    // Migration
+    single { MigrationArchiveImportBudgets() }
+    singleOf(::DataStoreMigrationSettingsStore) bind MigrationSettingsStore::class
+    singleOf(::FileMigrationArchiveStagingWorkspaceFactory) bind MigrationArchiveStagingWorkspaceFactory::class
+    singleOf(::MigrationArchiveRepositoryImpl) bind MigrationArchiveRepository::class
 
-@Module
-@InstallIn(SingletonComponent::class)
-object CredentialRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideCredentialRepository(impl: DefaultCredentialRepository): CredentialRepository = impl
+    // Inbox
+    singleOf(::SyncInboxRepositoryImpl) bind SyncInboxRepository::class
+    singleOf(::DailyReviewSessionRepositoryImpl) bind DailyReviewSessionRepository::class
 
-    @Provides
-    @Singleton
-    fun provideSecuritySessionPolicy(impl: DataStoreSecuritySessionPolicy): SecuritySessionPolicy = impl
-
-    @Provides
-    @Singleton
-    fun provideSecuritySessionController(impl: DataStoreSecuritySessionPolicy): SecuritySessionController = impl
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object MigrationRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideMigrationSettingsStore(impl: DataStoreMigrationSettingsStore): MigrationSettingsStore = impl
-
-    @Provides
-    @Singleton
-    fun provideMigrationArchiveStagingWorkspaceFactory(
-        impl: FileMigrationArchiveStagingWorkspaceFactory,
-    ): MigrationArchiveStagingWorkspaceFactory = impl
-
-    @Provides
-    @Singleton
-    fun provideMigrationArchiveRepository(impl: MigrationArchiveRepositoryImpl): MigrationArchiveRepository = impl
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object InboxRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideSyncInboxRepository(impl: SyncInboxRepositoryImpl): SyncInboxRepository = impl
-
-    @Provides
-    @Singleton
-    fun provideDailyReviewSessionRepository(
-        impl: DailyReviewSessionRepositoryImpl,
-    ): DailyReviewSessionRepository = impl
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object SnapshotPreferencesRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideMemoSnapshotPreferencesRepository(
-        impl: com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl,
-    ): MemoSnapshotPreferencesRepository = impl
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object PreferenceFacetRepositoryModule {
-    @Provides
-    @Singleton
-    fun provideInteractionPreferencesRepository(
-        impl: SettingsRepositoryImpl,
-    ): InteractionPreferencesRepository = impl
-
-    @Provides
-    @Singleton
-    fun provideSecurityPreferencesRepository(
-        impl: SettingsRepositoryImpl,
-    ): SecurityPreferencesRepository = impl
-
-    @Provides
-    @Singleton
-    fun provideSidebarTagOrderPreferencesRepository(
-        impl: SettingsRepositoryImpl,
-    ): SidebarTagOrderPreferencesRepository = impl
+    // Snapshot Preferences
+    single { MemoSnapshotPreferencesRepositoryImpl(get()) } bind MemoSnapshotPreferencesRepository::class
 }

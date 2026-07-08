@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
@@ -8,13 +7,8 @@ import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.lib.BranchTrackingStatus
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncQueryTestCoordinator
-    @Inject
-    constructor(
+constructor(
         private val credentialStrategy: GitCredentialStrategy,
         private val fileHistoryReader: GitFileHistoryReader,
     ) {
@@ -28,18 +22,15 @@ class GitSyncQueryTestCoordinator
                 filename = filename,
                 maxCount = maxCount,
             )
-
         fun getStatus(rootDir: File): GitSyncStatus {
             val gitDir = File(rootDir, ".git")
             if (!gitDir.exists()) {
                 return emptyStatus()
             }
-
             return runNonFatalCatching {
                 Git.open(rootDir).use { g ->
                     val status = g.status().call()
                     val hasChanges = status.hasUncommittedChanges() || status.untracked.isNotEmpty()
-
                     var ahead = 0
                     var behind = 0
                     try {
@@ -51,7 +42,6 @@ class GitSyncQueryTestCoordinator
                     } catch (_: Exception) {
                         // No tracking info available.
                     }
-
                     GitSyncStatus(
                         hasLocalChanges = hasChanges,
                         aheadCount = ahead,
@@ -64,7 +54,6 @@ class GitSyncQueryTestCoordinator
                 emptyStatus()
             }
         }
-
         suspend fun testConnection(remoteUrl: String): GitSyncResult {
             val credentials =
                 try {
@@ -87,7 +76,6 @@ class GitSyncQueryTestCoordinator
                 GitSyncResult.Error("Connection failed: ${error.message}", error)
             }
         }
-
         private fun emptyStatus(): GitSyncStatus =
             GitSyncStatus(
                 hasLocalChanges = false,

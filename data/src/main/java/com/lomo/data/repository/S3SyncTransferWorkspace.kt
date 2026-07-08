@@ -1,26 +1,23 @@
 package com.lomo.data.repository
 
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 internal data class S3TransferFile(
     val file: File,
 )
 
-@Singleton
 class S3SyncTransferWorkspace
     private constructor(
         private val rootDir: File,
     ) {
-        @Inject
         constructor(
-            @ApplicationContext context: Context,
+            context: Context,
         ) : this(File(context.cacheDir, S3_TRANSFER_WORKSPACE_DIR_NAME))
 
         internal suspend fun <T> withSession(block: suspend (S3SyncTransferSession) -> T): T {

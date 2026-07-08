@@ -7,19 +7,17 @@ import android.os.ParcelFileDescriptor
 import androidx.core.net.toUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.VoiceRecordingRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
+
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.log10
 
-class AudioRecorder
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : VoiceRecordingRepository {
+class AudioRecorder(
+    private val context: Context,
+) : VoiceRecordingRepository {
         private var recorder: MediaRecorder? = null
         private var outputFileDescriptor: ParcelFileDescriptor? = null
         private var isRecording = false

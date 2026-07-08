@@ -30,17 +30,12 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Logger
-import javax.inject.Inject
-import javax.inject.Singleton
 import okhttp3.Response as OkHttpResponse
 
-@Singleton
-class Dav4jvmWebDavClientFactory
-    @Inject
-    constructor(
-        private val httpClientProvider: SyncHttpClientProvider,
-        private val performanceTuner: SyncPerformanceTuner,
-    ) : WebDavClientFactory {
+class Dav4jvmWebDavClientFactory(
+    private val httpClientProvider: SyncHttpClientProvider,
+    private val performanceTuner: SyncPerformanceTuner,
+) : WebDavClientFactory {
         private val clients = ConcurrentHashMap<WebDavClientKey, WebDavClient>()
 
         override fun create(

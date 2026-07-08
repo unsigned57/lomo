@@ -7,15 +7,9 @@
 
 # 1. Application core / startup activities
 HSPL com/lomo/app/LomoApplication
-HSPL com/lomo/app/Hilt_LomoApplication
 HSPL com/lomo/app/MainActivity
 
-# 2. Hilt / DI runtime
-HSPL dagger/hilt/android/internal/managers/**
-HSPL dagger/hilt/android/internal/lifecycle/**
-HSPL dagger/internal/**
-
-# 3. Compose runtime / UI / foundation startup core
+# 2. Compose runtime / UI / foundation startup core
 HSPL androidx/compose/runtime/snapshots/**
 HSPL androidx/compose/runtime/**
 HSPL androidx/compose/ui/platform/**
@@ -24,19 +18,19 @@ SPL androidx/compose/ui/**
 HSPL androidx/compose/foundation/lazy/**
 SPL androidx/compose/foundation/**
 
-# 4. Material 3
+# 3. Material 3
 HSPL androidx/compose/material3/adaptive/**
 HSPL androidx/compose/material3/**
 
-# 5. Navigation / Paging
+# 4. Navigation / Paging
 HSPL androidx/navigation/compose/**
 SPL androidx/paging/**
 
-# 6. Coroutines
+# 5. Coroutines
 HSPL kotlinx/coroutines/flow/**
 SPL kotlinx/coroutines/**
 
-# 7. Coil
+# 6. Coil
 SPL coil3/compose/**
 PL coil3/**
 

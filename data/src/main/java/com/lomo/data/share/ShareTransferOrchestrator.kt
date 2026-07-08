@@ -7,22 +7,20 @@ import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferError
 import com.lomo.domain.model.ShareTransferErrorPolicy
 import com.lomo.domain.model.ShareTransferState
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
 
-class ShareTransferOrchestrator
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-        private val pairingConfig: SharePairingConfig,
-    ) {
+
+class ShareTransferOrchestrator(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+    private val pairingConfig: SharePairingConfig,
+) {
         private val _transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
         val transferState: StateFlow<ShareTransferState> = _transferState.asStateFlow()
 

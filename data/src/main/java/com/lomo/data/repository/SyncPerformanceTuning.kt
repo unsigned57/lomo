@@ -5,13 +5,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class SyncPerformanceProfile(
     val s3ActionConcurrency: Int = S3_ACTION_CONCURRENCY,
@@ -45,12 +39,9 @@ internal fun SyncPerformanceProfile.webDavMaxRequests(): Int =
 
 internal fun Int.coercePositiveConcurrency(): Int = coerceAtLeast(1)
 
-@Singleton
-class AndroidSyncPerformanceTuner
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : SyncPerformanceTuner {
+class AndroidSyncPerformanceTuner(
+    private val context: Context,
+) : SyncPerformanceTuner {
         override fun currentProfile(): SyncPerformanceProfile {
             val memoryClass = context.activityManager()?.memoryClass ?: DEFAULT_MEMORY_CLASS_MB
             val transport = context.activeTransportClass()
@@ -113,12 +104,7 @@ class AndroidSyncPerformanceTuner
         }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface SyncPerformanceTuningModule {
-    @Binds
-    fun bindSyncPerformanceTuner(impl: AndroidSyncPerformanceTuner): SyncPerformanceTuner
-}
+
 
 private enum class TransportClass {
     WIFI,

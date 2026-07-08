@@ -7,7 +7,7 @@
  *   reaches the current user_version.
  * - Red phase: Fails before the fix when the production Room open path cannot upgrade a v46
  *   database file in-place.
- * - Excludes: Hilt graph construction, app navigation/startup UI, and repository sync behavior.
+ * - Excludes: Koin graph construction, app navigation/startup UI, and repository sync behavior.
  */
 package com.lomo.data.local
 

@@ -1,12 +1,8 @@
 package com.lomo.data.repository
-
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
-import javax.inject.Inject
-
 class MemoWorkspaceShardWriter
-    @Inject
-    constructor(
+constructor(
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val fileStateStore: MemoWorkspaceFileStateStore,
     ) {
@@ -26,7 +22,6 @@ class MemoWorkspaceShardWriter
                     fileStateStore.upsertTrashState(filename = filename, lastModified = metadata.lastModified)
                 }
         }
-
         suspend fun appendActiveBlockContent(
             filename: String,
             blockContent: String,
@@ -45,7 +40,6 @@ class MemoWorkspaceShardWriter
                 safUri = savedUri,
             )
         }
-
         suspend fun persistRemovedActiveBlock(
             filename: String,
             removedBlock: RemovedMemoBlock,
@@ -56,7 +50,6 @@ class MemoWorkspaceShardWriter
                 persistMainShard(filename = filename, content = removedBlock.remainingContent)
             }
         }
-
         suspend fun persistRemovedTrashBlock(
             filename: String,
             removedBlock: RemovedMemoBlock,
@@ -71,7 +64,6 @@ class MemoWorkspaceShardWriter
                 )
             }
         }
-
         suspend fun persistMainShard(
             filename: String,
             content: String,
@@ -88,7 +80,6 @@ class MemoWorkspaceShardWriter
                 fileStateStore.upsertMainState(filename = filename, lastModified = lastModified, safUri = savedUri)
             }
         }
-
         suspend fun persistShard(
             directory: MemoDirectoryType,
             filename: String,
@@ -110,7 +101,6 @@ class MemoWorkspaceShardWriter
                 lastModified = metadata?.lastModified ?: System.currentTimeMillis(),
             )
         }
-
         suspend fun deleteShard(
             directory: MemoDirectoryType,
             filename: String,

@@ -1,9 +1,6 @@
 # Add project specific ProGuard rules here.
 # You can use the generated configuration.txt contents to check for missing rules.
 
-# Hilt
--keep class com.lomo.app.LomoApplication_HiltComponents { *; }
-
 # Room
 -keep class * extends androidx.room.RoomDatabase
 -keep class * extends androidx.room.RoomDatabase$Builder
@@ -66,4 +63,3 @@
 
 # Keep Lomo list motion, exit scopes, and states to avoid aggressive optimization/dead code elimination by R8 in full mode
 -keep class com.lomo.ui.component.common.** { *; }
-

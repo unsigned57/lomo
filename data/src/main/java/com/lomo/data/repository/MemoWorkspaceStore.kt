@@ -1,59 +1,46 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.domain.model.Memo
-import javax.inject.Inject
-
 sealed interface MemoProjectionChangeSet {
     val metadata: LocalFileStateEntity
     val dateKey: String
-
     data class Active(
         val memos: List<MemoEntity>,
         override val metadata: LocalFileStateEntity,
         override val dateKey: String,
     ) : MemoProjectionChangeSet
-
     data class Trash(
         val memos: List<TrashMemoEntity>,
         override val metadata: LocalFileStateEntity,
         override val dateKey: String,
     ) : MemoProjectionChangeSet
 }
-
 sealed interface MemoWorkspaceBlockRemoval {
     data object Removed : MemoWorkspaceBlockRemoval
-
     data class MissingSourceSpan(
         val directory: MemoDirectoryType,
         val filename: String,
         val memoId: String,
     ) : MemoWorkspaceBlockRemoval
 }
-
 sealed interface MemoWorkspaceBlockMutationResult {
     data object Applied : MemoWorkspaceBlockMutationResult
-
     data class MissingSourceSpan(
         val directory: MemoDirectoryType,
         val filename: String,
         val memoId: String,
     ) : MemoWorkspaceBlockMutationResult
 }
-
 sealed interface MemoWorkspaceBlockUpsertIntent {
     data object CreateNewMemo : MemoWorkspaceBlockUpsertIntent
-
     data object ReplaceExistingMemo : MemoWorkspaceBlockUpsertIntent
 }
-
 class MemoWorkspaceStore
-    @Inject
-    constructor(
+constructor(
         private val reader: MemoWorkspaceReader,
         private val writer: MemoWorkspaceShardWriter,
         private val parser: MarkdownParser,
@@ -79,7 +66,6 @@ class MemoWorkspaceStore
             writer.persistMainShard(filename = filename, content = updatedContent)
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun appendActiveMemoBlock(
             filename: String,
             rawContent: String,
@@ -87,7 +73,6 @@ class MemoWorkspaceStore
             requireSafeMemoMarkdownFilename(filename)
             writer.appendActiveBlockContent(filename = filename, blockContent = "\n$rawContent")
         }
-
         suspend fun moveActiveMemoBlockToTrash(memo: Memo): MemoWorkspaceBlockMutationResult {
             requireSafeMemoDateKey(memo.dateKey)
             val filename = memo.filename()
@@ -97,12 +82,10 @@ class MemoWorkspaceStore
             val removedBlock =
                 removeMemoBlockFromContent(currentFileContent, memo.dateKey, memo, parser)
                     ?: return missingSpan(MemoDirectoryType.MAIN, filename, memo)
-
             writer.persistRemovedActiveBlock(filename = filename, removedBlock = removedBlock)
             writer.appendTrashBlock(filename = filename, blockContent = removedBlock.blockContent)
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun ensureTrashMemoBlock(memo: Memo): MemoWorkspaceBlockMutationResult {
             requireSafeMemoDateKey(memo.dateKey)
             val filename = memo.filename()
@@ -113,7 +96,6 @@ class MemoWorkspaceStore
             writer.appendTrashBlock(filename = filename, blockContent = memo.toBlockContent())
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun restoreTrashMemoBlockToActive(memo: Memo): MemoWorkspaceBlockMutationResult {
             requireSafeMemoDateKey(memo.dateKey)
             val filename = memo.filename()
@@ -123,12 +105,10 @@ class MemoWorkspaceStore
             val removedBlock =
                 removeMemoBlockFromContent(trashContent, memo.dateKey, memo, parser)
                     ?: return missingSpan(MemoDirectoryType.TRASH, filename, memo)
-
             writer.persistRemovedTrashBlock(filename = filename, removedBlock = removedBlock)
             writer.appendActiveBlockContent(filename = filename, blockContent = removedBlock.blockContent)
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun removeTrashMemoBlock(memo: Memo): MemoWorkspaceBlockRemoval {
             requireSafeMemoDateKey(memo.dateKey)
             val filename = memo.filename()
@@ -139,7 +119,6 @@ class MemoWorkspaceStore
             writer.persistRemovedTrashBlock(filename = filename, removedBlock = removedBlock)
             return MemoWorkspaceBlockRemoval.Removed
         }
-
         /**
          * Deletes an entire trash shard file in one operation. Used by clearTrash to batch the SAF
          * I/O: emptying the trash removes every block in a shard, so a single delete replaces a
@@ -149,7 +128,6 @@ class MemoWorkspaceStore
             requireSafeMemoDateKey(dateKey)
             writer.deleteShard(directory = MemoDirectoryType.TRASH, filename = "$dateKey.md")
         }
-
         suspend fun upsertMemoBlock(
             directory: MemoDirectoryType,
             filename: String,
@@ -183,7 +161,6 @@ class MemoWorkspaceStore
             writer.persistShard(directory = directory, filename = filename, content = updatedContent)
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun requireMemoBlockSourceSpan(
             directory: MemoDirectoryType,
             filename: String,
@@ -198,7 +175,6 @@ class MemoWorkspaceStore
             }
             return MemoWorkspaceBlockMutationResult.Applied
         }
-
         suspend fun removeMemoBlock(
             directory: MemoDirectoryType,
             filename: String,
@@ -219,7 +195,6 @@ class MemoWorkspaceStore
             return MemoWorkspaceBlockRemoval.Removed
         }
     }
-
 // Stateless span helpers kept at file level so MemoWorkspaceStore stays within the per-class
 // function budget (TooManyFunctions); they construct result values and touch no instance state.
 private fun missingSpan(
@@ -232,7 +207,6 @@ private fun missingSpan(
         filename = filename,
         memoId = memo.id,
     )
-
 private fun missingRemovalSpan(
     directory: MemoDirectoryType,
     filename: String,

@@ -17,15 +17,13 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
 
-class SharePairingConfig
-    @Inject
-    constructor(
-        private val dataStore: LomoDataStore,
-        private val credentialRepository: CredentialRepository,
-        private val securitySessionPolicy: SecuritySessionPolicy,
-    ) {
+
+class SharePairingConfig(
+    private val dataStore: LomoDataStore,
+    private val credentialRepository: CredentialRepository,
+    private val securitySessionPolicy: SecuritySessionPolicy,
+) {
         private val pairingCodeInputState = MutableStateFlow("")
 
         val lanShareEnabled: Flow<Boolean> = dataStore.lanShareEnabled

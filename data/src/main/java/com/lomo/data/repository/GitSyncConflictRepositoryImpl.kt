@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
@@ -9,13 +8,8 @@ import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.repository.GitSyncConflictRepository
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncConflictRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
         private val memoMirror: GitSyncMemoMirror,
@@ -29,7 +23,6 @@ class GitSyncConflictRepositoryImpl
                 return GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
             }
             val resolvedRemoteUrl = checkNotNull(remoteUrl)
-
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val repoDir = resolveConflictRepoDir(layout)
             if (repoDir == null) {
@@ -39,7 +32,6 @@ class GitSyncConflictRepositoryImpl
             if (tokenPreconditionError != null) {
                 return tokenPreconditionError
             }
-
             val result =
                 support.runGitIo {
                     runtime.gitSyncEngine.resolveConflicts(
@@ -49,7 +41,6 @@ class GitSyncConflictRepositoryImpl
                         conflictSet,
                     )
                 }
-
             if (result is GitSyncResult.Success) {
                 memoMirror.mirrorMemoFromRepo(repoDir, layout)
                 runNonFatalCatching {
@@ -60,7 +51,6 @@ class GitSyncConflictRepositoryImpl
             }
             return result
         }
-
         private suspend fun resolveConflictRepoDir(layout: SyncDirectoryLayout): java.io.File? {
             val directRootDir = support.resolveRootDir()
             val safRootUri = support.resolveSafRootUri()

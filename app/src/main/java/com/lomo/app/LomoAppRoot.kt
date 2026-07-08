@@ -28,7 +28,7 @@ import com.lomo.app.feature.update.AppUpdateViewModel
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.feature.update.LomoAppUpdateProgressDialog
 import com.lomo.app.navigation.LomoNavHost
-import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.repository.LanShareService
@@ -40,7 +40,7 @@ fun LomoAppRoot(
     modifier: Modifier = Modifier,
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
-    appUpdateViewModel: AppUpdateViewModel = injectedHiltViewModel(),
+    appUpdateViewModel: AppUpdateViewModel = injectedKoinViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
     val progressDialogState by appUpdateViewModel.progressDialogState.collectAsStateWithLifecycle()

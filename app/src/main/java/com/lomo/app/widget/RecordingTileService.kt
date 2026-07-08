@@ -11,8 +11,7 @@ import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.domain.model.RecordingSessionState
 import com.lomo.domain.usecase.RecordingSessionUseCase
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.android.ext.android.inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,11 +20,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-@AndroidEntryPoint
 class RecordingTileService : TileService() {
-    @Inject lateinit var recordingSessionUseCase: RecordingSessionUseCase
-
-    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
+    private val recordingSessionUseCase: RecordingSessionUseCase by inject()
+    private val trustedLaunchIntents: TrustedLaunchIntents by inject()
 
     private val policy = RecordingTileClickPolicy()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

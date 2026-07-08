@@ -7,7 +7,6 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.MediaFileExtensions
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,8 +17,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 
 private val IMAGE_CONTENT_TYPES =
     mapOf(
@@ -62,13 +59,10 @@ internal data class LocatedMediaFile(
     val filename: String,
 )
 
-@Singleton
-class LocalMediaSyncStore
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-    ) {
+class LocalMediaSyncStore(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
         private val configuredRootsState: StateFlow<List<MediaRoot>?> =

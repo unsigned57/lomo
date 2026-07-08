@@ -32,6 +32,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.FakeDispatcherProvider
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -155,7 +156,7 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
                 ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
-            memoUiMapper = MemoUiMapper(testDispatcher),
+            memoUiMapper = MemoUiMapper(FakeDispatcherProvider(testDispatcher)),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,

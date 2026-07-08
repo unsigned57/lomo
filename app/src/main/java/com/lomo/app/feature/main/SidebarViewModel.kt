@@ -8,7 +8,7 @@ import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -16,16 +16,13 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import javax.inject.Inject
 
-@HiltViewModel
-class SidebarViewModel
-    @Inject
-    constructor(
-        private val observeSidebarStatisticsUseCase: ObserveSidebarStatisticsUseCase,
-        private val stateHolder: MainSidebarStateHolder,
-        private val appConfigCoordinator: AppConfigUiCoordinator,
-    ) : ViewModel() {
+
+class SidebarViewModel(
+    private val observeSidebarStatisticsUseCase: ObserveSidebarStatisticsUseCase,
+    private val stateHolder: MainSidebarStateHolder,
+    private val appConfigCoordinator: AppConfigUiCoordinator,
+) : ViewModel() {
         data class SidebarUiState(
             val stats: SidebarStats = SidebarStats(),
             val memoCountByDate: Map<LocalDate, Int> = emptyMap(),

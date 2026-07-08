@@ -4,12 +4,7 @@ import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
 import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 enum class WebDavLocalChangeKind {
     MEMO,
@@ -49,13 +44,10 @@ interface WebDavLocalChangeJournalStore {
     suspend fun clear()
 }
 
-@Singleton
-class RoomBackedWebDavLocalChangeJournalStore
-    @Inject
-    constructor(
-        private val dao: WebDavLocalChangeJournalDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : WebDavLocalChangeJournalStore {
+class RoomBackedWebDavLocalChangeJournalStore(
+    private val dao: WebDavLocalChangeJournalDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : WebDavLocalChangeJournalStore {
         override val incrementalSyncEnabled: Boolean = true
 
         override suspend fun read(): Map<String, WebDavLocalChangeJournalEntry> =
@@ -91,12 +83,9 @@ interface WebDavLocalChangeRecorder {
     suspend fun recordVoiceDelete(filename: String)
 }
 
-@Singleton
-class DefaultWebDavLocalChangeRecorder
-    @Inject
-    constructor(
-        private val journalStore: WebDavLocalChangeJournalStore,
-    ) : WebDavLocalChangeRecorder {
+class DefaultWebDavLocalChangeRecorder(
+    private val journalStore: WebDavLocalChangeJournalStore,
+) : WebDavLocalChangeRecorder {
         override suspend fun recordMemoUpsert(filename: String) =
             record(kind = WebDavLocalChangeKind.MEMO, filename = filename, changeType = WebDavLocalChangeType.UPSERT)
 
@@ -135,15 +124,7 @@ class DefaultWebDavLocalChangeRecorder
         }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface WebDavIncrementalSyncBindingsModule {
-    @Binds
-    fun bindWebDavLocalChangeJournalStore(impl: RoomBackedWebDavLocalChangeJournalStore): WebDavLocalChangeJournalStore
 
-    @Binds
-    fun bindWebDavLocalChangeRecorder(impl: DefaultWebDavLocalChangeRecorder): WebDavLocalChangeRecorder
-}
 
 private fun WebDavLocalChangeJournalEntry.toEntity(workspaceGeneration: String): WebDavLocalChangeJournalEntity =
     WebDavLocalChangeJournalEntity(

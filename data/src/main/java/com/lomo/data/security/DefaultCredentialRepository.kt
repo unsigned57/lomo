@@ -13,18 +13,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class DefaultCredentialRepository
-    @Inject
-    constructor(
-        private val gitCredentialStore: GitCredentialStore,
-        private val webDavCredentialStore: WebDavCredentialStore,
-        private val s3CredentialStore: S3CredentialStore,
-        private val lanCredentialStore: LanShareCredentialStore,
-    ) : CredentialRepository {
+
+class DefaultCredentialRepository(
+    private val gitCredentialStore: GitCredentialStore,
+    private val webDavCredentialStore: WebDavCredentialStore,
+    private val s3CredentialStore: S3CredentialStore,
+    private val lanCredentialStore: LanShareCredentialStore,
+) : CredentialRepository {
         private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
         override fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState> =

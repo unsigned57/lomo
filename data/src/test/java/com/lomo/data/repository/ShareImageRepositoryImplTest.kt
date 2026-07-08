@@ -28,7 +28,7 @@
  *   the shared image cache directory.
  *
  * Excludes:
- * - Android FileProvider URI creation, bitmap compression, and Hilt binding.
+ * - Android FileProvider URI creation, bitmap compression, and DI binding.
  */
 
 package com.lomo.data.repository

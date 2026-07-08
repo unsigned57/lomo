@@ -42,7 +42,7 @@ import io.kotest.matchers.types.shouldBeInstanceOf
  *   status outcomes, not internal SecureStringStore read mechanics.
  *
  * Excludes:
- * - Android Keystore cryptography, Hilt binding, settings UI coordinator state, and migration restore.
+ * - Android Keystore cryptography, DI binding, settings UI coordinator state, and migration restore.
  */
 class CredentialStatusPolicyTest : DataFunSpec() {
     init {
