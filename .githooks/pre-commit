@@ -4,40 +4,22 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 gradlew="$repo_root/gradlew"
 meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
+ai_gradle_env_script="$repo_root/quality/scripts/ai_gradle_env.sh"
 quality_script="$repo_root/quality/scripts/ai_quality_check.sh"
+
+if [ ! -f "$ai_gradle_env_script" ]; then
+  echo "pre-commit: AI Gradle environment script not found: $ai_gradle_env_script" >&2
+  exit 1
+fi
+
+# shellcheck source=quality/scripts/ai_gradle_env.sh
+source "$ai_gradle_env_script"
+lomo_ai_prepare_gradle_env "pre-commit"
 
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
   staged_kotlin_files+=("$file")
 done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z -- '*.kt' '*.kts')
-
-if [ ! -x "$gradlew" ]; then
-  echo "pre-commit: gradle wrapper not found or not executable: $gradlew" >&2
-  exit 1
-fi
-
-hook_gradle_user_home="$repo_root/.gradle/pre-commit-user-home"
-mkdir -p "$hook_gradle_user_home"
-wrapper_dists_dir="$hook_gradle_user_home/wrapper/dists"
-
-clear_stale_wrapper_locks() {
-  local lock_file
-  local removed_count=0
-
-  while IFS= read -r -d '' lock_file; do
-    local ok_file="${lock_file%.lck}.ok"
-    if [ -f "$ok_file" ]; then
-      rm -f "$lock_file"
-      removed_count=$((removed_count + 1))
-    fi
-  done < <(find "$wrapper_dists_dir" -type f -name '*.zip.lck' -print0 2>/dev/null)
-
-  if [ "$removed_count" -gt 0 ]; then
-    echo "pre-commit: removed $removed_count stale Gradle wrapper lock(s)"
-  fi
-}
-
-clear_stale_wrapper_locks
 
 if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
   printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
@@ -63,10 +45,11 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
   fi
 
   echo "pre-commit: running $gradlew detektFormatStaged on staged Kotlin files..."
-  echo "pre-commit: using repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
-  GRADLE_USER_HOME="$hook_gradle_user_home" \
-    "$gradlew" --project-dir "$repo_root" --no-daemon --no-configuration-cache --quiet \
-    detektFormatStaged "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
+  echo "pre-commit: using repo-local GRADLE_USER_HOME at $ai_gradle_user_home"
+  lomo_ai_run_gradle_no_configuration_cache \
+    --quiet \
+    detektFormatStaged \
+    "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
   echo "pre-commit: detektFormatStaged finished"
 
   # Re-stage files that were modified by formatter.

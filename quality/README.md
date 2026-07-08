@@ -81,9 +81,11 @@ Execution defaults:
 
 - Run quality commands from the repository root.
 - If a tool launches Gradle from another working directory, pass `--project-dir "$repo_root"` explicitly.
-- Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/task-inspect"` so wrapper downloads and caches are reused instead of being recreated under `/tmp` or another ephemeral directory.
+- Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/shared-user-home"` so wrapper downloads and caches are reused instead of being recreated under `/tmp` or another ephemeral directory.
 - The AI quality scripts already enforce repo-root execution and repo-local `GRADLE_USER_HOME`; use them when possible.
 - The AI quality scripts also set repo-local `HOME`, `ANDROID_USER_HOME`, and `XDG_*` paths so Kotlin daemon and Android tooling do not fall back to read-only global directories.
+- The AI quality scripts allow Gradle configuration-cache reuse by default; only dynamic staged-formatting uses the explicit no-configuration-cache runner.
+- JVM unit tests default to small fork parallelism. Use `-Plomo.test.maxParallelForks=1` when diagnosing shared-state or timing-sensitive test failures.
 - `ai_fast_quality_check.sh` intentionally exits non-zero when the working tree contains production/build/quality/workflow changes, so AI cannot silently skip detekt-capable verification.
 
 ## Staged Quality Pipeline
