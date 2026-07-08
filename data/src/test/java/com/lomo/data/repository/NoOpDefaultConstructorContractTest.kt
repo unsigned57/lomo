@@ -4,7 +4,7 @@
  * - Behavior focus: incremental-sync-critical constructors must require explicit collaborator wiring instead of Kotlin default-argument overloads that silently downgrade to NoOp/disabled implementations.
  * - Observable outcomes: target classes expose no synthetic default-argument constructor backed by DefaultConstructorMarker.
  * - TDD proof: Fails before the fix because MediaRepositoryImpl, S3SyncExecutor, S3SyncRepositoryContext, and MemoMutationRuntime still publish Kotlin default-argument constructors.
- * - Excludes: Hilt code generation, S3/WebDAV transport behavior, and mutation/sync business logic.
+ * - Excludes: DI code generation, S3/WebDAV transport behavior, and mutation/sync business logic.
  */
 package com.lomo.data.repository
 

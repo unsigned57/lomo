@@ -4,15 +4,13 @@ import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
-import javax.inject.Inject
 
-class AppUpdateChecker
-    @Inject
-    constructor(
-        private val checkAppUpdateUseCase: CheckAppUpdateUseCase,
-        private val checkStartupAppUpdateUseCase: CheckStartupAppUpdateUseCase,
-        private val getLatestAppReleaseUseCase: GetLatestAppReleaseUseCase,
-    ) {
+
+class AppUpdateChecker(
+    private val checkAppUpdateUseCase: CheckAppUpdateUseCase,
+    private val checkStartupAppUpdateUseCase: CheckStartupAppUpdateUseCase,
+    private val getLatestAppReleaseUseCase: GetLatestAppReleaseUseCase,
+) {
         suspend fun checkForStartupUpdate(): AppUpdateInfo? =
             checkStartupAppUpdateUseCase()?.normalizeForDisplay()
 

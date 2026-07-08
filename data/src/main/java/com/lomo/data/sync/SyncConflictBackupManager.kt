@@ -3,17 +3,13 @@ package com.lomo.data.sync
 import android.content.Context
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.repository.SyncConflictBackupRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class SyncConflictBackupManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+class SyncConflictBackupManager(
+    private val context: Context,
 ) : SyncConflictBackupRepository {
     private val backupRoot: File
         get() = File(context.filesDir, "sync_conflict_backups")

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import javax.inject.Inject
+
 
 internal const val MIGRATION_ARCHIVE_VERSION = 1
 internal const val MANIFEST_ENTRY = "manifest.json"
@@ -38,7 +38,6 @@ data class MigrationArchiveImportBudgets(
     val maxManifestBytes: Int,
     val maxMarkdownEntryBytes: Int,
 ) {
-    @Inject
     constructor() : this(
         maxCompressedArchiveBytes = DEFAULT_MAX_COMPRESSED_ARCHIVE_BYTES,
         maxEntries = DEFAULT_MAX_ARCHIVE_ENTRIES,

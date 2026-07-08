@@ -5,15 +5,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FileMarkdownStorageDataSourceDelegate
-    @Inject
-    constructor(
-        private val backendResolver: FileStorageBackendResolver,
-    ) : MarkdownStorageDataSource {
+
+class FileMarkdownStorageDataSourceDelegate(
+    private val backendResolver: FileStorageBackendResolver,
+) : MarkdownStorageDataSource {
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
             backendResolver.markdownBackend()?.listMetadataIn(directory) ?: emptyList()
 

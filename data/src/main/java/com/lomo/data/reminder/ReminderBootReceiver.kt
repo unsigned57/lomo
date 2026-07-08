@@ -4,14 +4,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lomo.domain.repository.ReminderCoordinator
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-@AndroidEntryPoint
-class ReminderBootReceiver : BroadcastReceiver() {
-    @Inject lateinit var asyncRunner: ReminderAsyncRunner
-
-    @Inject lateinit var reminderCoordinator: ReminderCoordinator
+class ReminderBootReceiver : BroadcastReceiver(), KoinComponent {
+    private val asyncRunner: ReminderAsyncRunner by inject()
+    private val reminderCoordinator: ReminderCoordinator by inject()
 
     override fun onReceive(
         context: Context,

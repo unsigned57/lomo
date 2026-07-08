@@ -6,12 +6,10 @@ import android.service.quicksettings.TileService
 import androidx.core.service.quicksettings.PendingIntentActivityWrapper
 import androidx.core.service.quicksettings.TileServiceCompat
 import com.lomo.app.TrustedLaunchIntents
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.android.ext.android.inject
 
-@AndroidEntryPoint
 class NewMemoTileService : TileService() {
-    @Inject lateinit var trustedLaunchIntents: TrustedLaunchIntents
+    private val trustedLaunchIntents: TrustedLaunchIntents by inject()
 
     override fun onClick() {
         super.onClick()

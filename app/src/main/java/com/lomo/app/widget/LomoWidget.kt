@@ -36,7 +36,9 @@ import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.model.Memo
-import dagger.hilt.android.EntryPointAccessors
+import com.lomo.domain.repository.MemoListQueryRepository
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -49,19 +51,13 @@ import java.time.Instant
  * Displays the most recent memos and allows quick access to create new ones.
  * Design inspired by MoeMemos with Material You theming.
  */
-class LomoWidget : GlanceAppWidget() {
+class LomoWidget : GlanceAppWidget(), KoinComponent {
+    private val memoListQueryRepository: MemoListQueryRepository by lazy { get() }
+
     override suspend fun provideGlance(
         context: Context,
         id: GlanceId,
     ) {
-        // Access DAO via Hilt EntryPoint
-        val entryPoint =
-            EntryPointAccessors.fromApplication(
-                context.applicationContext,
-                WidgetEntryPoint::class.java,
-            )
-        val memoListQueryRepository = entryPoint.memoListQueryRepository()
-
         // Fetch recent memos
         val recentMemos =
             withContext(Dispatchers.IO) {

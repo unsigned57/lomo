@@ -42,7 +42,7 @@ import io.kotest.matchers.booleans.shouldBeFalse
  * - TDD proof: The upgrade/repair scenarios execute the production FTS maintenance helper against
  *   a real SQLite database. They stay RED while schema repair still emits FTS4 or while upgraded
  *   databases are not retokenized back to the repository's live MATCH contract.
- * - Excludes: Android Room wiring, DAO interface, Hilt injection, and write-path FTS sync.
+ * - Excludes: Android Room wiring, DAO interface, DI injection, and write-path FTS sync.
  */
 class MemoSearchFtsIntegrationTest : DataFunSpec() {
     init {

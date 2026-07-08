@@ -3,12 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.local.dao.S3RemoteIndexDao
 import com.lomo.data.local.entity.S3RemoteIndexEntity
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class S3RemoteIndexEntry(
     val relativePath: String,
@@ -52,13 +47,10 @@ interface S3RemoteIndexStore {
     suspend fun clear()
 }
 
-@Singleton
-class RoomBackedS3RemoteIndexStore
-    @Inject
-    constructor(
-        private val dao: S3RemoteIndexDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : S3RemoteIndexStore {
+class RoomBackedS3RemoteIndexStore(
+    private val dao: S3RemoteIndexDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : S3RemoteIndexStore {
         override val remoteIndexEnabled: Boolean = true
 
         override suspend fun readAllRelativePaths(): List<String> = dao.getAllRelativePaths(activeGeneration())
@@ -131,12 +123,6 @@ class RoomBackedS3RemoteIndexStore
         private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface S3RemoteIndexBindingsModule {
-    @Binds
-    fun bindS3RemoteIndexStore(impl: RoomBackedS3RemoteIndexStore): S3RemoteIndexStore
-}
 
 private fun S3RemoteIndexEntity.toModel(): S3RemoteIndexEntry =
     S3RemoteIndexEntry(

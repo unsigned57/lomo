@@ -5,12 +5,7 @@ import com.lomo.data.local.entity.WebDavLocalFingerprintEntity
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class WebDavLocalFingerprintKey(
     val path: String,
@@ -29,13 +24,10 @@ interface WebDavLocalFingerprintCache {
     suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>)
 }
 
-@Singleton
-class RoomBackedWebDavLocalFingerprintCache
-    @Inject
-    constructor(
-        private val dao: WebDavLocalFingerprintDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : WebDavLocalFingerprintCache {
+class RoomBackedWebDavLocalFingerprintCache(
+    private val dao: WebDavLocalFingerprintDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : WebDavLocalFingerprintCache {
         override suspend fun get(key: WebDavLocalFingerprintKey): String? =
             dao.getByPath(path = key.path, workspaceGeneration = activeGeneration())
                 ?.takeIf { entity ->
@@ -66,10 +58,7 @@ class RoomBackedWebDavLocalFingerprintCache
         private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-@Singleton
-class WebDavRemoteListingCache
-    @Inject
-    constructor() {
+class WebDavRemoteListingCache {
         private val lock = Any()
         private val entries = mutableMapOf<WebDavRemoteListingKey, WebDavRemoteListingCacheEntry>()
 
@@ -102,12 +91,7 @@ class WebDavRemoteListingCache
         }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface WebDavSyncCacheBindingsModule {
-    @Binds
-    fun bindWebDavLocalFingerprintCache(impl: RoomBackedWebDavLocalFingerprintCache): WebDavLocalFingerprintCache
-}
+
 
 private data class WebDavRemoteListingKey(
     val clientId: Int,

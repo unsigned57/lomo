@@ -7,21 +7,19 @@ import android.os.Build
 import android.os.IBinder
 import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
-import dagger.hilt.android.AndroidEntryPoint
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@AndroidEntryPoint
-class RecordingForegroundService : Service() {
-    @Inject lateinit var recordingSession: RecordingSession
+class RecordingForegroundService : Service(), KoinComponent {
+    private val recordingSession: RecordingSession by inject()
 
-    @Inject lateinit var recordingNotifier: RecordingNotifier
+    private val recordingNotifier: RecordingNotifier by inject()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var stateCollector: Job? = null

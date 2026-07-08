@@ -2,16 +2,8 @@ package com.lomo.data.di
 
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.ImageLocationCacheDao
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
+import org.koin.dsl.module
 
-@Module
-@InstallIn(SingletonComponent::class)
-object ImageLocationCacheModule {
-    @Provides
-    @Singleton
-    fun provideImageLocationCacheDao(database: MemoDatabase): ImageLocationCacheDao = database.imageLocationCacheDao()
+val imageLocationCacheModule = module {
+    single<ImageLocationCacheDao> { get<MemoDatabase>().imageLocationCacheDao() }
 }

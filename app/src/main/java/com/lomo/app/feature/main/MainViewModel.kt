@@ -28,7 +28,7 @@ import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SetMemoPinnedUseCase
 import com.lomo.ui.component.common.EnterAnimationRegistry
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.FlowPreview
@@ -51,33 +51,30 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicReference
-import javax.inject.Inject
+
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 private const val AUTO_REFRESH_MIN_INTERVAL_MILLIS = 45_000L
 private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 
-@HiltViewModel
-class MainViewModel
-    @Inject
-    constructor(
-        private val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
-        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-        private val setMemoPinnedUseCase: SetMemoPinnedUseCase,
-        private val appConfigStateProvider: AppConfigStateProvider,
-        private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        private val sidebarStateHolder: MainSidebarStateHolder,
-        private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
-        private val memoUiMapper: MemoUiMapper,
-        private val imageMapProvider: ImageMapProvider,
-        private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
-        private val workspaceCoordinator: MainWorkspaceCoordinator,
-        private val startupCoordinator: MainStartupCoordinator,
-        private val markReminderDoneUseCase: MarkReminderDoneUseCase,
-        private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
-        private val externalAppCommandStore: ExternalAppCommandStore,
-    ) : ViewModel() {
+class MainViewModel(
+    private val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
+    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    private val setMemoPinnedUseCase: SetMemoPinnedUseCase,
+    private val appConfigStateProvider: AppConfigStateProvider,
+    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    private val sidebarStateHolder: MainSidebarStateHolder,
+    private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
+    private val memoUiMapper: MemoUiMapper,
+    private val imageMapProvider: ImageMapProvider,
+    private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
+    private val workspaceCoordinator: MainWorkspaceCoordinator,
+    private val startupCoordinator: MainStartupCoordinator,
+    private val markReminderDoneUseCase: MarkReminderDoneUseCase,
+    private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+    private val externalAppCommandStore: ExternalAppCommandStore,
+) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
         private val collectionActionStateHolder =
             MemoCollectionActionStateHolder(

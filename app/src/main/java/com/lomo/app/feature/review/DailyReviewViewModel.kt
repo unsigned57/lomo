@@ -25,7 +25,7 @@ import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,24 +36,21 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class DailyReviewViewModel
-    @Inject
-    constructor(
-        private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-        private val appConfigStateProvider: AppConfigStateProvider,
-        private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        private val imageMapProvider: ImageMapProvider,
-        private val memoUiMapper: MemoUiMapper,
-        private val deleteMemoUseCase: DeleteMemoUseCase,
-        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-        private val saveImageUseCase: SaveImageUseCase,
-        private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
-        private val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
-    ) : ViewModel() {
+
+class DailyReviewViewModel(
+    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    private val appConfigStateProvider: AppConfigStateProvider,
+    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    private val imageMapProvider: ImageMapProvider,
+    private val memoUiMapper: MemoUiMapper,
+    private val deleteMemoUseCase: DeleteMemoUseCase,
+    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    private val saveImageUseCase: SaveImageUseCase,
+    private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
+    private val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
+) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
         private val rawMemos = MutableStateFlow<List<Memo>?>(null)

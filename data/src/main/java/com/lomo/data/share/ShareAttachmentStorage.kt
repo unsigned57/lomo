@@ -7,21 +7,19 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.util.runNonFatalCatching
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
 
-class ShareAttachmentStorage
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataSource: MediaStorageDataSource,
-        private val dataStore: LomoDataStore,
-    ) {
+
+class ShareAttachmentStorage(
+    private val context: Context,
+    private val dataSource: MediaStorageDataSource,
+    private val dataStore: LomoDataStore,
+) {
         /**
          * Saves a received attachment and returns the stored filename for memo remapping.
          */

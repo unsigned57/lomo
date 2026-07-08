@@ -4,7 +4,7 @@ import android.app.UiModeManager
 import android.content.Context
 import android.os.Build
 import androidx.appcompat.app.AppCompatDelegate
-import com.lomo.app.di.AppScope
+
 import com.lomo.app.feature.main.MainStartupCoordinator
 import com.lomo.app.feature.update.UpdateStartupOrchestrator
 import com.lomo.app.theme.ThemeResyncPolicy
@@ -15,8 +15,7 @@ import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.SecuritySessionController
-import javax.inject.Inject
-import javax.inject.Singleton
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -133,11 +132,9 @@ class AppStartupWorkflow(
     }
 }
 
-class SecuritySessionRestoreTask
-    @Inject
-    constructor(
-        private val securitySessionController: SecuritySessionController,
-    ) : StartupTask {
+class SecuritySessionRestoreTask(
+    private val securitySessionController: SecuritySessionController,
+) : StartupTask {
         override val definition: StartupTaskDefinition =
             StartupTaskDefinition(
                 id = StartupTaskId.SECURITY_SESSION_RESTORE,
@@ -151,11 +148,9 @@ class SecuritySessionRestoreTask
         }
     }
 
-class StartupUpdateCheckTask
-    @Inject
-    constructor(
-        private val updateStartupOrchestrator: UpdateStartupOrchestrator,
-    ) : StartupTask {
+class StartupUpdateCheckTask(
+    private val updateStartupOrchestrator: UpdateStartupOrchestrator,
+) : StartupTask {
         override val definition: StartupTaskDefinition =
             StartupTaskDefinition(
                 id = StartupTaskId.STARTUP_UPDATE_CHECK,
@@ -169,11 +164,9 @@ class StartupUpdateCheckTask
         }
     }
 
-class DynamicShortcutStartupTask
-    @Inject
-    constructor(
-        private val dynamicShortcutPublisher: DynamicShortcutPublisher,
-    ) : StartupTask {
+class DynamicShortcutStartupTask(
+    private val dynamicShortcutPublisher: DynamicShortcutPublisher,
+) : StartupTask {
         override val definition: StartupTaskDefinition =
             StartupTaskDefinition(
                 id = StartupTaskId.DYNAMIC_SHORTCUTS,
@@ -187,11 +180,9 @@ class DynamicShortcutStartupTask
         }
     }
 
-class WorkspaceMaintenanceStartupTask
-    @Inject
-    constructor(
-        private val startupCoordinator: MainStartupCoordinator,
-    ) : StartupTask {
+class WorkspaceMaintenanceStartupTask(
+    private val startupCoordinator: MainStartupCoordinator,
+) : StartupTask {
         override val definition: StartupTaskDefinition =
             StartupTaskDefinition(
                 id = StartupTaskId.WORKSPACE_MAINTENANCE,
@@ -206,12 +197,10 @@ class WorkspaceMaintenanceStartupTask
         }
     }
 
-class ThemeApplicationStartupTask
-    @Inject
-    constructor(
-        private val appConfigRepository: AppConfigRepository,
-        private val themeSideEffect: ThemeSideEffect,
-    ) : StartupTask {
+class ThemeApplicationStartupTask(
+    private val appConfigRepository: AppConfigRepository,
+    private val themeSideEffect: ThemeSideEffect,
+) : StartupTask {
         private var observeThemeJob: Job? = null
         @Volatile
         private var currentThemeMode: ThemeMode = ThemeMode.SYSTEM
@@ -268,15 +257,13 @@ class ThemeApplicationStartupTask
         }
     }
 
-@Singleton
 class ThemeSideEffect
     internal constructor(
         private val isAppliedResolver: (ThemeMode) -> Boolean,
         private val themeApplier: (ThemeMode) -> Unit,
     ) {
-        @Inject
         constructor(
-            @dagger.hilt.android.qualifiers.ApplicationContext context: Context,
+            context: Context,
         ) : this(
             isAppliedResolver = { themeMode ->
                 val targetCompatMode = themeMode.toAppCompatNightMode()
@@ -309,17 +296,14 @@ class ThemeSideEffect
         }
     }
 
-@Singleton
-class AppStartupCoordinator
-    @Inject
-    constructor(
-        @AppScope private val appScope: CoroutineScope,
-        securitySessionRestoreTask: SecuritySessionRestoreTask,
-        private val themeApplicationStartupTask: ThemeApplicationStartupTask,
-        workspaceMaintenanceStartupTask: WorkspaceMaintenanceStartupTask,
-        dynamicShortcutStartupTask: DynamicShortcutStartupTask,
-        startupUpdateCheckTask: StartupUpdateCheckTask,
-    ) {
+class AppStartupCoordinator(
+    private val appScope: CoroutineScope,
+    securitySessionRestoreTask: SecuritySessionRestoreTask,
+    private val themeApplicationStartupTask: ThemeApplicationStartupTask,
+    workspaceMaintenanceStartupTask: WorkspaceMaintenanceStartupTask,
+    dynamicShortcutStartupTask: DynamicShortcutStartupTask,
+    startupUpdateCheckTask: StartupUpdateCheckTask,
+) {
         private val workflow =
             AppStartupWorkflow(
                 tasks =

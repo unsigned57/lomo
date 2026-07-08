@@ -12,23 +12,21 @@ import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import kotlinx.coroutines.CoroutineScope
-import javax.inject.Inject
 
-class SettingsCoordinatorFactory
-    @Inject
-    constructor(
-        private val appConfigRepository: AppConfigRepository,
-        private val credentialRepository: CredentialRepository,
-        private val lanShareService: LanShareService,
-        private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
-        private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
-        private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
-        private val switchRootStorageUseCase: SwitchRootStorageUseCase,
-        private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
-        private val memoVersionRepository: MemoVersionRepository,
-        private val customFontStore: CustomFontStore,
-        private val syncInboxRepository: SyncInboxRepository? = null,
-    ) {
+
+class SettingsCoordinatorFactory(
+    private val appConfigRepository: AppConfigRepository,
+    private val credentialRepository: CredentialRepository,
+    private val lanShareService: LanShareService,
+    private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
+    private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
+    private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
+    private val switchRootStorageUseCase: SwitchRootStorageUseCase,
+    private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
+    private val memoVersionRepository: MemoVersionRepository,
+    private val customFontStore: CustomFontStore,
+    private val syncInboxRepository: SyncInboxRepository? = null,
+) {
         private val settingsCredentialCoordinator =
             SettingsCredentialCoordinator(credentialRepository)
 

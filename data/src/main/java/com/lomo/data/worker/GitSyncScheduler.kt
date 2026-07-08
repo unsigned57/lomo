@@ -5,68 +5,46 @@ import androidx.work.WorkManager
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.GitSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncScheduledWork
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class GitSyncScheduler
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-        private val policyPlanner: GitSyncWorkPolicyPlanner,
-        private val scheduledWorkEnqueuer: GitScheduledSyncWorkEnqueuer,
-    ) {
-        suspend fun reschedule() {
-            val gitEnabled = dataStore.gitSyncEnabled.first()
-            val autoSyncEnabled = dataStore.gitAutoSyncEnabled.first()
+class GitSyncScheduler(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+    private val policyPlanner: GitSyncWorkPolicyPlanner,
+    private val scheduledWorkEnqueuer: GitScheduledSyncWorkEnqueuer,
+) {
+    suspend fun reschedule() {
+        val gitEnabled = dataStore.gitSyncEnabled.first()
+        val autoSyncEnabled = dataStore.gitAutoSyncEnabled.first()
 
-            if (!gitEnabled || !autoSyncEnabled) {
-                cancel()
-                return
-            }
-
-            val interval = dataStore.gitAutoSyncInterval.first()
-            scheduledWorkEnqueuer.enqueue(policyPlanner.planAutoSchedule(interval).scheduledWork)
-            Timber.d("Git auto-sync scheduled with interval: %s", interval)
+        if (!gitEnabled || !autoSyncEnabled) {
+            cancel()
+            return
         }
 
-        fun cancel() {
-            WorkManager.getInstance(context).cancelUniqueWork(GitSyncWorker.WORK_NAME)
-            Timber.d("Git auto-sync cancelled")
-        }
+        val interval = dataStore.gitAutoSyncInterval.first()
+        scheduledWorkEnqueuer.enqueue(policyPlanner.planAutoSchedule(interval).scheduledWork)
+        Timber.d("Git auto-sync scheduled with interval: %s", interval)
     }
+
+    fun cancel() {
+        WorkManager.getInstance(context).cancelUniqueWork(GitSyncWorker.WORK_NAME)
+        Timber.d("Git auto-sync cancelled")
+    }
+}
 
 interface GitScheduledSyncWorkEnqueuer {
     suspend fun enqueue(work: List<SyncScheduledWork>)
 }
 
-@Singleton
-class GitWorkManagerScheduledSyncWorkEnqueuer
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : GitScheduledSyncWorkEnqueuer {
-        override suspend fun enqueue(work: List<SyncScheduledWork>) {
-            val workManager = WorkManager.getInstance(context)
-            work.forEach { scheduledWork ->
-                workManager.enqueueSyncScheduledWork<GitSyncWorker>(scheduledWork)
-            }
+class GitWorkManagerScheduledSyncWorkEnqueuer(
+    private val context: Context,
+) : GitScheduledSyncWorkEnqueuer {
+    override suspend fun enqueue(work: List<SyncScheduledWork>) {
+        val workManager = WorkManager.getInstance(context)
+        work.forEach { scheduledWork ->
+            workManager.enqueueSyncScheduledWork<GitSyncWorker>(scheduledWork)
         }
     }
-
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class GitSyncSchedulingModule {
-    @Binds
-    abstract fun bindGitScheduledSyncWorkEnqueuer(
-        enqueuer: GitWorkManagerScheduledSyncWorkEnqueuer,
-    ): GitScheduledSyncWorkEnqueuer
 }

@@ -6,24 +6,20 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FileWorkspaceConfigSourceDelegate
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
-        private val backendResolver: FileStorageBackendResolver,
-    ) : WorkspaceConfigSource {
+
+class FileWorkspaceConfigSourceDelegate(
+    private val context: Context,
+    private val dataStore: LomoDataStore,
+    private val backendResolver: FileStorageBackendResolver,
+) : WorkspaceConfigSource {
         override suspend fun setRoot(
             type: StorageRootType,
             pathOrUri: String,

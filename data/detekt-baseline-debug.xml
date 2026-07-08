@@ -126,8 +126,6 @@
     <ID>LongMethod:MemoDatabase_Impl.kt:MemoDatabase_Impl.&lt;no name provided&gt;$public override suspend fun onValidateSchema: RoomOpenDelegate.ValidationResult</ID>
     <ID>LongMethod:MemoVersionDao_Impl.kt:MemoVersionDao_Impl$public override suspend fun listRevisionHistoryForMemo: List&lt;MemoRevisionHistoryRow&gt;</ID>
     <ID>LongMethod:MemoVersionDao_Impl.kt:MemoVersionDao_Impl$public override suspend fun listStaleRevisionsForMemo: List&lt;MemoRevisionEntity&gt;</ID>
-    <ID>LongParameterList:DataModule.kt:MemoRefreshModule$@Provides @Singleton fun provideMemoRefreshDbApplier: MemoRefreshDbApplier</ID>
-    <ID>LongParameterList:DataModule.kt:MemoRefreshModule$@Provides @Singleton fun provideWorkspaceTransitionRepositoryImpl: WorkspaceTransitionRepositoryImpl</ID>
     <ID>LongParameterList:DefaultMainListDao.kt:DefaultMainListDao$fun getCountFlow: Flow&lt;Int&gt;</ID>
     <ID>LongParameterList:DefaultMainListDao.kt:DefaultMainListDao$fun getPagingSource: PagingSource&lt;Int, DefaultMainListMemoRow&gt;</ID>
     <ID>LongParameterList:DefaultMainListDao.kt:private fun buildMainListPagingQuery: RoomRawQuery</ID>

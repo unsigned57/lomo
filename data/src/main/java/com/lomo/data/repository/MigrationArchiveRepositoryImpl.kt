@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.domain.repository.MigrationArchiveRepository
@@ -15,13 +14,8 @@ import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class MigrationArchiveRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
         private val settingsStore: MigrationSettingsStore,
@@ -29,7 +23,6 @@ class MigrationArchiveRepositoryImpl
         private val stagingWorkspaceFactory: MigrationArchiveStagingWorkspaceFactory,
     ) : MigrationArchiveRepository {
         private val dryRunPlanner = MigrationArchiveDryRunPlanner(importBudgets)
-
         override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary {
             val mainNotes = markdownEntries(MemoDirectoryType.MAIN)
             val trashNotes = markdownEntries(MemoDirectoryType.TRASH)
@@ -50,7 +43,6 @@ class MigrationArchiveRepositoryImpl
                     imageCount = images.size,
                     voiceCount = voices.size,
                 )
-
             ZipOutputStream(output).use { zip ->
                 zip.writeTextEntry(
                     name = MANIFEST_ENTRY,
@@ -87,7 +79,6 @@ class MigrationArchiveRepositoryImpl
             }
             return summary
         }
-
         override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan {
             val archiveFile = stageCompressedArchive(input)
             return try {
@@ -101,7 +92,6 @@ class MigrationArchiveRepositoryImpl
                 archiveFile.delete()
             }
         }
-
         override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary {
             val archiveFile = stageCompressedArchive(input)
             return try {
@@ -125,7 +115,6 @@ class MigrationArchiveRepositoryImpl
                 archiveFile.delete()
             }
         }
-
         private fun stageCompressedArchive(input: InputStream): File {
             val archiveFile = File.createTempFile("lomo-migration-import-", ".zip")
             var compressedBytes = 0L
@@ -151,7 +140,6 @@ class MigrationArchiveRepositoryImpl
                 throw exception
             }
         }
-
         private suspend fun stageAllNotesArchive(
             input: InputStream,
             stagingWorkspace: MigrationArchiveStagingWorkspace,
@@ -169,7 +157,6 @@ class MigrationArchiveRepositoryImpl
                 }
             }
         }
-
         private suspend fun stageArchiveEntry(
             entry: ZipEntry,
             zip: ZipInputStream,
@@ -212,7 +199,6 @@ class MigrationArchiveRepositoryImpl
                 else -> throw IllegalArgumentException("Unsupported migration archive entry: ${entry.name}")
             }
         }
-
         private suspend fun commitStagedArchive(
             stagingWorkspace: MigrationArchiveStagingWorkspace,
             summary: MigrationArchiveSummary,
@@ -236,7 +222,6 @@ class MigrationArchiveRepositoryImpl
             }
             return summary
         }
-
         private suspend fun commitStagedEntry(
             entry: StagedMigrationArchiveEntry,
             rollbackActions: MutableList<MigrationArchiveRollbackAction>,
@@ -261,7 +246,6 @@ class MigrationArchiveRepositoryImpl
                     }
             }
         }
-
         private suspend fun commitMarkdownEntry(
             directory: MemoDirectoryType,
             filename: String,
@@ -280,7 +264,6 @@ class MigrationArchiveRepositoryImpl
                 content = content,
             )
         }
-
         private suspend fun commitMediaEntry(
             category: WorkspaceMediaCategory,
             filename: String,
@@ -304,7 +287,6 @@ class MigrationArchiveRepositoryImpl
                 source = source,
             )
         }
-
         private suspend fun rollbackCommittedArchiveEntries(
             rollbackActions: List<MigrationArchiveRollbackAction>,
             originalFailure: Throwable,
@@ -341,7 +323,6 @@ class MigrationArchiveRepositoryImpl
                 }.onFailure(originalFailure::addSuppressed)
             }
         }
-
         private fun cleanupRollbackSnapshots(
             rollbackActions: List<MigrationArchiveRollbackAction>,
         ) {
@@ -351,7 +332,6 @@ class MigrationArchiveRepositoryImpl
                 }
             }
         }
-
         override suspend fun exportEncryptedSettings(
             output: OutputStream,
             password: String,
@@ -362,7 +342,6 @@ class MigrationArchiveRepositoryImpl
             output.write(encryptSettings(plainText = plainText, password = password).toByteArray(Charsets.UTF_8))
             return snapshot.toSummary()
         }
-
         override suspend fun importEncryptedSettings(
             input: InputStream,
             password: String,
@@ -384,7 +363,6 @@ class MigrationArchiveRepositoryImpl
             settingsStore.restore(snapshot)
             return snapshot.toSummary()
         }
-
         private suspend fun markdownEntries(directory: MemoDirectoryType): List<MarkdownArchiveEntry> =
             markdownStorageDataSource
                 .listMetadataIn(directory)
@@ -397,7 +375,6 @@ class MigrationArchiveRepositoryImpl
                         )
                     }
                 }
-
         private suspend fun ZipOutputStream.writeStreamEntry(
             name: String,
             category: WorkspaceMediaCategory,
@@ -417,26 +394,22 @@ class MigrationArchiveRepositoryImpl
             }
         }
     }
-
 private data class MarkdownArchiveEntry(
     val filename: String,
     val content: String,
 )
-
 private sealed interface MigrationArchiveRollbackAction {
     data class Markdown(
         val directory: MemoDirectoryType,
         val filename: String,
         val previousContent: String?,
     ) : MigrationArchiveRollbackAction
-
     data class Media(
         val category: WorkspaceMediaCategory,
         val filename: String,
         val previousSnapshot: File?,
     ) : MigrationArchiveRollbackAction
 }
-
 private suspend fun WorkspaceMediaAccess.readFileToSnapshotFile(
     category: WorkspaceMediaCategory,
     filename: String,

@@ -4,8 +4,7 @@ import com.lomo.data.worker.GitSyncWorker
 import com.lomo.data.worker.WebDavSyncWorker
 import com.lomo.domain.model.SyncBackendType
 import java.time.Duration
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 interface SyncWorkPolicy<Input> {
     fun plan(input: Input): SyncWorkDecision
@@ -118,10 +117,7 @@ class RemoteAutoSyncWorkPolicy(
         )
 }
 
-@Singleton
-class WebDavSyncWorkPolicyPlanner
-    @Inject
-    constructor() {
+class WebDavSyncWorkPolicyPlanner {
         private val policy =
             RemoteAutoSyncWorkPolicy(
                 backend = SyncBackendType.WEBDAV,
@@ -139,10 +135,7 @@ class WebDavSyncWorkPolicyPlanner
             )
     }
 
-@Singleton
-class GitSyncWorkPolicyPlanner
-    @Inject
-    constructor() {
+class GitSyncWorkPolicyPlanner {
         private val policy =
             RemoteAutoSyncWorkPolicy(
                 backend = SyncBackendType.GIT,

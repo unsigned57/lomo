@@ -1,21 +1,16 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import java.io.File
-import javax.inject.Inject
-
 class MemoWorkspaceFileStateStore
-    @Inject
-    constructor(
+constructor(
         private val localFileStateDao: LocalFileStateDao,
         private val markdownStorageDataSource: MarkdownStorageDataSource,
     ) {
         suspend fun mainSafUri(filename: String): String? =
             localFileStateDao.getByFilename(filename, false)?.safUri
-
         suspend fun upsertMainState(
             filename: String,
             lastModified: Long,
@@ -31,7 +26,6 @@ class MemoWorkspaceFileStateStore
                 ),
             )
         }
-
         suspend fun upsertTrashState(
             filename: String,
             lastModified: Long,
@@ -44,19 +38,16 @@ class MemoWorkspaceFileStateStore
                 ),
             )
         }
-
         suspend fun deleteState(
             filename: String,
             isTrash: Boolean,
         ) {
             localFileStateDao.deleteByFilename(filename, isTrash)
         }
-
         suspend fun resolveMainFileLastModified(
             filename: String,
             savedUriString: String?,
         ): Long = resolveSavedMainFileLastModified(filename, savedUriString) ?: System.currentTimeMillis()
-
         suspend fun resolveSavedMainFileLastModified(
             filename: String,
             savedUriString: String?,

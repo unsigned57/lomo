@@ -2,32 +2,19 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransaction
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 interface S3SyncTransactionRunner {
     suspend fun <T> runInTransaction(block: suspend () -> T): T
 }
 
-@Singleton
-class RoomBackedS3SyncTransactionRunner
-    @Inject
-    constructor(
-        private val database: MemoDatabase,
-    ) : S3SyncTransactionRunner {
+class RoomBackedS3SyncTransactionRunner(
+    private val database: MemoDatabase,
+) : S3SyncTransactionRunner {
         override suspend fun <T> runInTransaction(block: suspend () -> T): T =
             database.withDriverTransaction {
                 block()
             }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface S3SyncTransactionRunnerBindingsModule {
-    @Binds
-    fun bindS3SyncTransactionRunner(impl: RoomBackedS3SyncTransactionRunner): S3SyncTransactionRunner
-}
+

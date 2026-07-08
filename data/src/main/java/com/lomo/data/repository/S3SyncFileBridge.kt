@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.source.MemoDirectoryType
@@ -7,19 +6,14 @@ import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
-
-@Singleton
 class S3SyncFileBridge
-    @Inject
-    constructor(
+constructor(
         private val runtime: S3SyncRepositoryContext,
         private val encodingSupport: S3SyncEncodingSupport,
         private val safTreeAccess: S3SafTreeAccess,
@@ -28,20 +22,16 @@ class S3SyncFileBridge
             runtime: S3SyncRepositoryContext,
             encodingSupport: S3SyncEncodingSupport,
         ) : this(runtime, encodingSupport, UnsupportedS3SafTreeAccess)
-
         internal fun modeAware(mode: S3LocalSyncMode): S3SyncFileBridgeScope =
             S3SyncFileBridgeScope(runtime, encodingSupport, safTreeAccess, mode)
-
         suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalS3File> =
             modeAware(resolveLocalSyncMode(runtime)).localFiles(layout)
-
         suspend fun remoteFiles(
             client: LomoS3Client,
             layout: SyncDirectoryLayout,
             config: S3ResolvedConfig,
         ): Map<String, RemoteS3File> =
             modeAware(resolveLocalSyncMode(runtime)).remoteFiles(client, layout, config)
-
         suspend fun persistMetadata(
             localFiles: Map<String, LocalS3File>,
             remoteFiles: Map<String, RemoteS3File>,
@@ -108,22 +98,18 @@ class S3SyncFileBridge
                 runtime.metadataDao.upsertAll(upserts)
             }
         }
-
         suspend fun localFile(
             path: String,
             layout: SyncDirectoryLayout,
         ): LocalS3File? = modeAware(resolveLocalSyncMode(runtime)).localFile(path, layout)
-
         suspend fun readLocalBytes(
             path: String,
             layout: SyncDirectoryLayout,
         ): ByteArray? = modeAware(resolveLocalSyncMode(runtime)).readLocalBytes(path, layout)
-
         suspend fun readLocalText(
             path: String,
             layout: SyncDirectoryLayout,
         ): String? = modeAware(resolveLocalSyncMode(runtime)).readLocalText(path, layout)
-
         suspend fun writeLocalBytes(
             path: String,
             bytes: ByteArray,
@@ -131,7 +117,6 @@ class S3SyncFileBridge
         ) {
             modeAware(resolveLocalSyncMode(runtime)).writeLocalBytes(path, bytes, layout)
         }
-
         suspend fun deleteLocalFile(
             path: String,
             layout: SyncDirectoryLayout,
@@ -139,7 +124,6 @@ class S3SyncFileBridge
             modeAware(resolveLocalSyncMode(runtime)).deleteLocalFile(path, layout)
         }
     }
-
 internal class S3SyncFileBridgeScope(
     internal val runtime: S3SyncRepositoryContext,
     private val encodingSupport: S3SyncEncodingSupport,
@@ -151,7 +135,6 @@ internal class S3SyncFileBridgeScope(
             is S3LocalSyncMode.VaultRoot -> listVaultRootLocalFiles(mode, safTreeAccess)
             is S3LocalSyncMode.Legacy -> legacyLocalFiles(runtime, layout)
         }
-
     suspend fun localAuditPage(
         afterRelativePath: String?,
         limit: Int,
@@ -164,10 +147,8 @@ internal class S3SyncFileBridgeScope(
                     afterRelativePath = afterRelativePath,
                     limit = limit,
                 )
-
             is S3LocalSyncMode.Legacy -> emptyList()
         }
-
     suspend fun remoteFiles(
         client: LomoS3Client,
         layout: SyncDirectoryLayout,
@@ -195,7 +176,6 @@ internal class S3SyncFileBridgeScope(
                 .flatten()
                 .associate { remoteFile -> remoteFile.path to remoteFile }
         }
-
     private suspend fun listAllRemoteFilesForShard(
         client: LomoS3Client,
         layout: SyncDirectoryLayout,
@@ -240,7 +220,6 @@ internal class S3SyncFileBridgeScope(
         } while (continuationToken != null)
         return remoteFiles
     }
-
     suspend fun localFile(
         path: String,
         layout: SyncDirectoryLayout,
@@ -250,7 +229,6 @@ internal class S3SyncFileBridgeScope(
                 resolveVaultRootPath(path, layout, mode)?.let { relativePath ->
                     getFileVaultRootLocalFile(mode, relativePath)?.copy(path = path)
                 }
-
             is S3LocalSyncMode.SafVaultRoot ->
                 resolveVaultRootPath(path, layout, mode)?.let { relativePath ->
                     safTreeAccess.getFile(mode.rootUriString, relativePath.value)?.let { metadata ->
@@ -261,10 +239,8 @@ internal class S3SyncFileBridgeScope(
                         )
                     }
                 }
-
             is S3LocalSyncMode.Legacy -> legacyLocalFile(runtime, path, layout, mode)
         }
-
     suspend fun readLocalBytes(
         path: String,
         layout: SyncDirectoryLayout,
@@ -276,10 +252,8 @@ internal class S3SyncFileBridgeScope(
                     relativePath = resolveVaultRootPath(path, layout, mode) ?: return null,
                     safTreeAccess = safTreeAccess,
                 )
-
             is S3LocalSyncMode.Legacy -> legacyReadLocalBytes(runtime, path, layout)
         }
-
     suspend fun readLocalText(
         path: String,
         layout: SyncDirectoryLayout,
@@ -291,7 +265,6 @@ internal class S3SyncFileBridgeScope(
                     relativePath = resolveVaultRootPath(path, layout, mode) ?: return null,
                     safTreeAccess = safTreeAccess,
                 )
-
             is S3LocalSyncMode.Legacy ->
                 if (legacyIsMemoPath(path, layout)) {
                     runtime.markdownStorageDataSource.readFileIn(
@@ -302,7 +275,6 @@ internal class S3SyncFileBridgeScope(
                     null
                 }
         }
-
     suspend fun exportLocalFile(
         path: String,
         layout: SyncDirectoryLayout,
@@ -316,7 +288,6 @@ internal class S3SyncFileBridgeScope(
                     safTreeAccess = safTreeAccess,
                     session = session,
                 )
-
             is S3LocalSyncMode.Legacy ->
                 legacyExportLocalFile(
                     runtime = runtime,
@@ -326,7 +297,6 @@ internal class S3SyncFileBridgeScope(
                     session = session,
                 )
         }
-
     suspend fun writeLocalBytes(
         path: String,
         bytes: ByteArray,
@@ -340,11 +310,9 @@ internal class S3SyncFileBridgeScope(
                     bytes = bytes,
                     safTreeAccess = safTreeAccess,
                 )
-
             is S3LocalSyncMode.Legacy -> legacyWriteLocalBytes(runtime, path, bytes, layout)
         }
     }
-
     suspend fun importLocalFile(
         path: String,
         source: File,
@@ -358,7 +326,6 @@ internal class S3SyncFileBridgeScope(
                     source = source,
                     safTreeAccess = safTreeAccess,
                 )
-
             is S3LocalSyncMode.Legacy ->
                 legacyImportLocalFile(
                     runtime = runtime,
@@ -369,7 +336,6 @@ internal class S3SyncFileBridgeScope(
                 )
         }
     }
-
     suspend fun deleteLocalFile(
         path: String,
         layout: SyncDirectoryLayout,
@@ -381,16 +347,13 @@ internal class S3SyncFileBridgeScope(
                     relativePath = resolveVaultRootPath(path, layout, mode) ?: return,
                     safTreeAccess = safTreeAccess,
                 )
-
             is S3LocalSyncMode.Legacy -> legacyDeleteLocalFile(runtime, path, layout)
         }
     }
 }
-
 private const val S3_FULL_SCAN_LIST_CONCURRENCY = 12
 private const val S3_FULL_SCAN_PAGE_SIZE = 1000
 private const val S3_LOCAL_STAT_CONCURRENCY = 8
-
 internal suspend fun resolveLocalS3FilesForPaths(
     paths: Collection<String>,
     stat: suspend (String) -> LocalS3File?,

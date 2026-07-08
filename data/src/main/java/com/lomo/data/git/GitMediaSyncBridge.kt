@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.MediaSyncCategory
@@ -8,13 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitMediaSyncBridge
-    @Inject
-    constructor(
+constructor(
         private val localMediaSyncStore: LocalMediaSyncStore,
         private val stateStore: GitMediaSyncStateStore,
         private val planner: GitMediaSyncPlanner,
@@ -29,7 +23,6 @@ class GitMediaSyncBridge
                 if (categories.isEmpty()) {
                     return@withContext GitMediaSyncSummary()
                 }
-
                 val metadata = stateStore.read()
                 val localFiles = fingerprintIndex.localFiles(layout, metadata)
                 val repoFiles = fingerprintIndex.repoFiles(repoRootDir, categories, layout, metadata)
@@ -43,7 +36,6 @@ class GitMediaSyncBridge
                         repoFiles = repoFiles,
                         actions = actions,
                     )
-
                 persistState(
                     repoRootDir = repoRootDir,
                     categories = categories,
@@ -55,10 +47,8 @@ class GitMediaSyncBridge
                     repoChanged = summary.repoChanged,
                     actionsByPath = actionsByPath,
                 )
-
                 summary
             }
-
         private suspend fun applyActions(
             repoRootDir: File,
             layout: SyncDirectoryLayout,
@@ -68,7 +58,6 @@ class GitMediaSyncBridge
         ): GitMediaSyncSummary {
             var repoChanged = false
             var localChanged = false
-
             actions.forEach { action ->
                 when (action.direction) {
                     GitMediaSyncDirection.PUSH_TO_REPO -> {
@@ -81,7 +70,6 @@ class GitMediaSyncBridge
                                     layout = layout,
                                 )
                     }
-
                     GitMediaSyncDirection.PULL_TO_LOCAL -> {
                         localChanged =
                             localChanged ||
@@ -92,11 +80,9 @@ class GitMediaSyncBridge
                                     layout = layout,
                                 )
                     }
-
                     GitMediaSyncDirection.DELETE_REPO -> {
                         repoChanged = repoChanged || deleteRepoFile(repoRootDir, action.path)
                     }
-
                     GitMediaSyncDirection.DELETE_LOCAL -> {
                         localChanged =
                             localChanged ||
@@ -108,10 +94,8 @@ class GitMediaSyncBridge
                     }
                 }
             }
-
             return GitMediaSyncSummary(repoChanged = repoChanged, localChanged = localChanged)
         }
-
         private suspend fun persistState(
             repoRootDir: File,
             categories: Set<MediaSyncCategory>,
@@ -165,7 +149,6 @@ class GitMediaSyncBridge
                     }
             stateStore.write(entries)
         }
-
         private suspend fun pushToRepo(
             repoRootDir: File,
             path: String,
@@ -182,7 +165,6 @@ class GitMediaSyncBridge
             }
             return true
         }
-
         private suspend fun pullToLocal(
             repoRootDir: File,
             path: String,
@@ -197,7 +179,6 @@ class GitMediaSyncBridge
             localMediaSyncStore.importFromFile(path, repoFile, layout)
             return true
         }
-
         private suspend fun deleteLocalFile(
             path: String,
             local: LocalGitMediaFile?,
@@ -209,7 +190,6 @@ class GitMediaSyncBridge
             localMediaSyncStore.delete(path, layout)
             return true
         }
-
         private fun deleteRepoFile(
             repoRootDir: File,
             relativePath: String,
@@ -217,18 +197,13 @@ class GitMediaSyncBridge
             val target = File(repoRootDir, relativePath)
             return target.exists() && target.delete()
         }
-
     }
-
 data class GitMediaSyncSummary(
     val repoChanged: Boolean = false,
     val localChanged: Boolean = false,
 )
-
-@Singleton
 class GitMediaSyncFingerprintIndex
-    @Inject
-    constructor(
+constructor(
         private val localMediaSyncStore: LocalMediaSyncStore,
     ) {
         suspend fun localFiles(
@@ -252,7 +227,6 @@ class GitMediaSyncFingerprintIndex
                         fingerprint = fingerprint,
                     )
                 }
-
         fun repoFiles(
             repoRootDir: File,
             categories: Set<MediaSyncCategory>,
@@ -263,7 +237,6 @@ class GitMediaSyncFingerprintIndex
                 .flatMap { category -> listRepoFilesForCategory(repoRootDir, category, layout, metadata) }
                 .associateBy(RepoGitMediaFile::path)
     }
-
 private fun listRepoFilesForCategory(
     repoRootDir: File,
     category: MediaSyncCategory,
@@ -277,7 +250,6 @@ private fun listRepoFilesForCategory(
         } else {
             File(repoRootDir, folder).takeIf(File::isDirectory) ?: return emptyList()
         }
-
     return directory
         .listFiles()
         .orEmpty()
@@ -301,7 +273,6 @@ private fun listRepoFilesForCategory(
             )
         }
 }
-
 private fun repoRelativePath(
     syncPath: String,
     layout: SyncDirectoryLayout,
@@ -311,7 +282,6 @@ private fun repoRelativePath(
     } else {
         syncPath
     }
-
 private fun accepts(
     category: MediaSyncCategory,
     filename: String,
@@ -320,12 +290,10 @@ private fun accepts(
         MediaSyncCategory.IMAGE -> filename.hasExtension(MediaFileExtensions.IMAGE)
         MediaSyncCategory.VOICE -> filename.hasExtension(MediaFileExtensions.AUDIO)
     }
-
 private fun String.hasExtension(extensions: Set<String>): Boolean =
     substringAfterLast('.', "").lowercase(java.util.Locale.ROOT).let { extension ->
         extension.isNotBlank() && extension in extensions
     }
-
 private fun File.md5Hex(): String =
     inputStream().use { input ->
         val digest = MessageDigest.getInstance("MD5")
@@ -337,5 +305,4 @@ private fun File.md5Hex(): String =
         }
         digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
-
 private const val FILE_DIGEST_BUFFER_SIZE = 16 * 1024

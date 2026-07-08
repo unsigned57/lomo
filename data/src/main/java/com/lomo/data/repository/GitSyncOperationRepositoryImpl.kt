@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.sync.SyncLayoutMigration
@@ -18,13 +17,8 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncOperationRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val runtime: GitSyncRepositoryContext,
         private val initAndSyncExecutor: GitSyncInitAndSyncExecutor,
         private val statusExecutor: GitSyncStatusExecutor,
@@ -32,7 +26,6 @@ class GitSyncOperationRepositoryImpl
     ) : GitSyncOperationRepository {
         private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val syncGuard = SyncExecutionGate<GitSyncResult>()
-
         init {
             @OptIn(FlowPreview::class)
             syncScope.launch {
@@ -49,29 +42,20 @@ class GitSyncOperationRepositoryImpl
                     }
             }
         }
-
         override suspend fun initOrClone(): GitSyncResult = initAndSyncExecutor.initOrClone()
-
         override suspend fun sync(): GitSyncResult =
             withSyncGuard(inProgressMessage = "Sync already in progress") {
                 initAndSyncExecutor.sync()
             }
-
         override suspend fun getStatus(): GitSyncStatus = statusExecutor.getStatus()
-
         override suspend fun testConnection(): GitSyncResult = statusExecutor.testConnection()
-
         override suspend fun resetRepository(): GitSyncResult = maintenanceExecutor.resetRepository()
-
         override suspend fun resetLocalBranchToRemote(): GitSyncResult = maintenanceExecutor.resetLocalBranchToRemote()
-
         override suspend fun forcePushLocalToRemote(): GitSyncResult = maintenanceExecutor.forcePushLocalToRemote()
-
         private suspend fun commitLocal(): GitSyncResult =
             withSyncGuard(inProgressMessage = "Sync in progress") {
                 initAndSyncExecutor.commitLocal()
             }
-
         private suspend fun withSyncGuard(
             inProgressMessage: String,
             block: suspend () -> GitSyncResult,
@@ -81,10 +65,7 @@ class GitSyncOperationRepositoryImpl
                 block = block,
             )
     }
-
-@Singleton
 class GitSyncInitAndSyncExecutor
-    @Inject
     internal constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
@@ -120,7 +101,6 @@ class GitSyncInitAndSyncExecutor
                     }
                 }
             }
-
         suspend fun commitLocal(): GitSyncResult = runGitLifecycle {
             val enabled = runtime.dataStore.gitSyncEnabled.first()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
@@ -151,14 +131,11 @@ class GitSyncInitAndSyncExecutor
                 }
             }
         }
-
         suspend fun sync(): GitSyncResult =
             lifecycleRunner.run(GitSyncLifecycleStages())
-
         private suspend fun runGitLifecycle(block: suspend () -> GitSyncResult): GitSyncResult {
             return lifecycleRunner.run(GitSingleBlockLifecycleStages(block))
         }
-
         private inner class GitSyncLifecycleStages :
             RemoteSyncLifecycleStages<
                 GitSyncReadyState,
@@ -175,10 +152,8 @@ class GitSyncInitAndSyncExecutor
                     backend = SyncBackendType.GIT,
                     budget = RemoteSyncBudgetPolicy.Unlimited,
                 )
-
             override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession): GitSyncReadyState =
                 loadReadyContext(requireEnabled = true)
-
             override suspend fun plan(
                 snapshot: GitSyncReadyState,
                 session: RemoteSyncLifecycleSession,
@@ -199,17 +174,14 @@ class GitSyncInitAndSyncExecutor
                                 )
                         }
                 }
-
             override suspend fun verify(
                 plan: GitSyncPlannedWork,
                 session: RemoteSyncLifecycleSession,
             ): GitSyncPlannedWork = plan
-
             override suspend fun materializeConflicts(
                 verified: GitSyncPlannedWork,
                 session: RemoteSyncLifecycleSession,
             ) = Unit
-
             override suspend fun apply(
                 verified: GitSyncPlannedWork,
                 conflicts: Unit,
@@ -228,14 +200,12 @@ class GitSyncInitAndSyncExecutor
                 val result = initResult ?: runPrimarySync(target, context)
                 return GitSyncAppliedWork(result = result, target = target)
             }
-
             override suspend fun commitMetadata(
                 verified: GitSyncPlannedWork,
                 conflicts: Unit,
                 applied: GitSyncAppliedWork,
                 session: RemoteSyncLifecycleSession,
             ): GitSyncAppliedWork = applied
-
             override suspend fun finalize(
                 verified: GitSyncPlannedWork,
                 conflicts: Unit,
@@ -244,7 +214,6 @@ class GitSyncInitAndSyncExecutor
                 session: RemoteSyncLifecycleSession,
             ): GitSyncResult =
                 applied.target?.let { target -> finalizeSyncResult(applied.result, target) } ?: applied.result
-
             override fun summarizeSnapshot(snapshot: GitSyncReadyState): RemoteSyncSnapshotTelemetry =
                 when (snapshot) {
                     is GitSyncReadyState.Failure -> RemoteSyncSnapshotTelemetry(0, 0, 0)
@@ -255,31 +224,23 @@ class GitSyncInitAndSyncExecutor
                             metadataEntryCount = 0,
                         )
                 }
-
             override fun summarizePlan(plan: GitSyncPlannedWork): RemoteSyncActionTelemetry =
                 plan.toTelemetry()
-
             override fun summarizeVerification(verified: GitSyncPlannedWork): RemoteSyncActionTelemetry =
                 verified.toTelemetry()
-
             override fun summarizeRefresh(finalized: GitSyncResult): RemoteSyncRefreshTelemetry =
                 RemoteSyncRefreshTelemetry(durationMillis = 0)
-
             override fun summarizeResult(finalized: GitSyncResult): RemoteSyncLifecycleResultTelemetry =
                 if (finalized is GitSyncResult.Error) {
                     RemoteSyncLifecycleResultTelemetry.Failure
                 } else {
                     RemoteSyncLifecycleResultTelemetry.Success
                 }
-
             override fun mapResult(finalized: GitSyncResult): GitSyncResult = finalized
-
             override fun mapError(error: Throwable): GitSyncResult =
                 GitSyncResult.Error(error.message ?: "Git sync failed", error)
-
             override suspend fun release() = Unit
         }
-
         private inner class GitSingleBlockLifecycleStages(
             private val block: suspend () -> GitSyncResult,
         ) : RemoteSyncLifecycleStages<
@@ -297,37 +258,30 @@ class GitSyncInitAndSyncExecutor
                     backend = SyncBackendType.GIT,
                     budget = RemoteSyncBudgetPolicy.Unlimited,
                 )
-
             override suspend fun loadSnapshot(session: RemoteSyncLifecycleSession) = Unit
-
             override suspend fun plan(
                 snapshot: Unit,
                 session: RemoteSyncLifecycleSession,
             ) = Unit
-
             override suspend fun verify(
                 plan: Unit,
                 session: RemoteSyncLifecycleSession,
             ) = Unit
-
             override suspend fun materializeConflicts(
                 verified: Unit,
                 session: RemoteSyncLifecycleSession,
             ) = Unit
-
             override suspend fun apply(
                 verified: Unit,
                 conflicts: Unit,
                 session: RemoteSyncLifecycleSession,
             ): GitSyncResult = block()
-
             override suspend fun commitMetadata(
                 verified: Unit,
                 conflicts: Unit,
                 applied: GitSyncResult,
                 session: RemoteSyncLifecycleSession,
             ): GitSyncResult = applied
-
             override suspend fun finalize(
                 verified: Unit,
                 conflicts: Unit,
@@ -335,34 +289,25 @@ class GitSyncInitAndSyncExecutor
                 metadata: GitSyncResult,
                 session: RemoteSyncLifecycleSession,
             ): GitSyncResult = metadata
-
             override fun summarizeSnapshot(snapshot: Unit): RemoteSyncSnapshotTelemetry =
                 RemoteSyncSnapshotTelemetry(0, 0, 0)
-
             override fun summarizePlan(plan: Unit): RemoteSyncActionTelemetry =
                 RemoteSyncActionTelemetry(total = 0)
-
             override fun summarizeVerification(verified: Unit): RemoteSyncActionTelemetry =
                 RemoteSyncActionTelemetry(total = 0)
-
             override fun summarizeRefresh(finalized: GitSyncResult): RemoteSyncRefreshTelemetry =
                 RemoteSyncRefreshTelemetry(durationMillis = 0)
-
             override fun summarizeResult(finalized: GitSyncResult): RemoteSyncLifecycleResultTelemetry =
                 if (finalized is GitSyncResult.Error) {
                     RemoteSyncLifecycleResultTelemetry.Failure
                 } else {
                     RemoteSyncLifecycleResultTelemetry.Success
                 }
-
             override fun mapResult(finalized: GitSyncResult): GitSyncResult = finalized
-
             override fun mapError(error: Throwable): GitSyncResult =
                 GitSyncResult.Error(error.message ?: "Git sync failed", error)
-
             override suspend fun release() = Unit
         }
-
         private suspend fun loadReadyContext(requireEnabled: Boolean): GitSyncReadyState {
             val enabled = runtime.dataStore.gitSyncEnabled.first()
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
@@ -375,17 +320,14 @@ class GitSyncInitAndSyncExecutor
                         runtime.gitSyncEngine.markNotConfigured()
                         GitSyncResult.NotConfigured
                     }
-
                     remoteUrl.isNullOrBlank() -> {
                         runtime.gitSyncEngine.markNotConfigured()
                         GitSyncResult.NotConfigured
                     }
-
                     directRootDir == null && safRootUri.isNullOrBlank() -> {
                         runtime.gitSyncEngine.markError(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
                         GitSyncResult.DirectPathRequired
                     }
-
                     else -> {
                         val tokenPreconditionError = support.gitTokenPreconditionError()
                         if (tokenPreconditionError != null) {
@@ -404,7 +346,6 @@ class GitSyncInitAndSyncExecutor
                     ),
                 )
         }
-
         private suspend fun resolveRepoTarget(
             context: GitSyncReadyContext,
             safMirrorFailureMessage: String,
@@ -419,7 +360,6 @@ class GitSyncInitAndSyncExecutor
                             layout = context.layout,
                         )
                     }
-
                     !context.safRootUri.isNullOrBlank() && !context.layout.allSameDirectory -> {
                         GitSyncTarget(
                             repoDir = support.resolveGitRepoDirForUri(context.safRootUri),
@@ -428,7 +368,6 @@ class GitSyncInitAndSyncExecutor
                             layout = context.layout,
                         )
                     }
-
                     !context.safRootUri.isNullOrBlank() -> {
                         val mirrorTarget =
                             runNonFatalCatching {
@@ -447,13 +386,11 @@ class GitSyncInitAndSyncExecutor
                         }
                         mirrorTarget.getOrThrow()
                     }
-
                     else -> null
                 }
             return resolvedTarget?.let(GitSyncTargetState::Ready)
                 ?: GitSyncTargetState.Failure(GitSyncResult.DirectPathRequired)
         }
-
         private suspend fun ensureInitializedRepo(
             target: GitSyncTarget,
             remoteUrl: String,
@@ -467,7 +404,6 @@ class GitSyncInitAndSyncExecutor
                 }.takeUnless { it is GitSyncResult.Success }
             }
         }
-
         private suspend fun runPrimarySync(
             target: GitSyncTarget,
             context: GitSyncReadyContext,
@@ -476,7 +412,6 @@ class GitSyncInitAndSyncExecutor
                 support.runGitIo { runtime.gitSyncEngine.commitLocal(target.repoDir) }
             }
             mirrorRepoTargetBeforeGit(target, context.layout)
-
             var result =
                 support.runGitIo {
                     runtime.gitSyncEngine.sync(target.repoDir, context.remoteUrl)
@@ -495,7 +430,6 @@ class GitSyncInitAndSyncExecutor
             }
             return result
         }
-
         private suspend fun finalizeSyncResult(
             result: GitSyncResult,
             target: GitSyncTarget,
@@ -503,7 +437,6 @@ class GitSyncInitAndSyncExecutor
             if (result !is GitSyncResult.Success) {
                 return result
             }
-
             memoMirror.mirrorMemoFromRepo(target.repoDir, target.layout)
             val safMirrorError =
                 pushSafMirrorOrError(
@@ -515,7 +448,6 @@ class GitSyncInitAndSyncExecutor
                 )
             return safMirrorError ?: refreshAfterSyncOrError(runtime) ?: result
         }
-
         private suspend fun mirrorRepoTargetBeforeGit(
             target: GitSyncTarget,
             layout: SyncDirectoryLayout,
@@ -524,7 +456,6 @@ class GitSyncInitAndSyncExecutor
                 memoMirror.mirrorMemoToRepo(target.repoDir, layout)
             }
         }
-
         private companion object {
             private const val GIT_DIR_NAME = ".git"
             private const val INIT_SAF_MIRROR_FAILURE_MESSAGE = "Failed to initialize SAF mirror for git sync"
@@ -532,11 +463,8 @@ class GitSyncInitAndSyncExecutor
             private const val PUSH_SAF_MIRROR_FAILURE_MESSAGE = "Failed to write synced files back to SAF storage"
         }
     }
-
-@Singleton
 class GitSyncStatusExecutor
-    @Inject
-    constructor(
+constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
     ) {
@@ -552,7 +480,6 @@ class GitSyncStatusExecutor
             val lastSync = runtime.dataStore.gitLastSyncTime.first()
             return status.copy(lastSyncTime = lastSync.takeIf { it > 0L })
         }
-
         suspend fun testConnection(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
             return when {
@@ -566,7 +493,6 @@ class GitSyncStatusExecutor
                 }
             }
         }
-
         private suspend fun resolveStatusRepoDir(layout: SyncDirectoryLayout): File? {
             val directRootDir = support.resolveRootDir()
             val safRootUri = support.resolveSafRootUri()
@@ -582,7 +508,6 @@ class GitSyncStatusExecutor
                     }
             }
         }
-
         private companion object {
             private val EMPTY_GIT_STATUS =
                 GitSyncStatus(
@@ -593,11 +518,8 @@ class GitSyncStatusExecutor
                 )
         }
     }
-
-@Singleton
 class GitSyncMaintenanceExecutor
-    @Inject
-    constructor(
+constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
         private val memoMirror: GitSyncMemoMirror,
@@ -613,7 +535,6 @@ class GitSyncMaintenanceExecutor
                         runtime.gitSyncEngine.resetRepository(repoDir)
                     }
                 }
-
                 !safRootUri.isNullOrBlank() -> {
                     val repoDir =
                         if (layout.allSameDirectory) {
@@ -629,11 +550,9 @@ class GitSyncMaintenanceExecutor
                         GitSyncResult.Error("Reset failed: ${error.message}", error)
                     }
                 }
-
                 else -> GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
             }
         }
-
         suspend fun resetLocalBranchToRemote(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
             val preconditionError =
@@ -645,7 +564,6 @@ class GitSyncMaintenanceExecutor
                 return preconditionError
             }
             val resolvedRemoteUrl = checkNotNull(remoteUrl)
-
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val directRootDir = support.resolveRootDir()
             val safRootUri = support.resolveSafRootUri()
@@ -656,7 +574,6 @@ class GitSyncMaintenanceExecutor
                         runtime.gitSyncEngine.resetLocalBranchToRemote(repoDir, resolvedRemoteUrl)
                     }
                 }
-
                 !safRootUri.isNullOrBlank() -> {
                     runCatching {
                         if (layout.allSameDirectory) {
@@ -687,11 +604,9 @@ class GitSyncMaintenanceExecutor
                         GitSyncResult.Error("Reset to remote failed: ${error.message}", error)
                     }
                 }
-
                 else -> GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
             }
         }
-
         suspend fun forcePushLocalToRemote(): GitSyncResult {
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
             val preconditionError =
@@ -703,7 +618,6 @@ class GitSyncMaintenanceExecutor
                 return preconditionError
             }
             val resolvedRemoteUrl = checkNotNull(remoteUrl)
-
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val directRootDir = support.resolveRootDir()
             val safRootUri = support.resolveSafRootUri()
@@ -715,7 +629,6 @@ class GitSyncMaintenanceExecutor
                         runtime.gitSyncEngine.forcePushLocalToRemote(repoDir, resolvedRemoteUrl)
                     }
                 }
-
                 !safRootUri.isNullOrBlank() -> {
                     runCatching {
                         if (layout.allSameDirectory) {
@@ -742,31 +655,26 @@ class GitSyncMaintenanceExecutor
                         GitSyncResult.Error("Force push failed: ${error.message}", error)
                     }
                 }
-
                 else -> GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
             }
         }
-
         private companion object {
             private const val RESET_TO_REMOTE_FAILURE_MESSAGE = "Reset to remote failed"
             private const val FORCE_PUSH_FAILURE_MESSAGE = "Force push failed"
         }
     }
-
 private data class GitSyncReadyContext(
     val remoteUrl: String,
     val layout: SyncDirectoryLayout,
     val directRootDir: File?,
     val safRootUri: String?,
 )
-
 private data class GitSyncTarget(
     val repoDir: File,
     val safRootUri: String?,
     val usesSafMirror: Boolean,
     val layout: SyncDirectoryLayout,
 )
-
 private data class GitSyncPlannedWork(
     val context: GitSyncReadyContext? = null,
     val target: GitSyncTarget? = null,
@@ -782,7 +690,6 @@ private data class GitSyncPlannedWork(
             RemoteSyncActionTelemetry(total = 0)
         }
 }
-
 private fun File.gitTelemetryFileCount(): Int =
     if (!exists() || !isDirectory) {
         0
@@ -791,32 +698,26 @@ private fun File.gitTelemetryFileCount(): Int =
             .onEnter { file -> file.name != ".git" }
             .count { file -> file.isFile }
     }
-
 private data class GitSyncAppliedWork(
     val result: GitSyncResult,
     val target: GitSyncTarget?,
 )
-
 private sealed interface GitSyncReadyState {
     data class Ready(
         val context: GitSyncReadyContext,
     ) : GitSyncReadyState
-
     data class Failure(
         val result: GitSyncResult,
     ) : GitSyncReadyState
 }
-
 private sealed interface GitSyncTargetState {
     data class Ready(
         val target: GitSyncTarget,
     ) : GitSyncTargetState
-
     data class Failure(
         val result: GitSyncResult,
     ) : GitSyncTargetState
 }
-
 private suspend fun pushSafMirrorOrError(
     runtime: GitSyncRepositoryContext,
     support: GitSyncRepositorySupport,
@@ -841,7 +742,6 @@ private suspend fun pushSafMirrorOrError(
         null
     }
 }
-
 private suspend fun refreshAfterSyncOrError(
     runtime: GitSyncRepositoryContext,
 ): GitSyncResult.Error? =

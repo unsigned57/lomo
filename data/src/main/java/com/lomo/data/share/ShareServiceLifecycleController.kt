@@ -11,7 +11,7 @@ import com.lomo.domain.model.LanShareActiveProbeDiagnostics
 import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.SharePayload
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
+
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.ExperimentalUuidApi
@@ -117,12 +117,10 @@ private fun createLanShareDebouncedAction(
     )
 
 @OptIn(ExperimentalUuidApi::class)
-class ShareServiceLifecycleController
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val pairingConfig: SharePairingConfig,
-    ) {
+class ShareServiceLifecycleController(
+    private val context: Context,
+    private val pairingConfig: SharePairingConfig,
+) {
         internal constructor(
             context: Context,
             pairingConfig: SharePairingConfig,

@@ -1,9 +1,9 @@
 package com.lomo.app.feature.update
 
 import androidx.lifecycle.ViewModel
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.flow.StateFlow
-import javax.inject.Inject
+
 
 enum class DebugAppUpdateScenario {
     Success,
@@ -23,13 +23,10 @@ data class AppUpdateDialogState(
     val debugSimulationScenario: DebugAppUpdateScenario? = null,
 )
 
-@HiltViewModel
-class AppUpdateViewModel
-    @Inject
-    constructor(
-        private val updateStartupOrchestrator: UpdateStartupOrchestrator,
-        private val appUpdateDownloadManager: AppUpdateDownloadManager,
-    ) : ViewModel() {
+class AppUpdateViewModel(
+    private val updateStartupOrchestrator: UpdateStartupOrchestrator,
+    private val appUpdateDownloadManager: AppUpdateDownloadManager,
+) : ViewModel() {
         val dialogState: StateFlow<AppUpdateDialogState?> = updateStartupOrchestrator.dialogState
         val progressDialogState: StateFlow<AppUpdateProgressDialogState?> = appUpdateDownloadManager.progressDialogState
 

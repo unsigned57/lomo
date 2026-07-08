@@ -32,7 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
@@ -78,7 +78,7 @@ fun TagFilterScreen(
     onNavigateToMain: () -> Unit = onBackClick,
     onNavigateToTag: (String) -> Unit = {},
     lanShareEnabled: Boolean = true,
-    viewModel: TagFilterViewModel = hiltViewModel(),
+    viewModel: TagFilterViewModel = injectedKoinViewModel(),
 ) {
     val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()

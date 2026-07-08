@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialProvider
@@ -17,232 +16,159 @@ import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncStateRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class S3SyncConfigurationRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
     ) : S3SyncConfigurationRepository {
         override fun isS3SyncEnabled(): Flow<Boolean> = dataStore.s3SyncEnabled
-
         override fun getEndpointUrl(): Flow<String?> = dataStore.s3EndpointUrl
-
         override fun getRegion(): Flow<String?> = dataStore.s3Region
-
         override fun getBucket(): Flow<String?> = dataStore.s3Bucket
-
         override fun getPrefix(): Flow<String?> = dataStore.s3Prefix
-
         override fun getLocalSyncDirectory(): Flow<String?> = dataStore.s3LocalSyncDirectory
-
         override fun getPathStyle(): Flow<S3PathStyle> = dataStore.s3PathStyle.map(::s3PathStyleFromPreference)
-
         override fun getEncryptionMode(): Flow<S3EncryptionMode> =
             dataStore.s3EncryptionMode.map(::s3EncryptionModeFromPreference)
-
         override fun getRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption> =
             dataStore.s3RcloneFilenameEncryption.map(::s3RcloneFilenameEncryptionFromPreference)
-
         override fun getRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding> =
             dataStore.s3RcloneFilenameEncoding.map(::s3RcloneFilenameEncodingFromPreference)
-
         override fun getRcloneDirectoryNameEncryption(): Flow<Boolean> =
             dataStore.s3RcloneDirectoryNameEncryption
-
         override fun getRcloneDataEncryptionEnabled(): Flow<Boolean> =
             dataStore.s3RcloneDataEncryptionEnabled
-
         override fun getRcloneEncryptedSuffix(): Flow<String> =
             dataStore.s3RcloneEncryptedSuffix
-
         override fun getAutoSyncEnabled(): Flow<Boolean> = dataStore.s3AutoSyncEnabled
-
         override fun getAutoSyncInterval(): Flow<String> = dataStore.s3AutoSyncInterval
-
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.s3SyncOnRefresh
-
         override fun observeLastSyncTimeMillis(): Flow<Long?> =
             dataStore.s3LastSyncTime.map { stored -> stored.takeIf { it > 0L } }
     }
-
-@Singleton
 class S3SyncConfigurationMutationRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
         private val credentialRepository: CredentialRepository,
     ) : S3SyncConfigurationMutationRepository {
         override suspend fun setS3SyncEnabled(enabled: Boolean) {
             dataStore.updateS3SyncEnabled(enabled)
         }
-
         override suspend fun setEndpointUrl(url: String) {
             dataStore.updateS3EndpointUrl(url.trim())
         }
-
         override suspend fun setRegion(region: String) {
             dataStore.updateS3Region(region.trim())
         }
-
         override suspend fun setBucket(bucket: String) {
             dataStore.updateS3Bucket(bucket.trim())
         }
-
         override suspend fun setPrefix(prefix: String) {
             dataStore.updateS3Prefix(prefix.trim().trim('/'))
         }
-
         override suspend fun setLocalSyncDirectory(pathOrUri: String) {
             dataStore.updateS3LocalSyncDirectory(pathOrUri.trim())
         }
-
         override suspend fun clearLocalSyncDirectory() {
             dataStore.updateS3LocalSyncDirectory(null)
         }
-
         override suspend fun setAccessKeyId(accessKeyId: String) {
             credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId.trim())
         }
-
         override suspend fun setSecretAccessKey(secretAccessKey: String) {
             credentialRepository.writeSecret(CredentialField.S3_SECRET_ACCESS_KEY, secretAccessKey.trim())
         }
-
         override suspend fun setSessionToken(sessionToken: String) {
             credentialRepository.writeSecret(CredentialField.S3_SESSION_TOKEN, sessionToken.trim())
         }
-
         override suspend fun setPathStyle(pathStyle: S3PathStyle) {
             dataStore.updateS3PathStyle(pathStyle.preferenceValue)
         }
-
         override suspend fun setEncryptionMode(mode: S3EncryptionMode) {
             dataStore.updateS3EncryptionMode(mode.preferenceValue)
         }
-
         override suspend fun setRcloneFilenameEncryption(mode: S3RcloneFilenameEncryption) {
             dataStore.updateS3RcloneFilenameEncryption(mode.preferenceValue)
         }
-
         override suspend fun setRcloneFilenameEncoding(encoding: S3RcloneFilenameEncoding) {
             dataStore.updateS3RcloneFilenameEncoding(encoding.preferenceValue)
         }
-
         override suspend fun setRcloneDirectoryNameEncryption(enabled: Boolean) {
             dataStore.updateS3RcloneDirectoryNameEncryption(enabled)
         }
-
         override suspend fun setRcloneDataEncryptionEnabled(enabled: Boolean) {
             dataStore.updateS3RcloneDataEncryptionEnabled(enabled)
         }
-
         override suspend fun setRcloneEncryptedSuffix(suffix: String) {
             dataStore.updateS3RcloneEncryptedSuffix(s3RcloneEncryptedSuffixToPreference(suffix))
         }
-
         override suspend fun setEncryptionPassword(password: String) {
             credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD, password.trim())
         }
-
         override suspend fun setEncryptionPassword2(password: String) {
             credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD2, password.trim())
         }
-
         override suspend fun getAccessKeyStatus(): StoredCredentialStatus =
             credentialState().statusFor(CredentialField.S3_ACCESS_KEY_ID)
-
         override suspend fun getSecretAccessKeyStatus(): StoredCredentialStatus =
             credentialState().statusFor(CredentialField.S3_SECRET_ACCESS_KEY)
-
         override suspend fun getSessionTokenStatus(): StoredCredentialStatus =
             credentialState().statusFor(CredentialField.S3_SESSION_TOKEN)
-
         override suspend fun getEncryptionPasswordStatus(): StoredCredentialStatus =
             credentialState().statusFor(CredentialField.S3_ENCRYPTION_PASSWORD)
-
         override suspend fun getEncryptionPassword2Status(): StoredCredentialStatus =
             credentialState().statusFor(CredentialField.S3_ENCRYPTION_PASSWORD2)
-
         override suspend fun getCredentialState(): CredentialState = credentialState()
-
         override suspend fun isAccessKeyConfigured(): Boolean = getAccessKeyStatus().isConfigured
-
         override suspend fun isSecretAccessKeyConfigured(): Boolean =
             getSecretAccessKeyStatus().isConfigured
-
         override suspend fun isSessionTokenConfigured(): Boolean = getSessionTokenStatus().isConfigured
-
         override suspend fun isEncryptionPasswordConfigured(): Boolean =
             getEncryptionPasswordStatus().isConfigured
-
         override suspend fun isEncryptionPassword2Configured(): Boolean =
             getEncryptionPassword2Status().isConfigured
-
         override suspend fun setAutoSyncEnabled(enabled: Boolean) {
             dataStore.updateS3AutoSyncEnabled(enabled)
         }
-
         override suspend fun setAutoSyncInterval(interval: String) {
             dataStore.updateS3AutoSyncInterval(interval)
         }
-
         override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
             dataStore.updateS3SyncOnRefresh(enabled)
         }
-
         private suspend fun credentialState(): CredentialState =
             credentialRepository.credentialState(CredentialProvider.S3)
     }
-
-@Singleton
-class S3SyncStateHolder
-    @Inject
-    constructor() {
+class S3SyncStateHolder {
         val state = kotlinx.coroutines.flow.MutableStateFlow<S3SyncState>(S3SyncState.Idle)
     }
-
-@Singleton
 class S3SyncStateRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val stateHolder: S3SyncStateHolder,
     ) : S3SyncStateRepository {
         override fun syncState(): Flow<S3SyncState> = stateHolder.state
     }
-
 internal val S3PathStyle.preferenceValue: String
     get() = name.lowercase(java.util.Locale.ROOT)
-
 internal fun s3PathStyleFromPreference(value: String): S3PathStyle =
     S3PathStyle.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
         ?: S3PathStyle.AUTO
-
 internal val S3EncryptionMode.preferenceValue: String
     get() = name.lowercase(java.util.Locale.ROOT)
-
 internal fun s3EncryptionModeFromPreference(value: String): S3EncryptionMode =
     S3EncryptionMode.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
         ?: S3EncryptionMode.NONE
-
 internal val S3RcloneFilenameEncryption.preferenceValue: String
     get() = name.lowercase(java.util.Locale.ROOT)
-
 internal fun s3RcloneFilenameEncryptionFromPreference(value: String): S3RcloneFilenameEncryption =
     S3RcloneFilenameEncryption.entries.firstOrNull {
         it.preferenceValue == value.lowercase(java.util.Locale.ROOT)
     } ?: S3RcloneFilenameEncryption.STANDARD
-
 internal val S3RcloneFilenameEncoding.preferenceValue: String
     get() = name.lowercase(java.util.Locale.ROOT)
-
 internal fun s3RcloneFilenameEncodingFromPreference(value: String): S3RcloneFilenameEncoding =
     S3RcloneFilenameEncoding.entries.firstOrNull {
         it.preferenceValue == value.lowercase(java.util.Locale.ROOT)
     } ?: S3RcloneFilenameEncoding.BASE64
-
 internal fun s3RcloneEncryptedSuffixFromPreference(value: String): String {
     val normalized = value.trim()
     return when {
@@ -252,6 +178,5 @@ internal fun s3RcloneEncryptedSuffixFromPreference(value: String): String {
         else -> ".$normalized"
     }
 }
-
 internal fun s3RcloneEncryptedSuffixToPreference(value: String): String =
     value.trim().ifBlank { "none" }

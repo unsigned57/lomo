@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -9,9 +8,6 @@ import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneCryptConfig
-import javax.inject.Inject
-import javax.inject.Singleton
-
 internal const val S3_ROOT = "lomo"
 internal const val S3_MEMO_SUFFIX = ".md"
 internal const val S3_MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8"
@@ -19,7 +15,6 @@ internal const val S3_MTIME_METADATA_KEY = "mtime"
 internal const val S3_MTIME_LEGACY_METADATA_KEY = "MTime"
 internal const val S3_CTIME_METADATA_KEY = "ctime"
 internal const val S3_UNKNOWN_ERROR_MESSAGE = "unknown error"
-
 data class S3ResolvedConfig(
     val endpointUrl: String,
     val region: String,
@@ -36,11 +31,8 @@ data class S3ResolvedConfig(
     val encryptionPassword2: String? = null,
     val rcloneCryptConfig: S3RcloneCryptConfig = S3RcloneCryptConfig(),
 )
-
-@Singleton
 class S3SyncRepositoryContext
-    @Inject
-    constructor(
+constructor(
         val dataStore: LomoDataStore,
         val credentialStore: S3CredentialStore,
         val clientFactory: LomoS3ClientFactory,

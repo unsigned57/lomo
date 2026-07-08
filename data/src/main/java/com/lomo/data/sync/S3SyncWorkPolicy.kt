@@ -12,8 +12,7 @@ import com.lomo.data.worker.S3SyncWorker
 import com.lomo.data.repository.S3SyncWorkIntent
 import com.lomo.domain.model.SyncBackendType
 import java.time.Duration
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val MINIO_RECONCILE_RETRY_MAX_ATTEMPTS = 3
 private const val MINIO_RECONCILE_RETRY_BACKOFF_MINUTES = 45L
@@ -22,14 +21,11 @@ private const val STANDARD_RECONCILE_RETRY_BACKOFF_MINUTES = 30L
 private const val FAST_SYNC_RETRY_MAX_ATTEMPTS = 2
 private const val FAST_SYNC_RETRY_BACKOFF_MINUTES = 10L
 
-@Singleton
-class S3SyncWorkPolicyPlanner
-    @Inject
-    constructor(
-        private val support: S3SyncRepositorySupport,
-        private val protocolStateStore: S3SyncProtocolStateStore,
-        private val remoteShardStateStore: S3RemoteShardStateStore,
-    ) {
+class S3SyncWorkPolicyPlanner(
+    private val support: S3SyncRepositorySupport,
+    private val protocolStateStore: S3SyncProtocolStateStore,
+    private val remoteShardStateStore: S3RemoteShardStateStore,
+) {
         private val policy = S3SyncWorkPolicy()
 
         suspend fun planAutoSchedule(interval: String): SyncWorkDecision {

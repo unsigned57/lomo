@@ -7,15 +7,13 @@ import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.onEach
-import javax.inject.Inject
 
-class MainStartupCoordinator
-    @Inject
-    constructor(
-        private val startupMaintenanceUseCase: StartupMaintenanceUseCase,
-        private val appConfigStateProvider: AppConfigStateProvider,
-        private val audioPlayerManager: AudioPlayerManager,
-    ) {
+
+class MainStartupCoordinator(
+    private val startupMaintenanceUseCase: StartupMaintenanceUseCase,
+    private val appConfigStateProvider: AppConfigStateProvider,
+    private val audioPlayerManager: AudioPlayerManager,
+) {
         suspend fun initializeRootDirectory(): String? =
             startupMaintenanceUseCase
                 .initializeRootDirectory()

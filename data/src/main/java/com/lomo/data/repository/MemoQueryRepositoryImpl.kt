@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import androidx.paging.PagingSource
 import com.lomo.data.local.dao.DefaultMainListDao
 import com.lomo.data.local.dao.MemoBrowseDao
@@ -22,13 +21,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZoneId
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class MemoQueryRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val memoDao: MemoDao,
         private val memoBrowseDao: MemoBrowseDao,
         private val defaultMainListDao: DefaultMainListDao,
@@ -42,7 +36,6 @@ class MemoQueryRepositoryImpl
             ) { entities, pinnedMemoIds ->
                 entities.mapToPinnedDomain(pinnedMemoIds)
             }.flowOn(Dispatchers.Default)
-
         override fun getMemosByDateRange(
             startDate: LocalDate?,
             endDate: LocalDate?,
@@ -60,7 +53,6 @@ class MemoQueryRepositoryImpl
                 entities.mapToPinnedDomain(pinnedMemoIds)
             }.flowOn(Dispatchers.Default)
         }
-
         override fun getGalleryMemosList(): Flow<List<Memo>> =
             combine(
                 memoBrowseDao.getGalleryMemosFlow(),
@@ -68,12 +60,10 @@ class MemoQueryRepositoryImpl
             ) { entities, pinnedMemoIds ->
                 entities.mapToPinnedDomain(pinnedMemoIds)
             }.flowOn(Dispatchers.Default)
-
         override suspend fun getRecentMemos(limit: Int): List<Memo> {
             val pinnedMemoIds = memoPinDao.getPinnedMemoIds().toSet()
             return memoDao.getRecentMemos(limit).mapToPinnedDomain(pinnedMemoIds)
         }
-
         override suspend fun getMemosPage(
             limit: Int,
             offset: Int,
@@ -83,9 +73,7 @@ class MemoQueryRepositoryImpl
             } else {
                 defaultMainListDao.getPage(limit = limit, offset = offset).map(DefaultMainListMemoRow::toDomain)
             }
-
         override suspend fun getMemoCount(): Int = memoDao.getMemoCountSync()
-
         override suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? {
             val maxRowId = defaultMainListDao.getDailyReviewCandidateMaxRowId() ?: return null
             val observedCount = defaultMainListDao.getDailyReviewCandidateCount(maxRowId = maxRowId)
@@ -110,7 +98,6 @@ class MemoQueryRepositoryImpl
                 observedCount = observedCount,
             )
         }
-
         override suspend fun getDailyReviewCandidatePage(
             boundary: DailyReviewCandidateBoundary,
             cursor: DailyReviewCandidateCursor?,
@@ -145,7 +132,6 @@ class MemoQueryRepositoryImpl
                     } ?: cursor,
             )
         }
-
         override fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<Int, Memo> {
             val queryInput = spec.toMainListDaoQueryInput()
             return when (val searchPlan = queryInput.searchPlan) {
@@ -180,7 +166,6 @@ class MemoQueryRepositoryImpl
                     )
             }
         }
-
         override fun getMainListCountFlow(spec: MemoQuerySpec): Flow<Int> {
             val queryInput = spec.toMainListDaoQueryInput()
             return when (val searchPlan = queryInput.searchPlan) {
@@ -209,7 +194,6 @@ class MemoQueryRepositoryImpl
                     )
             }
         }
-
         override suspend fun getDefaultMainListIndexInWindow(
             id: String,
             limit: Int,
@@ -220,30 +204,23 @@ class MemoQueryRepositoryImpl
             val index = defaultMainListDao.getDefaultMainListHeadIds(limit = limit).indexOf(id)
             return index.takeIf { value -> value >= 0 }
         }
-
         override suspend fun getMemoById(id: String): Memo? {
             val entity = memoDao.getMemo(id) ?: return null
             val pinnedMemoIds = memoPinDao.getPinnedMemoIds().toSet()
             return entity.toDomain(isPinned = entity.id in pinnedMemoIds)
         }
-
         override fun isSyncing(): Flow<Boolean> = synchronizer.isSyncing
     }
-
 internal fun List<MemoEntity>.mapToPinnedDomain(pinnedMemoIds: Set<String>): List<Memo> =
     map { entity ->
         entity.toDomain(isPinned = entity.id in pinnedMemoIds)
     }
-
 private fun Long.toDailyReviewBoundaryToken(): String = "$DAILY_REVIEW_BOUNDARY_TOKEN_PREFIX$this"
-
 private fun String.toDailyReviewBoundaryMaxRowId(): Long? =
     takeIf { token -> token.startsWith(DAILY_REVIEW_BOUNDARY_TOKEN_PREFIX) }
         ?.removePrefix(DAILY_REVIEW_BOUNDARY_TOKEN_PREFIX)
         ?.toLongOrNull()
-
 private const val DAILY_REVIEW_BOUNDARY_TOKEN_PREFIX = "daily-review-boundary-"
-
 private data class DefaultMainListQueryInput(
     val searchPlan: DefaultMainListSearchPlan,
     val startDate: String?,
@@ -254,17 +231,13 @@ private data class DefaultMainListQueryInput(
     val hasAttachment: Boolean?,
     val hasUrl: Boolean?,
 )
-
 private sealed interface DefaultMainListSearchPlan {
     data object NoQuery : DefaultMainListSearchPlan
-
     data class Match(
         val matchQuery: String,
     ) : DefaultMainListSearchPlan
-
     data object NoSearchableTokens : DefaultMainListSearchPlan
 }
-
 private fun MemoQuerySpec.toMainListDaoQueryInput(): DefaultMainListQueryInput {
     return DefaultMainListQueryInput(
         searchPlan = normalizedQueryText.toDefaultMainListSearchPlan(),
@@ -281,7 +254,6 @@ private fun MemoQuerySpec.toMainListDaoQueryInput(): DefaultMainListQueryInput {
         hasUrl = criteria.booleanFor(MemoFilterCriterion.HasUrl, MemoFilterCriterion.NoUrl),
     )
 }
-
 private fun Set<MemoFilterCriterion>.booleanFor(
     positive: MemoFilterCriterion,
     negative: MemoFilterCriterion,
@@ -291,9 +263,7 @@ private fun Set<MemoFilterCriterion>.booleanFor(
         negative in this -> false
         else -> null
     }
-
 private fun LocalDate.toDaoDateKey(): String = toString().replace("-", "_")
-
 private fun String.toDefaultMainListSearchPlan(): DefaultMainListSearchPlan {
     val normalizedQuery = trim()
     if (normalizedQuery.isEmpty()) {
@@ -304,14 +274,12 @@ private fun String.toDefaultMainListSearchPlan(): DefaultMainListSearchPlan {
         ?.let(DefaultMainListSearchPlan::Match)
         ?: DefaultMainListSearchPlan.NoSearchableTokens
 }
-
 private fun LocalDate?.toStartOfDayEpochMillis(): Long =
     this
         ?.atStartOfDay(ZoneId.systemDefault())
         ?.toInstant()
         ?.toEpochMilli()
         ?: Long.MIN_VALUE
-
 private fun LocalDate?.toExclusiveEndOfDayEpochMillis(): Long =
     this
         ?.takeUnless { it == LocalDate.MAX }
@@ -320,7 +288,6 @@ private fun LocalDate?.toExclusiveEndOfDayEpochMillis(): Long =
         ?.toInstant()
         ?.toEpochMilli()
         ?: Long.MAX_VALUE
-
 private class NoSearchableTokensPagingSource : PagingSource<Int, Memo>() {
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Memo> =
         LoadResult.Page(
@@ -328,6 +295,5 @@ private class NoSearchableTokensPagingSource : PagingSource<Int, Memo>() {
             prevKey = null,
             nextKey = null,
         )
-
     override fun getRefreshKey(state: androidx.paging.PagingState<Int, Memo>): Int? = null
 }

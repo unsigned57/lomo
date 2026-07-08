@@ -1,11 +1,7 @@
 package com.lomo.data.util
 
 import com.lomo.domain.usecase.MemoContentAnalyzer
-import javax.inject.Inject
-
-class MemoTextProcessor
-    @Inject
-    constructor() {
+class MemoTextProcessor {
         /**
          * Finds the start and end line indices of a memo block in a list of lines.
          * @param lines The file content split by lines.

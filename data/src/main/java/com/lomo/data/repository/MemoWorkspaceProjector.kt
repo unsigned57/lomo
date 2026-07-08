@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.projection.MemoProjectionProjector
@@ -8,11 +7,8 @@ import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MemoDirectoryType
-import javax.inject.Inject
-
 class MemoWorkspaceProjector
-    @Inject
-    constructor(
+constructor(
         private val reader: MemoWorkspaceReader,
         private val parser: MarkdownParser,
     ) {
@@ -43,7 +39,6 @@ class MemoWorkspaceProjector
                 existingActiveMemos = existingActiveMemos,
             )
         }
-
         fun projectMainFileContent(
             file: FileContent,
             existingActiveMemos: List<MemoEntity>,
@@ -56,7 +51,6 @@ class MemoWorkspaceProjector
                 safUri = null,
                 existingActiveMemos = existingActiveMemos,
             ) as MemoProjectionChangeSet.Active
-
         private fun projectShardContent(
             directory: MemoDirectoryType,
             filename: String,
@@ -80,7 +74,6 @@ class MemoWorkspaceProjector
                 existingActiveMemos = existingActiveMemos,
             )
         }
-
         private fun projectDocument(
             directory: MemoDirectoryType,
             filename: String,
@@ -114,7 +107,6 @@ class MemoWorkspaceProjector
                             ),
                         dateKey = dateKey,
                     )
-
                 MemoDirectoryType.TRASH ->
                     MemoProjectionChangeSet.Trash(
                         memos =

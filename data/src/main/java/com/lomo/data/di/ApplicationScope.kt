@@ -1,42 +1,25 @@
 package com.lomo.data.di
 
 import com.lomo.domain.repository.AppBackgroundWorkRepository
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Inject
-import javax.inject.Qualifier
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
+import org.koin.dsl.bind
 
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
 annotation class ApplicationScope
 
-@Module
-@InstallIn(SingletonComponent::class)
-object CoroutineScopeModule {
-    @Provides
-    @Singleton
-    @ApplicationScope
-    fun provideApplicationScope(owner: ApplicationBackgroundWorkOwner): CoroutineScope = owner.scope
+class ApplicationBackgroundWorkOwner : AppBackgroundWorkRepository {
+    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Provides
-    @Singleton
-    fun provideAppBackgroundWorkRepository(owner: ApplicationBackgroundWorkOwner): AppBackgroundWorkRepository = owner
+    override fun cancelAppBackgroundWork() {
+        scope.cancel()
+    }
 }
 
-@Singleton
-class ApplicationBackgroundWorkOwner
-    @Inject
-    constructor() : AppBackgroundWorkRepository {
-        val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-        override fun cancelAppBackgroundWork() {
-            scope.cancel()
-        }
-    }
+val applicationScopeModule = module {
+    single { ApplicationBackgroundWorkOwner() } bind AppBackgroundWorkRepository::class
+    single(named("ApplicationScope")) { get<ApplicationBackgroundWorkOwner>().scope }
+}

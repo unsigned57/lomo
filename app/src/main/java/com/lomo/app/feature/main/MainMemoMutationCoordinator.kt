@@ -4,15 +4,13 @@ import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
-import javax.inject.Inject
 
-class MainMemoMutationCoordinator
-    @Inject
-    constructor(
-        private val deleteMemoUseCase: DeleteMemoUseCase,
-        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-        private val appWidgetRepository: AppWidgetRepository,
-    ) {
+
+class MainMemoMutationCoordinator(
+    private val deleteMemoUseCase: DeleteMemoUseCase,
+    private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    private val appWidgetRepository: AppWidgetRepository,
+) {
         suspend fun deleteMemo(memo: Memo) {
             deleteMemoUseCase(memo)
             appWidgetRepository.updateAllWidgets()

@@ -40,7 +40,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
  * - Observable outcomes: open attempt count, readyFlow state transitions, and wrapped failure message.
  * - TDD proof: Fails before the fix because DatabaseInitializer does not exist and the startup open
  *   probe still lives inside DataModule.
- * - Excludes: DAO query behavior, actual Android Room migrations, and Hilt wiring.
+ * - Excludes: DAO query behavior, actual Android Room migrations, and DI wiring.
  */
 class DatabaseInitializerTest : DataFunSpec() {
     init {

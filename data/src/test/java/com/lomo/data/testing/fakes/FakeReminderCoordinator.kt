@@ -1,5 +1,6 @@
 package com.lomo.data.testing.fakes
 
+import com.lomo.data.reminder.MemoMutationReminderScheduler
 import com.lomo.domain.repository.ReminderCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -9,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
  * [syncForMemo] and the number of [rebuildAll] reconciliations so tests can assert deterministic
  * scheduling without a real AlarmManager.
  */
-class FakeReminderCoordinator : ReminderCoordinator {
+class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderScheduler {
     override val globalIntervalMillis: StateFlow<Long> = MutableStateFlow(60_000L)
 
     val syncForMemoCalls = mutableListOf<Pair<String, String>>()

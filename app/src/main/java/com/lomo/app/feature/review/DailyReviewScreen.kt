@@ -36,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.common.MemoActionOrderScopes
@@ -71,7 +71,7 @@ fun DailyReviewScreen(
     lanShareEnabled: Boolean = true,
     onRequestFocusMemo: (String) -> Unit = {},
     onNavigateToMain: () -> Unit = onBackClick,
-    viewModel: DailyReviewViewModel = hiltViewModel(),
+    viewModel: DailyReviewViewModel = injectedKoinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()

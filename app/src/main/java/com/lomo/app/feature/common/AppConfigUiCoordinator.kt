@@ -6,13 +6,11 @@ import com.lomo.domain.repository.AppConfigRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
 
-class AppConfigUiCoordinator
-    @Inject
-    constructor(
-        private val appConfigRepository: AppConfigRepository,
-    ) {
+
+class AppConfigUiCoordinator(
+    private val appConfigRepository: AppConfigRepository,
+) {
         fun rootDirectory(): Flow<String?> =
             appConfigRepository
                 .observeLocation(StorageArea.ROOT)

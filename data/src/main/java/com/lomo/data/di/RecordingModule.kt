@@ -3,21 +3,22 @@ package com.lomo.data.di
 import com.lomo.data.recording.RecordingServiceController
 import com.lomo.data.recording.RecordingServiceControllerImpl
 import com.lomo.data.recording.RecordingSessionImpl
+import com.lomo.data.recording.RecordingNotifier
 import com.lomo.domain.repository.RecordingSession
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
+import org.koin.dsl.module
+import org.koin.android.ext.koin.androidContext
+import org.koin.dsl.bind
+import org.koin.core.qualifier.named
 
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class RecordingModule {
-    @Binds
-    @Singleton
-    abstract fun bindRecordingSession(impl: RecordingSessionImpl): RecordingSession
-
-    @Binds
-    @Singleton
-    abstract fun bindRecordingServiceController(impl: RecordingServiceControllerImpl): RecordingServiceController
+val recordingModule = module {
+    single {
+        RecordingSessionImpl(
+            appScope = get(named("ApplicationScope")),
+            voiceRecordingRepository = get(),
+            mediaRepository = get(),
+            serviceController = get()
+        )
+    } bind RecordingSession::class
+    single { RecordingServiceControllerImpl(androidContext()) } bind RecordingServiceController::class
+    single { RecordingNotifier(androidContext()) }
 }

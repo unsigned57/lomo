@@ -42,7 +42,7 @@ import kotlinx.coroutines.test.runTest
  *   require injected scopes and instead create their own SupervisorJob-backed CoroutineScope.
  *
  * Excludes:
- * - Room persistence, file rewrite behavior, Hilt component creation, and Android process lifecycle dispatch.
+ * - Room persistence, file rewrite behavior, DI component creation, and Android process lifecycle dispatch.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemoBackgroundOwnershipTest : DataFunSpec() {

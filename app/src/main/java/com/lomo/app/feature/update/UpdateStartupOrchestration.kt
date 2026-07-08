@@ -7,7 +7,7 @@ import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -19,18 +19,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val DEBUG_UPDATE_STEP_DELAY_MS = 280L
 private const val DEBUG_UPDATE_TERMINAL_DELAY_MS = 220L
 
-@Singleton
 class UpdateStartupOrchestrator
     internal constructor(
         private val startupUpdateCheck: suspend () -> AppUpdateInfo?,
     ) {
-        @Inject
         constructor(appUpdateChecker: AppUpdateChecker) : this(
             startupUpdateCheck = appUpdateChecker::checkForStartupUpdate,
         )
@@ -77,7 +74,7 @@ class UpdateStartupOrchestrator
     }
 
 class AppUpdateDownloadSession(
-    @ApplicationContext private val context: Context,
+    private val context: Context,
     private val downloadAndInstallAppUpdateUseCase: DownloadAndInstallAppUpdateUseCase,
     private val cancelAppUpdateDownloadUseCase: CancelAppUpdateDownloadUseCase,
     private val scope: CoroutineScope,

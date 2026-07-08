@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import androidx.core.net.toUri
 import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.entity.ImageLocationCacheEntity
@@ -17,11 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
-import javax.inject.Inject
-
 class MediaRepositoryImpl
-    @Inject
-    constructor(
+constructor(
         private val workspaceConfigSource: WorkspaceConfigSource,
         private val mediaStorageDataSource: MediaStorageDataSource,
         private val s3LocalChangeRecorder: S3LocalChangeRecorder,
@@ -29,7 +25,6 @@ class MediaRepositoryImpl
         private val imageLocationCacheDao: ImageLocationCacheDao,
     ) : MediaRepository {
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
-
         override suspend fun importImage(source: StorageLocation): StorageLocation {
             val filename = mediaStorageDataSource.saveImage(source.raw.toUri())
             s3LocalChangeRecorder.recordImageUpsert(filename)
@@ -41,28 +36,23 @@ class MediaRepositoryImpl
             }
             return StorageLocation(filename)
         }
-
         override suspend fun removeImage(entryId: MediaEntryId) {
             mediaStorageDataSource.deleteImage(entryId.raw)
             s3LocalChangeRecorder.recordImageDelete(entryId.raw)
             webDavLocalChangeRecorder.recordImageDelete(entryId.raw)
             imageLocationMap.update { currentMap -> currentMap - entryId }
         }
-
         override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
-
         override suspend fun refreshImageLocations() {
             if (workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first() == null) {
                 imageLocationCacheDao.clearAll()
                 imageLocationMap.value = emptyMap()
                 return
             }
-
             imageLocationMap.value =
                 imageLocationCacheDao.readAll().associate { entry ->
                     MediaEntryId(entry.name) to StorageLocation(entry.uri)
                 }
-
             val refreshedEntries = mediaStorageDataSource.listImageFiles()
             imageLocationMap.value =
                 refreshedEntries.associate { (name, uri) ->
@@ -80,7 +70,6 @@ class MediaRepositoryImpl
                 )
             }
         }
-
         override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
             when (category) {
                 MediaCategory.IMAGE -> {
@@ -89,7 +78,6 @@ class MediaRepositoryImpl
                         setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
                     )
                 }
-
                 MediaCategory.VOICE -> {
                     createDefaultWorkspace(
                         folderName = VOICE_DIRECTORY_NAME,
@@ -97,20 +85,17 @@ class MediaRepositoryImpl
                     )
                 }
             }
-
         override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation {
             val target = StorageLocation(mediaStorageDataSource.createVoiceFile(entryId.raw).toString())
             s3LocalChangeRecorder.recordVoiceUpsert(entryId.raw)
             webDavLocalChangeRecorder.recordVoiceUpsert(entryId.raw)
             return target
         }
-
         override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
             mediaStorageDataSource.deleteVoiceFile(entryId.raw)
             s3LocalChangeRecorder.recordVoiceDelete(entryId.raw)
             webDavLocalChangeRecorder.recordVoiceDelete(entryId.raw)
         }
-
         private suspend fun createDefaultWorkspace(
             folderName: String,
             setRoot: suspend (String) -> Unit,
@@ -127,7 +112,6 @@ class MediaRepositoryImpl
                 )
                 null
             }
-
         companion object {
             private const val TAG = "MediaRepositoryImpl"
             private const val IMAGE_DIRECTORY_NAME = "images"

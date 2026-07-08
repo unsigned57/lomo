@@ -45,7 +45,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.lomo.ui.component.common.rememberUniqueExitRenderListKeys
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
@@ -88,7 +88,7 @@ private const val TRASH_ACTION_HANDLE_ALPHA = 0.4f
 fun TrashScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: TrashViewModel = hiltViewModel(),
+    viewModel: TrashViewModel = injectedKoinViewModel(),
 ) {
     val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()

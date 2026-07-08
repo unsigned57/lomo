@@ -10,10 +10,6 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
 import androidx.core.content.FileProvider
 import com.lomo.app.R
 import com.lomo.app.feature.common.AppConfigStateProvider
@@ -25,8 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 /**
  * Application-layer sharing orchestrator.
@@ -36,14 +31,11 @@ import javax.inject.Singleton
  * - persist rendered share image to cache
  * - delegate card rendering to [ShareCardBitmapRenderer]
  */
-@Singleton
-class ShareUtils
-    @Inject
-    constructor(
-        private val persistShareImageUseCase: PersistShareImageUseCase,
-        private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
-        private val appConfigStateProvider: AppConfigStateProvider,
-    ) {
+class ShareUtils(
+    private val persistShareImageUseCase: PersistShareImageUseCase,
+    private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
+    private val appConfigStateProvider: AppConfigStateProvider,
+) {
         private data class ShareImageConfig(
             val showTime: Boolean,
             val showSignature: Boolean,
@@ -215,24 +207,6 @@ class ShareUtils
         }
     }
 
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-interface ShareUtilsEntryPoint {
-    fun shareUtils(): ShareUtils
-}
-
 @Composable
-fun rememberShareUtils(): ShareUtils {
-    val context = LocalContext.current
-    return remember(context) {
-        EntryPointAccessors
-            .fromApplication(context.applicationContext.resolveApplicationContext(), ShareUtilsEntryPoint::class.java)
-            .shareUtils()
-    }
-}
-
-private tailrec fun Context.resolveApplicationContext(): Context =
-    when (this) {
-        is ContextWrapper -> baseContext.resolveApplicationContext()
-        else -> applicationContext ?: this
-    }
+fun rememberShareUtils(): ShareUtils =
+    org.koin.compose.koinInject()

@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -7,13 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.charset.StandardCharsets
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncMemoMirror
-    @Inject
-    constructor(
+constructor(
         private val runtime: GitSyncRepositoryContext,
     ) {
         suspend fun mirrorMemoToRepo(
@@ -26,13 +20,11 @@ class GitSyncMemoMirror
                     runtime.markdownStorageDataSource
                         .listMetadataIn(MemoDirectoryType.MAIN)
                         .filter { it.filename.isMarkdownMemoFile() }
-
                 val memoSubDir = File(repoDir, layout.memoFolder).also { directory ->
                     if (!directory.exists()) {
                         directory.mkdirs()
                     }
                 }
-
                 val repoMemoNames =
                     memoFiles
                         .mapNotNull { meta ->
@@ -45,7 +37,6 @@ class GitSyncMemoMirror
                 deleteStaleRepoMemos(memoSubDir, repoMemoNames)
             }
         }
-
         suspend fun mirrorMemoFromRepo(
             repoDir: File,
             layout: SyncDirectoryLayout,
@@ -54,7 +45,6 @@ class GitSyncMemoMirror
             withContext(Dispatchers.IO) {
                 val memoSubDir = File(repoDir, layout.memoFolder)
                 if (!memoSubDir.exists()) return@withContext
-
                 val repoMemoNames = mutableSetOf<String>()
                 memoSubDir.listFiles()?.forEach { file ->
                     if (!file.isFile || !file.name.isMarkdownMemoFile()) return@forEach
@@ -62,7 +52,6 @@ class GitSyncMemoMirror
                     val content = file.readText(StandardCharsets.UTF_8)
                     runtime.markdownStorageDataSource.saveFileIn(MemoDirectoryType.MAIN, file.name, content)
                 }
-
                 runtime.markdownStorageDataSource
                     .listMetadataIn(MemoDirectoryType.MAIN)
                     .filter { it.filename.isMarkdownMemoFile() && it.filename !in repoMemoNames }
@@ -72,7 +61,6 @@ class GitSyncMemoMirror
             }
         }
     }
-
 private suspend fun syncRepoMemoFile(
     dataSource: com.lomo.data.source.MarkdownStorageDataSource,
     meta: FileMetadata,
@@ -86,13 +74,11 @@ private suspend fun syncRepoMemoFile(
         } else {
             null
         }
-
     var syncedName: String? = null
     when {
         !needsRefresh -> {
             syncedName = meta.filename
         }
-
         content != null -> {
             target.writeText(content, StandardCharsets.UTF_8)
             if (meta.lastModified > 0L) {
@@ -103,12 +89,10 @@ private suspend fun syncRepoMemoFile(
     }
     return syncedName
 }
-
 private fun isUpToDateRepoMemo(
     target: File,
     meta: FileMetadata,
 ): Boolean = target.exists() && target.lastModified() == meta.lastModified && target.length() > 0
-
 private fun deleteStaleRepoMemos(
     memoSubDir: File,
     repoMemoNames: Set<String>,
@@ -119,5 +103,4 @@ private fun deleteStaleRepoMemos(
         }
     }
 }
-
 private fun String.isMarkdownMemoFile(): Boolean = endsWith(".md")

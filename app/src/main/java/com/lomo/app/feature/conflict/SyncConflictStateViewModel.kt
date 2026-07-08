@@ -6,7 +6,7 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.usecase.SyncProviderRegistry
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.StateFlow
@@ -14,14 +14,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import javax.inject.Inject
 
-@HiltViewModel
-class SyncConflictStateViewModel
-    @Inject
-    constructor(
-        syncProviderRegistry: SyncProviderRegistry,
-    ) : ViewModel() {
+
+class SyncConflictStateViewModel(
+    syncProviderRegistry: SyncProviderRegistry,
+) : ViewModel() {
         val syncStates: StateFlow<ImmutableMap<SyncBackendType, UnifiedSyncState>> =
             combine(
                 RemoteSyncConflictProviders.map { provider ->

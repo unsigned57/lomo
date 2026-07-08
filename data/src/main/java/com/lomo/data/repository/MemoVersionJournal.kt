@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.util.MemoTextProcessor
@@ -16,10 +15,6 @@ import java.io.File
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Qualifier
-import javax.inject.Singleton
-
 data class MemoVersionCommitRecord(
     val commitId: String,
     val createdAt: Long,
@@ -28,7 +23,6 @@ data class MemoVersionCommitRecord(
     val batchId: String?,
     val summary: String,
 )
-
 data class MemoVersionBlobRecord(
     val blobHash: String,
     val storagePath: String,
@@ -36,7 +30,6 @@ data class MemoVersionBlobRecord(
     val contentEncoding: String,
     val createdAt: Long,
 )
-
 data class MemoVersionRevisionRecord(
     val revisionId: String,
     val memoId: String,
@@ -52,7 +45,6 @@ data class MemoVersionRevisionRecord(
     val memoContent: String,
     val createdAt: Long,
 )
-
 data class MemoVersionRevisionHistoryRecord(
     val revisionId: String,
     val parentRevisionId: String?,
@@ -66,26 +58,22 @@ data class MemoVersionRevisionHistoryRecord(
     val contentHash: String,
     val createdAt: Long,
 )
-
 data class MemoVersionAssetRecord(
     val revisionId: String,
     val logicalPath: String,
     val blobHash: String,
     val contentEncoding: String,
 )
-
 data class MemoSnapshotRetentionSettings(
     val enabled: Boolean,
     val maxCount: Int,
     val maxAgeDays: Int,
 )
-
 sealed interface ImportedMemoRevisionChange {
     data class Upsert(
         val memo: Memo,
         val lifecycleState: MemoRevisionLifecycleState,
     ) : ImportedMemoRevisionChange
-
     data class Delete(
         val memoId: String,
         val dateKey: String,
@@ -95,43 +83,29 @@ sealed interface ImportedMemoRevisionChange {
         val updatedAt: Long,
     ) : ImportedMemoRevisionChange
 }
-
 interface MemoVersionStoreWriter {
     suspend fun insertCommit(record: MemoVersionCommitRecord)
-
     suspend fun insertRevision(record: MemoVersionRevisionRecord)
-
     suspend fun replaceAssets(
         revisionId: String,
         records: List<MemoVersionAssetRecord>,
     )
-
     suspend fun insertBlob(record: MemoVersionBlobRecord)
-
     suspend fun deleteAssetsByRevisionIds(revisionIds: List<String>)
-
     suspend fun deleteRevisionsByIds(revisionIds: List<String>)
-
     suspend fun deleteBlob(blobHash: String)
-
     suspend fun clearAll()
 }
-
 interface MemoVersionStoreReader {
     suspend fun getBlob(blobHash: String): MemoVersionBlobRecord?
-
     suspend fun getRevision(revisionId: String): MemoVersionRevisionRecord?
-
     suspend fun getCommit(commitId: String): MemoVersionCommitRecord?
-
     suspend fun listRevisionHistoryForMemo(
         memoId: String,
         cursor: MemoRevisionCursor?,
         limit: Int,
     ): List<MemoVersionRevisionHistoryRecord>
-
     suspend fun getLatestRevisionForMemo(memoId: String): MemoVersionRevisionRecord?
-
     suspend fun findEquivalentRevisionsForMemo(
         memoId: String,
         lifecycleState: MemoRevisionLifecycleState,
@@ -139,33 +113,28 @@ interface MemoVersionStoreReader {
         contentHash: String,
         assetFingerprint: String,
     ): List<MemoVersionRevisionRecord>
-
     suspend fun listAssetsForRevision(revisionId: String): List<MemoVersionAssetRecord>
-
     suspend fun listStaleRevisionsForMemo(
         memoId: String,
         retainCount: Int,
         olderThanCreatedAt: Long?,
     ): List<MemoVersionRevisionRecord>
-
     suspend fun listAssetsForRevisionIds(revisionIds: List<String>): List<MemoVersionAssetRecord>
-
     suspend fun isBlobReferenced(blobHash: String): Boolean
-
     suspend fun listAllRevisionsForMemo(memoId: String): List<MemoVersionRevisionRecord>
 }
-
 interface MemoVersionStore : MemoVersionStoreWriter, MemoVersionStoreReader
-
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class MemoVersionBlobRoot
-
-@Singleton
+class MemoVersionBlobRoot private constructor(val directory: File) {
+    companion object {
+        fun fromFilesDir(filesDir: File): MemoVersionBlobRoot =
+            MemoVersionBlobRoot(filesDir.resolve("memo-versions/blobs"))
+        fun fromDirectory(directory: File): MemoVersionBlobRoot = MemoVersionBlobRoot(directory)
+    }
+}
 class MemoVersionJournal
-    constructor(
+constructor(
         internal val store: MemoVersionStore,
-        @MemoVersionBlobRoot internal val blobRoot: File,
+        blobRoot: MemoVersionBlobRoot,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
         internal val memoTextProcessor: MemoTextProcessor,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
@@ -182,10 +151,41 @@ class MemoVersionJournal
             )
         },
     ) {
-        @Inject
-        constructor(
+        internal val blobRoot: File = blobRoot.directory
+        internal constructor(
             store: MemoVersionStore,
-            @MemoVersionBlobRoot blobRoot: File,
+            blobRoot: File,
+            workspaceMediaAccess: WorkspaceMediaAccess,
+            memoTextProcessor: MemoTextProcessor,
+            runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
+            now: () -> Long = { System.currentTimeMillis() },
+            nextCommitId: () -> String = { UUID.randomUUID().toString() },
+            nextRevisionId: () -> String = { UUID.randomUUID().toString() },
+            nextBatchId: () -> String = { UUID.randomUUID().toString() },
+            maxRevisionsPerMemo: Int = DEFAULT_MAX_REVISIONS_PER_MEMO,
+            loadSnapshotSettings: suspend () -> MemoSnapshotRetentionSettings = {
+                MemoSnapshotRetentionSettings(
+                    enabled = true,
+                    maxCount = maxRevisionsPerMemo,
+                    maxAgeDays = Int.MAX_VALUE,
+                )
+            },
+        ) : this(
+            store = store,
+            blobRoot = MemoVersionBlobRoot.fromDirectory(blobRoot),
+            workspaceMediaAccess = workspaceMediaAccess,
+            memoTextProcessor = memoTextProcessor,
+            runInTransaction = runInTransaction,
+            now = now,
+            nextCommitId = nextCommitId,
+            nextRevisionId = nextRevisionId,
+            nextBatchId = nextBatchId,
+            maxRevisionsPerMemo = maxRevisionsPerMemo,
+            loadSnapshotSettings = loadSnapshotSettings,
+        )
+constructor(
+            store: MemoVersionStore,
+            blobRoot: MemoVersionBlobRoot,
             workspaceMediaAccess: WorkspaceMediaAccess,
             memoTextProcessor: MemoTextProcessor,
             database: MemoDatabase,
@@ -208,7 +208,6 @@ class MemoVersionJournal
                 )
             },
         )
-
         suspend fun appendLocalRevision(
             memo: Memo,
             lifecycleState: MemoRevisionLifecycleState,
@@ -221,7 +220,6 @@ class MemoVersionJournal
                 sharedCommit = null,
             )
         }
-
         suspend fun appendImportedRefreshRevisions(
             changes: List<ImportedMemoRevisionChange>,
             origin: MemoRevisionOrigin = MemoRevisionOrigin.IMPORT_REFRESH,
@@ -229,7 +227,6 @@ class MemoVersionJournal
             if (changes.isEmpty()) {
                 return
             }
-
             var sharedCommit: MemoVersionCommitRecord? = null
             val batchId = nextBatchId()
             changes.forEach { change ->
@@ -270,7 +267,6 @@ class MemoVersionJournal
                 )
             }
         }
-
         suspend fun listMemoRevisions(
             memo: Memo,
             cursor: MemoRevisionCursor?,
@@ -321,7 +317,6 @@ class MemoVersionJournal
                 nextCursor = nextCursor,
             )
         }
-
         internal suspend fun recordRevisionRestoreHandoff(command: MemoLifecycleCommand) {
             require(command.operation == MemoLifecycleOperation.VERSION_RESTORE) {
                 "Revision restore history handoff requires version-restore command: " +
@@ -347,14 +342,12 @@ class MemoVersionJournal
                 pruneRevisionsForMemo = ::pruneRevisionsForMemo,
             )
         }
-
         suspend fun clearAllMemoSnapshots() {
             runInTransaction {
                 store.clearAll()
             }
             clearBlobRootDirectory()
         }
-
         private suspend fun appendRevision(
             memoState: MemoVersionMemoState,
             lifecycleState: MemoRevisionLifecycleState,
@@ -447,7 +440,6 @@ class MemoVersionJournal
                 throw appendFailure
             }
         }
-
         private suspend fun buildAppendRevisionPayload(memoState: MemoVersionMemoState): MemoVersionAppendPayload {
             val rawBytes = memoState.rawContent.toByteArray(StandardCharsets.UTF_8)
             val assets =
@@ -467,7 +459,6 @@ class MemoVersionJournal
                 assetFingerprint = assetPairs.toMemoVersionAssetFingerprint(),
             )
         }
-
         private suspend fun pruneRevisionsForMemo(
             memoId: String,
             snapshotSettings: MemoSnapshotRetentionSettings,
@@ -511,7 +502,6 @@ class MemoVersionJournal
                 )
             }
         }
-
         private fun clearBlobRootDirectory() {
             blobRoot.mkdirs()
             blobRoot.listFiles()?.forEach { child ->
@@ -520,9 +510,7 @@ class MemoVersionJournal
                 }
             }
         }
-
     }
-
 internal data class MemoVersionMemoState(
     val memoId: String,
     val dateKey: String,
@@ -543,7 +531,6 @@ internal data class MemoVersionMemoState(
             )
     }
 }
-
 internal data class MemoVersionAppendPayload(
     val rawBytes: ByteArray,
     val rawContentHash: String,
@@ -552,13 +539,11 @@ internal data class MemoVersionAppendPayload(
     val assetPairs: List<Pair<String, String>>,
     val assetFingerprint: String,
 )
-
 internal data class MemoRevisionRestoreAsset(
     val category: WorkspaceMediaCategory,
     val filename: String,
     val writeTo: suspend (OutputStream) -> Unit,
 )
-
 internal suspend fun loadLatestAssetPairsIfNeeded(
     store: MemoVersionStore,
     latestRevision: MemoVersionRevisionRecord?,
@@ -568,13 +553,11 @@ internal suspend fun loadLatestAssetPairsIfNeeded(
     } else {
         emptyList()
     }
-
 internal data class ResolvedMemoRevisionAttachment(
     val logicalPath: String,
     val contentEncoding: String,
     val bytes: ByteArray,
 )
-
 internal const val ACTOR_IMPORT = "import"
 internal const val ACTOR_LOCAL = "local"
 internal const val LOGICAL_IMAGE_PREFIX = "images/"

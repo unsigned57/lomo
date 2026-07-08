@@ -17,29 +17,22 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.S3SyncOperationRepository
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
+
+
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class S3SyncOperationRepositoryImpl
-    @Inject
-    internal constructor(
-        private val syncExecutor: S3SyncExecutor,
-        private val statusTester: S3SyncStatusTester,
-        private val refreshPolicyPlanner: S3RefreshSyncPolicyPlanner,
-        private val scheduledWorkEnqueuer: S3ScheduledSyncWorkEnqueuer,
-        private val stateHolder: S3SyncStateHolder,
-        private val pendingConflictStore: PendingSyncConflictStore,
-    ) : S3SyncOperationRepository,
-        S3SyncWorkExecutor {
+class S3SyncOperationRepositoryImpl internal constructor(
+    private val syncExecutor: S3SyncExecutor,
+    private val statusTester: S3SyncStatusTester,
+    private val refreshPolicyPlanner: S3RefreshSyncPolicyPlanner,
+    private val scheduledWorkEnqueuer: S3ScheduledSyncWorkEnqueuer,
+    private val stateHolder: S3SyncStateHolder,
+    private val pendingConflictStore: PendingSyncConflictStore,
+) : S3SyncOperationRepository,
+    S3SyncWorkExecutor {
         private val syncExecutionGate =
             SyncExecutionGate<S3SyncResult>(
                 defaultInProgressResult = { S3SyncResult.Success("S3 sync already in progress") },
@@ -167,13 +160,10 @@ internal interface S3ScheduledSyncWorkEnqueuer {
     suspend fun enqueue(work: List<SyncScheduledWork>)
 }
 
-@Singleton
-internal class DefaultS3RefreshSyncPolicyPlanner
-    @Inject
-    constructor(
-        private val runtime: S3SyncRepositoryContext,
-        private val policyPlanner: S3SyncWorkPolicyPlanner,
-    ) : S3RefreshSyncPolicyPlanner {
+internal class DefaultS3RefreshSyncPolicyPlanner(
+    private val runtime: S3SyncRepositoryContext,
+    private val policyPlanner: S3SyncWorkPolicyPlanner,
+) : S3RefreshSyncPolicyPlanner {
         override suspend fun planRefreshSync(signal: SyncRefreshSignal): SyncWorkDecision {
             val interval = runtime.dataStore.s3AutoSyncInterval.first()
             return policyPlanner.planRefresh(
@@ -183,20 +173,7 @@ internal class DefaultS3RefreshSyncPolicyPlanner
         }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface S3RefreshSyncBindingsModule {
-    @Binds
-    fun bindS3RefreshSyncPolicyPlanner(impl: DefaultS3RefreshSyncPolicyPlanner): S3RefreshSyncPolicyPlanner
 
-    @Binds
-    fun bindS3ScheduledSyncWorkEnqueuer(
-        impl: com.lomo.data.worker.S3SyncScheduler,
-    ): S3ScheduledSyncWorkEnqueuer
-
-    @Binds
-    fun bindS3SyncWorkExecutor(impl: S3SyncOperationRepositoryImpl): S3SyncWorkExecutor
-}
 
 private fun SyncWorkDecision.requireS3ForegroundPolicy(): S3SyncWorkIntent {
     val foregroundWork = foregroundWork
@@ -210,19 +187,16 @@ private fun SyncWorkDecision.requireS3ForegroundPolicy(): S3SyncWorkIntent {
     }
 }
 
-@Singleton
-class S3SyncStatusTester
-    @Inject
-    constructor(
-        private val runtime: S3SyncRepositoryContext,
-        private val support: S3SyncRepositorySupport,
-        private val encodingSupport: S3SyncEncodingSupport,
-        private val fileBridge: S3SyncFileBridge,
-        private val protocolStateStore: S3SyncProtocolStateStore,
-        private val localChangeJournalStore: S3LocalChangeJournalStore,
-        private val remoteIndexStore: S3RemoteIndexStore,
-        private val remoteShardStateStore: S3RemoteShardStateStore,
-    ) {
+class S3SyncStatusTester(
+    private val runtime: S3SyncRepositoryContext,
+    private val support: S3SyncRepositorySupport,
+    private val encodingSupport: S3SyncEncodingSupport,
+    private val fileBridge: S3SyncFileBridge,
+    private val protocolStateStore: S3SyncProtocolStateStore,
+    private val localChangeJournalStore: S3LocalChangeJournalStore,
+    private val remoteIndexStore: S3RemoteIndexStore,
+    private val remoteShardStateStore: S3RemoteShardStateStore,
+) {
         private val objectKeyPolicy = S3RemoteObjectKeyPolicy(encodingSupport)
 
         suspend fun getStatus(): S3SyncStatus {

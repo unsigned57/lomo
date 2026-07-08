@@ -1,5 +1,4 @@
 package com.lomo.data.network
-
 import com.lomo.data.repository.coercePositiveConcurrency
 import okhttp3.ConnectionPool
 import okhttp3.Credentials
@@ -8,13 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
-class SyncHttpClientProvider
-    @Inject
-    constructor() {
+class SyncHttpClientProvider {
         private val baseClient: OkHttpClient =
             OkHttpClient
                 .Builder()
@@ -28,7 +21,6 @@ class SyncHttpClientProvider
                 .connectionPool(ConnectionPool(MAX_IDLE_CONNECTIONS, KEEP_ALIVE_MINUTES, TimeUnit.MINUTES))
                 .addInterceptor(SyncHttpRetryInterceptor())
                 .build()
-
         fun webDavClient(
             username: String,
             password: String,
@@ -54,7 +46,6 @@ class SyncHttpClientProvider
                         )
                     },
                 ).build()
-
         fun s3Client(
             maxRequests: Int,
             maxRequestsPerHost: Int,
@@ -68,7 +59,6 @@ class SyncHttpClientProvider
                     },
                 ).build()
     }
-
 private const val CONNECT_TIMEOUT_SECONDS = 30L
 private const val IO_TIMEOUT_SECONDS = 60L
 private const val MAX_IDLE_CONNECTIONS = 32

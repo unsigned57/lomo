@@ -3,6 +3,8 @@ package com.lomo.app.feature.main
 import android.net.Uri
 import androidx.collection.LruCache
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ParseRemindersUseCase
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
 import com.lomo.ui.component.card.shouldShowMemoCardExpand
@@ -10,22 +12,18 @@ import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
 import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.async
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
-import javax.inject.Inject
 
-class MemoUiMapper
-    internal constructor(
-        private val backgroundDispatcher: CoroutineDispatcher,
-    ) {
-        @Inject
-        constructor() : this(Dispatchers.Default)
+
+class MemoUiMapper(
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+) {
+        private val backgroundDispatcher = dispatcherProvider.default
 
         private val imageContentResolver = MemoUiImageContentResolver()
         private val cacheMutex = Mutex()

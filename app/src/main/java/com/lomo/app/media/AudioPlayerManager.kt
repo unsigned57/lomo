@@ -7,7 +7,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.ui.media.AudioPlayerController
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -20,19 +20,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.inject.Singleton
+
 import timber.log.Timber
 
 private const val AUDIO_PLAYER_MANAGER_TAG = "AudioPlayerManager"
 
-@Singleton
-open class AudioPlayerManager
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val uriResolver: AudioPlaybackResolverRepository,
-    ) : AudioPlayerController {
+open class AudioPlayerManager(
+    private val context: Context,
+    private val uriResolver: AudioPlaybackResolverRepository,
+) : AudioPlayerController {
         private var player: ExoPlayer? = null
 
         private val _currentPlayingUri = MutableStateFlow<String?>(null)

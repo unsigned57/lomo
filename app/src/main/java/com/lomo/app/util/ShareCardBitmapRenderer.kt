@@ -13,16 +13,12 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import com.lomo.ui.theme.resolveLomoColorScheme
 import java.time.format.DateTimeFormatter
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ShareCardBitmapRenderer
-    @Inject
-    constructor(
-        private val prepareShareCardContentUseCase: PrepareShareCardContentUseCase,
-        private val shareCardDisplayFormatter: ShareCardDisplayFormatter,
-    ) {
+
+class ShareCardBitmapRenderer(
+    private val prepareShareCardContentUseCase: PrepareShareCardContentUseCase,
+    private val shareCardDisplayFormatter: ShareCardDisplayFormatter,
+) {
         private val shareCardTimeFormatter = DateTimeFormatter.ofPattern(SHARE_CARD_TIME_PATTERN)
 
         fun render(

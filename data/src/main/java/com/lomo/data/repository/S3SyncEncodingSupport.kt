@@ -1,25 +1,15 @@
 package com.lomo.data.repository
-
 import com.lomo.data.s3.S3RcloneCryptCompatCodec
 import com.lomo.domain.model.S3EncryptionMode
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
-class S3SyncEncodingSupport
-    @Inject
-    constructor() {
+class S3SyncEncodingSupport {
         private val rcloneCodec = S3RcloneCryptCompatCodec()
-
         fun remoteKeyPrefix(config: S3ResolvedConfig): String =
             config.prefix.trim().trim('/').takeIf(String::isNotBlank)?.let { "$it/" }.orEmpty()
-
         fun remotePathFor(
             relativePath: String,
             config: S3ResolvedConfig,
         ): String = remoteKeyPrefix(config) + encodeRelativePath(relativePath, config)
-
         fun decodeRelativePath(
             remotePath: String,
             config: S3ResolvedConfig,
@@ -36,7 +26,6 @@ class S3SyncEncodingSupport
                     )
             }
         }
-
         fun encodeContent(
             bytes: ByteArray,
             config: S3ResolvedConfig,
@@ -54,7 +43,6 @@ class S3SyncEncodingSupport
                         )
                     }
             }
-
         fun decodeContent(
             bytes: ByteArray,
             config: S3ResolvedConfig,
@@ -72,7 +60,6 @@ class S3SyncEncodingSupport
                         )
                     }
             }
-
         internal fun prepareUploadFile(
             source: S3TransferFile,
             config: S3ResolvedConfig,
@@ -98,7 +85,6 @@ class S3SyncEncodingSupport
                         }
                     }
             }
-
         internal fun decodeDownloadedFile(
             source: File,
             config: S3ResolvedConfig,
@@ -124,7 +110,6 @@ class S3SyncEncodingSupport
                         }
                     }
             }
-
         fun objectMetadata(
             lastModified: Long?,
             contentMd5: String? = null,
@@ -140,12 +125,10 @@ class S3SyncEncodingSupport
             }
             return values
         }
-
         fun resolveRemoteLastModified(
             metadata: Map<String, String>,
             fallback: Long?,
         ): Long? = resolveRemoteObjectLastModified(metadata, fallback)
-
         private fun encodeRelativePath(
             relativePath: String,
             config: S3ResolvedConfig,
@@ -160,7 +143,6 @@ class S3SyncEncodingSupport
                         config = config.rcloneCryptConfig,
                     )
             }
-
         private fun transformFile(
             source: File,
             session: S3SyncTransferSession,
@@ -172,14 +154,11 @@ class S3SyncEncodingSupport
             return S3TransferFile(output)
         }
     }
-
 private fun File.transferSuffix(defaultSuffix: String): String =
     name.substringAfterLast('.', "").takeIf(String::isNotBlank)?.let { ".$it" } ?: defaultSuffix
-
 private const val MILLIS_PER_SECOND = 1_000L
 private const val EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L
 private const val S3_MD5_METADATA_KEY = "md5"
-
 /**
  * Canonical "remote last-modified" for change detection and index/baseline storage: the app-embedded
  * mtime metadata when present (seconds or millis), otherwise the raw HTTP last-modified. Every path that
@@ -198,7 +177,6 @@ internal fun resolveRemoteObjectLastModified(
         else -> parsed * MILLIS_PER_SECOND
     }
 }
-
 internal fun resolveRemoteContentMd5(
     metadata: Map<String, String>,
     eTag: String?,

@@ -1,14 +1,9 @@
 package com.lomo.data.local.dao
-
 import androidx.room3.useReaderConnection
 import androidx.room3.withWriteTransaction
 import com.lomo.data.local.CURRENT_MEMO_FTS_CONTENT_VERSION
 import com.lomo.data.local.MemoDatabase
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
-class RoomMemoFtsDao @Inject constructor(
+class RoomMemoFtsDao constructor(
     private val database: MemoDatabase,
 ) : MemoFtsDao {
     override suspend fun rebuildFts() {
@@ -18,7 +13,6 @@ class RoomMemoFtsDao @Inject constructor(
             }
         }
     }
-
     override suspend fun optimizeFts() {
         database.withWriteTransaction {
             usePrepared("INSERT INTO lomo_fts(lomo_fts) VALUES ('optimize')") { statement ->
@@ -26,7 +20,6 @@ class RoomMemoFtsDao @Inject constructor(
             }
         }
     }
-
     override suspend fun clearFts() {
         database.withWriteTransaction {
             usePrepared("DELETE FROM lomo_fts") { statement ->
@@ -40,7 +33,6 @@ class RoomMemoFtsDao @Inject constructor(
             }
         }
     }
-
     override suspend fun integrityCheck(): String =
         database.useReaderConnection { connection ->
             connection.usePrepared("PRAGMA integrity_check") { statement ->
@@ -51,7 +43,6 @@ class RoomMemoFtsDao @Inject constructor(
                 }
             }
         }
-
     override suspend fun healthCheck(): MemoFtsHealthReport =
         database.useReaderConnection { connection ->
             MemoFtsHealthReport(

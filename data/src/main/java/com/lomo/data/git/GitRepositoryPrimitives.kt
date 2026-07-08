@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
@@ -16,13 +15,7 @@ import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.treewalk.TreeWalk
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
-class GitRepositoryPrimitives
-    @Inject
-    constructor() {
+class GitRepositoryPrimitives {
         fun cleanStaleLockFiles(rootDir: File) {
             val lockFile = File(rootDir, ".git/index.lock")
             if (lockFile.exists()) {
@@ -35,7 +28,6 @@ class GitRepositoryPrimitives
                 }
             }
         }
-
         fun ensureRemote(
             git: Git,
             remoteUrl: String,
@@ -58,7 +50,6 @@ class GitRepositoryPrimitives
                 }
             }
         }
-
         fun ensureGitignore(rootDir: File) {
             val gitignore = File(rootDir, ".gitignore")
             if (!gitignore.exists()) {
@@ -72,7 +63,6 @@ class GitRepositoryPrimitives
                 )
             }
         }
-
         fun shouldAmendLastCommit(
             git: Git,
             branch: String,
@@ -85,7 +75,6 @@ class GitRepositoryPrimitives
                     .firstOrNull()
             val shouldInspectTracking =
                 lastCommit?.fullMessage?.contains(LOMO_COMMIT_MARKER) == true
-
             return if (!shouldInspectTracking) {
                 false
             } else {
@@ -97,7 +86,6 @@ class GitRepositoryPrimitives
                 }
             }
         }
-
         fun abortRebaseQuietly(git: Git) {
             try {
                 git
@@ -108,7 +96,6 @@ class GitRepositoryPrimitives
                 // Ignore when no rebase state exists.
             }
         }
-
         fun tryPush(
             git: Git,
             credentialStrategy: GitCredentialStrategy,
@@ -134,14 +121,12 @@ class GitRepositoryPrimitives
                         .flatMap { pushResult -> pushResult.remoteUpdates.asSequence() }
                         .mapNotNull(::pushFailureForUpdate)
                         .firstOrNull()
-
                 failure ?: GitSyncResult.Success(successMessage)
             }.getOrElse { error ->
                 Timber.e(error, "Push failed")
                 GitSyncResult.Error("Push failed: ${error.message}", error)
             }
         }
-
         fun readFileAtCommit(
             git: Git,
             commit: RevCommit,
@@ -157,7 +142,6 @@ class GitRepositoryPrimitives
                 null
             }
         }
-
         companion object {
             private const val STALE_LOCK_THRESHOLD_MS = 5 * 60 * 1000L // 5 minutes
             private const val LOMO_COMMIT_MARKER = "via Lomo"
@@ -166,25 +150,19 @@ class GitRepositoryPrimitives
             private const val REMOTE_URL_KEY = "url"
         }
     }
-
 private fun pushFailureForUpdate(update: RemoteRefUpdate): GitSyncResult.Error? =
     when (update.status) {
         RemoteRefUpdate.Status.OK,
         RemoteRefUpdate.Status.UP_TO_DATE,
         -> null
-
         RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ->
             GitSyncResult.Error("Push rejected: non-fast-forward. Remote has diverged.")
-
         RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED ->
             GitSyncResult.Error("Push rejected: remote ref was updated during push.")
-
         RemoteRefUpdate.Status.REJECTED_NODELETE ->
             GitSyncResult.Error("Push rejected: remote does not allow branch deletion.")
-
         RemoteRefUpdate.Status.REJECTED_OTHER_REASON ->
             GitSyncResult.Error("Push rejected: ${update.message ?: "unknown reason"}")
-
         else ->
             GitSyncResult.Error("Push failed with status: ${update.status}")
     }

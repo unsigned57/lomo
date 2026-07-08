@@ -10,9 +10,7 @@ import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 private const val KEY_ACCESS_KEY_ID = "s3_access_key_id"
 private const val KEY_SECRET_ACCESS_KEY = "s3_secret_access_key"
@@ -20,13 +18,11 @@ private const val KEY_SESSION_TOKEN = "s3_session_token"
 private const val KEY_ENCRYPTION_PASSWORD = "s3_encryption_password"
 private const val KEY_ENCRYPTION_PASSWORD2 = "s3_encryption_password2"
 
-@Singleton
 class S3CredentialStore private constructor(
     secureStringStoreFactory: () -> SecureStringStore,
 ) {
-    @Inject
     constructor(
-        @ApplicationContext context: Context,
+        context: Context,
     ) : this(
         {
             KeystoreBackedPreferences(

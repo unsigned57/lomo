@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncFailureException
@@ -23,13 +22,8 @@ import timber.log.Timber
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class GitSyncWorkflow
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
         private val credentialStrategy: GitCredentialStrategy,
         private val primitives: GitRepositoryPrimitives,
@@ -45,9 +39,7 @@ class GitSyncWorkflow
                     } catch (error: GitSyncFailureException) {
                         return@withContext error.toGitSyncError()
                     }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 val gitDir = File(rootDir, GIT_METADATA_DIRECTORY)
                 if (gitDir.exists()) {
                     Git.open(rootDir).use { git ->
@@ -55,7 +47,6 @@ class GitSyncWorkflow
                     }
                     return@withContext GitSyncResult.Success("Repository opened")
                 }
-
                 runNonFatalCatching {
                     credentialStrategy.runWithCredentialFallback(credentials, "Clone") { provider ->
                         Git
@@ -79,23 +70,19 @@ class GitSyncWorkflow
                     initNewRepo(rootDir, remoteUrl, credentials)
                 }
             }
-
         suspend fun commitLocal(rootDir: File): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val gitDir = File(rootDir, GIT_METADATA_DIRECTORY)
                 if (!gitDir.exists()) {
                     return@withContext GitSyncResult.Error("Not a git repository")
                 }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 Git.open(rootDir).use { git ->
                     val branch = git.repository.branch ?: DEFAULT_BRANCH
                     stageAllChanges(git)
                     if (!hasPendingChanges(git)) {
                         return@withContext GitSyncResult.Success("Nothing to commit")
                     }
-
                     val author = authorIdent(dataStore)
                     val shouldAmend = primitives.shouldAmendLastCommit(git, branch)
                     git
@@ -105,7 +92,6 @@ class GitSyncWorkflow
                         .setMessage(syncCommitMessage())
                         .setAmend(shouldAmend)
                         .call()
-
                     GitSyncResult.Success(
                         if (shouldAmend) {
                             "Amended local commit"
@@ -115,7 +101,6 @@ class GitSyncWorkflow
                     )
                 }
             }
-
         suspend fun sync(
             rootDir: File,
             remoteUrl: String,
@@ -128,17 +113,13 @@ class GitSyncWorkflow
                     } catch (error: GitSyncFailureException) {
                         return@withContext error.toGitSyncError()
                     }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 val gitDir = File(rootDir, GIT_METADATA_DIRECTORY)
                 if (!gitDir.exists()) {
                     return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
                 }
-
                 Git.open(rootDir).use { git ->
                     primitives.ensureRemote(git, remoteUrl)
-
                     val branch = git.repository.branch ?: DEFAULT_BRANCH
                     stageAndCommitIfNeeded(
                         git = git,
@@ -147,7 +128,6 @@ class GitSyncWorkflow
                         primitives = primitives,
                         onSyncingState = onSyncingState,
                     )
-
                     val fetchFallback =
                         fetchRemoteOrPushOnly(
                             git = git,
@@ -160,7 +140,6 @@ class GitSyncWorkflow
                     if (fetchFallback != null) {
                         return@withContext fetchFallback
                     }
-
                     val rebaseResult =
                         rebaseOntoRemote(
                             git = git,
@@ -171,7 +150,6 @@ class GitSyncWorkflow
                     if (rebaseResult != null) {
                         return@withContext rebaseResult
                     }
-
                     onSyncingState(UnifiedSyncPhase.PUSHING)
                     primitives.tryPush(
                         git = git,
@@ -182,7 +160,6 @@ class GitSyncWorkflow
                     )
                 }
             }
-
         private suspend fun initNewRepo(
             rootDir: File,
             remoteUrl: String,
@@ -192,7 +169,6 @@ class GitSyncWorkflow
             git.use { repository ->
                 primitives.ensureRemote(repository, remoteUrl)
                 primitives.ensureGitignore(rootDir)
-
                 repository.add().addFilepattern(".").call()
                 val author = authorIdent(dataStore)
                 repository
@@ -201,7 +177,6 @@ class GitSyncWorkflow
                     .setCommitter(author)
                     .setMessage("init: first commit via Lomo")
                     .call()
-
                 val currentBranch = repository.repository.branch
                 if (currentBranch != DEFAULT_BRANCH) {
                     repository
@@ -210,7 +185,6 @@ class GitSyncWorkflow
                         .setNewName(DEFAULT_BRANCH)
                         .call()
                 }
-
                 runNonFatalCatching {
                     credentialStrategy.runWithCredentialFallback(credentials, "Initial push") { provider ->
                         repository
@@ -225,7 +199,6 @@ class GitSyncWorkflow
             }
             return GitSyncResult.Success("Repository initialized")
         }
-
         private fun readFileFromRef(
             repo: Repository,
             refName: String,
@@ -233,7 +206,6 @@ class GitSyncWorkflow
         ): String? {
             val ref = repo.resolve(refName)
             var content: String? = null
-
             if (ref != null) {
                 val revWalk = RevWalk(repo)
                 try {
@@ -248,11 +220,9 @@ class GitSyncWorkflow
                     revWalk.dispose()
                 }
             }
-
             return content
         }
     }
-
 private suspend fun stageAndCommitIfNeeded(
     git: Git,
     branch: String,
@@ -265,7 +235,6 @@ private suspend fun stageAndCommitIfNeeded(
     if (!hasPendingChanges(git)) {
         return
     }
-
     val author = authorIdent(dataStore)
     val shouldAmend = primitives.shouldAmendLastCommit(git, branch)
     git
@@ -276,7 +245,6 @@ private suspend fun stageAndCommitIfNeeded(
         .setAmend(shouldAmend)
         .call()
 }
-
 private fun stageAllChanges(git: Git) {
     git.add().addFilepattern(".").call()
     git
@@ -285,7 +253,6 @@ private fun stageAllChanges(git: Git) {
         .setUpdate(true)
         .call()
 }
-
 private fun hasPendingChanges(git: Git): Boolean {
     val status = git.status().call()
     return status.hasUncommittedChanges() ||
@@ -293,7 +260,6 @@ private fun hasPendingChanges(git: Git): Boolean {
         status.changed.isNotEmpty() ||
         status.removed.isNotEmpty()
 }
-
 private fun fetchRemoteOrPushOnly(
     git: Git,
     branch: String,
@@ -324,7 +290,6 @@ private fun fetchRemoteOrPushOnly(
         )
     }
 }
-
 private fun rebaseOntoRemote(
     git: Git,
     rootDir: File,
@@ -335,7 +300,6 @@ private fun rebaseOntoRemote(
     if (git.repository.resolve(remoteBranch) == null) {
         return null
     }
-
     return runNonFatalCatching {
         val rebaseResult =
             git
@@ -354,7 +318,6 @@ private fun rebaseOntoRemote(
         )
     }
 }
-
 private fun handleRebaseResult(
     git: Git,
     rootDir: File,
@@ -369,7 +332,6 @@ private fun handleRebaseResult(
         RebaseResult.Status.FAST_FORWARD,
         RebaseResult.Status.NOTHING_TO_COMMIT,
         -> null
-
         RebaseResult.Status.CONFLICTS,
         RebaseResult.Status.STOPPED,
         RebaseResult.Status.FAILED,
@@ -383,19 +345,16 @@ private fun handleRebaseResult(
             primitives = primitives,
             readFileFromRef = readFileFromRef,
         )
-
         RebaseResult.Status.ABORTED -> {
             Timber.w("Rebase aborted")
             GitSyncResult.Error("Sync halted: rebase aborted. Remote changes were preserved.")
         }
-
         else -> {
             Timber.w("Unexpected rebase status: ${rebaseResult.status}")
             primitives.abortRebaseQuietly(git)
             GitSyncResult.Error("Sync failed: unexpected rebase status ${rebaseResult.status}.")
         }
     }
-
 private fun buildConflictResult(
     git: Git,
     rootDir: File,
@@ -414,7 +373,6 @@ private fun buildConflictResult(
             readFileFromRef = readFileFromRef,
         )
     primitives.abortRebaseQuietly(git)
-
     return if (conflictFiles.isNotEmpty()) {
         GitSyncResult.Conflict(
             message = "Sync halted: ${conflictFiles.size} conflicting file(s) detected.",
@@ -432,7 +390,6 @@ private fun buildConflictResult(
         )
     }
 }
-
 private fun buildConflictFiles(
     repository: Repository,
     rootDir: File,
@@ -450,7 +407,6 @@ private fun buildConflictFiles(
             localLastModified = localFile.takeIf(File::exists)?.lastModified(),
         )
     }
-
 private fun readLocalFile(
     rootDir: File,
     path: String,
@@ -460,18 +416,15 @@ private fun readLocalFile(
     } catch (_: Exception) {
         null
     }
-
 private suspend fun authorIdent(dataStore: LomoDataStore): PersonIdent {
     val name = dataStore.gitAuthorName.first()
     val email = dataStore.gitAuthorEmail.first()
     return PersonIdent(name.ifBlank { "Lomo" }, email.ifBlank { "lomo@local" })
 }
-
 private fun syncCommitMessage(): String {
     val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
     return "sync: $timestamp via Lomo"
 }
-
 private const val DEFAULT_BRANCH = "main"
 private const val GIT_METADATA_DIRECTORY = ".git"
 private const val REMOTE_NAME = "origin"

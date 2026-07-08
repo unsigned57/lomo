@@ -3,13 +3,11 @@ package com.lomo.app.feature.share
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.flow.first
-import javax.inject.Inject
 
-class LanShareUiCoordinator
-    @Inject
-    constructor(
-        private val lanShareService: LanShareService,
-    ) {
+
+class LanShareUiCoordinator(
+    private val lanShareService: LanShareService,
+) {
         val discoveredDevices = lanShareService.discoveredDevices
         val transferState = lanShareService.transferState
         val lanShareRuntimeState = lanShareService.lanShareRuntimeState

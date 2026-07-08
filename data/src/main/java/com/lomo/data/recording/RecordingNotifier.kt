@@ -7,16 +7,11 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.lomo.data.R
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class RecordingNotifier
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) {
+
+class RecordingNotifier(
+    private val context: Context,
+) {
         private val notificationManager: NotificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 

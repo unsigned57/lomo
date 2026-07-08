@@ -6,14 +6,7 @@ import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.entity.S3LocalChangeJournalEntity
 import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.components.SingletonComponent
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -50,14 +43,11 @@ interface S3SyncProtocolStateStore {
     suspend fun clear()
 }
 
-@Singleton
-class RoomBackedS3SyncProtocolStateStore
-    @Inject
-    constructor(
-        private val dao: S3SyncProtocolStateDao,
-        @ApplicationContext private val context: Context,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : S3SyncProtocolStateStore {
+class RoomBackedS3SyncProtocolStateStore(
+    private val dao: S3SyncProtocolStateDao,
+    private val context: Context,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : S3SyncProtocolStateStore {
         override val incrementalSyncEnabled: Boolean = true
 
         private val mutex = Mutex()
@@ -176,14 +166,11 @@ interface S3LocalChangeJournalStore {
     suspend fun clear()
 }
 
-@Singleton
-class RoomBackedS3LocalChangeJournalStore
-    @Inject
-    constructor(
-        private val dao: S3LocalChangeJournalDao,
-        @ApplicationContext private val context: Context,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : S3LocalChangeJournalStore {
+class RoomBackedS3LocalChangeJournalStore(
+    private val dao: S3LocalChangeJournalDao,
+    private val context: Context,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : S3LocalChangeJournalStore {
         override val incrementalSyncEnabled: Boolean = true
 
         private val mutex = Mutex()
@@ -248,12 +235,9 @@ interface S3LocalChangeRecorder {
     suspend fun recordVoiceDelete(filename: String)
 }
 
-@Singleton
-class DefaultS3LocalChangeRecorder
-    @Inject
-    constructor(
-        private val journalStore: S3LocalChangeJournalStore,
-    ) : S3LocalChangeRecorder {
+class DefaultS3LocalChangeRecorder(
+    private val journalStore: S3LocalChangeJournalStore,
+) : S3LocalChangeRecorder {
         override suspend fun recordMemoUpsert(filename: String) =
             record(kind = S3LocalChangeKind.MEMO, filename = filename, changeType = S3LocalChangeType.UPSERT)
 
@@ -292,18 +276,7 @@ class DefaultS3LocalChangeRecorder
         }
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface S3IncrementalSyncBindingsModule {
-    @Binds
-    fun bindS3SyncProtocolStateStore(impl: RoomBackedS3SyncProtocolStateStore): S3SyncProtocolStateStore
 
-    @Binds
-    fun bindS3LocalChangeJournalStore(impl: RoomBackedS3LocalChangeJournalStore): S3LocalChangeJournalStore
-
-    @Binds
-    fun bindS3LocalChangeRecorder(impl: DefaultS3LocalChangeRecorder): S3LocalChangeRecorder
-}
 
 private fun discardUnscopedLegacyS3Sidecar(
     file: File,

@@ -18,7 +18,7 @@ import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.MemoMenuPresentationState
 import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
-import com.lomo.app.util.activityHiltViewModel
+import com.lomo.app.util.activityKoinViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
@@ -66,7 +66,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
         popExitTransition = NavigationTransitions.imageViewerPopExit,
     ) { entry ->
         val route = entry.toRoute<NavRoute.GalleryReel>()
-        val mainViewModel: MainViewModel = activityHiltViewModel()
+        val mainViewModel: MainViewModel = activityKoinViewModel()
         val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
         val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
         val payload =

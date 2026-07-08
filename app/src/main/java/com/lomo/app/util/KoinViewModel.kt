@@ -5,18 +5,18 @@ import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.androidx.compose.koinViewModel
 import androidx.lifecycle.ViewModel
 
 @Composable
-internal inline fun <reified VM : ViewModel> injectedHiltViewModel(): VM = hiltViewModel()
+internal inline fun <reified VM : ViewModel> injectedKoinViewModel(): VM = koinViewModel()
 
 @Composable
-internal inline fun <reified VM : ViewModel> activityHiltViewModel(): VM {
+internal inline fun <reified VM : ViewModel> activityKoinViewModel(): VM {
     val activity =
         LocalContext.current.findComponentActivity()
-            ?: error("activityHiltViewModel requires a ComponentActivity context")
-    return hiltViewModel(activity)
+            ?: error("activityKoinViewModel requires a ComponentActivity context")
+    return koinViewModel(viewModelStoreOwner = activity)
 }
 
 private tailrec fun Context.findComponentActivity(): ComponentActivity? =

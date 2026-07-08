@@ -46,7 +46,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
@@ -76,7 +76,7 @@ fun SearchScreen(
     onRequestFocusMemo: (String) -> Unit = {},
     onNavigateToMain: () -> Unit = onBackClick,
     lanShareEnabled: Boolean = true,
-    viewModel: SearchViewModel = hiltViewModel(),
+    viewModel: SearchViewModel = injectedKoinViewModel(),
 ) {
     val pagedItems = viewModel.pagedUiMemos.collectAsLazyPagingItems()
     val uiState = collectSearchScreenUiSnapshot(viewModel, pagedItems)

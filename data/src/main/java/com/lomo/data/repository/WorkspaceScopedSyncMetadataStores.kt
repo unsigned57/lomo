@@ -9,16 +9,12 @@ import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class RoomBackedWebDavSyncMetadataStore
-    @Inject
-    constructor(
-        private val dao: RawWebDavSyncMetadataDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : WebDavSyncMetadataDao {
+
+class RoomBackedWebDavSyncMetadataStore(
+    private val dao: RawWebDavSyncMetadataDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : WebDavSyncMetadataDao {
         override suspend fun getAll(): List<WebDavSyncMetadataEntity> =
             dao.getAll(activeGeneration())
 
@@ -59,13 +55,10 @@ class RoomBackedWebDavSyncMetadataStore
         private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-@Singleton
-class RoomBackedS3SyncMetadataStore
-    @Inject
-    constructor(
-        private val dao: RawS3SyncMetadataDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : S3SyncMetadataDao {
+class RoomBackedS3SyncMetadataStore(
+    private val dao: RawS3SyncMetadataDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : S3SyncMetadataDao {
         override suspend fun getAll(): List<S3SyncMetadataEntity> =
             dao.getAll(activeGeneration())
 

@@ -2,9 +2,6 @@ package com.lomo.data.webdav
 
 import com.lomo.domain.model.WebDavProvider
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import javax.inject.Inject
-import javax.inject.Singleton
-
 interface WebDavEndpointResolver {
     fun resolve(
         provider: WebDavProvider,
@@ -14,10 +11,7 @@ interface WebDavEndpointResolver {
     ): String?
 }
 
-@Singleton
-class DefaultWebDavEndpointResolver
-    @Inject
-    constructor() : WebDavEndpointResolver {
+class DefaultWebDavEndpointResolver : WebDavEndpointResolver {
         override fun resolve(
             provider: WebDavProvider,
             baseUrl: String?,

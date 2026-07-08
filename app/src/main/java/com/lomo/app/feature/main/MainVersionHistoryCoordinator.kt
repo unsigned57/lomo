@@ -8,7 +8,7 @@ import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
+
 
 sealed interface MainVersionHistoryState {
     data object Hidden : MainVersionHistoryState
@@ -28,12 +28,10 @@ sealed interface MainVersionHistoryState {
     }
 }
 
-class MainVersionHistoryCoordinator
-    @Inject
-    constructor(
-        private val loadMemoRevisionHistoryUseCase: LoadMemoRevisionHistoryUseCase,
-        private val restoreMemoRevisionUseCase: RestoreMemoRevisionUseCase,
-    ) {
+class MainVersionHistoryCoordinator(
+    private val loadMemoRevisionHistoryUseCase: LoadMemoRevisionHistoryUseCase,
+    private val restoreMemoRevisionUseCase: RestoreMemoRevisionUseCase,
+) {
         private val _state = MutableStateFlow<MainVersionHistoryState>(MainVersionHistoryState.Hidden)
         val state: StateFlow<MainVersionHistoryState> = _state.asStateFlow()
 

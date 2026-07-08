@@ -6,15 +6,14 @@ import android.database.Cursor
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import com.lomo.data.util.md5Hex
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class S3SafTreeFile(
     val relativePath: String,
@@ -71,12 +70,9 @@ interface S3SafTreeAccess {
     )
 }
 
-@Singleton
-class AndroidS3SafTreeAccess
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-    ) : S3SafTreeAccess {
+class AndroidS3SafTreeAccess(
+    private val context: Context,
+) : S3SafTreeAccess {
         private val uriCache = java.util.concurrent.ConcurrentHashMap<String, UriCacheEntry>()
 
         private data class UriCacheEntry(

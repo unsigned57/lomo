@@ -16,7 +16,7 @@
  * - RED: before this fix DomainBindingsModule.kt still exists and manually constructs Git/WebDAV/S3/Inbox providers.
  *
  * Excludes:
- * - Hilt code generation, data repository bindings, and use-case behavior.
+ * - Koin graph verification internals, data repository bindings, and use-case behavior.
  */
 package com.lomo.app.architecture
 

@@ -24,31 +24,28 @@ import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class TagFilterViewModel
-    @Inject
-    constructor(
-        savedStateHandle: SavedStateHandle,
-        getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
-        observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-        appConfigStateProvider: AppConfigStateProvider,
-        private val appConfigUiCoordinator: AppConfigUiCoordinator,
-        imageMapProvider: ImageMapProvider,
-        memoUiMapper: MemoUiMapper,
-        deleteMemoUseCase: DeleteMemoUseCase,
-        updateMemoContentUseCase: UpdateMemoContentUseCase,
-        toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-        saveImageUseCase: SaveImageUseCase,
-    ) : ViewModel() {
+
+class TagFilterViewModel(
+    savedStateHandle: SavedStateHandle,
+    getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
+    observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    appConfigStateProvider: AppConfigStateProvider,
+    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    imageMapProvider: ImageMapProvider,
+    memoUiMapper: MemoUiMapper,
+    deleteMemoUseCase: DeleteMemoUseCase,
+    updateMemoContentUseCase: UpdateMemoContentUseCase,
+    toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    saveImageUseCase: SaveImageUseCase,
+) : ViewModel() {
         private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
         val tagName: String = routeArgs.tagName
 

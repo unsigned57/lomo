@@ -5,14 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class TrustedLaunchSignaturePayload(
     val commandId: String,
@@ -72,12 +71,9 @@ internal class TrustedLaunchSignaturePolicy(
     }
 }
 
-@Singleton
-class TrustedLaunchSecretStore
-    @Inject
-    constructor(
-        @ApplicationContext context: Context,
-    ) {
+class TrustedLaunchSecretStore(
+    context: Context,
+) {
         private val preferences =
             context.getSharedPreferences(TRUSTED_LAUNCH_PREFS_NAME, Context.MODE_PRIVATE)
         private val lock = Any()
@@ -105,13 +101,10 @@ class TrustedLaunchSecretStore
         }
     }
 
-@Singleton
-class TrustedLaunchIntents
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        secretStore: TrustedLaunchSecretStore,
-    ) {
+class TrustedLaunchIntents(
+    private val context: Context,
+    secretStore: TrustedLaunchSecretStore,
+) {
         private val signaturePolicy =
             TrustedLaunchSignaturePolicy(secretProvider = secretStore::getOrCreateSecret)
 

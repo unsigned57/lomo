@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -9,19 +8,14 @@ import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
 import java.nio.charset.StandardCharsets
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-
-@Singleton
 class WebDavSyncFileBridge
-    @Inject
-    constructor(
+constructor(
         private val runtime: WebDavSyncRepositoryContext,
         private val localFingerprintCache: WebDavLocalFingerprintCache,
         private val remoteListingCache: WebDavRemoteListingCache,
@@ -36,7 +30,6 @@ class WebDavSyncFileBridge
                 client.ensureDirectory(remoteFolderPath(folder))
             }
         }
-
         suspend fun localFiles(
             layout: SyncDirectoryLayout,
             targetPaths: Set<String>? = null,
@@ -126,12 +119,10 @@ class WebDavSyncFileBridge
             val mediaFiles = mediaFileEntries.associate { (file, _) -> file.path to file }
             return memoFiles + mediaFiles
         }
-
         suspend fun localFile(
             path: String,
             layout: SyncDirectoryLayout,
         ): LocalWebDavFile? = localFiles(layout, targetPaths = setOf(path), pruneCache = false)[path]
-
         suspend fun remoteFiles(
             client: WebDavClient,
             layout: SyncDirectoryLayout,
@@ -155,7 +146,6 @@ class WebDavSyncFileBridge
                 }.flatten()
             return listed.associate(::toRemoteEntry)
         }
-
         fun remoteFilesInFolder(
             client: WebDavClient,
             folderPath: String,
@@ -163,7 +153,6 @@ class WebDavSyncFileBridge
         ): Map<String, RemoteWebDavFile> =
             listRemoteFilesInFolder(remoteListingCache, client, folderPath, forceRefresh)
                 .associate(::toRemoteEntry)
-
     suspend fun persistMetadata(
         client: WebDavClient,
         layout: SyncDirectoryLayout,
@@ -235,23 +224,19 @@ class WebDavSyncFileBridge
             runtime.metadataDao.upsertAll(upserts)
         }
     }
-
         fun isMemoPath(
             path: String,
             layout: SyncDirectoryLayout,
         ): Boolean = isWebDavMemoPath(path, layout)
-
         fun extractMemoFilename(
             path: String,
             layout: SyncDirectoryLayout,
         ): String = extractWebDavMemoFilename(path, layout)
-
         fun contentTypeForPath(
             path: String,
             layout: SyncDirectoryLayout,
         ): String = webDavContentTypeForPath(path, layout, runtime)
     }
-
 private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWebDavFile> =
     resource.path to
         RemoteWebDavFile(
@@ -260,7 +245,6 @@ private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWe
             lastModified = resource.lastModified,
             size = resource.size,
         )
-
 private fun listRemoteFilesInFolder(
     cache: WebDavRemoteListingCache,
     client: WebDavClient,
@@ -277,11 +261,8 @@ private fun listRemoteFilesInFolder(
             client.list(folderPath).filterNot(WebDavRemoteResource::isDirectory)
         }
     }
-
 private fun memoRemotePrefix(layout: SyncDirectoryLayout): String = "$WEBDAV_ROOT/${layout.memoFolder}/"
-
 private fun remoteFolderPath(folder: String): String = "$WEBDAV_ROOT/$folder"
-
 private fun resolveRemoteSnapshot(
     cache: WebDavRemoteListingCache,
     client: WebDavClient,

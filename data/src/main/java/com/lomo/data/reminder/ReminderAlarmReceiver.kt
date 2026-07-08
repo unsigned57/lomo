@@ -6,18 +6,14 @@ import android.content.Intent
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.usecase.ParseRemindersUseCase
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-@AndroidEntryPoint
-class ReminderAlarmReceiver : BroadcastReceiver() {
-    @Inject lateinit var asyncRunner: ReminderAsyncRunner
-
-    @Inject lateinit var reminderCoordinator: ReminderCoordinator
-
-    @Inject lateinit var reminderNotifier: ReminderNotifier
-
-    @Inject lateinit var memoQueryRepository: MemoQueryRepository
+class ReminderAlarmReceiver : BroadcastReceiver(), KoinComponent {
+    private val asyncRunner: ReminderAsyncRunner by inject()
+    private val reminderCoordinator: ReminderCoordinator by inject()
+    private val reminderNotifier: ReminderNotifier by inject()
+    private val memoQueryRepository: MemoQueryRepository by inject()
 
     private val parseReminders = ParseRemindersUseCase()
 

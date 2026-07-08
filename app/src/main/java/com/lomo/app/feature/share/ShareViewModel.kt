@@ -13,7 +13,7 @@ import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
-import dagger.hilt.android.lifecycle.HiltViewModel
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import javax.inject.Inject
+
 
 private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
 private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
@@ -30,15 +30,12 @@ private const val SHARE_PAYLOAD_KEY = "payloadKey"
 private const val SHARE_MEMO_CONTENT_KEY = "memoContent"
 private const val SHARE_MEMO_TIMESTAMP_KEY = "memoTimestamp"
 
-@HiltViewModel
-class ShareViewModel
-    @Inject
-    constructor(
-        private val lanShareUiCoordinator: LanShareUiCoordinator,
-        private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
-        private val shareErrorPolicy: ShareErrorPolicy,
-        savedStateHandle: SavedStateHandle,
-    ) : ViewModel() {
+class ShareViewModel(
+    private val lanShareUiCoordinator: LanShareUiCoordinator,
+    private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
+    private val shareErrorPolicy: ShareErrorPolicy,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
         private val memoPayloadKey: String = savedStateHandle.get<String>(SHARE_PAYLOAD_KEY).orEmpty()
         private var memoContentBacking: String =
             resolveShareMemoContent(

@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.di.ApplicationScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
@@ -11,34 +10,26 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
-
 interface MemoVersionRecorder {
     suspend fun enqueueLocalRevision(
         memo: Memo,
         lifecycleState: MemoRevisionLifecycleState,
         origin: MemoRevisionOrigin,
     )
-
     suspend fun recordLocalRevision(
         memo: Memo,
         lifecycleState: MemoRevisionLifecycleState,
         origin: MemoRevisionOrigin,
     )
 }
-
-@Singleton
 class AsyncMemoVersionRecorder
-    @Inject
-    constructor(
+constructor(
         private val memoVersionJournal: MemoVersionJournal,
         @ApplicationScope private val scope: CoroutineScope,
     ) : MemoVersionRecorder {
         private val pendingMutex = Mutex()
         private val pendingRequests = linkedMapOf<String, PendingMemoVersionRecordRequest>()
         private var drainJob: Job? = null
-
         override suspend fun enqueueLocalRevision(
             memo: Memo,
             lifecycleState: MemoRevisionLifecycleState,
@@ -52,7 +43,6 @@ class AsyncMemoVersionRecorder
                 }
             }
         }
-
         override suspend fun recordLocalRevision(
             memo: Memo,
             lifecycleState: MemoRevisionLifecycleState,
@@ -64,7 +54,6 @@ class AsyncMemoVersionRecorder
                 origin = origin,
             )
         }
-
         private suspend fun drainPendingRequests() {
             while (true) {
                 val nextRequest =
@@ -97,7 +86,6 @@ class AsyncMemoVersionRecorder
             }
         }
     }
-
 private data class PendingMemoVersionRecordRequest(
     val requestKey: String,
     val memo: Memo,
@@ -116,7 +104,6 @@ private data class PendingMemoVersionRecordRequest(
                 lifecycleState = lifecycleState,
                 origin = origin,
             )
-
         private fun requestKeyFor(
             memo: Memo,
             lifecycleState: MemoRevisionLifecycleState,

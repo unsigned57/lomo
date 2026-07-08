@@ -27,7 +27,7 @@ import com.lomo.app.feature.settings.SettingsScreen
 import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
-import com.lomo.app.util.activityHiltViewModel
+import com.lomo.app.util.activityKoinViewModel
 import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -48,7 +48,7 @@ fun LomoNavHost(
     foregroundEntryId: Long = 0L,
     suppressForegroundAutoInput: Boolean = false,
 ) {
-    val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityHiltViewModel()
+    val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityKoinViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
@@ -220,7 +220,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
     composable<NavRoute.Tag> { backStackEntry ->
         // No SharedTransitionLayout — TagFilterScreen shows the same MemoCardList feed as Main, so its
         // LookaheadScope would crash the feed during fast fling (see NavRoute.Main).
-        val mainViewModel: MainViewModel = activityHiltViewModel()
+        val mainViewModel: MainViewModel = activityKoinViewModel()
         val tag = backStackEntry.toRoute<NavRoute.Tag>()
         TagFilterScreen(
             tagName = tag.tagName,
@@ -237,7 +237,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
     composable<NavRoute.DailyReview> {
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {
-            val mainViewModel: MainViewModel = activityHiltViewModel()
+            val mainViewModel: MainViewModel = activityKoinViewModel()
             ProvideSharedAnimationLocals(
                 sharedTransitionScope = this,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -257,7 +257,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
     composable<NavRoute.Gallery> {
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {
-            val mainViewModel: MainViewModel = activityHiltViewModel()
+            val mainViewModel: MainViewModel = activityKoinViewModel()
             val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
             val navigateToGalleryReel =
                 rememberGalleryReelNavigationAction(
@@ -301,7 +301,7 @@ private fun NavGraphBuilder.addNonSharedDestinations(
         popEnterTransition = NavigationTransitions.searchPopEnter,
         popExitTransition = NavigationTransitions.searchPopExit,
     ) {
-        val mainViewModel: MainViewModel = activityHiltViewModel()
+        val mainViewModel: MainViewModel = activityKoinViewModel()
         SearchScreen(
             onBackClick = popBackStackSafely,
             onNavigateToShare = navigateToShare,
@@ -335,7 +335,7 @@ private fun NavGraphBuilder.addImageViewerDestination(
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {
             val route = entry.toRoute<NavRoute.ImageViewer>()
-            val mainViewModel: MainViewModel = activityHiltViewModel()
+            val mainViewModel: MainViewModel = activityKoinViewModel()
             val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
             val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
             val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())

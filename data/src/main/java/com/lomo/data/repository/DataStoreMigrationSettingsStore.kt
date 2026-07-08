@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.repository.CredentialRepository
@@ -13,13 +12,8 @@ import com.lomo.domain.model.SettingValue
 import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 class DataStoreMigrationSettingsStore
-    @Inject
-    constructor(
+constructor(
         private val dataStore: LomoDataStore,
         private val credentialRepository: CredentialRepository,
         private val securitySessionPolicy: SecuritySessionPolicy,
@@ -30,7 +24,6 @@ class DataStoreMigrationSettingsStore
                 preferences = buildPreferenceSnapshot(),
                 sensitive = buildSensitiveSnapshot(),
             )
-
         override suspend fun validateRestore(snapshot: MigrationSettingsSnapshot): MigrationSettingsValidationReport {
             val report = snapshot.toValidationReport()
             val ordinaryPlan = snapshot.preferences.toOrdinaryRestorePlan(report.ordinary)
@@ -41,7 +34,6 @@ class DataStoreMigrationSettingsStore
             }
             return report
         }
-
         override suspend fun restore(snapshot: MigrationSettingsSnapshot) {
             val report = validateRestore(snapshot)
             val ordinaryPlan = snapshot.preferences.toOrdinaryRestorePlan(report.ordinary)
@@ -69,7 +61,6 @@ class DataStoreMigrationSettingsStore
                 throw exception
             }
         }
-
         private suspend fun rollbackRestore(
             rollbackSnapshot: MigrationSettingsSnapshot,
             restoreOrdinary: Boolean = true,
@@ -90,7 +81,6 @@ class DataStoreMigrationSettingsStore
                 )
             }.onFailure(originalFailure::addSuppressed)
         }
-
         private suspend fun buildPreferenceSnapshot(): Map<String, String> =
             buildMap {
                 putCatalogAppPreferenceSettings(dataStore)
@@ -144,7 +134,6 @@ class DataStoreMigrationSettingsStore
                 putString(SettingsKey.S3_AUTO_SYNC_INTERVAL, dataStore.s3AutoSyncInterval.first())
                 putBoolean(SettingsKey.S3_SYNC_ON_REFRESH, dataStore.s3SyncOnRefresh.first())
             }
-
         private suspend fun buildSensitiveSnapshot(): Map<String, String> {
             val sensitive = mutableMapOf<String, String>()
             drainLegacyWebDavUsername()?.let { username ->
@@ -170,7 +159,6 @@ class DataStoreMigrationSettingsStore
             )
             return sensitive
         }
-
         private fun Map<String, String>.withLegacyWebDavUsername(
             preferences: Map<String, String>,
         ): Map<String, String> {
@@ -180,7 +168,6 @@ class DataStoreMigrationSettingsStore
             }
             return this + (SettingsKey.WEBDAV_STORED_USERNAME to legacyUsername)
         }
-
         private suspend fun restorePreferences(plan: OrdinarySettingsRestorePlan) {
             when (plan) {
                 is OrdinarySettingsRestorePlan.Restore -> dataStore.restoreOrdinarySettings(plan.transaction)
@@ -190,7 +177,6 @@ class DataStoreMigrationSettingsStore
                     }
             }
         }
-
         private suspend fun restoreSensitive(
             sensitive: Map<String, String>,
             clearMissing: Boolean = false,
@@ -200,7 +186,6 @@ class DataStoreMigrationSettingsStore
                 clearMissingSensitive(sensitive)
             }
         }
-
         private suspend fun importSensitive(sensitive: Map<String, String>) {
             sensitiveCredentialFields.forEach { field ->
                 val key = field.migrationSensitiveKey()
@@ -209,7 +194,6 @@ class DataStoreMigrationSettingsStore
                 }
             }
         }
-
         private suspend fun clearMissingSensitive(sensitive: Map<String, String>) {
             sensitiveCredentialFields.forEach { field ->
                 if (field.migrationSensitiveKey() !in sensitive) {
@@ -217,7 +201,6 @@ class DataStoreMigrationSettingsStore
                 }
             }
         }
-
         private suspend fun MutableMap<String, String>.putCredentialIfPresent(
             key: String,
             field: CredentialField,
@@ -237,7 +220,6 @@ class DataStoreMigrationSettingsStore
                     error("Migration credential $key read denied: ${result.reason}")
             }
         }
-
         private suspend fun drainLegacyWebDavUsername(): String? {
             val legacyUsername = dataStore.webDavUsername.first()?.trim()?.takeIf(String::isNotBlank)
             if (legacyUsername != null) {
@@ -246,10 +228,8 @@ class DataStoreMigrationSettingsStore
             }
             return legacyUsername
         }
-
         internal companion object {
             const val migrationSettingsSchemaVersion = 1
-
             val catalogAppPreferenceDescriptors =
                 SettingsCatalog
                     .descriptorsFor(SettingsReadModel.APP_PREFERENCES)
@@ -257,16 +237,12 @@ class DataStoreMigrationSettingsStore
                         descriptor.sensitivity == SettingsSensitivity.NON_SENSITIVE &&
                             descriptor.exportPolicy == SettingsExportPolicy.PLAIN_TEXT
                     }
-
             val appPreferenceDescriptorsByStorageKey =
                 catalogAppPreferenceDescriptors.associateBy { descriptor -> descriptor.storageKey }
-
             val catalogAppPreferenceKeys =
                 appPreferenceDescriptorsByStorageKey.keys
-
             val credentialSensitiveKeys =
                 setOf(SettingsKey.LAN_SHARE_PAIRING_KEY_HEX)
-
             val sensitiveCredentialFields =
                 listOf(
                     CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
@@ -279,7 +255,6 @@ class DataStoreMigrationSettingsStore
                     CredentialField.S3_ENCRYPTION_PASSWORD,
                     CredentialField.S3_ENCRYPTION_PASSWORD2,
                 )
-
             val booleanPreferenceKeys =
                 setOf(
                     SettingsKey.CHECK_UPDATES_ON_STARTUP,
@@ -300,16 +275,13 @@ class DataStoreMigrationSettingsStore
                     SettingsKey.S3_AUTO_SYNC_ENABLED,
                     SettingsKey.S3_SYNC_ON_REFRESH,
                 )
-
             val intPreferenceKeys =
                 setOf(
                     SettingsKey.MEMO_SNAPSHOT_MAX_COUNT,
                     SettingsKey.MEMO_SNAPSHOT_MAX_AGE_DAYS,
                 )
-
             val floatPreferenceKeys =
                 emptySet<String>()
-
             val stringPreferenceKeys =
                 setOf(
                     SettingsKey.SIDEBAR_TAG_ORDER,
@@ -337,10 +309,8 @@ class DataStoreMigrationSettingsStore
                     SettingsKey.S3_RCLONE_ENCRYPTED_SUFFIX,
                     SettingsKey.S3_AUTO_SYNC_INTERVAL,
                 )
-
             val legacyDrainPreferenceKeys =
                 setOf(SettingsKey.WEBDAV_USERNAME)
-
             val nullablePreferenceKeys =
                 setOf(
                     SettingsKey.LAN_SHARE_DEVICE_NAME,
@@ -353,31 +323,24 @@ class DataStoreMigrationSettingsStore
                     SettingsKey.S3_PREFIX,
                     SettingsKey.S3_LOCAL_SYNC_DIRECTORY,
                 )
-
             val requiredStringPreferenceKeys =
                 stringPreferenceKeys - nullablePreferenceKeys
-
             val requiredOrdinaryPreferenceKeys =
                 catalogAppPreferenceKeys + requiredStringPreferenceKeys + booleanPreferenceKeys + intPreferenceKeys
-
             val supportedPreferenceKeys =
                 catalogAppPreferenceKeys + stringPreferenceKeys + booleanPreferenceKeys + intPreferenceKeys +
                     legacyDrainPreferenceKeys
-
             val supportedSensitiveKeys =
                 sensitiveCredentialFields.mapTo(mutableSetOf()) { field -> field.migrationSensitiveKey() }
         }
     }
-
 private fun MigrationSettingsValidationReport.hasUnsupportedKeys(): Boolean =
     manifest.unsupportedPreferenceKeys.isNotEmpty() ||
         manifest.unsupportedSensitiveKeys.isNotEmpty()
-
 private fun MigrationSettingsValidationReport.hasMissingRequiredCoverage(): Boolean =
     ordinary.missingRequiredKeys.isNotEmpty() ||
         sensitive.missingRequiredKeys.isNotEmpty() ||
         sensitive.invalidRequiredKeys.isNotEmpty()
-
 private suspend fun MutableMap<String, String>.putCatalogAppPreferenceSettings(dataStore: LomoDataStore) {
     DataStoreMigrationSettingsStore.catalogAppPreferenceDescriptors.forEach { descriptor ->
         putString(
@@ -386,7 +349,6 @@ private suspend fun MutableMap<String, String>.putCatalogAppPreferenceSettings(d
         )
     }
 }
-
 private fun SettingValue.serializeMigrationValue(): String =
     when (this) {
         is SettingValue.Bool -> value.toString()

@@ -6,23 +6,20 @@ import android.content.Intent
 import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
 import com.lomo.domain.usecase.CreateMemoUseCase
-import dagger.hilt.android.AndroidEntryPoint
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import timber.log.Timber
-import javax.inject.Inject
-import kotlin.coroutines.cancellation.CancellationException
 
-@AndroidEntryPoint
-class RecordingActionReceiver : BroadcastReceiver() {
-    @Inject lateinit var recordingSession: RecordingSession
-
-    @Inject lateinit var createMemoUseCase: CreateMemoUseCase
-
-    @Inject lateinit var recordingNotifier: RecordingNotifier
+class RecordingActionReceiver : BroadcastReceiver(), KoinComponent {
+    private val recordingSession: RecordingSession by inject()
+    private val createMemoUseCase: CreateMemoUseCase by inject()
+    private val recordingNotifier: RecordingNotifier by inject()
 
     override fun onReceive(
         context: Context,

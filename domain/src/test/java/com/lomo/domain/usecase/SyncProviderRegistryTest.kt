@@ -24,7 +24,7 @@ import io.kotest.matchers.shouldBe
  * - RED: before this fix duplicate backend providers are silently overwritten by associateBy.
  *
  * Excludes:
- * - Hilt graph creation, repository implementation details, and provider sync behavior.
+ * - Koin graph creation, repository implementation details, and provider sync behavior.
  */
 class SyncProviderRegistryTest : DomainFunSpec() {
     init {

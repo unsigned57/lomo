@@ -1,5 +1,4 @@
 package com.lomo.data.git
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncFailureException
@@ -15,13 +14,8 @@ import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.lib.PersonIdent
 import timber.log.Timber
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 internal class GitSyncConflictRecoveryCoordinator
-    @Inject
-    constructor(
+constructor(
         private val workflow: GitSyncWorkflow,
         private val dataStore: LomoDataStore,
         private val credentialStrategy: GitCredentialStrategy,
@@ -31,7 +25,6 @@ internal class GitSyncConflictRecoveryCoordinator
             val result: GitSyncResult,
             val syncedAtMs: Long?,
         )
-
         suspend fun resetRepository(rootDir: File): GitSyncResult =
             withContext(Dispatchers.IO) {
                 runNonFatalCatching {
@@ -45,7 +38,6 @@ internal class GitSyncConflictRecoveryCoordinator
                     GitSyncResult.Error("Reset failed: ${error.message}", error)
                 }
             }
-
         suspend fun resetLocalBranchToRemote(
             rootDir: File,
             remoteUrl: String,
@@ -57,18 +49,14 @@ internal class GitSyncConflictRecoveryCoordinator
                     } catch (error: GitSyncFailureException) {
                         return@withContext error.toGitSyncError()
                     }
-
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
                     return@withContext GitSyncResult.Error(NOT_GIT_REPOSITORY_MESSAGE)
                 }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 runNonFatalCatching {
                     Git.open(rootDir).use { git ->
                         primitives.ensureRemote(git, remoteUrl)
-
                         credentialStrategy.runWithCredentialFallback(credentials, "Fetch before reset") { provider ->
                             git
                                 .fetch()
@@ -77,16 +65,13 @@ internal class GitSyncConflictRecoveryCoordinator
                                 .setForceUpdate(true)
                                 .call()
                         }
-
                         val remoteRef =
                             git.repository.resolve("refs/remotes/origin/main")
                                 ?: git.repository.resolve("refs/remotes/origin/master")
                                 ?: return@withContext GitSyncResult.Error(
                                     "Remote branch not found. Please check repository branch configuration.",
                                 )
-
                         primitives.abortRebaseQuietly(git)
-
                         git
                             .reset()
                             .setMode(ResetCommand.ResetType.HARD)
@@ -98,7 +83,6 @@ internal class GitSyncConflictRecoveryCoordinator
                             .setForce(true)
                             .call()
                     }
-
                     GitSyncResult.Success("Local branch reset to remote.")
                 }.getOrElse { error ->
                     Timber.e(error, "Failed to reset local branch to remote")
@@ -108,7 +92,6 @@ internal class GitSyncConflictRecoveryCoordinator
                     )
                 }
             }
-
         suspend fun forcePushLocalToRemote(
             rootDir: File,
             remoteUrl: String,
@@ -124,7 +107,6 @@ internal class GitSyncConflictRecoveryCoordinator
                             syncedAtMs = null,
                         )
                     }
-
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
                     return@withContext ForcePushOutcome(
@@ -132,20 +114,16 @@ internal class GitSyncConflictRecoveryCoordinator
                         syncedAtMs = null,
                     )
                 }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 runNonFatalCatching {
                     val commitResult = workflow.commitLocal(rootDir)
                     if (commitResult is GitSyncResult.Error) {
                         return@withContext ForcePushOutcome(result = commitResult, syncedAtMs = null)
                     }
-
                     Git.open(rootDir).use { git ->
                         primitives.ensureRemote(git, remoteUrl)
                         val branch = git.repository.branch ?: "main"
                         onPushingState()
-
                         val pushResult =
                             primitives.tryPush(
                                 git = git,
@@ -155,7 +133,6 @@ internal class GitSyncConflictRecoveryCoordinator
                                 successMessage = "Force pushed local branch to remote",
                                 force = true,
                             )
-
                         if (pushResult is GitSyncResult.Success) {
                             val now = System.currentTimeMillis()
                             dataStore.updateGitLastSyncTime(now)
@@ -175,7 +152,6 @@ internal class GitSyncConflictRecoveryCoordinator
                     )
                 }
             }
-
         suspend fun applyConflictResolution(
             rootDir: File,
             remoteUrl: String,
@@ -189,18 +165,14 @@ internal class GitSyncConflictRecoveryCoordinator
                     } catch (error: GitSyncFailureException) {
                         return@withContext error.toGitSyncError()
                     }
-
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
                     return@withContext GitSyncResult.Error(NOT_GIT_REPOSITORY_MESSAGE)
                 }
-
                 primitives.cleanStaleLockFiles(rootDir)
-
                 runNonFatalCatching {
                     Git.open(rootDir).use { g ->
                         primitives.ensureRemote(g, remoteUrl)
-
                         val resolvedFiles =
                             when (val contentResolution = resolveFileContents(resolution, conflictSet)) {
                                 is GitConflictContentResolution.Resolved -> contentResolution.files
@@ -212,7 +184,6 @@ internal class GitSyncConflictRecoveryCoordinator
                             target.parentFile?.mkdirs()
                             target.writeText(resolved.content, Charsets.UTF_8)
                         }
-
                         g.add().addFilepattern(".").call()
                         g
                             .commit()
@@ -220,7 +191,6 @@ internal class GitSyncConflictRecoveryCoordinator
                             .setCommitter(PersonIdent("Lomo", "lomo@local"))
                             .setMessage("resolve: sync conflict resolution")
                             .call()
-
                         val branch = g.repository.branch ?: "main"
                         primitives.tryPush(
                             git = g,
@@ -235,7 +205,6 @@ internal class GitSyncConflictRecoveryCoordinator
                     GitSyncResult.Error("Failed to apply conflict resolution: ${error.message}", error)
                 }
             }
-
         private fun resolveFileContents(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
@@ -267,21 +236,17 @@ internal class GitSyncConflictRecoveryCoordinator
             return GitConflictContentResolution.Resolved(resolvedFiles)
         }
     }
-
 private const val NOT_GIT_REPOSITORY_MESSAGE = "Not a git repository. Please initialize first."
 private const val GIT_DEFERRED_FILES_UNSUPPORTED_MESSAGE =
     "Git conflicts do not support deferring files for later resolution"
-
 private sealed interface GitConflictContentResolution {
     data class Resolved(
         val files: List<ResolvedGitConflictFile>,
     ) : GitConflictContentResolution
-
     data class Unsupported(
         val message: String,
     ) : GitConflictContentResolution
 }
-
 private data class ResolvedGitConflictFile(
     val relativePath: String,
     val content: String,

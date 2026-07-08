@@ -45,8 +45,8 @@ import com.lomo.app.feature.memo.appendImageMarkdown
 import com.lomo.app.feature.memo.appendMarkdownBlock
 import com.lomo.app.feature.memo.rememberMemoMenuCommandHandler
 import com.lomo.app.feature.conflict.SyncConflictStateViewModel
-import com.lomo.app.util.activityHiltViewModel
-import com.lomo.app.util.injectedHiltViewModel
+import com.lomo.app.util.activityKoinViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
@@ -95,12 +95,12 @@ fun MainScreen(
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     lanShareEnabled: Boolean = true,
     foregroundEntryId: Long = 0L,
-    viewModel: MainViewModel = activityHiltViewModel(),
-    sidebarViewModel: SidebarViewModel = injectedHiltViewModel(),
-    editorViewModel: MemoEditorViewModel = injectedHiltViewModel(),
-    recordingViewModel: RecordingViewModel = injectedHiltViewModel(),
-    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedHiltViewModel(),
-    conflictStateViewModel: SyncConflictStateViewModel = injectedHiltViewModel(),
+    viewModel: MainViewModel = activityKoinViewModel(),
+    sidebarViewModel: SidebarViewModel = injectedKoinViewModel(),
+    editorViewModel: MemoEditorViewModel = injectedKoinViewModel(),
+    recordingViewModel: RecordingViewModel = injectedKoinViewModel(),
+    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedKoinViewModel(),
+    conflictStateViewModel: SyncConflictStateViewModel = injectedKoinViewModel(),
 ) {
     val dependencies =
         remember(

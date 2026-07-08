@@ -13,7 +13,6 @@ import java.util.Locale
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
-    alias(libs.plugins.hilt)
     alias(libs.plugins.kover)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
@@ -233,10 +232,6 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
-hilt {
-    disableCrossCompilationRootValidation = true
-}
-
 kover {
     currentProject {
         createVariant("quality") {
@@ -318,12 +313,12 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.material3.adaptive)
 
-    // Hilt
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.androidx.hilt.work)
-    implementation(libs.hilt.navigation.compose)
-    ksp(libs.androidx.hilt.compiler.work)
+    // Koin
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+    implementation(libs.koin.androidx.workmanager)
+    testImplementation(libs.koin.test)
+    testImplementation(libs.koin.test.junit4)
 
     // Navigation
     implementation(libs.androidx.navigation.compose) // Corrected reference
@@ -363,7 +358,6 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.common)
 
-    add("kspTest", libs.hilt.compiler)
 }
 
 kotlin {

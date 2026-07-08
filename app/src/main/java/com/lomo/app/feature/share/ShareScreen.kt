@@ -30,7 +30,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.lomo.app.util.injectedKoinViewModel
 import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.R
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
@@ -52,7 +52,7 @@ private const val SHARE_SECTION_OFFSET_DIVISOR = 3
 @Composable
 fun ShareScreen(
     onBackClick: () -> Unit,
-    viewModel: ShareViewModel = hiltViewModel(),
+    viewModel: ShareViewModel = injectedKoinViewModel(),
 ) {
     val uiState = collectShareScreenUiState(viewModel)
     val localState = rememberShareScreenLocalState()

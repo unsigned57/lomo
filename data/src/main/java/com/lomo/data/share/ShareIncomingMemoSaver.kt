@@ -3,14 +3,12 @@ package com.lomo.data.share
 import com.lomo.data.repository.MemoSynchronizer
 import com.lomo.domain.repository.MediaRepository
 import timber.log.Timber
-import javax.inject.Inject
 
-class ShareIncomingMemoSaver
-    @Inject
-    constructor(
-        private val synchronizer: MemoSynchronizer,
-        private val mediaRepository: MediaRepository,
-    ) {
+
+class ShareIncomingMemoSaver(
+    private val synchronizer: MemoSynchronizer,
+    private val mediaRepository: MediaRepository,
+) {
         suspend fun saveReceivedMemo(
             content: String,
             timestamp: Long,

@@ -1,16 +1,10 @@
 package com.lomo.data.git
-
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.UnifiedSyncPhase
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
-
-@Singleton
 internal class GitSyncCommitSyncCoordinator
-    @Inject
-    constructor(
+constructor(
         private val workflow: GitSyncWorkflow,
         private val dataStore: LomoDataStore,
     ) {
@@ -18,9 +12,7 @@ internal class GitSyncCommitSyncCoordinator
             val result: GitSyncResult,
             val syncedAtMs: Long?,
         )
-
         suspend fun commitLocal(rootDir: File): GitSyncResult = workflow.commitLocal(rootDir)
-
         suspend fun sync(
             rootDir: File,
             remoteUrl: String,

@@ -2,20 +2,16 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import dagger.hilt.android.qualifiers.ApplicationContext
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FileMediaStorageDataSourceDelegate
-    @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val backendResolver: FileStorageBackendResolver,
-    ) : MediaStorageDataSource {
+
+class FileMediaStorageDataSourceDelegate(
+    private val context: Context,
+    private val backendResolver: FileStorageBackendResolver,
+) : MediaStorageDataSource {
         override suspend fun saveImage(uri: Uri): String =
             withContext(Dispatchers.IO) {
                 ImageMagicByteValidator.requireSupportedImage(context.contentResolver, uri)

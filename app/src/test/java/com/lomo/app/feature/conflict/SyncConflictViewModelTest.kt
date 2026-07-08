@@ -50,7 +50,7 @@ import kotlinx.coroutines.test.runTest
  * Test Change Justification:
  * - Reason category: API contract migration.
  * - Old behavior/assertion being replaced: SyncProviderRegistry accepted an ordered List of providers.
- * - Why old assertion is no longer correct: provider registration now models the Hilt multibinding graph as an unordered Set.
+ * - Why old assertion is no longer correct: provider registration now models the Koin multibinding graph as an unordered Set.
  * - Coverage preserved by: existing ViewModel state assertions plus SyncProviderRegistryTest duplicate-provider coverage.
  * - Why this is not fitting the test to the implementation: observable conflict/review behavior is unchanged.
  */

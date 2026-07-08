@@ -1,5 +1,4 @@
 package com.lomo.data.repository
-
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.S3DeleteObjectsResult
 import com.lomo.data.s3.S3PutObjectResult
@@ -11,24 +10,17 @@ import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.domain.model.SyncBackendType
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import timber.log.Timber
-
 internal interface SyncLifecycleExecutionOwner {
     fun begin(context: RemoteSyncLifecycleContext): RemoteSyncLifecycleSession
 }
-
 internal const val DEFAULT_REMOTE_SYNC_NETWORK_OPERATION_BUDGET = 100_000
-
 internal data class RemoteSyncLifecycleContext(
     val backend: SyncBackendType,
     val budget: RemoteSyncBudgetPolicy,
 )
-
 internal sealed interface RemoteSyncBudgetPolicy {
     data object Unlimited : RemoteSyncBudgetPolicy
-
     data class Limited(
         val maxNetworkOperations: Int,
     ) : RemoteSyncBudgetPolicy {
@@ -37,31 +29,19 @@ internal sealed interface RemoteSyncBudgetPolicy {
         }
     }
 }
-
 internal interface RemoteSyncLifecycleSession {
     val context: RemoteSyncLifecycleContext
-
     fun recordNetworkOperation(operation: RemoteSyncNetworkOperation)
-
     fun recordSnapshot(snapshot: RemoteSyncSnapshotTelemetry)
-
     fun recordPlan(actions: RemoteSyncActionTelemetry)
-
     fun recordVerification(actions: RemoteSyncActionTelemetry)
-
     fun recordRefresh(refresh: RemoteSyncRefreshTelemetry)
-
     suspend fun <T> measureMetadataCommit(block: suspend () -> T): T
-
     suspend fun <T> measureRefresh(block: suspend () -> T): T
-
     fun finish(result: RemoteSyncLifecycleResultTelemetry)
-
     fun meter(client: LomoS3Client): LomoS3Client = MeteredS3Client(client, this)
-
     fun meter(client: WebDavClient): WebDavClient = MeteredWebDavClient(client, this)
 }
-
 internal enum class RemoteSyncNetworkOperation {
     List,
     Head,
@@ -69,13 +49,11 @@ internal enum class RemoteSyncNetworkOperation {
     Put,
     Delete,
 }
-
 internal data class RemoteSyncSnapshotTelemetry(
     val localFileCount: Int,
     val remoteFileCount: Int,
     val metadataEntryCount: Int,
 )
-
 internal data class RemoteSyncActionTelemetry(
     val total: Int,
     val upload: Int = 0,
@@ -84,7 +62,6 @@ internal data class RemoteSyncActionTelemetry(
     val deleteRemote: Int = 0,
     val conflict: Int = 0,
 )
-
 internal data class RemoteSyncNetworkTelemetry(
     val list: Int = 0,
     val head: Int = 0,
@@ -94,7 +71,6 @@ internal data class RemoteSyncNetworkTelemetry(
 ) {
     val total: Int
         get() = list + head + get + put + delete
-
     fun plus(operation: RemoteSyncNetworkOperation): RemoteSyncNetworkTelemetry =
         when (operation) {
             RemoteSyncNetworkOperation.List -> copy(list = list + 1)
@@ -104,28 +80,23 @@ internal data class RemoteSyncNetworkTelemetry(
             RemoteSyncNetworkOperation.Delete -> copy(delete = delete + 1)
         }
 }
-
 internal data class RemoteSyncRefreshTelemetry(
     val durationMillis: Long,
 )
-
 internal data class RemoteSyncBudgetTelemetry(
     val decision: RemoteSyncBudgetDecision,
     val consumedNetworkOperations: Int,
     val remainingNetworkOperations: Int?,
 )
-
 internal enum class RemoteSyncBudgetDecision {
     Allowed,
     Exhausted,
 }
-
 internal enum class RemoteSyncLifecycleResultTelemetry {
     Success,
     Failure,
     Cancelled,
 }
-
 internal data class RemoteSyncLifecycleTelemetry(
     val backend: SyncBackendType,
     val snapshot: RemoteSyncSnapshotTelemetry,
@@ -137,22 +108,16 @@ internal data class RemoteSyncLifecycleTelemetry(
     val budget: RemoteSyncBudgetTelemetry,
     val result: RemoteSyncLifecycleResultTelemetry,
 )
-
 internal class RemoteSyncBudgetExceededException(
     backend: SyncBackendType,
 ) : IllegalStateException("Remote sync network operation budget exhausted for $backend")
-
-@Singleton
-internal class TimberSyncLifecycleExecutionOwner
-    @Inject
-    constructor() : SyncLifecycleExecutionOwner {
+internal class TimberSyncLifecycleExecutionOwner : SyncLifecycleExecutionOwner {
         override fun begin(context: RemoteSyncLifecycleContext): RemoteSyncLifecycleSession =
             DefaultRemoteSyncLifecycleSession(
                 context = context,
                 clock = System::currentTimeMillis,
                 emit = ::emit,
             )
-
         private fun emit(telemetry: RemoteSyncLifecycleTelemetry) {
             Timber.i(
                 "Remote sync lifecycle telemetry backend=%s result=%s snapshot=%s planned=%s " +
@@ -169,7 +134,6 @@ internal class TimberSyncLifecycleExecutionOwner
             )
         }
     }
-
 internal class DefaultRemoteSyncLifecycleSession(
     override val context: RemoteSyncLifecycleContext,
     private val clock: () -> Long,
@@ -182,7 +146,6 @@ internal class DefaultRemoteSyncLifecycleSession(
     private var refreshDurationMillis = 0L
     private var metadataCommitDurationMillis = 0L
     private var budgetDecision = RemoteSyncBudgetDecision.Allowed
-
     override fun recordNetworkOperation(operation: RemoteSyncNetworkOperation) {
         val currentBudget = context.budget
         if (currentBudget is RemoteSyncBudgetPolicy.Limited && network.total >= currentBudget.maxNetworkOperations) {
@@ -191,23 +154,18 @@ internal class DefaultRemoteSyncLifecycleSession(
         }
         network = network.plus(operation)
     }
-
     override fun recordSnapshot(snapshot: RemoteSyncSnapshotTelemetry) {
         this.snapshot = snapshot
     }
-
     override fun recordPlan(actions: RemoteSyncActionTelemetry) {
         plannedActions = actions
     }
-
     override fun recordVerification(actions: RemoteSyncActionTelemetry) {
         verifiedActions = actions
     }
-
     override fun recordRefresh(refresh: RemoteSyncRefreshTelemetry) {
         refreshDurationMillis += refresh.durationMillis
     }
-
     override suspend fun <T> measureMetadataCommit(block: suspend () -> T): T {
         val startedAt = clock()
         return try {
@@ -216,7 +174,6 @@ internal class DefaultRemoteSyncLifecycleSession(
             metadataCommitDurationMillis += (clock() - startedAt).coerceAtLeast(0)
         }
     }
-
     override suspend fun <T> measureRefresh(block: suspend () -> T): T {
         val startedAt = clock()
         return try {
@@ -225,7 +182,6 @@ internal class DefaultRemoteSyncLifecycleSession(
             refreshDurationMillis += (clock() - startedAt).coerceAtLeast(0)
         }
     }
-
     override fun finish(result: RemoteSyncLifecycleResultTelemetry) {
         emit(
             RemoteSyncLifecycleTelemetry(
@@ -241,7 +197,6 @@ internal class DefaultRemoteSyncLifecycleSession(
             ),
         )
     }
-
     private fun budgetTelemetry(): RemoteSyncBudgetTelemetry {
         val remaining =
             when (val currentBudget = context.budget) {
@@ -256,7 +211,6 @@ internal class DefaultRemoteSyncLifecycleSession(
         )
     }
 }
-
 private class MeteredS3Client(
     private val delegate: LomoS3Client,
     private val session: RemoteSyncLifecycleSession,
@@ -265,12 +219,10 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         delegate.verifyAccess(prefix)
     }
-
     override suspend fun getObjectMetadata(key: String): S3RemoteObject? {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Head)
         return delegate.getObjectMetadata(key)
     }
-
     override suspend fun listPage(
         prefix: String,
         continuationToken: String?,
@@ -279,7 +231,6 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         return delegate.listPage(prefix, continuationToken, maxKeys)
     }
-
     override suspend fun listKeys(
         prefix: String,
         maxKeys: Int?,
@@ -287,7 +238,6 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         return delegate.listKeys(prefix, maxKeys)
     }
-
     override suspend fun list(
         prefix: String,
         maxKeys: Int?,
@@ -295,7 +245,6 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         return delegate.list(prefix, maxKeys)
     }
-
     override suspend fun getObjectToFile(
         key: String,
         destination: File,
@@ -303,12 +252,10 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getObjectToFile(key, destination)
     }
-
     override suspend fun getSmallObject(key: String): S3SmallObjectPayload {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getSmallObject(key)
     }
-
     override suspend fun getSmallObject(
         key: String,
         maxBytes: Long,
@@ -316,7 +263,6 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getSmallObject(key, maxBytes)
     }
-
     override suspend fun putSmallObject(
         key: String,
         bytes: ByteArray,
@@ -328,7 +274,6 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         return delegate.putSmallObject(key, bytes, contentType, metadata, ifMatch, ifNoneMatch)
     }
-
     override suspend fun putObjectFile(
         key: String,
         file: File,
@@ -340,22 +285,18 @@ private class MeteredS3Client(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         return delegate.putObjectFile(key, file, contentType, metadata, ifMatch, ifNoneMatch)
     }
-
     override suspend fun deleteObject(key: String) {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Delete)
         delegate.deleteObject(key)
     }
-
     override suspend fun deleteObjects(keys: List<String>): S3DeleteObjectsResult {
         keys.forEach { session.recordNetworkOperation(RemoteSyncNetworkOperation.Delete) }
         return delegate.deleteObjects(keys)
     }
-
     override fun close() {
         delegate.close()
     }
 }
-
 private class MeteredWebDavClient(
     private val delegate: WebDavClient,
     private val session: RemoteSyncLifecycleSession,
@@ -364,12 +305,10 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         delegate.ensureDirectory(path)
     }
-
     override fun list(path: String): List<WebDavRemoteResource> {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         return delegate.list(path)
     }
-
     override fun getToFile(
         path: String,
         destination: File,
@@ -377,12 +316,10 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getToFile(path, destination)
     }
-
     override fun getSmallFile(path: String): WebDavSmallRemoteFile {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getSmallFile(path)
     }
-
     override fun getSmallFile(
         path: String,
         maxBytes: Long,
@@ -390,7 +327,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Get)
         return delegate.getSmallFile(path, maxBytes)
     }
-
     override fun putSmallFile(
         path: String,
         bytes: ByteArray,
@@ -402,7 +338,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         delegate.putSmallFile(path, bytes, contentType, lastModifiedHint, expectedEtag, requireAbsent)
     }
-
     override fun putFile(
         path: String,
         file: File,
@@ -414,7 +349,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         delegate.putFile(path, file, contentType, lastModifiedHint, expectedEtag, requireAbsent)
     }
-
     override fun delete(
         path: String,
         expectedEtag: String?,
@@ -422,7 +356,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Delete)
         delegate.delete(path, expectedEtag)
     }
-
     override fun move(
         sourcePath: String,
         targetPath: String,
@@ -431,7 +364,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         delegate.move(sourcePath, targetPath, overwrite)
     }
-
     override fun copy(
         sourcePath: String,
         targetPath: String,
@@ -440,7 +372,6 @@ private class MeteredWebDavClient(
         session.recordNetworkOperation(RemoteSyncNetworkOperation.Put)
         delegate.copy(sourcePath, targetPath, overwrite)
     }
-
     override fun testConnection() {
         session.recordNetworkOperation(RemoteSyncNetworkOperation.List)
         delegate.testConnection()

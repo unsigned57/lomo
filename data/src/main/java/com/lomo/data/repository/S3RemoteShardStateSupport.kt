@@ -4,13 +4,8 @@ import com.lomo.data.local.dao.S3RemoteShardStateDao
 import com.lomo.data.local.dao.S3RemoteShardScheduleTelemetrySnapshot
 import com.lomo.data.local.entity.S3RemoteShardStateEntity
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 import java.time.Duration
-import javax.inject.Inject
-import javax.inject.Singleton
+
 
 data class S3RemoteShardState(
     val bucketId: String,
@@ -53,13 +48,10 @@ interface S3RemoteShardStateStore {
     suspend fun clear()
 }
 
-@Singleton
-class RoomBackedS3RemoteShardStateStore
-    @Inject
-    constructor(
-        private val dao: S3RemoteShardStateDao,
-        private val generationProvider: WorkspaceSyncGenerationProvider,
-    ) : S3RemoteShardStateStore {
+class RoomBackedS3RemoteShardStateStore(
+    private val dao: S3RemoteShardStateDao,
+    private val generationProvider: WorkspaceSyncGenerationProvider,
+) : S3RemoteShardStateStore {
         override val remoteShardStateEnabled: Boolean = true
 
         override suspend fun readAll(): List<S3RemoteShardState> =
@@ -114,12 +106,6 @@ class RoomBackedS3RemoteShardStateStore
         private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-@Module
-@InstallIn(SingletonComponent::class)
-internal interface S3RemoteShardStateBindingsModule {
-    @Binds
-    fun bindS3RemoteShardStateStore(impl: RoomBackedS3RemoteShardStateStore): S3RemoteShardStateStore
-}
 
 private fun S3RemoteShardStateEntity.toModel(): S3RemoteShardState =
     S3RemoteShardState(
