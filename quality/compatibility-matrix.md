@@ -27,14 +27,14 @@ Room projections or UI presentation.
 
 ## Executable Fixtures
 
-- `domain/src/test/java/com/lomo/domain/model/StorageFormatCompatibilityFixtureTest.kt`
+- `domain/test/model/StorageFormatCompatibilityFixtureTest.kt`
   locks filename and header compatibility for Lomo, Thino, Obsidian, compact export, month-first import,
   and common external editor spacing.
-- `domain/src/test/java/com/lomo/domain/model/StorageTimestampFormatsInvisibleSeparatorTest.kt`
+- `domain/test/model/StorageTimestampFormatsInvisibleSeparatorTest.kt`
   locks BOM and zero-width separator tolerance around memo headers.
-- `domain/src/test/java/com/lomo/domain/util/StorageFilenameFormatsTest.kt`
+- `domain/test/util/StorageFilenameFormatsTest.kt`
   locks strict supported date patterns and invalid-date rejection.
-- `domain/src/test/java/com/lomo/domain/util/StorageTimestampFormatsTest.kt`
+- `domain/test/util/StorageTimestampFormatsTest.kt`
   locks malformed timestamp rejection and supported header parsing.
 
 ## Fixture Backlog

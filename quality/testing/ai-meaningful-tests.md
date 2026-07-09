@@ -123,4 +123,4 @@ Use the samples for shape, not as extra required reading:
 - `quality/testing/samples/viewmodel-golden-sample.md`
 - `quality/testing/samples/property-based-golden-sample.md`
 
-`qualityCheck` enforces the repository coverage floor and quality gates. The meaningful-test policy decides whether the coverage is worth having.
+`quality/scripts/kotlin_quality_check.sh` enforces the current repository quality gate. The meaningful-test policy decides whether the coverage is worth having.

@@ -2,19 +2,19 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-gradlew="$repo_root/gradlew"
 meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
-ai_gradle_env_script="$repo_root/quality/scripts/ai_gradle_env.sh"
-quality_script="$repo_root/quality/scripts/ai_quality_check.sh"
+format_script="$repo_root/quality/scripts/kotlin_detekt_format.sh"
+quality_script="$repo_root/quality/scripts/kotlin_quality_check.sh"
+kotlin_env_script="$repo_root/quality/scripts/kotlin_toolchain_env.sh"
 
-if [ ! -f "$ai_gradle_env_script" ]; then
-  echo "pre-commit: AI Gradle environment script not found: $ai_gradle_env_script" >&2
+if [ ! -f "$kotlin_env_script" ]; then
+  echo "pre-commit: Kotlin Toolchain env script not found: $kotlin_env_script" >&2
   exit 1
 fi
 
-# shellcheck source=quality/scripts/ai_gradle_env.sh
-source "$ai_gradle_env_script"
-lomo_ai_prepare_gradle_env "pre-commit"
+# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
+source "$kotlin_env_script"
+lomo_kotlin_prepare_env "pre-commit"
 
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
@@ -22,7 +22,6 @@ while IFS= read -r -d '' file; do
 done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z -- '*.kt' '*.kts')
 
 if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
-  printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
   unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-detekt-git-hook-$$.diff")"
   unstaged_diff_reversed=0
 
@@ -30,7 +29,7 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
     local exit_code=$?
     trap - EXIT INT TERM
     if [ "$unstaged_diff_reversed" -eq 1 ] && [ -f "$unstaged_diff" ] && [ -s "$unstaged_diff" ]; then
-      git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff"
+      git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff" || true
     fi
     rm -f "$unstaged_diff"
     exit "$exit_code"
@@ -38,28 +37,23 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
 
   trap cleanup EXIT INT TERM
 
-  git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" > "$unstaged_diff"
+  git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" >"$unstaged_diff"
   if [ -s "$unstaged_diff" ]; then
     git -C "$repo_root" apply -R "$unstaged_diff"
     unstaged_diff_reversed=1
   fi
 
-  echo "pre-commit: running $gradlew detektFormatStaged on staged Kotlin files..."
-  echo "pre-commit: using repo-local GRADLE_USER_HOME at $ai_gradle_user_home"
-  lomo_ai_run_gradle_no_configuration_cache \
-    --quiet \
-    detektFormatStaged \
-    "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
-  echo "pre-commit: detektFormatStaged finished"
+  echo "pre-commit: formatting staged Kotlin files via detekt CLI..."
+  "$format_script" staged
+  echo "pre-commit: format pass finished"
 
-  # Re-stage files that were modified by formatter.
   for file in "${staged_kotlin_files[@]}"; do
     if [ -f "$repo_root/$file" ]; then
       git -C "$repo_root" add -- "$file"
     fi
   done
 else
-  echo "pre-commit: no staged Kotlin files; skipping detektFormatStaged."
+  echo "pre-commit: no staged Kotlin files; skipping format."
 fi
 
 if [ ! -x "$meaningful_test_script" ]; then

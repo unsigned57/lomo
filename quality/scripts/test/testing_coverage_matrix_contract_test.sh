@@ -12,8 +12,8 @@ set -euo pipefail
 #   is explicitly listed with risk and migration-plan language.
 # - Given the meaningful-test script is diff-scoped by default, when the matrix is checked, then the
 #   changed-file and all-file modes are both documented.
-# - Given Gradle wires testStyleCheck, meaningfulTestCheck, staticQualityCheck, and qualityCheck,
-#   when the matrix is checked, then the matrix identifies those gates as executable coverage owners.
+# - Given Kotlin Toolchain quality scripts run the repository gate, when the matrix is checked,
+#   then the matrix identifies those scripts as executable coverage owners.
 # - Given quality/README.md is the quality tooling entrypoint, when maintainers navigate testing
 #   gates, then the README links to this matrix.
 #
@@ -26,7 +26,7 @@ set -euo pipefail
 #   expected text: quality/testing-coverage-matrix.md".
 #
 # Excludes:
-# - Gradle task execution, Detekt rule behavior, and historical test quality migration itself.
+# - Kotlin Toolchain execution, Detekt rule behavior, and historical test quality migration itself.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -35,7 +35,9 @@ matrix_path="quality/testing-coverage-matrix.md"
 test_style_config="quality/detekt/config/test-style.yml"
 meaningful_script="quality/scripts/check_meaningful_tests.sh"
 quality_readme="quality/README.md"
-root_build="build.gradle.kts"
+root_build="module.yaml"
+kotlin_quality_script="quality/scripts/kotlin_quality_check.sh"
+kotlin_static_script="quality/scripts/kotlin_static_quality_check.sh"
 
 fail() {
   echo "testing-coverage-matrix-contract: $1" >&2
@@ -80,10 +82,13 @@ done < <(
   ' "$test_style_config"
 )
 
-require_source_text "$root_build" "tasks.register(\"testStyleCheck\")"
-require_source_text "$root_build" "tasks.register(\"meaningfulTestCheck\""
-require_source_text "$root_build" "tasks.register(\"staticQualityCheck\")"
-require_source_text "$root_build" "tasks.register(\"qualityCheck\")"
+require_source_text "$kotlin_quality_script" "lomo_kotlin_run show modules"
+require_source_text "$kotlin_quality_script" "lomo_kotlin_run build"
+require_source_text "$kotlin_quality_script" "lomo_kotlin_run test"
+require_source_text "$kotlin_quality_script" "check_meaningful_tests.sh"
+require_source_text "$kotlin_static_script" "lomo_kotlin_run show modules"
+require_source_text "$kotlin_static_script" "lomo_kotlin_run build"
+require_source_text "$kotlin_static_script" "lomo_kotlin_run test"
 
 require_source_text "$meaningful_script" "MEANINGFUL_TEST_CHECK_ALL"
 require_source_text "$meaningful_script" "MEANINGFUL_TEST_CHECK_MODE"
@@ -92,14 +97,12 @@ require_source_text "$quality_readme" "quality/testing-coverage-matrix.md"
 
 require_matrix_text "Default changed-file mode matches touched Kotlin tests in any module"
 require_matrix_text 'All-mode is narrower: it enumerates only `app`, `domain`, `data`, and `ui-components`'
-require_matrix_text 'diff-mode covered when touched; all-mode does not enumerate `buildSrc`'
 require_matrix_text 'diff-mode covered when touched; all-mode does not enumerate `quality/detekt-rules`'
 
 for gate in \
-  "testStyleCheck" \
-  "meaningfulTestCheck" \
-  "staticQualityCheck" \
-  "qualityCheck" \
+  "quality/scripts/kotlin_static_quality_check.sh" \
+  "quality/scripts/kotlin_quality_check.sh" \
+  "quality/scripts/check_meaningful_tests.sh" \
   "MEANINGFUL_TEST_CHECK_ALL" \
   "MEANINGFUL_TEST_CHECK_MODE" \
   "--all" \

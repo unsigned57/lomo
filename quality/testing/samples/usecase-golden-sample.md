@@ -4,8 +4,8 @@ Use this walkthrough when converting a small `domain` use case to Kotest `FunSpe
 
 ## Target
 
-- Production file: `domain/src/main/java/com/lomo/domain/usecase/MemoStatisticsUseCase.kt`
-- Test file: `domain/src/test/java/com/lomo/domain/usecase/MemoStatisticsUseCaseTest.kt`
+- Production file: `domain/src/usecase/MemoStatisticsUseCase.kt`
+- Test file: `domain/test/usecase/MemoStatisticsUseCaseTest.kt`
 - Layer: `domain`
 - Priority: `P0`
 
@@ -68,7 +68,7 @@ class MemoStatisticsUseCaseTest : FunSpec({
 Run the narrowest command:
 
 ```bash
-./gradlew :domain:test --tests 'com.lomo.domain.usecase.MemoStatisticsUseCaseTest'
+./kotlin test --include-module domain --platform jvm
 ```
 
 Expected red symptom:
@@ -99,7 +99,7 @@ for (memo in memos) {
 Re-run the reproducer until it goes green:
 
 ```bash
-./gradlew :domain:test --tests 'com.lomo.domain.usecase.MemoStatisticsUseCaseTest'
+./kotlin test --include-module domain --platform jvm
 ```
 
 ## Refactor

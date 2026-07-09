@@ -1,25 +1,20 @@
 # Quality Tooling
 
-This directory is the repository entrypoint for quality tasks, scripts, and testing policy.
+This directory is the repository entrypoint for Kotlin Toolchain verification,
+quality scripts, and testing policy.
 
 ## Read This When
 
 - choosing the right verification command
-- debugging a red quality gate
+- debugging a red Toolchain quality gate
 - changing quality scripts, Detekt rules, Lint policy, or prompt-policy docs
 - deciding which AI verification path applies to the current change
-
-## Do Not Read This When
-
-- the task is clearly scoped to a feature/module and you already know the relevant code path
-- you are not selecting or debugging a verification command
-- you are only navigating business logic and no quality/build/prompt decision is involved
 
 ## Next Documents
 
 - `testing/ai-meaningful-tests.md`
   - Read only when writing, editing, or reviewing tests.
-- `testing-coverage-matrix.md`
+- `quality/testing-coverage-matrix.md`
   - Read when changing or reviewing test-quality gates, meaningful-test mode coverage, or retained
     source-set exclusions.
 - `scripts/`
@@ -27,261 +22,113 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 - `detekt-rules/`
   - Read rule code directly when modifying architecture checks or custom Detekt behavior.
 
-## Read This For
-
-- choosing the right verification command
-- understanding the staged quality pipeline
-- triaging red `qualityCheck` runs
-- running dependency-update checks
-
 ## Which Command Should I Run?
 
 | Situation | Command |
 | --- | --- |
-| Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
-| AI iteration after `src/main`, Gradle, quality, detekt, workflow, or AGENTS/prompt changes | `quality/scripts/ai_static_quality_check.sh` |
-| AI iteration for pure test/docs changes | `quality/scripts/ai_fast_quality_check.sh` |
-| I want the local AI maintenance report (dependency updates, R8 shrink output) | `quality/scripts/ai_local_maintenance_check.sh` |
-| I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
-| I want JVM tests only | `./gradlew unitTestCheck` |
-| I want BDD+TDD test-style anti-pattern checks only | `./gradlew testStyleCheck` |
-| I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
-| I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
-| I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
-| I changed release-sensitive resources or strings | `./gradlew staticQualityCheck` includes string parity; use `quality/scripts/check_string_resource_parity.sh` for a quick focused check and review `quality/resources-release-checklist.md` |
-| Final handoff or pre-merge gate | `./gradlew qualityCheck` |
+| Validate model, build, Detekt, Lint, shell contracts, tests | `quality/scripts/kotlin_static_quality_check.sh` |
+| Final handoff / pre-merge / pre-commit gate | `quality/scripts/kotlin_quality_check.sh` |
+| Architecture Detekt only | `quality/scripts/kotlin_detekt_check.sh` |
+| Test-style Detekt only | `quality/scripts/kotlin_test_style_check.sh` |
+| Android Lint only | `quality/scripts/kotlin_android_lint_check.sh` |
+| Compose static (compiler metrics + Lint) | `quality/scripts/kotlin_compose_static_analysis.sh` |
+| Coverage only (Kover CLI, min 70%) | `quality/scripts/kotlin_coverage_check.sh` |
+| Format staged/all Kotlin | `quality/scripts/kotlin_detekt_format.sh staged\|all` |
+| Build all modules directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-build && lomo_kotlin_run build` |
+| Run tests directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-test && lomo_kotlin_run test` |
+| Inspect Toolchain modules | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-model && lomo_kotlin_run show modules` |
+| Local dependency and release packaging maintenance | `quality/scripts/ai_local_maintenance_check.sh` |
+| Regenerate static baseline profile | `quality/scripts/generate_static_baseline_profile.py --build-dir <toolchain-build-dir>` |
+| Release resource key parity only | `quality/scripts/check_string_resource_parity.sh` |
 
-AI agents inside the sandbox should normally use:
+There is a **single quality CLI family**: `quality/scripts/kotlin_*.sh`. Gradle entrypoints and
+legacy `ai_quality` / `ai_static` / `ai_fast` / `ai_compose` shims are not part of this repository.
 
-- Iteration for production/build/quality/workflow changes:
-  - `quality/scripts/ai_static_quality_check.sh`
-- Iteration for pure test/docs changes:
-  - `quality/scripts/ai_fast_quality_check.sh`
-- Optional Compose hotspot pass:
-  - `quality/scripts/ai_compose_static_analysis.sh`
-- Release resource key parity:
-  - `quality/scripts/check_string_resource_parity.sh`
-- Final handoff:
-  - `quality/scripts/ai_quality_check.sh`
-    - runs `qualityCheck` only by default
-    - set `LOMO_RUN_LOCAL_MAINTENANCE=true` only when the handoff also needs dependency updates, CVEs, and R8 diagnostics
+## Old Gradle → Toolchain Parity Matrix
 
-Policy notes:
+| Old Gradle task | Toolchain attachment |
+| --- | --- |
+| `compileGateCheck` / module compile | `lomo_kotlin_run build` |
+| `unitTestCheck` | `lomo_kotlin_run test` (host modules; no permanent class excludes) |
+| `architectureCheck` / module `detekt` | `quality/scripts/kotlin_detekt_check.sh` |
+| `testStyleCheck` | `quality/scripts/kotlin_test_style_check.sh` |
+| `detektFormat` / `detektFormatStaged` | `quality/scripts/kotlin_detekt_format.sh` |
+| `androidLintCheck` | `quality/scripts/kotlin_android_lint_check.sh` |
+| `composeStaticAnalysisCheck` | `quality/scripts/kotlin_compose_static_analysis.sh` |
+| `coverageCheck` / `koverVerifyQuality` | `quality/scripts/kotlin_coverage_check.sh` (min 70%) |
+| `meaningfulTestCheck` | `quality/scripts/check_meaningful_tests.sh` |
+| `stringResourceParityCheck` | `quality/scripts/check_string_resource_parity.sh` |
+| `qualityWorkflowContractCheck` | `quality/scripts/test/kotlin_quality_check_contract_test.sh` |
+| `staticQualityCheck` | `quality/scripts/kotlin_static_quality_check.sh` |
+| `qualityCheck` / `fullQualityCheck` | `quality/scripts/kotlin_quality_check.sh` |
+| dependency update / release packaging | `quality/scripts/ai_local_maintenance_check.sh` |
 
-- AGENTS/prompt/doc-policy changes belong on the static AI verification path, not the fast test/docs path.
-- Docs-only work may intentionally skip verification, but the final summary must say so explicitly.
-- Commits are stricter than handoff drafts: before the first commit in a code-change batch, run a full `qualityCheck`.
-- If you split one unchanged, already-verified batch into multiple consecutive commits, use
-  `quality/scripts/verified_batch_commit.sh`. It records the verified final tree, runs intermediate
-  commits with `--no-verify`, and reruns `qualityCheck` after the final commit.
-- If any code changes are made after the successful start check, the batch marker is stale. Abort and
-  restart the verified batch flow so the final tree is checked from the new state.
-
-Execution defaults:
+## Execution Defaults
 
 - Run quality commands from the repository root.
-- If a tool launches Gradle from another working directory, pass `--project-dir "$repo_root"` explicitly.
-- Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/shared-user-home"` so wrapper downloads and caches are reused instead of being recreated under `/tmp` or another ephemeral directory.
-- The AI quality scripts already enforce repo-root execution and repo-local `GRADLE_USER_HOME`; use them when possible.
-- The AI quality scripts also set repo-local `HOME`, `ANDROID_USER_HOME`, and `XDG_*` paths so Kotlin daemon and Android tooling do not fall back to read-only global directories.
-- The AI quality scripts allow Gradle configuration-cache reuse by default; only dynamic staged-formatting uses the explicit no-configuration-cache runner.
-- JVM unit tests default to small fork parallelism. Use `-Plomo.test.maxParallelForks=1` when diagnosing shared-state or timing-sensitive test failures.
-- `ai_fast_quality_check.sh` intentionally exits non-zero when the working tree contains production/build/quality/workflow changes, so AI cannot silently skip detekt-capable verification.
+- Prefer `quality/scripts/kotlin_static_quality_check.sh` and
+  `quality/scripts/kotlin_quality_check.sh` because they set repo-local
+  Toolchain, Android, and internal bridge state.
+- Set `LOMO_KOTLIN_ANDROID_SDK` only when intentionally using another writable
+  SDK location.
+- Release packaging expects `app/keystore.properties` per the Kotlin Toolchain
+  Android signing model.
+
+The Kotlin Toolchain scripts create repo-local tooling state by default:
+
+- `.android-sdk` for Android SDK packages and licenses
+- `.android` for Android user state
+- `.home`, `.cache`, `.config`, and `.local/share` for Toolchain and Android support files
+- `.gradle/kotlin-toolchain` only for the Kotlin Toolchain Android app bridge
+- `.cache/detekt` and `.cache/kover` for CLI fat jars used by quality scripts
+
+Current Kotlin Toolchain Android app packaging delegates part of `android/app`
+preparation through an internal Gradle/AGP bridge. This is a Toolchain
+implementation detail: the repository no longer keeps project Gradle DSL,
+version catalogs, wrapper scripts, or wrapper properties as build entrypoints.
+
+**Layout exception:** `app/src/main/baselineProfiles/` and `app/src/main/baseline-prof.txt`
+remain under an AGP-shaped path for packaging. All product Kotlin sources use Amper roots
+(`src/`, `test/`, `res/`, `composeResources/`).
 
 ## Staged Quality Pipeline
 
-The quality chain is intentionally staged so the first real failure appears earlier:
+`kotlin_quality_check.sh` is the repository build contract:
 
-1. `compileGateCheck`
-2. `unitTestCheck`
-3. `staticQualityCheck`
-4. `qualityCheck`
-
-## Verified Batch Commit Flow
-
-Use this flow when a single unchanged working tree has already been validated and needs to be split
-into several logical commits. It prevents the pre-commit hook from running the full Gradle gate for
-every commit while still preserving a before/after full `qualityCheck`.
-
-```bash
-quality/scripts/verified_batch_commit.sh start
-
-git add -- path/to/first/group
-quality/scripts/verified_batch_commit.sh commit -F /tmp/first-message.txt
-
-git add -- path/to/second/group
-quality/scripts/verified_batch_commit.sh commit -F /tmp/second-message.txt
-
-quality/scripts/verified_batch_commit.sh finish
-```
-
-What the script enforces:
-
-- `start` checks changed test metadata in working-tree mode, runs `qualityCheck`, and records a Git
-  tree snapshot of the entire verified working tree, including untracked non-ignored files.
-- `commit` requires an active batch and staged changes, then runs `git commit --no-verify`.
-- `finish` requires a clean working tree whose HEAD tree exactly matches the snapshot recorded at
-  `start`, checks test metadata across the committed range, reruns `qualityCheck`, and clears the
-  batch marker.
-- `abort` clears the marker when the batch is no longer valid.
-- `status` reports whether the current clean HEAD matches the verified tree.
-
-Do not edit files after `start`. If edits are necessary, run `quality/scripts/verified_batch_commit.sh abort`,
-make the changes, then run `start` again.
-
-Task roles:
-
-- `compileGateCheck`
-  - Runs source compile gates first so Kotlin/Java warning-as-error failures surface early.
-- `unitTestCheck`
-  - Runs JVM unit tests across modules after compile gates pass.
-- `fastQualityCheck`
-  - Default iterative gate: compile gates, meaningful-test metadata, and JVM unit tests.
-- `aiStaticQualityCheck`
-  - AI-oriented static gate via `quality/scripts/ai_static_quality_check.sh`, which runs `staticQualityCheck`.
-- `staticQualityCheck`
-  - Compile gates, architecture checks, BDD+TDD test-style checks, Android Lint, quality workflow contract checks, and meaningful-test metadata without coverage.
-- `fullQualityCheck`
-  - Internal staged full gate that backs `qualityCheck`.
-- `qualityCheck`
-  - Final integrated repository gate.
-- `ai_local_maintenance_check.sh`
-  - Local-only AI maintenance pass.
-  - Captures dependency update suggestions and R8 release shrinker artifacts.
-  - Writes a consolidated summary to `build/reports/ai/local-maintenance/summary.md`.
-- `architectureCheck`
-  - Detekt-based architecture guardrails.
-- `androidLintCheck`
-  - Android Lint for the configured app and library modules.
-- `stringResourceParityCheck`
-  - Verifies Android string resource keys match across shipped `values` and `values-zh-rCN` files.
-- `composeCompilerAnalysisCheck`
-  - Generates Compose compiler metrics and reports for `app` and `ui-components`.
-- `composeStaticAnalysisCheck`
-  - Runs Android Lint plus Compose compiler metrics/reports for AI-readable static hotspot analysis.
-- `meaningfulTestCheck`
-  - Test metadata contract enforcement.
-  - See `quality/testing-coverage-matrix.md` for changed-file versus all-mode source-set coverage.
-- `testStyleCheck`
-  - Detekt-based BDD+TDD test-style guardrails for Kotlin tests.
-  - Fails on repeatable AI failure modes such as per-test Kotest `init`, relaxed MockK, mocked stateful collaborators, direct `Dispatchers.setMain`, forbidden test stacks, and interaction-only tests with no observable assertion.
-  - See `quality/testing-coverage-matrix.md` for current Detekt source-set coverage and retained exclusions.
-- `coverageCheck`
-  - Verifies merged JVM unit-test coverage against the fixed `70%` minimum.
+1. `lomo_kotlin_run show modules`
+2. `lomo_kotlin_run build`
+3. architecture Detekt + test-style Detekt
+4. Android Lint + Compose static analysis
+5. shell contracts (meaningful tests, string parity, quality workflow contract)
+6. `lomo_kotlin_run test`
+7. Kover coverage verification (min 70%)
 
 ## Failure Triage
 
-- Read the first compile, test, Detekt, or Lint failure before investigating later Gradle exceptions.
-- Treat `qualityCheck` as the final integrated gate, not the fastest edit-loop command.
-- Later file-system or test-results errors are often secondary symptoms after an earlier test failure.
-- Environment warnings such as read-only Android metrics or JDK `Unsafe` notices may appear in logs, but they are usually not the root cause of a red build.
+- Read the first compile, test, Detekt, Lint, or Toolchain bridge failure before
+  investigating later exceptions.
+- Android app packaging may mention Gradle in logs while the Toolchain bridge is
+  active. Treat that as internal runner output, not as a project Gradle
+  entrypoint.
+- Environment warnings such as read-only Android metrics or JDK agent warnings
+  may appear in logs, but they are usually not the root cause of a red build.
 
 ## Layout
 
 - `detekt/config/`
   - Shared and per-module Detekt configuration.
 - `detekt-rules/`
-  - Custom Detekt rule module backing architecture guardrails.
+  - Custom Detekt rule module backing architecture guardrails (`layout: maven-like` JVM exception).
 - `scripts/`
   - Repository-level quality scripts used by hooks and AI verification.
 - `testing/`
   - Meaningful-test policy and AI test authoring contracts.
 
-## Compose Static Analysis Outputs
+## Maintenance Gates
 
-- `composeStaticAnalysisCheck` writes Android Lint reports to the existing module `build/reports/lint-results-*` locations.
-- Compose compiler metrics and reports are aggregated under `build/reports/compose-compiler/<module>/`.
-- Use these outputs for static hotspot triage:
-  - lint issues are explicit problems or risky patterns
-  - compiler reports highlight unstable or non-skippable composables that may deserve inspection
-
-## Dependency Updates
-
-- Dependency and plugin versions live in `gradle/libs.versions.toml`.
-- The root build uses `nl.littlerobots.version-catalog-update`.
-- `quality/scripts/ai_local_maintenance_check.sh` runs `versionCatalogUpdate --check` automatically and stores the result in `build/reports/ai/local-maintenance/`.
-- Preferred workflow is command-driven:
-  - `./gradlew versionCatalogUpdate --check`
-  - `./gradlew versionCatalogUpdate`
-  - review the generated diff in `gradle/libs.versions.toml`
-  - rerun `./gradlew qualityCheck`
-- Avoid hand-editing the catalog except for intentional keeps, constraints, or overrides that the update plugin cannot infer.
-- Check for updates without modifying files:
-  - `./gradlew versionCatalogUpdate --check`
-- Review available updates before applying them:
-  - `./gradlew versionCatalogUpdate --interactive`
-  - inspect `gradle/libs.versions.updates.toml`
-  - `./gradlew versionCatalogApplyUpdates`
-- Apply updates directly to the catalog:
-  - `./gradlew versionCatalogUpdate`
-- Reformat the catalog without changing versions:
-  - `./gradlew versionCatalogFormat`
-- After dependency changes, run `./gradlew qualityCheck`.
-
-## Supply-Chain Guardrails
-
-- Gradle dependency verification is enforced by the checked-in `gradle/verification-metadata.xml`.
-- Verification metadata lives in `gradle/verification-metadata.xml`.
-- Refresh metadata intentionally after dependency or plugin changes:
-  - `./gradlew --write-verification-metadata sha256 help`
-- Weekly dependency hygiene and manual dispatch runs live in `.github/workflows/dependency_hygiene.yml`.
-
-## Local AI Maintenance Outputs
-
-- `quality/scripts/ai_local_maintenance_check.sh` writes:
-  - `build/reports/ai/local-maintenance/summary.md`
-  - `build/reports/ai/local-maintenance/version-catalog-update-check.log`
-  - `build/reports/ai/local-maintenance/r8-minify-release.log`
-- The R8 diagnostics step also keeps shrinker artifacts under `app/build/outputs/mapping/release/`, including:
-  - `usage.txt`
-  - `seeds.txt`
-  - `mapping.txt`
-  - `configuration.txt`
-- `quality/scripts/ai_quality_check.sh` skips local maintenance by default.
-- If you need the full repository gate plus the local maintenance pass, set `LOMO_RUN_LOCAL_MAINTENANCE=true` before running `quality/scripts/ai_quality_check.sh`.
-
-## Warning Escalation Matrix
-
-- `compileGateCheck`
-  - Yes for Kotlin and Java compiler warnings.
-  - Root build sets Kotlin `allWarningsAsErrors = true` for compile tasks and Java `-Werror`.
-- `unitTestCheck`
-  - No generic warning promotion.
-  - JVM stderr noise from test/runtime agents is not treated as a build warning channel.
-- `architectureCheck`
-  - Partially.
-  - Detekt findings fail the build because `ignoreFailures = false`, but generic runtime stderr warnings are outside Detekt.
-  - Detekt config validation is enabled, but the repo does not separately promote every Detekt warning string to an error.
-- `androidLintCheck`
-  - Yes for Android Lint issues.
-  - Module `lint { warningsAsErrors = true; abortOnError = true }` upgrades Lint warnings to failures.
-- `meaningfulTestCheck`
-  - No warning concept.
-  - This is a shell contract check that passes or fails by exit code only.
-- `coverageCheck`
-  - No warning promotion.
-  - Kover fails only when verification rules fail, such as `minBound` thresholds.
-- `qualityCheck`
-  - Inherits the behavior above.
-  - Compiler warnings and Lint warnings can already fail the build; runtime/JDK agent warnings cannot.
-
-Examples of warnings that are not promoted by the current pipeline:
-
-- JDK 26 reflective-final-field warnings from MockK/Byte Buddy agents
-- `sun.misc.Unsafe` deprecation warnings from runtime instrumentation
-- Android SDK metrics initialization warnings printed outside compiler/Lint/Detekt issue channels
-
-## Dead-Code Guardrails
-
-- Production Kotlin compile tasks treat warnings as errors, so compiler-detected unreachable code and constant conditions fail the build.
-- `quality/detekt-rules` adds repo-specific dead-code checks for:
-  - duplicate module-local top-level helper declarations
-    - `NoCrossFileDuplicateTopLevel` compares normalized top-level function signatures within one module and reports the second declaration onward.
-    - known limitation: this is still module-scoped, so duplicates split across different Gradle modules remain a blind spot.
-    - current normalization expands imports and common Kotlin built-ins, but full type-alias / semantic equivalence still depends on Detekt full-analysis support.
-  - constant branch conditions in production source
-  - unreachable statements after unconditional control transfer
-  - redundant `else` branches in exhaustive Boolean `when`
-  - unreferenced non-public top-level declarations
-    - `NoUnreferencedTopLevelDeclaration` tracks `private` / `internal` top-level declarations within one module's `src/main`.
-    - public declarations are intentionally out of scope because single-module Detekt cannot prove whole-repository liveness.
+- `quality/scripts/ai_local_maintenance_check.sh` writes a local maintenance
+  report, audits explicit `module.yaml` Maven coordinates against repository
+  metadata, and runs an app release build through Kotlin Toolchain.
+- `quality/scripts/generate_static_baseline_profile.py` regenerates
+  `app/src/main/baselineProfiles/generated.txt` from Toolchain classpath jars
+  after a release or debug app build has produced them.

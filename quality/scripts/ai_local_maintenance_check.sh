@@ -2,24 +2,41 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/ai_gradle_env.sh
-source "$script_dir/ai_gradle_env.sh"
+# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
+source "$script_dir/kotlin_toolchain_env.sh"
 
-lomo_ai_prepare_gradle_env "ai-local-maintenance-check"
+if [ "${1:-}" = "--help" ]; then
+  cat <<'EOF'
+Usage: quality/scripts/ai_local_maintenance_check.sh [kotlin-toolchain-build-args...]
+
+Runs the local maintenance gate:
+- audits explicit module.yaml Maven coordinates against repository metadata
+- builds the app release variant through Kotlin Toolchain
+- regenerates the static baseline profile from the Toolchain build output
+- writes build/reports/ai/local-maintenance/summary.md
+
+Set LOMO_LOCAL_MAINTENANCE_BUILD_DIR to override the release build directory.
+EOF
+  exit 0
+fi
+
+lomo_kotlin_prepare_env "ai-local-maintenance-check"
 
 report_dir="$repo_root/build/reports/ai/local-maintenance"
 summary_file="$report_dir/summary.md"
-version_updates_log="$report_dir/version-catalog-update-check.log"
-r8_log="$report_dir/r8-minify-release.log"
+dependency_log="$report_dir/module-dependency-update-check.log"
+release_log="$report_dir/toolchain-app-release-build.log"
+baseline_log="$report_dir/static-baseline-profile.log"
+release_build_dir="${LOMO_LOCAL_MAINTENANCE_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/local-maintenance-release}"
 
 mkdir -p "$report_dir"
 
-run_gradle_capture() {
+run_capture() {
   local log_file="$1"
   shift
 
   set +e
-  lomo_ai_run_gradle "$@" 2>&1 | tee "$log_file"
+  "$@" 2>&1 | tee "$log_file"
   local status=${PIPESTATUS[0]}
   set -e
   return "$status"
@@ -52,34 +69,126 @@ append_report_section() {
   } >> "$summary_file"
 }
 
-echo "ai-local-maintenance-check: running advisory ./gradlew versionCatalogUpdate --check"
-if run_gradle_capture "$version_updates_log" versionCatalogUpdate --check "$@"; then
-  version_updates_status=0
+metadata_latest_version() {
+  local group="$1"
+  local artifact="$2"
+  local group_path="${group//.//}"
+  local metadata_path="$group_path/$artifact/maven-metadata.xml"
+  local metadata=""
+  local repository
+
+  for repository in \
+    "https://dl.google.com/dl/android/maven2" \
+    "https://repo1.maven.org/maven2" \
+    "https://jitpack.io"
+  do
+    if metadata="$(curl -fsSL --connect-timeout 10 --max-time 20 "$repository/$metadata_path" 2>/dev/null)"; then
+      printf '%s\n' "$metadata" |
+        sed -n 's:.*<release>\(.*\)</release>.*:\1:p; s:.*<latest>\(.*\)</latest>.*:\1:p' |
+        head -n 1
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+list_declared_maven_coordinates() {
+  find "$repo_root" \
+    -path "$repo_root/.git" -prune -o \
+    -path "$repo_root/.gradle" -prune -o \
+    -path "$repo_root/.kotlin" -prune -o \
+    -path "$repo_root/build" -prune -o \
+    -name module.yaml -type f -print |
+    sort |
+    while IFS= read -r module_file; do
+      awk -v module_file="$module_file" '
+        /^[[:space:]]*-[[:space:]]*/ {
+          line = $0
+          sub(/[[:space:]]*#.*/, "", line)
+          sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          if (line ~ /^\/\//) next
+          if (line ~ /^bom:[[:space:]]*/) sub(/^bom:[[:space:]]*/, "", line)
+          split(line, parts, ":")
+          if (length(parts[1]) == 0 || length(parts[2]) == 0 || length(parts[3]) == 0) next
+          if (parts[3] ~ /[[:space:]]/) next
+          if (parts[3] == "runtime-only" || parts[3] == "exported") next
+          if (parts[1] !~ /^[A-Za-z0-9_.-]+$/ || parts[2] !~ /^[A-Za-z0-9_.-]+$/) next
+          print module_file "|" parts[1] "|" parts[2] "|" parts[3]
+        }
+      ' "$module_file"
+    done
+}
+
+audit_dependencies() {
+  {
+    printf '# Module dependency update check\n\n'
+    printf '| Module file | Coordinate | Declared | Repository latest | Status |\n'
+    printf '| --- | --- | --- | --- | --- |\n'
+  } > "$dependency_log"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    {
+      printf '| all | curl | unavailable | unavailable | metadata-check-unavailable |\n'
+    } >> "$dependency_log"
+    return 0
+  fi
+
+  local module_file group artifact declared latest status
+  while IFS='|' read -r module_file group artifact declared; do
+    if latest="$(metadata_latest_version "$group" "$artifact")"; then
+      if [ "$latest" = "$declared" ]; then
+        status="current"
+      else
+        status="review"
+      fi
+    else
+      latest="unresolved"
+      status="metadata-unavailable"
+    fi
+    printf '| `%s` | `%s:%s` | `%s` | `%s` | %s |\n' \
+      "${module_file#$repo_root/}" \
+      "$group" \
+      "$artifact" \
+      "$declared" \
+      "$latest" \
+      "$status" >> "$dependency_log"
+  done < <(list_declared_maven_coordinates)
+}
+
+echo "ai-local-maintenance-check: auditing explicit module.yaml dependency coordinates"
+audit_dependencies
+
+echo "ai-local-maintenance-check: running Kotlin Toolchain app release build"
+if run_capture "$release_log" \
+  lomo_kotlin_run build --module app --platform android --variant release --build-dir="$release_build_dir" "$@"; then
+  release_status=0
 else
-  version_updates_status=$?
+  release_status=$?
 fi
 
-echo "ai-local-maintenance-check: running enforced ./gradlew :app:minifyReleaseWithR8"
-if run_gradle_capture "$r8_log" :app:minifyReleaseWithR8 "$@"; then
-  r8_status=0
+release_artifacts_file="$report_dir/release-artifacts.txt"
+mapping_artifacts_file="$report_dir/release-mapping-artifacts.txt"
+find "$release_build_dir" -type f \( -name '*.apk' -o -name '*.aab' \) 2>/dev/null | sort > "$release_artifacts_file" || true
+find "$release_build_dir" -type f \( -name 'mapping.txt' -o -name 'usage.txt' -o -name 'seeds.txt' -o -name 'configuration.txt' -o -name 'missing_rules.txt' \) 2>/dev/null | sort > "$mapping_artifacts_file" || true
+
+if [ "$release_status" -eq 0 ] && [ ! -s "$release_artifacts_file" ]; then
+  release_status=1
+fi
+
+if [ "$release_status" -eq 0 ]; then
+  echo "ai-local-maintenance-check: regenerating static baseline profile from Toolchain build"
+  if run_capture "$baseline_log" "$script_dir/generate_static_baseline_profile.py" --build-dir "$release_build_dir"; then
+    baseline_status=0
+  else
+    baseline_status=$?
+  fi
 else
-  r8_status=$?
-fi
-
-updates_file="$repo_root/gradle/libs.versions.updates.toml"
-version_updates_artifact="$updates_file"
-r8_usage_file="$repo_root/app/build/outputs/mapping/release/usage.txt"
-r8_seeds_file="$repo_root/app/build/outputs/mapping/release/seeds.txt"
-r8_mapping_file="$repo_root/app/build/outputs/mapping/release/mapping.txt"
-r8_configuration_file="$repo_root/app/build/outputs/mapping/release/configuration.txt"
-r8_missing_rules_file="$repo_root/app/build/outputs/mapping/release/missing_rules.txt"
-
-if [ ! -f "$r8_usage_file" ] || [ ! -f "$r8_seeds_file" ]; then
-  r8_status=1
-fi
-
-if [ ! -f "$version_updates_artifact" ]; then
-  version_updates_artifact="$version_updates_log"
+  {
+    printf 'Skipped because release build failed or produced no APK/AAB artifact.\n'
+  } > "$baseline_log"
+  baseline_status=1
 fi
 
 cat > "$summary_file" <<EOF
@@ -87,20 +196,21 @@ cat > "$summary_file" <<EOF
 
 | Check | Status | Notes |
 | --- | --- | --- |
-| Version catalog update check | $( [ "$version_updates_status" -eq 0 ] && printf 'clean' || printf 'updates-or-review-needed' ) | log: \`$version_updates_log\` |
-| R8 release diagnostics | $( [ "$r8_status" -eq 0 ] && printf 'ready' || printf 'failed-or-incomplete' ) | log: \`$r8_log\` |
+| Module dependency metadata audit | advisory | log: \`$dependency_log\` |
+| Kotlin Toolchain app release build | $( [ "$release_status" -eq 0 ] && printf 'ready' || printf 'failed-or-incomplete' ) | log: \`$release_log\` |
+| Static baseline profile regeneration | $( [ "$baseline_status" -eq 0 ] && printf 'ready' || printf 'failed-or-incomplete' ) | log: \`$baseline_log\` |
 
 EOF
 
-append_report_section "Version catalog updates" "$version_updates_artifact" 80
-append_report_section "R8 usage report" "$r8_usage_file" 120
-append_report_section "R8 seeds report" "$r8_seeds_file" 120
-append_report_section "R8 mapping file" "$r8_mapping_file" 40
-append_report_section "R8 configuration file" "$r8_configuration_file" 40
-append_report_section "R8 missing rules" "$r8_missing_rules_file" 80
+append_report_section "Dependency metadata audit" "$dependency_log" 120
+append_report_section "Release build output" "$release_log" 160
+append_report_section "Release package artifacts" "$release_artifacts_file" 80
+append_report_section "Release mapping artifacts" "$mapping_artifacts_file" 80
+append_report_section "Static baseline profile regeneration" "$baseline_log" 80
+append_report_section "Static baseline profile report" "$repo_root/build/reports/ai/static-baseline-profile/static-baseline-profile-report.txt" 120
 
 cat "$summary_file"
 
-if [ "$r8_status" -ne 0 ]; then
+if [ "$release_status" -ne 0 ] || [ "$baseline_status" -ne 0 ]; then
   exit 1
 fi

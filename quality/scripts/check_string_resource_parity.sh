@@ -9,7 +9,10 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 repo_root = Path(sys.argv[1])
-modules = ("app", "data", "ui-components")
+module_resource_roots = {
+    "app": Path("res"),
+    "ui-components": Path("composeResources"),
+}
 resource_tags = {"string", "plurals", "string-array"}
 
 
@@ -29,9 +32,9 @@ def resource_keys(path):
 failures = []
 checked_modules = []
 
-for module in modules:
-    default_path = repo_root / module / "src/main/res/values/strings.xml"
-    zh_path = repo_root / module / "src/main/res/values-zh-rCN/strings.xml"
+for module, resource_root in module_resource_roots.items():
+    default_path = repo_root / module / resource_root / "values/strings.xml"
+    zh_path = repo_root / module / resource_root / "values-zh-rCN/strings.xml"
 
     if not default_path.exists() and not zh_path.exists():
         continue

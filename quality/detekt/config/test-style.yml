@@ -6,10 +6,10 @@ config:
 lomo-test-style:
   active: true
   excludes:
-    - "**/androidTest/**"
-    - "**/data/src/test/**"
-    - "**/domain/src/test/**"
-    - "**/ui-components/src/test/**"
+    - "**/test@android/**"
+    - "**/data/test/**"
+    - "**/domain/test/**"
+    - "**/ui-components/test/**"
   NoPerTestInitBlock:
     active: true
   ForbiddenTestStackImports:
