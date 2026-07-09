@@ -66,17 +66,22 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 ## Building
 
 ### Prerequisites
-- JDK 25
+- JDK 26
 - Android SDK API 37
 
 ### Common Commands
 
 ```bash
 # Build Debug APK
-./gradlew assembleDebug
+source quality/scripts/kotlin_toolchain_env.sh
+lomo_kotlin_prepare_env readme-build
+lomo_kotlin_run build --module app --platform android --variant debug
 
 # Run Unit Tests
-./gradlew testDebugUnitTest
+lomo_kotlin_run test
+
+# Full pre-merge gate
+quality/scripts/kotlin_quality_check.sh
 ```
 
 ## Setup
@@ -84,7 +89,7 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 1. Download the latest APK from the Releases page.
 2. Or, build manually:
    1. Open the project in Android Studio (Ladybug or newer recommended).
-   2. Sync Gradle.
+   2. Use the Kotlin Toolchain project model.
    3. Build and Run on an Emulator or Device (Min SDK 26).
 4. On first launch, select a local folder to store your memos.
 

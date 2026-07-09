@@ -89,22 +89,24 @@ Verify concrete paths, files, and APIs against the repository before acting. Mod
 
 - Use BDD + TDD for feature work, bug fixes, contract changes, and behavior-affecting test edits.
 - State the behavior contract first: capability, Given/When/Then scenarios, observable outcomes, and exclusions.
-- Write or update the failing test before production code, run the targeted test or `quality/scripts/ai_static_quality_check.sh`, and observe a real RED failure for that behavior.
+- Write or update the failing test before production code, run the targeted test or `quality/scripts/kotlin_static_quality_check.sh`, and observe a real RED failure for that behavior.
 - Implement the first-principles fix needed to reach GREEN, then refactor under GREEN.
 - Kotlin tests must follow `quality/testing/ai-kotlin-test-style.md`: single `FunSpec({ ... })` or single `init { ... }`, fake-first stateful collaborators, and no interaction-only tests without observable behavior.
 
 ## 7. Verification
 
-Run commands from the repository root. Prefer `quality/scripts/` because they set repo-local Gradle and Android homes.
+Run commands from the repository root. Prefer `quality/scripts/` because they set repo-local Kotlin Toolchain, Android, and internal bridge homes.
 
-- **Iterative Check**: `quality/scripts/ai_static_quality_check.sh`
-- **Local Maintenance**: `quality/scripts/ai_local_maintenance_check.sh`
-- **Full Gate**: `quality/scripts/ai_quality_check.sh`
-- **Commit Rule**: Run full `qualityCheck` before committing. For multiple commits from one unchanged tree, use `quality/scripts/verified_batch_commit.sh`.
+- **Iterative Check**: `quality/scripts/kotlin_static_quality_check.sh`
+- **Full Gate**: `quality/scripts/kotlin_quality_check.sh`
+- **Direct Build**: `./kotlin build`
+- **Direct Test**: `./kotlin test`
+- **Commit Rule**: Run `quality/scripts/kotlin_quality_check.sh` before committing.
 
 ## 8. Project Context
 
 - `minSdk` is `26`.
 - i18n changes must update `values` and `values-zh-rCN`.
-- Baseline Profile is release-critical. For performance or startup changes, inspect `app/baseline-rules.txt`, refresh `app/src/main/baselineProfiles/generated.txt` with `:app:generateReleaseStaticBaselineProfile`, and keep `app/src/main/baseline-prof.txt` for manual/high-priority gaps.
+- Product modules use Amper roots (`src/`, `test/`, `res/`) and **omit the common package root on disk**: place `com.lomo.app.feature.main.Foo` at `app/src/feature/main/Foo.kt` (not `app/src/com/lomo/app/...`). Keep full `package com.lomo.*` declarations; do not rename packages for layout.
+- Baseline Profile is release-critical. For performance or startup changes, inspect `app/baseline-rules.txt`, refresh `app/src/main/baselineProfiles/generated.txt` with `quality/scripts/generate_static_baseline_profile.py --build-dir <toolchain-build-dir>`, and keep `app/src/main/baseline-prof.txt` for manual/high-priority gaps. (`app/src/main/baseline*` is the sole intentional AGP-bridge packaging path exception under otherwise Amper-native module layouts.)
 - Assume others may be editing the tree. Do not overwrite unrelated changes.
