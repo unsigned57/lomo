@@ -64,17 +64,22 @@ Lomo 的笔记完全存储在本地，您可以使用任何方式来备份同步
 ## 构建指南
 
 ### 前置要求
-- JDK 25
+- JDK 26
 - Android SDK API 37
 
 ### 常用命令
 
 ```bash
 # 构建 Debug APK
-./gradlew assembleDebug
+source quality/scripts/kotlin_toolchain_env.sh
+lomo_kotlin_prepare_env readme-build
+lomo_kotlin_run build --module app --platform android --variant debug
 
 # 运行单元测试
-./gradlew testDebugUnitTest
+lomo_kotlin_run test
+
+# 完整合并前检查
+quality/scripts/kotlin_quality_check.sh
 ```
 
 ## 安装设置
@@ -82,7 +87,7 @@ Lomo 的笔记完全存储在本地，您可以使用任何方式来备份同步
 1. 直接在 Releases 页面下载最新 APK 安装包。
 2. 或者，手动构建：
    1. 使用 Android Studio (推荐 Ladybug 或更新版本) 打开项目。
-   2. 同步 Gradle。
+   2. 使用 Kotlin Toolchain 项目模型。
    3. 在模拟器或真机上构建并运行 (Min SDK 26)。
 4. 首次启动时，选择一个本地文件夹来存储你的备忘录。
 

@@ -22,6 +22,7 @@ This document is the stable architecture entrypoint for the repository. It descr
 - Owns screens, navigation, ViewModels, settings orchestration, widgets, and app startup behavior.
 - Consumes `domain` contracts and shared UI from `ui-components`.
 - Must not import `com.lomo.data.*`.
+- May package `data` as a runtime-only module for application composition, but must not expose `data` on the app compile surface.
 
 ### `ui-components`
 
