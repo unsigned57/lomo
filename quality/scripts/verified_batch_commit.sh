@@ -2,20 +2,19 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/ai_gradle_env.sh
-source "$script_dir/ai_gradle_env.sh"
 
 usage() {
   cat <<'EOF'
 Usage: quality/scripts/verified_batch_commit.sh <command> [args...]
 
 Commands:
-  start       Run working-tree test metadata checks and qualityCheck, then record
+  start       Run working-tree test metadata checks and Kotlin Toolchain quality,
+              then record
               the verified final tree for a consecutive commit batch.
   commit      Run git commit --no-verify for one staged group in the active batch.
               Pass normal git commit arguments after "commit".
-  finish      Require a clean tree matching the verified snapshot, rerun
-              qualityCheck, and clear the active batch marker.
+  finish      Require a clean tree matching the verified snapshot, rerun the
+              Kotlin Toolchain quality gate, and clear the active batch marker.
   status      Show the active batch marker and whether the current clean HEAD
               matches the verified tree.
   abort       Clear the active batch marker without running checks.
@@ -69,11 +68,8 @@ run_committed_range_test_contract_check() {
 }
 
 run_quality_check() {
-  lomo_ai_prepare_gradle_env "verified-batch-commit"
-  echo "verified-batch-commit: running ./gradlew qualityCheck"
-  echo "verified-batch-commit: using GRADLE_USER_HOME at $ai_gradle_user_home"
-  echo "verified-batch-commit: using HOME at $ai_home"
-  lomo_ai_run_gradle qualityCheck
+  echo "verified-batch-commit: running Kotlin Toolchain quality gate"
+  "$script_dir/kotlin_quality_check.sh"
 }
 
 start_batch() {

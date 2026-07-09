@@ -14,35 +14,33 @@ jobs:
       ANDROID_USER_HOME: ${{ github.workspace }}/.android
       XDG_DATA_HOME: ${{ github.workspace }}/.local/share
       XDG_CONFIG_HOME: ${{ github.workspace }}/.config
-      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/ci
-      GRADLE_OPTS: -Duser.home=${{ github.workspace }}/.home
+      LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
+      KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Cache repo-local Gradle state
+      - name: Cache repo-local Toolchain state
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/.gradle/ci
-          key: quality-gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+            ${{ github.workspace }}/.cache
+            ${{ github.workspace }}/.gradle/kotlin-toolchain
+            ${{ github.workspace }}/.kotlin-cli
+          key: quality-kotlin-toolchain-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml') }}
           restore-keys: |
-            quality-gradle-${{ runner.os }}-
+            quality-kotlin-toolchain-${{ runner.os }}-
 
-      - name: Set up JDK 25
+      - name: Set up JDK 26
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '25'
-          cache: 'gradle'
+          java-version: '26'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
 
       - name: Ensure diff base refs exist
         run: |
@@ -53,11 +51,12 @@ jobs:
 
       - name: Run repository quality gate
         run: |
-          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
+          export LOMO_KOTLIN_ANDROID_SDK="$ANDROID_HOME"
           if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
             export MEANINGFUL_TEST_DIFF_BASE="$(git merge-base HEAD origin/main)"
           fi
-          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --build-cache --console=plain qualityCheck
+          quality/scripts/kotlin_quality_check.sh --build-dir=.kotlin/toolchain-build/ci-quality
 
       - name: Upload quality reports
         if: failure()

@@ -4,7 +4,7 @@ set -euo pipefail
 # Behavior Contract
 # Capability: validate Android default and zh-rCN string resource key parity for release resources.
 # Scenarios:
-# - Given app, data, and ui-components resource pairs contain the same string/plural/string-array keys,
+# - Given app and ui-components resource pairs contain the same string/plural/string-array keys,
 #   When the resource parity check runs, Then it exits successfully and reports checked modules.
 # - Given a zh-rCN strings.xml omits a key present in the default values strings.xml,
 #   When the resource parity check runs, Then it fails with the module path and missing key.
@@ -17,11 +17,12 @@ script_path="$repo_root/quality/scripts/check_string_resource_parity.sh"
 
 write_strings_pair() {
   local module_dir="$1"
-  local zh_mode="$2"
+  local resource_root="$2"
+  local zh_mode="$3"
 
-  mkdir -p "$module_dir/src/main/res/values" "$module_dir/src/main/res/values-zh-rCN"
+  mkdir -p "$module_dir/$resource_root/values" "$module_dir/$resource_root/values-zh-rCN"
 
-  cat > "$module_dir/src/main/res/values/strings.xml" <<'XML'
+  cat > "$module_dir/$resource_root/values/strings.xml" <<'XML'
 <resources>
     <string name="app_name">Lomo</string>
     <string name="release_permission_hint">Permission required</string>
@@ -36,7 +37,7 @@ write_strings_pair() {
 XML
 
   if [ "$zh_mode" = "complete" ]; then
-    cat > "$module_dir/src/main/res/values-zh-rCN/strings.xml" <<'XML'
+    cat > "$module_dir/$resource_root/values-zh-rCN/strings.xml" <<'XML'
 <resources>
     <string name="app_name">Lomo</string>
     <string name="release_permission_hint">需要权限</string>
@@ -50,7 +51,7 @@ XML
 </resources>
 XML
   else
-    cat > "$module_dir/src/main/res/values-zh-rCN/strings.xml" <<'XML'
+    cat > "$module_dir/$resource_root/values-zh-rCN/strings.xml" <<'XML'
 <resources>
     <string name="app_name">Lomo</string>
     <plurals name="memo_count">
@@ -74,9 +75,8 @@ create_fixture_repo() {
   git -C "$repo_dir" config user.name "Fixture Runner"
   git -C "$repo_dir" config user.email "fixture@example.com"
 
-  write_strings_pair "$repo_dir/app" "$zh_mode"
-  write_strings_pair "$repo_dir/data" "complete"
-  write_strings_pair "$repo_dir/ui-components" "complete"
+  write_strings_pair "$repo_dir/app" "res" "$zh_mode"
+  write_strings_pair "$repo_dir/ui-components" "composeResources" "complete"
 
   git -C "$repo_dir" add -A
   git -C "$repo_dir" commit -qm "fixture"

@@ -13,7 +13,7 @@ Use this guide after reading `quality/testing/ai-meaningful-tests.md`. It narrow
 - `kotlinx-coroutines-test`
 - `app.cash.turbine`
 
-`src/test` files should use Kotest `FunSpec` by default. JUnit Vintage was never adopted; the migration to Kotest is complete and JUnit4 dependencies are removed. Do not introduce new JUnit4 tests, direct JUnit5 APIs, Mockito, Strikt, AssertK, Kotlin Power-Assert, or alternate runners.
+`test` files should use Kotest `FunSpec` by default. JUnit Vintage was never adopted; the migration to Kotest is complete and JUnit4 dependencies are removed. Do not introduce new JUnit4 tests, direct JUnit5 APIs, Mockito, Strikt, AssertK, Kotlin Power-Assert, or alternate runners.
 
 ## Spec Form
 
@@ -88,7 +88,7 @@ Avoid `mockk(relaxed = true)`. A relaxed mock hides missing behavior and often t
 
 ## Coroutine Scaffolding
 
-Use the shared Kotest extension in `app/src/test/java/com/lomo/app/testing/MainDispatcherExtension.kt` instead of repeating `Dispatchers.setMain` / `resetMain` in each file.
+Use the shared Kotest extension in `app/test/testing/MainDispatcherExtension.kt` instead of repeating `Dispatchers.setMain` / `resetMain` in each file.
 
 ```kotlin
 @OptIn(ExperimentalCoroutinesApi::class)

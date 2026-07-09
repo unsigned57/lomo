@@ -21,7 +21,7 @@ set -euo pipefail
 # - Fails before restoring the metadata checks because both start and finish calls are commented out.
 #
 # Excludes:
-# - Real Gradle quality execution, real git commits in the repository, and hook installation.
+# - Real Kotlin Toolchain quality execution, real git commits in the repository, and hook installation.
 
 repo_root="$(git rev-parse --show-toplevel)"
 script="$repo_root/quality/scripts/verified_batch_commit.sh"

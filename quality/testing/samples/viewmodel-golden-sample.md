@@ -4,8 +4,8 @@ Use this walkthrough when converting an `app` ViewModel test to Kotest `FunSpec`
 
 ## Target
 
-- Production file: `app/src/main/java/com/lomo/app/feature/statistics/StatisticsViewModel.kt`
-- Test file: `app/src/test/java/com/lomo/app/feature/statistics/StatisticsViewModelTest.kt`
+- Production file: `app/src/feature/statistics/StatisticsViewModel.kt`
+- Test file: `app/test/feature/statistics/StatisticsViewModelTest.kt`
 - Layer: `app`
 - Priority: `P1`
 
@@ -93,7 +93,7 @@ class StatisticsViewModelTest : FunSpec({
 Run the narrowest command:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.lomo.app.feature.statistics.StatisticsViewModelTest'
+./kotlin test --include-module app --platform android
 ```
 
 Expected red symptom:
@@ -129,7 +129,7 @@ fun shareStatisticsImage(pngBytes: ByteArray) {
 Re-run the reproducer:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests 'com.lomo.app.feature.statistics.StatisticsViewModelTest'
+./kotlin test --include-module app --platform android
 ```
 
 ## Refactor

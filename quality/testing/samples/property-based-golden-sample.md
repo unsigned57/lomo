@@ -6,8 +6,8 @@ scenario matrix.
 
 ## Target
 
-- Production file: `domain/src/main/java/com/lomo/domain/model/StorageFilenameFormats.kt`
-- Test file: `domain/src/test/java/com/lomo/domain/model/StorageFilenameFormatsPropertyTest.kt`
+- Production file: `domain/src/model/StorageFilenameFormats.kt`
+- Test file: `domain/test/model/StorageFilenameFormatsPropertyTest.kt`
 - Layer: `domain`
 - Priority: `P2`
 
@@ -81,7 +81,7 @@ class StorageFilenameFormatsPropertyTest : FunSpec({
 Run the narrowest command:
 
 ```bash
-./gradlew :domain:test --tests 'com.lomo.domain.model.StorageFilenameFormatsPropertyTest'
+./kotlin test --include-module domain --platform jvm
 ```
 
 Expected red symptom (when the production bug exists):
