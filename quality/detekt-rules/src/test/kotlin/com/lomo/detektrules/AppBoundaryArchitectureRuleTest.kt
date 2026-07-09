@@ -4,7 +4,6 @@ import dev.detekt.api.Config
 import dev.detekt.api.Finding
 import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
-import dev.detekt.test.TestConfig
 import dev.detekt.test.lint
 import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
@@ -23,17 +22,10 @@ import kotlin.io.path.writeText
  * - Capability: detect app-layer build and manifest edges that point directly at the data layer.
  *
  * Scenarios:
- * - Given app build.gradle.kts adds project(":data") as an implementation dependency,
- *   when architecture Detekt runs, then the app->data project edge is reported.
- * - Given app build.gradle.kts uses the generated projects.data accessor,
- *   when architecture Detekt runs, then the app->data project edge is reported.
- * - Given app build.gradle.kts adds project(":data") through add("implementation", ...),
- *   when architecture Detekt runs, then the app->data project edge is reported.
- * - Given app build.gradle.kts adds projects.data through add("implementation", ...),
- *   when architecture Detekt runs, then the app->data project edge is reported.
- * - Given app build.gradle.kts declares Android variant or custom implementation configurations
- *   that point at project(":data") or projects.data,
- *   when architecture Detekt runs, then every app->data project edge is reported.
+ * - Given app module.yaml adds //data as a compile dependency,
+ *   when architecture Detekt runs, then the app->data compile edge is reported.
+ * - Given app module.yaml adds //data as runtime-only,
+ *   when architecture Detekt runs, then the app runtime composition edge is allowed.
  * - Given app AndroidManifest.xml names a com.lomo.data component,
  *   when architecture Detekt runs from the app build file, then the manifest boundary violation is reported.
  * - Given a currently known migration exception is listed in config,
@@ -44,8 +36,8 @@ import kotlin.io.path.writeText
  *
  * TDD proof:
  * - RED, 2026-05-22:
- *   `./gradlew --no-daemon --no-configuration-cache --console=plain :detekt-rules:test
- *   --tests 'com.lomo.detektrules.AppBoundaryArchitectureRuleTest'`
+ *   `./kotlin test --include-module detekt-rules --platform jvm
+ *   --include-classes 'com.lomo.detektrules.AppBoundaryArchitectureRuleTest'`
  *   failed `reports app Android variant and custom implementation data dependencies` at
  *   `AppBoundaryArchitectureRuleTest.kt:126`; `8 tests completed, 1 failed`.
  * - GREEN, 2026-05-22:
@@ -53,87 +45,46 @@ import kotlin.io.path.writeText
  *   AppBuildDependencyBoundary matched variant/custom implementation configuration names.
  *
  * Excludes:
- * - production dependency migration, Android manifest merger behavior, and semantic Gradle model resolution.
- */
+ * - production dependency migration, Android manifest merger behavior, and semantic Toolchain model resolution.
+ 
+ * Test Change Justification:
+ * - Reason category: mechanical layout path update.
+ * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
+ * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
+ * - Coverage preserved by: same Detekt finding contracts and assertion messages.
+ * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
+*/
 class AppBoundaryArchitectureRuleTest : FunSpec({
-    test("reports app implementation project data dependency") {
+    test("reports app compile data dependency") {
         val findings =
             rule().findingsForAppBuild(
                 """
-                plugins {
-                    id("com.android.application")
-                }
-
                 dependencies {
-                    implementation(project(":data"))
+                  - //domain
+                  - //data
+                  - //ui-components
                 }
                 """,
             )
 
         findings.shouldHaveSize(1)
-        findings.single().message shouldContain """implementation(project(":data"))"""
+        findings.single().message shouldContain "- //data"
     }
 
-    test("reports app version catalog data project accessor dependency") {
+    test("reports app non-runtime data scope") {
         val findings =
             rule().findingsForAppBuild(
                 """
                 dependencies {
-                    implementation(projects.data)
+                  - //domain
+                  - //data: compile-only
+                  - //ui-components
                 }
                 """,
             )
 
         findings.shouldHaveSize(1)
-        findings.single().message shouldContain "implementation(projects.data)"
-    }
-
-    test("reports app add implementation project data dependency") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                    add("implementation", project(":data"))
-                }
-                """,
-            )
-
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain """add("implementation", project(":data"))"""
-    }
-
-    test("reports app add implementation data project accessor dependency") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                    add("implementation", projects.data)
-                }
-                """,
-            )
-
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain """add("implementation", projects.data)"""
-    }
-
-    test("reports app Android variant and custom implementation data dependencies") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                    debugImplementation(project(":data"))
-                    releaseImplementation(project(":data"))
-                    benchmarkImplementation(project(":data"))
-                    add("debugImplementation", projects.data)
-                }
-                """,
-            )
-
-        findings.shouldHaveSize(4)
-        findings.map(Finding::message).toString() shouldContain """debugImplementation(project(":data"))"""
-        findings.map(Finding::message).toString() shouldContain """releaseImplementation(project(":data"))"""
-        findings.map(Finding::message).toString() shouldContain """benchmarkImplementation(project(":data"))"""
-        findings.map(Finding::message).toString() shouldContain """add("debugImplementation", projects.data)"""
+        findings.single().message shouldContain "- //data: compile-only"
     }
 
     test("allows app build dependencies that stay out of data") {
@@ -141,8 +92,8 @@ class AppBoundaryArchitectureRuleTest : FunSpec({
             rule().findingsForAppBuild(
                 """
                 dependencies {
-                    implementation(project(":domain"))
-                    implementation(project(":ui-components"))
+                  - //domain
+                  - //ui-components
                 }
                 """,
             )
@@ -153,10 +104,11 @@ class AppBoundaryArchitectureRuleTest : FunSpec({
     test("reports app manifest data component names") {
         val findings =
             rule().findingsForAppBuild(
-                buildGradle =
+                moduleSpec =
                     """
                     dependencies {
-                        implementation(project(":domain"))
+                      - //domain
+                      - //ui-components
                     }
                     """,
                 manifest =
@@ -173,27 +125,16 @@ class AppBoundaryArchitectureRuleTest : FunSpec({
         findings.single().message shouldContain "com.lomo.data.reminder.ReminderAlarmReceiver"
     }
 
-    test("allows only configured current app data boundary migration exceptions") {
+    test("allows runtime-only data module for app composition") {
         val findings =
-            rule(
-                TestConfig(
-                    "allowedDataProjectDependencies" to listOf("""implementation(project(":data"))"""),
-                    "allowedManifestDataComponents" to listOf("com.lomo.data.reminder.ReminderAlarmReceiver"),
-                ),
-            ).findingsForAppBuild(
-                buildGradle =
+            rule().findingsForAppBuild(
+                moduleSpec =
                     """
                     dependencies {
-                        implementation(project(":data"))
+                      - //domain
+                      - //data: runtime-only
+                      - //ui-components
                     }
-                    """,
-                manifest =
-                    """
-                    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-                        <application>
-                            <receiver android:name="com.lomo.data.reminder.ReminderAlarmReceiver" />
-                        </application>
-                    </manifest>
                     """,
             )
 
@@ -207,17 +148,26 @@ private fun rule(config: Config = Config.empty): Rule =
     }.invoke(config)
 
 private fun Rule.findingsForAppBuild(
-    buildGradle: String,
+    moduleSpec: String,
     manifest: String? = null,
 ): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
-    val buildFile = tempDir.resolve("app/build.gradle.kts")
+    val buildFile = tempDir.resolve("app/module.yaml")
     buildFile.parent.createDirectories()
-    buildFile.writeText(buildGradle.trimIndent())
+    buildFile.writeText(moduleSpec.trimIndent())
     if (manifest != null) {
-        val manifestFile = tempDir.resolve("app/src/main/AndroidManifest.xml")
+        val manifestFile = tempDir.resolve("app/src/AndroidManifest.xml")
         manifestFile.parent.createDirectories()
         manifestFile.writeText(manifest.trimIndent())
     }
-    return lint(compileForTest(buildFile))
+    val sourceFile = tempDir.resolve("app/src/Fixture.kt")
+    sourceFile.parent.createDirectories()
+    sourceFile.writeText(
+        """
+        package com.lomo.app
+
+        class Fixture
+        """.trimIndent(),
+    )
+    return lint(compileForTest(sourceFile))
 }

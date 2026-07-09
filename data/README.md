@@ -21,13 +21,13 @@ This module implements domain contracts and owns persistence, sync, background e
 
 ## Start Here
 
-- `src/main/java/com/lomo/data/di/DataModule.kt`
+- `src/di/DataModule.kt`
   - DI root for Room, data sources, repository bindings, and integration dependencies.
-- `src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt`
+- `src/repository/MemoRepositoryImpl.kt`
   - Facade only. Useful for discovering the public memo surface, but not the place where most behavior lives.
-- `src/main/java/com/lomo/data/git/GitSyncEngine.kt`
+- `src/git/GitSyncEngine.kt`
   - Serialized Git sync workflow, state publication, conflict recovery, and command-phase transitions.
-- `src/main/java/com/lomo/data/local/MemoDatabase.kt`
+- `src/local/MemoDatabase.kt`
   - Room schema root and DAO registry.
 
 ## Key Subdirectories

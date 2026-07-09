@@ -153,10 +153,10 @@ private fun rule(config: Config = Config.empty): Rule =
     }.invoke(config)
 
 private fun Rule.findingsForTestSource(code: String): List<dev.detekt.api.Finding> =
-    findingsAt("src/test/java/com/lomo/sample/FixtureTest.kt", code)
+    findingsAt("test/sample/FixtureTest.kt", code)
 
 private fun Rule.findingsForProductionSource(code: String): List<dev.detekt.api.Finding> =
-    findingsAt("src/main/java/com/lomo/sample/Fixture.kt", code)
+    findingsAt("src/sample/Fixture.kt", code)
 
 private fun Rule.findingsAt(relativePath: String, code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")

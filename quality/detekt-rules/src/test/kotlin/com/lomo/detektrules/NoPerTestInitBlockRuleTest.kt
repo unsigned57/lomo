@@ -142,7 +142,7 @@ private fun rule(
 
 private fun Rule.findingsForTestSource(code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
-    val file = tempDir.resolve("src/test/java/com/lomo/sample/FixtureTest.kt")
+    val file = tempDir.resolve("test/sample/FixtureTest.kt")
     file.parent.createDirectories()
     file.writeText(code.trimIndent())
     return lint(compileForTest(file))

@@ -49,7 +49,7 @@ import kotlin.io.path.writeText
  * - Fails before the fix because the rule is not registered and the type-check assertion returns no finding.
  *
  * Excludes:
- * - full Gradle detekt task integration and Kotlin type resolution.
+ * - full Toolchain static-analysis integration and Kotlin type resolution.
  */
 class ShouldBeInstanceOfAssertionRuleTest : FunSpec({
     test("registers the shouldBeInstanceOf assertion guard") {
@@ -105,7 +105,7 @@ private fun rule(
 
 private fun Rule.findingsForTestSource(code: String): List<dev.detekt.api.Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
-    val file = tempDir.resolve("src/test/java/com/lomo/sample/FixtureTest.kt")
+    val file = tempDir.resolve("test/sample/FixtureTest.kt")
     file.parent.createDirectories()
     file.writeText(code.trimIndent())
     return lint(compileForTest(file))

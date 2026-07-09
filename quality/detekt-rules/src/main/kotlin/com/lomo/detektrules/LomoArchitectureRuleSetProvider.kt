@@ -85,8 +85,8 @@ private class AppSourceBoundaryRule(
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
-        val isAppSource = "/app/src/main/java/" in path
-        val isUiSource = "/ui-components/src/main/java/" in path
+        val isAppSource = "/app/src/" in path
+        val isUiSource = "/ui-components/src/" in path
         if (!isAppSource && !isUiSource) return
 
         val forbidden =
@@ -107,56 +107,34 @@ private class AppSourceBoundaryRule(
 
 private class AppBuildDependencyBoundaryRule(
     config: Config,
-) : LomoBaseRule(config, "app build and manifest must not declare direct data-layer edges.") {
-    private val allowedDataProjectDependencies =
-        config.valueOrDefault("allowedDataProjectDependencies", emptyList<String>())
-            .map(::normalizeDependencyText)
-            .toSet()
+) : LomoBaseRule(config, "app module and manifest must not declare compile-time data-layer edges.") {
     private val allowedManifestDataComponents =
         config.valueOrDefault("allowedManifestDataComponents", emptyList<String>())
             .toSet()
-    private val dependencyConfigurationNamePattern =
-        """
-        (?:
-            api|implementation|compileOnly|runtimeOnly|ksp|
-            annotationProcessor|kapt|lintChecks|coreLibraryDesugaring|
-            [A-Za-z_]\w*(?:Implementation|Api|CompileOnly|RuntimeOnly|Ksp)
-        )
-        """.trimIndent().replace(Regex("""\s+"""), "")
-    private val forbiddenDependencyPatterns =
-        listOf(
-            Regex(
-                """(?s)\b$dependencyConfigurationNamePattern\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"]\s*\)\s*\)""",
-            ),
-            Regex(
-                """(?s)\b$dependencyConfigurationNamePattern\s*\(\s*projects\.data\s*\)""",
-            ),
-            Regex(
-                """(?s)\badd\s*\(\s*['"]$dependencyConfigurationNamePattern['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"]\s*\)\s*\)""",
-            ),
-            Regex(
-                """(?s)\badd\s*\(\s*['"]$dependencyConfigurationNamePattern['"]\s*,\s*projects\.data\s*\)""",
-            ),
-        )
+    private val checkedModuleFiles = mutableSetOf<String>()
+    private val dataDependencyPattern = Regex("""(?m)^\s*-\s*//data(?::\s*([A-Za-z-]+))?\s*$""")
     private val manifestDataComponentPattern =
         Regex("""android:name\s*=\s*["'](com\.lomo\.data\.[^"']+)["']""")
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
-        if (!path.endsWith("/app/build.gradle.kts")) return
+        if (!path.contains("/app/src/") && !path.contains("/app/test/")) return
+        val moduleFile = appModuleFile(path) ?: return
+        if (!checkedModuleFiles.add(moduleFile.toString())) return
 
-        forbiddenDependencyPatterns
-            .flatMap { pattern -> pattern.findAll(file.text).map { match -> match.value } }
-            .filterNot { dependency -> normalizeDependencyText(dependency) in allowedDataProjectDependencies }
+        val moduleText = Files.readString(moduleFile)
+        dataDependencyPattern
+            .findAll(moduleText)
+            .filterNot { dependency -> dependency.groupValues.getOrNull(1) == "runtime-only" }
             .forEach { dependency ->
                 reportFile(
                     file,
-                    "app/build.gradle.kts must not declare a direct data project dependency: ${dependency.compact()}",
+                    "app/module.yaml must keep //data runtime-only; compile data dependency found: ${dependency.value.trim()}",
                 )
             }
 
-        appManifestDataComponents(path)
+        appManifestDataComponents(moduleFile)
             .filterNot { component -> component in allowedManifestDataComponents }
             .forEach { component ->
                 reportFile(
@@ -166,34 +144,23 @@ private class AppBuildDependencyBoundaryRule(
             }
     }
 
-    private fun appManifestDataComponents(buildFilePath: String): List<String> {
-        val appRoot = buildFilePath.substringBeforeLast("/build.gradle.kts", missingDelimiterValue = "")
-        if (appRoot.isBlank()) return emptyList()
-        val manifestPath = Path.of(appRoot, "src", "main", "AndroidManifest.xml")
+    private fun appModuleFile(sourceFilePath: String): Path? {
+        val appRoot = sourceFilePath.substringBefore("/app/", missingDelimiterValue = "") + "/app"
+        if (appRoot == "/app") return null
+        val moduleFile = Path.of(appRoot, "module.yaml")
+        return moduleFile.takeIf(Files::isRegularFile)
+    }
+
+    private fun appManifestDataComponents(moduleFile: Path): List<String> {
+        val appRoot = moduleFile.parent ?: return emptyList()
+        val manifestPath = appRoot.resolve(Path.of("src", "AndroidManifest.xml"))
         if (!Files.isRegularFile(manifestPath)) return emptyList()
         return manifestDataComponentPattern
             .findAll(Files.readString(manifestPath))
             .map { match -> match.groupValues[1] }
             .toList()
     }
-
-    private fun normalizeDependencyText(value: String): String = value.compact().replace('\'', '"')
-
-    private fun String.compact(): String =
-        lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .joinToString(separator = " ")
-            .replace(Regex("""\s+"""), "")
-            .replace(",", ", ")
-            .replace("( ", "(")
-            .replace(" )", ")")
-            .replace("project( ", "project(")
-            .replace(" )", ")")
-            .replace("add( ", "add(")
-            .replace(", ", ", ")
-            .trim()
-    }
+}
 
 private class DomainLayerIsolationRule(
     config: Config,
@@ -213,7 +180,7 @@ private class DomainLayerIsolationRule(
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
-        if (!file.path().contains("/domain/src/main/java/")) return
+        if (!file.path().contains("/domain/src/")) return
 
         val forbidden =
             file.importPaths().firstOrNull { candidate -> forbiddenPrefixes.any(candidate::startsWith) }
@@ -232,8 +199,9 @@ private class DomainPackageShapeRule(
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
-        val root = "/domain/src/main/java/com/lomo/domain/"
-        if (!path.contains(root)) return
+        // Kotlin-style layout omits common root package: domain/src/{model,repository,usecase}/...
+        val root = "/domain/src/"
+        if (!path.contains(root) || path.contains("/domain/test/")) return
 
         val relativePath = path.substringAfter(root)
         val topLevelPackage = relativePath.substringBefore('/')
@@ -260,7 +228,7 @@ private class ViewModelBoundaryRule(
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         val file = classOrObject.containingKtFile
-        if (!file.path().contains("/app/src/main/java/")) return
+        if (!file.path().contains("/app/src/")) return
         if (!classOrObject.name.orEmpty().endsWith("ViewModel")) return
 
         val imports = file.importPaths()
@@ -318,7 +286,7 @@ private class UseCaseLocationRule(
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("UseCase")) return
         val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/domain/src/main/java/com/lomo/domain/usecase/")) {
+        if (!path.contains("/domain/src/usecase/")) {
             reportDeclaration(classOrObject, "UseCase declarations must live under domain/usecase.")
         }
     }
@@ -331,7 +299,7 @@ private class RepositoryImplLocationRule(
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("RepositoryImpl")) return
         val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/data/src/main/java/com/lomo/data/repository/")) {
+        if (!path.contains("/data/src/repository/")) {
             reportDeclaration(classOrObject, "RepositoryImpl declarations must live under data/repository.")
         }
     }
@@ -344,7 +312,7 @@ private class DaoLocationRule(
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("Dao")) return
         val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/data/src/main/java/com/lomo/data/local/dao/")) {
+        if (!path.contains("/data/src/local/dao/")) {
             reportDeclaration(classOrObject, "Dao declarations must live under data/local/dao.")
         }
     }
@@ -357,7 +325,7 @@ private class EntityLocationRule(
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("Entity")) return
         val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/data/src/main/java/com/lomo/data/local/entity/")) {
+        if (!path.contains("/data/src/local/entity/")) {
             reportDeclaration(classOrObject, "Entity declarations must live under data/local/entity.")
         }
     }
@@ -369,7 +337,7 @@ private class ComposableLayerRule(
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
-        if (!path.contains("/domain/src/main/java/") && !path.contains("/data/src/main/java/")) return
+        if (!path.contains("/domain/src/") && !path.contains("/data/src/")) return
         if ("@Composable" in file.text) {
             reportFile(file, "@Composable is only allowed in app and ui-components.")
         }
@@ -384,7 +352,7 @@ private class DataRepositoryContractRule(
         val name = classOrObject.name.orEmpty()
         val file = classOrObject.containingKtFile
         if (!name.endsWith("RepositoryImpl")) return
-        if (!file.path().contains("/data/src/main/java/com/lomo/data/repository/")) return
+        if (!file.path().contains("/data/src/repository/")) return
 
         val importedDomainRepositories =
             file.importPaths()
@@ -411,7 +379,7 @@ private class DataLayerUiDependencyRule(
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
-        if (!file.path().contains("/data/src/main/java/")) return
+        if (!file.path().contains("/data/src/")) return
 
         val forbiddenImport =
             file.importPaths().firstOrNull { candidate -> forbiddenPrefixes.any(candidate::startsWith) }
@@ -439,11 +407,11 @@ private class P0HotspotRepositoryBoundaryRule(
 ) : LomoBaseRule(config, "P0 hotspot files must not import domain repositories directly.") {
     private val hotspotSuffixes =
         setOf(
-            "/app/src/main/java/com/lomo/app/feature/settings/SettingsGitCoordinator.kt",
-            "/app/src/main/java/com/lomo/app/feature/settings/SettingsWebDavCoordinator.kt",
-            "/app/src/main/java/com/lomo/app/feature/main/MainStartupCoordinator.kt",
-            "/app/src/main/java/com/lomo/app/feature/main/MainVersionHistoryCoordinator.kt",
-            "/app/src/main/java/com/lomo/app/feature/memo/MemoEditorViewModel.kt",
+            "/app/src/feature/settings/SettingsGitCoordinator.kt",
+            "/app/src/feature/settings/SettingsWebDavCoordinator.kt",
+            "/app/src/feature/main/MainStartupCoordinator.kt",
+            "/app/src/feature/main/MainVersionHistoryCoordinator.kt",
+            "/app/src/feature/memo/MemoEditorViewModel.kt",
         )
 
     override fun visitKtFile(file: KtFile) {
@@ -472,7 +440,7 @@ private class UiComponentsLayerBoundaryRule(
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
-        if (!file.path().contains("/ui-components/src/main/java/")) return
+        if (!file.path().contains("/ui-components/src/")) return
 
         val forbidden =
             file.importPaths().firstOrNull { candidate -> forbiddenPrefixes.any(candidate::startsWith) }
@@ -519,7 +487,7 @@ private class UiComponentDesignTokenUsageRule(
     }
 
     private fun KtFile.isUiComponentProductionSource(): Boolean =
-        isProductionSource() && path().contains("/ui-components/src/main/java/com/lomo/ui/component/")
+        isProductionSource() && path().contains("/ui-components/src/component/")
 
     private fun KtFile.isComponentTokenFile(tokenFileSuffixes: List<String>): Boolean =
         tokenFileSuffixes.any { suffix -> path().endsWith(suffix) }
@@ -552,7 +520,7 @@ private class NoSourceSuppressionsRule(
     override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
-        if (!file.path().contains("/src/main/")) return
+        if (!file.path().contains("/src/")) return
         if (file.isPathExcluded()) return
 
         val shortName = annotationEntry.shortName?.asString()

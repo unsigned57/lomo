@@ -9,7 +9,7 @@ internal class MockedStatefulCollaboratorRule(
     config: Config,
 ) : LomoBaseRule(
     config,
-    "MockK is forbidden for stateful collaborators (Dao / Repository / DataSource). Prefer hand-written Fake* under app/src/test/.../testing/fakes/.",
+    "MockK is forbidden for stateful collaborators (Dao / Repository / DataSource). Prefer hand-written Fake* under app/test/.../testing/fakes/.",
 ) {
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
@@ -25,7 +25,7 @@ internal class MockedStatefulCollaboratorRule(
         reportElement(
             expression,
             "Stateful collaborator '$simpleName' must be a hand-written Fake*, not a mockk(). " +
-                "See quality/testing/ai-kotlin-test-style.md (Prefer Fake* Collaborators) and app/src/test/java/com/lomo/app/testing/fakes/.",
+                "See quality/testing/ai-kotlin-test-style.md (Prefer Fake* Collaborators) and app/test/testing/fakes/.",
         )
     }
 

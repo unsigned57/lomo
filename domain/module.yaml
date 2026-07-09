@@ -1,0 +1,35 @@
+product:
+  type: kmp/lib
+  platforms: [ jvm, android ]
+
+aliases:
+  - jvmAndAndroid: [ jvm, android ]
+
+settings:
+  junit: junit-5
+  jvm:
+    release: 25
+    jdk:
+      version: 26
+      selectionMode: javaHome
+  kotlin:
+    allWarningsAsErrors: true
+    freeCompilerArgs:
+      - -Xannotation-default-target=param-property
+    serialization:
+      enabled: true
+      version: 1.11.0
+
+dependencies@jvmAndAndroid:
+  - androidx.paging:paging-common:3.5.0
+  - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0
+  - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
+
+test-dependencies@jvmAndAndroid:
+  - io.kotest:kotest-runner-junit5:6.1.11
+  - io.kotest:kotest-assertions-core:6.1.11
+  - io.kotest:kotest-property:6.1.11
+  - io.kotest:kotest-framework-engine:6.1.11
+  - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0
+  - io.mockk:mockk:1.14.9
+  - app.cash.turbine:turbine:1.2.1

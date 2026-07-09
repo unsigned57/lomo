@@ -21,11 +21,11 @@ This module owns app-level UI orchestration. It wires screens, navigation, ViewM
 
 ## Start Here
 
-- `src/main/java/com/lomo/app/LomoApplication.kt`
+- `src/LomoApplication.kt`
   - Application startup, WorkManager configuration, theme resync, sync bootstrap.
-- `src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
+- `src/navigation/LomoNavHost.kt`
   - Top-level navigation graph, route composition, and cross-screen payload routing.
-- `src/main/java/com/lomo/app/feature/main/MainViewModel.kt`
+- `src/feature/main/MainViewModel.kt`
   - Highest-signal ViewModel in the module. Aggregates root directory state, memo list state, gallery state, shared content events, startup flow, and mutation coordination.
 
 ## Key Subdirectories

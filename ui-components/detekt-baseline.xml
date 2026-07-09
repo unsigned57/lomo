@@ -2,55 +2,226 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>MaxLineLength:CalendarHeatmapPopupPositionProviderTest.kt:CalendarHeatmapPopupPositionProviderTest$/* * Test Contract: * - Unit under test: HeatmapPopupPositionProvider * - Behavior focus: keep the heatmap date popup inside the sidebar anchor for visible trailing-week selections. * - Observable outcomes: calculated popup window coordinates stay within the anchor width instead of overflowing to the sidebar exterior. * - Red phase: Fails before the fix because a trailing-week selection uses the full heatmap content X offset, pushing the popup beyond the sidebar anchor. * - Excludes: Compose canvas rendering, popup enter/exit animations, and sidebar list wiring. */</ID>
-    <ID>MaxLineLength:CalendarHeatmapPopupPositionProviderTest.kt:CalendarHeatmapPopupPositionProviderTest$withClue("Popup should stay inside the sidebar anchor, but x=${position.x} width=${popupSize.width} anchorRight=${anchorBounds.right}") { (position.x &gt;= anchorBounds.left &amp;&amp; position.x + popupSize.width &lt;= anchorBounds.right) shouldBe true }</ID>
-    <ID>MaxLineLength:DraggableScrollbarLazyListEstimatorTest.kt:DraggableScrollbarLazyListEstimatorTest$"but before=${before.scrollFraction} and after=${after.scrollFraction}."</ID>
-    <ID>MaxLineLength:InputEditorChromeStateTest.kt:InputEditorChromeStateTest$/* * Test Contract: * - Unit under test: InputEditor long-form chrome state policy. * - Behavior focus: long-form entry should live in the toolbar as an icon action, and placeholder text should appear only for compact empty input. * - Observable outcomes: resolved toggle icon mode, standalone-mode-bar visibility, and placeholder visibility for compact and expanded editor states. * - Red phase: Fails before the fix because the editor renders a separate long-form mode bar and still shows placeholder text after expanding an empty draft. * - Excludes: Compose layout rendering, animation timing, and memo submission behavior. */</ID>
-    <ID>MaxLineLength:InputEditorToolbarOrderTest.kt:InputEditorToolbarOrderTest$(toolIds) shouldBe (listOf("backfill", "camera", "todo", "image", "record", "tag", "location", "reminder", "underline", "undo", "redo"))</ID>
-    <ID>MaxLineLength:InputEditorToolbarOrderTest.kt:InputEditorToolbarOrderTest$(toolIds) shouldBe (listOf("camera", "image", "record", "tag", "location", "backfill", "todo", "reminder", "underline", "undo", "redo"))</ID>
-    <ID>MaxLineLength:InputEditorToolbarOrderTest.kt:InputEditorToolbarOrderTest$/* * Test Contract: * - Unit under test: Input editor toolbar tool ordering policy. * - Behavior focus: undo and redo must remain behind the content-insertion tools, backfill must be part of the default toolbar, and persisted toolbar order must be normalized. * - Observable outcomes: resolved tool id ordering, relative positions, and filtering of duplicate/unknown persisted ids. * - Red phase: Fails before the fix because undo and redo are still placed at the front of the tool strip. * - Excludes: icon rendering, enablement state wiring, and trailing send/expand actions. */</ID>
-    <ID>MaxLineLength:InputSheetMarkdownFormattingInsertionTest.kt:InputSheetMarkdownFormattingInsertionTest$/* * Test Contract: * - Unit under test: input sheet markdown formatting insertion helpers. * - Behavior focus: underline toolbar actions must wrap the active selection with `&lt;u&gt;` tags, insert an empty pair at the cursor when nothing is selected, and normalize reversed selections without corrupting surrounding text. * - Observable outcomes: resulting editor text and resulting selection range after insertion. * - Red phase: Fails before the fix because the input sheet exposes no underline formatting insertion behavior, so selected text cannot be wrapped from the toolbar. * - Excludes: Compose toolbar layout, Android EditText focus behavior, and markdown render output. */</ID>
-    <ID>MaxLineLength:InputSheetMotionInsetsPolicyTest.kt:InputSheetMotionInsetsPolicyTest$/* * Test Contract: * - Unit under test: InputSheet motion-stage inset policy. * - Behavior focus: collapsing the long-form sheet must start removing fullscreen status/navigation insets during the collapse, instead of waiting for compact settle and causing a second height drop. * - Observable outcomes: motion stages report whether they should retain expanded insets, with collapsing opting out while expanding and expanded keep them. * - Red phase: Fails before the fix because the inset target still follows expanded surface form, so collapsing keeps fullscreen insets until compact settle. * - Excludes: Compose animation frame timing, exact pixel deltas, and IME OEM differences. */</ID>
-    <ID>MaxLineLength:InputSheetMotionInsetsPolicyTest.kt:InputSheetMotionInsetsPolicyTest$withClue("Collapsing should already target compact insets so the sheet does not shrink a second time after the tabs finish closing.") { (InputSheetMotionStage.Collapsing.usesExpandedInsets()) shouldBe false }</ID>
-    <ID>MaxLineLength:InputSheetMotionInsetsPolicyTest.kt:InputSheetMotionInsetsPolicyTest$withClue("Compact should not reintroduce fullscreen insets.") { (InputSheetMotionStage.Compact.usesExpandedInsets()) shouldBe false }</ID>
-    <ID>MaxLineLength:InputSheetMotionInsetsPolicyTest.kt:InputSheetMotionInsetsPolicyTest$withClue("Expanded should keep fullscreen insets because the long-form editor still occupies the fullscreen sheet form.") { (InputSheetMotionStage.Expanded.usesExpandedInsets()) shouldBe true }</ID>
-    <ID>MaxLineLength:InputSheetMotionInsetsPolicyTest.kt:InputSheetMotionInsetsPolicyTest$withClue("Expanding should keep fullscreen insets so the opening path still reaches the long-form surface cleanly.") { (InputSheetMotionStage.Expanding.usesExpandedInsets()) shouldBe true }</ID>
-    <ID>MaxLineLength:MarkdownImagePresentationPolicyTest.kt:MarkdownImagePresentationPolicyTest$/* * Test Contract: * - Unit under test: Markdown image presentation policy. * * Scenario matrix: * - Happy: standard happy path for MarkdownImagePresentationPolicyTest. * - Boundary: boundary and edge cases for MarkdownImagePresentationPolicyTest. * - Failure: failure and error scenarios for MarkdownImagePresentationPolicyTest. * - Must-not-happen: invariants are never violated for MarkdownImagePresentationPolicyTest. * - Behavior focus: memo images should not flash back to an empty/loading placeholder after a successful image has already been rendered. * - Observable outcomes: selected presentation mode for painter load states with and without retained success content. * - Red phase: Fails before the fix because MarkdownImageBlock directly maps Loading and Empty states to placeholders even after a previous Success. * - Excludes: Coil internals, bitmap decoding, Compose image drawing, and markdown parsing. */</ID>
-    <ID>MaxLineLength:MarkdownImageSharedTransitionKeyPolicyTest.kt:MarkdownImageSharedTransitionKeyPolicyTest$/* * Test Contract: * - Unit under test: markdown image shared-transition key policy * - Behavior focus: non-navigable markdown image previews must not register shared-element keys, while navigable images keep deterministic keys and optional namespace isolation. * - Observable outcomes: nullable shared-element key returned for a destination under different navigation and namespace conditions. * - Red phase: Fails before the fix because markdown images always inherit destination as a shared-element key, even in non-clickable history previews that can render the same image multiple times and crash shared transitions. * - Excludes: Compose rendering, Coil painter state, image decoding, and navigation animation execution. */</ID>
-    <ID>MaxLineLength:MarkdownKnownTagFilterTest.kt:/* * Test Contract: * - Unit under test: MarkdownKnownTagFilter * - Behavior focus: tag stripping from markdown content while preserving links/code and pruning tag-only paragraphs after reparsing. * - Observable outcomes: known inline tags are removed from visible paragraph text, code/link destinations still keep literal tags, and the sanitized AST no longer exposes the tag-only paragraph. * - Red phase: Covered by the CommonMark removal refactor introducing AST-backed reparsing. * - Excludes: full markdown rendering pipeline. */</ID>
-    <ID>MaxLineLength:MarkdownSemanticDocumentTest.kt:MarkdownSemanticDocumentTest$/* * Test Contract: * - Unit under test: Markdown semantic document parsing. * - Behavior focus: common CommonMark/GFM constructs must be exposed as stable display semantics shared by app rendering and share-card rendering. * - Observable outcomes: parsed block kinds, quote/list/task/table/image destinations, and inline strikethrough/link semantics. * - Red phase: Fails before the fix because common Markdown semantics are split across render-only code and share-card regex cleanup, with no shared parser for quote/table/reference image/strikethrough behavior. * - Excludes: Compose tree rendering, bitmap pixel output, third-party parser internals, and unsupported extensions such as math or Mermaid. */</ID>
-    <ID>MaxLineLength:MarkdownTextStyleResolverTest.kt:MarkdownTextStyleResolverTest$/* * Test Contract: * - Unit under test: markdown paragraph text style resolution. * - Behavior focus: markdown text handed to MemoParagraphText must resolve Color.Unspecified to a visible fallback color while preserving explicit color and text decoration. * - Observable outcomes: resolved style color and retained text decoration. * - Red phase: Fails before the fix because the modern markdown renderer forwards Color.Unspecified into TextView-backed paragraph rendering, making memo text and unchecked todo labels disappear. * - Excludes: Compose tree rendering, Android TextView internals, and markdown AST parsing. */</ID>
-    <ID>MaxLineLength:MemoActionSheetActionOrderTest.kt:MemoActionSheetActionOrderTest$(sorted.map(MemoActionSheetAction::id)) shouldBe (listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.EDIT))</ID>
-    <ID>MaxLineLength:MemoActionSheetActionOrderTest.kt:MemoActionSheetActionOrderTest$/* * Test Contract: * - Unit under test: memo action ordering helpers in MemoActionSheet * - Behavior focus: stable application of persisted ranked action ids to default menu actions with duplicate filtering. * - Observable outcomes: reordered default action sequence based on persisted ranked ids and unchanged fallback order for missing ids. * - Red phase: Updated for the heat-based ranking contract; the helper must still honor a stable preferred-id order without duplicating actions. * - Excludes: Compose layout, drag physics, edge animations, and bottom-sheet host wiring. */</ID>
-    <ID>MaxLineLength:MemoCardCollapsedSummaryPolicyTest.kt:MemoCardCollapsedSummaryPolicyTest$/* * Test Contract: * - Unit under test: memo-card collapsed preview mode policy. * - Behavior focus: long collapsed memo previews stay visually close to expanded markdown by preferring a markdown preview path, while still falling back to summary text only when markdown content is unavailable. * - Observable outcomes: selected collapsed-preview mode for collapsed, expanded, and markdown-empty cases. * - Red phase: Fails before the fix because collapsed memo cards always choose the summary path whenever summary text exists, so long-form previews diverge from expanded markdown rhythm. * - Excludes: Compose card composition, markdown parsing, TextView paragraph rendering, and animation runtime behavior. */</ID>
-    <ID>MaxLineLength:MemoInputHeightPolicyTest.kt:MemoInputHeightPolicyTest$/* * Test Contract: * - Unit under test: memo input minimum-height policy. * - Behavior focus: the empty editor and first-character editor must share the same minimum content height so the input container does not jump when text becomes non-empty. * - Observable outcomes: deterministic minimum-height pixel calculations from the editor text style. * - Red phase: Fails before the fix because the input editor has no shared minimum-height policy, so empty and non-empty states can measure from different widget paths. * - Excludes: IME animation, Compose sheet transitions, and OEM EditText rendering quirks. */</ID>
-    <ID>MaxLineLength:MemoMultiParagraphSelectionTest.kt:MemoMultiParagraphSelectionTest$(selection.selectedRangeForBlock(blockKey = "a", blockTextLength = 12, blockOrder = order)) shouldBe (0 until 5)</ID>
-    <ID>MaxLineLength:MemoMultiParagraphSelectionTest.kt:MemoTextSelectionHitTesterTest$MemoTextSelectionBlockBounds(blockKey = "bottom", topPx = 140f, bottomPx = 200f, leftPx = 0f, rightPx = 200f)</ID>
-    <ID>MaxLineLength:MemoMultiParagraphSelectionTest.kt:MemoTextSelectionHitTesterTest$MemoTextSelectionBlockBounds(blockKey = "middle", topPx = 60f, bottomPx = 120f, leftPx = 0f, rightPx = 200f)</ID>
-    <ID>MaxLineLength:MemoParagraphLayoutPolicyTest.kt:MemoParagraphLayoutPolicyTest$/* * Behavior Contract: * - Unit under test: Memo paragraph Android layout policy. * - Behavior focus: share-card/plain Android layout policy remains deterministic while memo body * rendering is owned by the Compose-native paragraph engine. * - Observable outcomes: selected Android justification mode, selected hyphenation frequency, * selected paragraph alignment, and strict CJK justification eligibility. * - TDD proof: Fails before the fix because CJK justification eligibility ignored SDK and * letter-spacing constraints. * - Excludes: Compose widget tree inspection, OEM font rasterization, TextView measurement internals, and markdown block traversal. * * Test Change Justification: * - Reason category: product contract changed. * - Old behavior/assertion being replaced: this file also asserted TextView renderer flags. * - Why old assertion is no longer correct: those flags were removed with the legacy * TextView/EditText bridge cleanup. * - Coverage preserved by: the Android layout policy assertions here and * MemoLegacyPlatformPathRemovalContractTest. * - Why this is not fitting the test to the implementation: renderer-path cleanup now has one * dedicated migration-boundary test. */</ID>
-    <ID>MaxLineLength:MemoPlainTextPresentationTest.kt:MemoPlainTextPresentationTest$/* * Behavior Contract: * - Unit under test: raw memo plain-text presentation spec for editor/display parity. * - Behavior focus: editor-side raw text and rendered memo body text must resolve through the same paragraph splitter, spacing token, and script-aware body style so plain prose looks identical without interpreting Markdown syntax. * - Observable outcomes: split raw paragraphs, preserved markdown marker literals, resolved shared text style, and shared paragraph spacing. * - TDD proof: Fails before the fix because the project has no shared raw memo presentation spec, so editor text and rendered memo body text cannot be proven to share the same paragraph policy. * - Excludes: Compose widget-tree rendering, TextView/EditText measurement internals, IME integration, and markdown semantic parsing. */</ID>
-    <ID>MaxLineLength:MemoTypographyTest.kt:MemoTypographyTest$/* * Behavior Contract: * - Unit under test: MemoTypography memo text tokens * - Behavior focus: global body-medium text and memo body, editor, hint, and summary styles keep the tightened reading spacing while preserving the compact memo line-height rhythm. * - Observable outcomes: selected fontSize, lineHeight, letterSpacing, and memo paragraph block spacing values. * - TDD proof: Fails before the fix because bodyMedium still uses 0.25sp and memo text tokens still use 0sp instead of the tightened 0.1sp spacing contract. * - Excludes: MaterialTheme composition wiring, OEM font rendering differences, and downstream Text composable layout. */</ID>
-    <ID>MaxLineLength:MemoTypographyVisualParityTest.kt:MemoTypographyVisualParityTest$(typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)</ID>
-    <ID>MaxLineLength:MemoTypographyVisualParityTest.kt:MemoTypographyVisualParityTest$/* * Behavior Contract: * - Unit under test: memo typography visual-parity tokens. * - Behavior focus: editor-side Compose text tokens must opt out of platform font padding so the input panel matches the tighter TextView-backed memo card rhythm. * - Observable outcomes: resolved platform text style for memo body, editor, summary, and hint tokens. * - TDD proof: Fails before the fix because memo typography leaves Compose-side platform font padding at the default, making input-panel text metrics drift from memo card rendering. * - Excludes: actual TextField layout, OEM font metrics, and card/editor container padding. */</ID>
-    <ID>MaxLineLength:ModernMarkdownAutolinkParagraphTest.kt:ModernMarkdownAutolinkParagraphTest$/* * Test Contract: * - Unit under test: modern markdown autolink paragraph rendering. * - Behavior focus: a memo paragraph containing only a bare URL must still emit visible text and preserve a clickable link annotation instead of collapsing to an empty paragraph. * - Observable outcomes: annotated text payload, link-annotation presence, and emitted paragraph-item kinds. * - Red phase: Fails before the fix because the modern fragment annotator returns an empty result for a bare autolink fragment, so URL-only memo paragraphs render no visible text item. * - Excludes: Compose widget rendering, TextView movement methods, image loading, and top-level block planning. */</ID>
-    <ID>MaxLineLength:ModernMarkdownBlockStylePolicyTest.kt:ModernMarkdownBlockStylePolicyTest$/* * Test Contract: * - Unit under test: modern markdown block text style policy. * - Behavior focus: quoted content must inherit quote styling rather than being rendered with the normal paragraph style. * - Observable outcomes: resolved text style for quote descendants versus ordinary paragraphs. * - Red phase: Fails before the fix because the block-quote renderer never passes quoteStyle into nested paragraph rendering. * - Excludes: bitmap rendering, image loading, and parser internals beyond the visible AST node type. */</ID>
-    <ID>MaxLineLength:ModernMarkdownHeadingTextResolverTest.kt:ModernMarkdownHeadingTextResolverTest$/* * Test Contract: * - Unit under test: modern markdown heading text resolution. * - Behavior focus: heading rendering must resolve visible heading text from ATX and Setext nodes instead of handing the raw heading wrapper to the annotator. * - Observable outcomes: produced annotated heading text content. * - Red phase: Fails before the fix because the modern heading renderer delegates the full heading node to the annotator, which can leave memo-card headings visually blank even though the block itself is present. * - Excludes: Compose tree rendering, Android TextView internals, and third-party markdown parser implementation details beyond the exposed AST shape. */</ID>
-    <ID>MaxLineLength:ModernMarkdownInlineExtensionFormatterTest.kt:ModernMarkdownInlineExtensionFormatterTest$/* * Test Contract: * - Unit under test: modern markdown inline extension formatter contract. * - Behavior focus: display-time inline markdown extensions must render highlight and underline styling without corrupting plain text or code-span literals. * - Observable outcomes: rendered annotated text content, highlight span background, underline span decoration, and absence of extension styling inside code spans. * - Red phase: Fails before the fix because modern markdown annotation leaves `==highlight==` and `&lt;u&gt;underline&lt;/u&gt;` as plain literal text instead of rendering extension styles. * - Excludes: Compose widget rendering, block-level markdown layout, and third-party parser internals beyond observable annotated output. */</ID>
-    <ID>MaxLineLength:ModernMarkdownRenderPlanTest.kt:ModernMarkdownRenderPlanTest$/* * Test Contract: * - Unit under test: modern markdown render planning and task-list interaction support. * - Behavior focus: the unified modern backend preserves memo-specific behavior for block counting, image gallery grouping, known-tag stripping, and todo line mapping. * - Observable outcomes: sanitized markdown content, total block count, visible render-item kinds, task source lines, and effective checked states. * - Red phase: Fails before the fix because the modern backend lacks the extracted planning/interaction logic needed to support todo, known-tag stripping, and collapsed memo block behavior. * - Excludes: Compose tree structure, image loading, animation details, and third-party markdown parser internals beyond the exposed AST. */</ID>
-    <ID>MaxLineLength:ModernMarkdownRenderPlanTest.kt:ModernMarkdownRenderPlanTest$test</ID>
-    <ID>MaxLineLength:ModernMarkdownRenderStatePolicyTest.kt:ModernMarkdownRenderStatePolicyTest$/* * Test Contract: * - Unit under test: modern markdown render-state policy. * - Behavior focus: memo markdown must keep visible fallback content while an async render plan is still unavailable, and must switch to the limited ready plan once planning completes. * - Observable outcomes: resolved render-state kind, fallback text payload, and ready-plan visible item count. * - Red phase: Fails before the fix because the renderer returns no content while waiting for an async plan, so fast-scrolling memo items can appear blank before the render plan arrives. * - Excludes: Compose composition timing, Android TextView behavior, and third-party markdown parser internals beyond the already-tested render plan. */</ID>
-    <ID>MaxLineLength:ModernMarkdownRendererTokensTest.kt:ModernMarkdownRendererTokensTest$/* * Test Contract: * - Unit under test: modern markdown renderer token mapping. * - Behavior focus: the library-backed markdown path reuses Lomo memo paragraph rhythm, heading rhythm, and block spacing instead of drifting to library defaults. * - Observable outcomes: selected paragraph style line height and letter spacing, selected heading font weight, selected block spacing, and selected link decoration. * - Red phase: Fails before the fix because modern markdown tokens leave link decoration unset * instead of exposing the requested visible underline treatment. * - Excludes: actual composable rendering, third-party markdown parsing internals, and image loading behavior. */</ID>
-    <ID>MaxLineLength:ModernMarkdownVisibleTextStylePolicyTest.kt:ModernMarkdownVisibleTextStylePolicyTest$/* * Test Contract: * - Unit under test: modern markdown visible text-style policy. * - Behavior focus: theme text colors must be applied to modern markdown token styles that would otherwise stay Color.Unspecified, while preserving any explicit color already set on a token. * - Observable outcomes: resolved paragraph, heading, list, quote, code, and table style colors. * - Red phase: Fails before the fix because the modern markdown token spec leaves heading and other block-text styles at Color.Unspecified, so title and similar text can render invisible on the new backend. * - Excludes: Compose tree rendering, third-party markdown parsing internals, and Android TextView behavior. */</ID>
-    <ID>MaxLineLength:ModernParagraphItemTest.kt:ModernParagraphItemTest$/* * Test Contract: * - Unit under test: modern markdown paragraph item builder. * - Behavior focus: plain and mixed-content memo paragraphs must emit visible text items instead of collapsing to an empty body, while inline images and voice attachments still split into dedicated media items. * - Observable outcomes: emitted paragraph item kinds, text payloads, image destinations, and voice memo destinations. * - Red phase: Fails before the fix because leaf text nodes in the modern paragraph path produce empty annotated strings, and `.ogg` attachments are not recognized as voice memos. * - Excludes: Compose widget rendering, TextView layout, image loading, and top-level block planning. */</ID>
-    <ID>MaxLineLength:PassThroughInputInterceptorTest.kt:PassThroughInputInterceptorTest$/* * Test Contract: * - Unit under test: pass-through input interceptor policy. * - Behavior focus: editor text changes must remain editable content, even when users enter double or triple trailing line breaks. * - Observable outcomes: interception result stays as UpdateValue with the exact edited text. * - Red phase: Fails before the fix because the editor still uses line-break-based quick-send interception instead of preserving trailing line breaks. * - Excludes: IME delivery, submit button wiring, and Compose host lifecycle. */</ID>
-    <ID>MaxLineLength:ScriptAwareTextTest.kt:ScriptAwareTextTest$/* * Behavior Contract: * - Unit under test: ScriptAwareText memo paragraph layout policy and mixed-script formatter contract. * - Behavior focus: mixed CJK/Latin spacing, Chinese punctuation conversion, paragraph alignment * policy for pure-CJK vs mixed prose, Compose text metric alignment for rich mixed prose, and * Android inter-character justification selection for share-card style plain Chinese long-form text. * - Observable outcomes: transformed display strings, selected text alignment, selected line-break * strategy, selected Android justification mode, and resolved Compose platform text style. * - TDD proof: Fails before the fix because mixed CJK/Latin display normalization and CJK style * policy were incomplete. * - Excludes: Compose widget rendering, OEM font rasterization differences, TextView measurement internals, and markdown block layout containers. * * Test Change Justification: * - Reason category: product contract changed. * - Old behavior/assertion being replaced: this file also asserted legacy renderer flags on * MemoParagraphText. * - Why old assertion is no longer correct: the old renderer flags were removed with the * TextView/EditText bridge cleanup. * - Coverage preserved by: normalization, script-aware style, Android policy helper assertions, * MemoTextLayoutEngine/MemoTextSelectionState tests, and MemoLegacyPlatformPathRemovalContractTest. * - Why this is not fitting the test to the implementation: renderer-path cleanup is now locked * in one dedicated migration-boundary test instead of being duplicated in script tests. */</ID>
-    <ID>MaxLineLength:ScriptAwareTextTest.kt:ScriptAwareTextTest$test</ID>
-    <ID>MaxLineLength:SynchronizedLruStoreTest.kt:/* * Behavior Contract: * - Unit under test: SynchronizedLruStore * * Scenarios: * - Happy: standard happy path for SynchronizedLruStoreTest. * - Boundary: boundary and edge cases for SynchronizedLruStoreTest. * - Failure: failure and error scenarios for SynchronizedLruStoreTest. * - Must-not-happen: invariants are never violated for SynchronizedLruStoreTest. * - Behavior focus: shared in-memory caches must keep LRU access semantics while remaining safe to snapshot and clear from synchronized callers. * - Observable outcomes: eviction order after access, stored values from snapshot, and full clear behavior. * - TDD proof: Fails before the fix because the shared LRU helper does not exist, leaving each cache site to hand-roll LinkedHashMap eviction separately. * - Excludes: navigation payload TTL rules, bitmap decoding, and Compose rendering. */</ID>
-    <ID>MaxLineLength:TextInteractionColorsTest.kt:TextInteractionColorsTest$(memoPlatformTextSelectionHighlightColor(colorScheme)) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))</ID>
-    <ID>MaxLineLength:ThemeAnimationPolicyTest.kt:ThemeAnimationPolicyTest$/* * Behavior Contract: * - Unit under test: theme color animation policy for system and explicit theme changes. * - Behavior focus: system light-dark boundary switches must apply immediately so returning from background does not show a foreground color tween, while same-mode recompositions and explicit user theme choices can keep animated color transitions. * - Observable outcomes: boolean animation decisions for system-theme dark/light flips, steady-state recompositions, and explicit theme modes. * - TDD proof: Fails before the fix because LomoTheme always animates color-scheme changes, so a system dark-mode transition still visibly interpolates colors when the app becomes visible again. * - Excludes: AppCompatDelegate integration, OEM theme propagation timing, and Compose rendering snapshots. */</ID>
-    <ID>MaxLineLength:ThemeDarkResolutionTest.kt:ThemeDarkResolutionTest$/* * Behavior Contract: * - Unit under test: effective dark-theme resolution for LomoTheme. * - Behavior focus: when the host activity already knows the current uiMode, ThemeMode.SYSTEM must use that effective night mask instead of waiting for Compose's ambient system-dark signal to catch up. * - Observable outcomes: explicit light/dark decisions for explicit theme modes and current-ui-driven decisions for system mode. * - TDD proof: Fails before the fix because LomoTheme relies only on isSystemInDarkTheme() for ThemeMode.SYSTEM, so a resumed activity can render one stale frame before Compose observes the updated system dark state. * - Excludes: AppCompatDelegate integration, activity lifecycle callbacks, and color animation policy. */</ID>
-    <ID>MaxLineLength:UiComponentsLayerBoundaryTest.kt:UiComponentsLayerBoundaryTest$withClue("No Kotlin sources found under ui-components/src/main/java") { (kotlinFiles.isNotEmpty()) shouldBe true }</ID>
-    <ID>MaxLineLength:UiComponentsLayerBoundaryTest.kt:UiComponentsLayerBoundaryTest$withClue("ui-components module must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }</ID>
-    <ID>MaxLineLength:UiComponentsLayerBoundaryTest.kt:UiComponentsLayerBoundaryTest$withClue("ui-components must not keep ViewModel/UI-state compatibility shims. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }</ID>
+    <ID>InvalidPackageDeclaration:ActionSheetTokens.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:ActionSheetUi.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:AppHapticFeedback.kt:package com.lomo.ui.util</ID>
+    <ID>InvalidPackageDeclaration:AppShapes.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:AppSpacing.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:AudioPlayerCard.kt:package com.lomo.ui.component.media</ID>
+    <ID>InvalidPackageDeclaration:AudioPlayerCardTokens.kt:package com.lomo.ui.component.media</ID>
+    <ID>InvalidPackageDeclaration:AudioPlayerController.kt:package com.lomo.ui.media</ID>
+    <ID>InvalidPackageDeclaration:AudioPlayerManager.kt:package com.lomo.ui.media</ID>
+    <ID>InvalidPackageDeclaration:BenchmarkAnchorConfig.kt:package com.lomo.ui.benchmark</ID>
+    <ID>InvalidPackageDeclaration:CalendarHeatmap.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:CalendarHeatmapContent.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:CalendarHeatmapWindow.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:ClipboardCopy.kt:package com.lomo.ui.util</ID>
+    <ID>InvalidPackageDeclaration:Color.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:ColorSchemeGenerator.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:CommonComponentTokens.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:ConflictTextDiffPresentation.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:DateTimeUtils.kt:package com.lomo.ui.util</ID>
+    <ID>InvalidPackageDeclaration:DiffViewer.kt:package com.lomo.ui.component.diff</ID>
+    <ID>InvalidPackageDeclaration:DiffViewerTokens.kt:package com.lomo.ui.component.diff</ID>
+    <ID>InvalidPackageDeclaration:DraggableScrollbar.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:DraggableScrollbarInteractionPolicy.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:DraggableScrollbarOverlay.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:EmptyState.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:EnterAnimationRegistry.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:EnterAnimationState.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:EnterRequestId.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:ExitAnimationRegistry.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:ExpressiveDatePickerSurface.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:ExpressiveLoading.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:ExpressiveMotion.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:ExpressivePickerDialog.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:ExpressivePickerStep.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:ExpressiveSteppedPickerDialog.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:ExpressiveTimePickerSurface.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:HourlyActivityChart.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:ImmutableNode.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:InputEditorActionBadge.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorChromeState.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorDisplayMode.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorDisplayModeTapAction.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorLayerAlpha.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorSurface.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorTextField.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputEditorToolbarComponents.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheet.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetAnimatedSurfaceState.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetComponents.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetContent.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetContentTransitions.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetDialogs.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetFocusEffects.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetFocusHelpers.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetMotionState.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetPresentationState.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetPresentationStateExtensions.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetScaffoldComponents.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetScaffoldDecor.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:InputSheetTokens.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:LazyListScrollRequestDispatcher.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LazyListScrollbarEstimator.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LoadingOverlay.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LomoColorScheme.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:LomoListEnterSupport.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LomoListExitSupport.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LomoListItemMotionSpecs.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:LomoListItemPhaseMotion.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:MarkdownBlockKey.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownComponentTokens.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownImageCache.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownImagePagerIndicatorState.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownImagePresentationPolicy.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownKnownTagFilter.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownRenderer.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownRendererInline.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownSemanticDocument.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownSemanticDocumentParser.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownSemanticInlineParser.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MarkdownTextStyleResolver.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MemoActionRowLayoutMode.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoActionSheet.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoActionSheetDefaults.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoActionSheetSwipeAffordance.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoCard.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardBodyContent.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardBodyTransitionMode.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardCollapsedPreviewMode.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardCollapsedSummaryPolicy.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardFooterComponents.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardSummaryUtils.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoCardTokens.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoComposeParagraphText.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoContextMenu.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoInputHeightPolicy.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuActionLifecycle.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuBottomSheet.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuHost.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:MemoMetadataPillColors.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:MemoParagraphDoubleTapOutcome.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoParagraphLayoutPolicy.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoParagraphSpacing.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:MemoParagraphTapOutcome.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoParagraphText.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextAnnotations.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextDrawing.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextGlyph.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextLayoutCharacterRules.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextLayoutEngine.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextLayoutEngineSupport.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextLayoutPositioning.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextPaint.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextRenderingPolicy.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextSelectionBlockBounds.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextSelectionBlockOrder.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextSelectionHandle.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextSelectionScope.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTextSelectionState.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:MemoTypography.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:MemoUrlVisualStyle.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownAstNodeExtensions.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownAstRenderer.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownAstSupport.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownGalleryRenderer.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownHeadingStyleSupport.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownInlineExtensions.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownListRenderer.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownQuoteIndicatorStyle.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRenderNodeBuilder.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRenderPlan.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRenderPlanSupport.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRenderState.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRenderer.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRendererComponents.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownRendererTokens.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernMarkdownSemanticTableRow.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:ModernParagraphItem.kt:package com.lomo.ui.component.markdown</ID>
+    <ID>InvalidPackageDeclaration:MotionTokens.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:PeriodReportCard.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:PickerComponentTokens.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:PreferenceItem.kt:package com.lomo.ui.component.settings</ID>
+    <ID>InvalidPackageDeclaration:PrewarmMemoMenuMotion.kt:package com.lomo.ui.component.menu</ID>
+    <ID>InvalidPackageDeclaration:RawMemoParagraph.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ReminderDisplayFormatter.kt:package com.lomo.ui.component.card</ID>
+    <ID>InvalidPackageDeclaration:RetainedAsyncImage.kt:package com.lomo.ui.component.image</ID>
+    <ID>InvalidPackageDeclaration:RetainedAsyncImageSourcePolicy.kt:package com.lomo.ui.component.image</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareText.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextCharacterRules.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextConstants.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextNormalization.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextScanUtils.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextScripts.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScriptAwareTextUnicode.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:ScrollbarThumbVisualState.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:SearchHighlight.kt:package com.lomo.ui.text</ID>
+    <ID>InvalidPackageDeclaration:SecondsPickerPresentationPolicy.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:SecondsWheelMath.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:SecondsWheelPicker.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:SelectionDialog.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SharedTransitionLocals.kt:package com.lomo.ui.util</ID>
+    <ID>InvalidPackageDeclaration:SheetHandleTokens.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:SidebarDrawer.kt:package com.lomo.ui.component.navigation</ID>
+    <ID>InvalidPackageDeclaration:SidebarDrawerTagTree.kt:package com.lomo.ui.component.navigation</ID>
+    <ID>InvalidPackageDeclaration:SidebarDrawerTagTreeItems.kt:package com.lomo.ui.component.navigation</ID>
+    <ID>InvalidPackageDeclaration:SidebarDrawerTokens.kt:package com.lomo.ui.component.navigation</ID>
+    <ID>InvalidPackageDeclaration:Skeleton.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:StatCard.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:StatsChartTokens.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:SteppedPickerPaging.kt:package com.lomo.ui.component.picker</ID>
+    <ID>InvalidPackageDeclaration:SwitchPreferenceItem.kt:package com.lomo.ui.component.settings</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictChoiceColors.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictDialogTokens.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialog.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogCards.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogChoiceRows.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogChrome.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogContent.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogLists.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictResolutionDialogSupport.kt:package com.lomo.ui.component.dialog</ID>
+    <ID>InvalidPackageDeclaration:SynchronizedLruStore.kt:package com.lomo.ui.util</ID>
+    <ID>InvalidPackageDeclaration:TagDistributionChart.kt:package com.lomo.ui.component.stats</ID>
+    <ID>InvalidPackageDeclaration:TagSelectorBar.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:TextInteractionColors.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:Theme.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:ThemeDarkResolution.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:ThemeMode.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:TwoPhaseAnimationPlanner.kt:package com.lomo.ui.component.common</ID>
+    <ID>InvalidPackageDeclaration:Type.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:TypographyScales.kt:package com.lomo.ui.theme</ID>
+    <ID>InvalidPackageDeclaration:VoiceRecordingPanel.kt:package com.lomo.ui.component.input</ID>
+    <ID>InvalidPackageDeclaration:WeeklyHourHeatmap.kt:package com.lomo.ui.component.stats</ID>
+    <ID>WildcardImport:ActionSheetUi.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:AudioPlayerCard.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:CalendarHeatmap.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:CalendarHeatmapContent.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:HourlyActivityChart.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:InputEditorToolbarComponents.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:InputSheet.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:InputSheetComponents.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:InputSheetDialogs.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:LoadingOverlay.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MarkdownImageCache.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MemoActionSheet.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MemoCard.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MemoCardFooterComponents.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MemoContextMenu.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:MemoTextSelectionScope.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:PeriodReportCard.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SecondsWheelPicker.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SelectionDialog.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SidebarDrawer.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SidebarDrawerTagTreeItems.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SyncConflictResolutionDialogChoiceRows.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SyncConflictResolutionDialogChrome.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SyncConflictResolutionDialogContent.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SyncConflictResolutionDialogLists.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:SyncConflictResolutionDialogSupport.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:TagSelectorBar.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:Theme.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:VoiceRecordingPanel.kt:import com.lomo.ui.generated.resources.*</ID>
+    <ID>WildcardImport:WeeklyHourHeatmap.kt:import com.lomo.ui.generated.resources.*</ID>
   </CurrentIssues>
 </SmellBaseline>

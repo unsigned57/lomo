@@ -123,7 +123,7 @@ tdd_proof_is_not_applicable() {
 
 is_architecture_allowlisted_path() {
   local file="$1"
-  [[ "$file" =~ /src/test(/[^/]+)*/architecture/ ]]
+  [[ "$file" =~ /test(/[^/]+)*/architecture/ ]]
 }
 
 is_fixture_support_path() {
@@ -133,7 +133,7 @@ is_fixture_support_path() {
 
 is_test_support_path() {
   local file="$1"
-  [[ "$file" =~ /src/(test|androidTest)(/[^/]+)*/testing/ ]]
+  [[ "$file" =~ /(test|test@android)(/[^/]+)*/testing/ ]]
 }
 
 has_architecture_boundary_marker() {
@@ -164,12 +164,13 @@ has_half_migrated_assertions() {
 }
 
 vintage_dependency_enabled() {
+  # Production uses module.yaml only. Fixture trees may still ship a catalog file.
   local -a files=(
+    app/module.yaml
+    domain/module.yaml
+    data/module.yaml
+    ui-components/module.yaml
     gradle/libs.versions.toml
-    app/build.gradle.kts
-    domain/build.gradle.kts
-    data/build.gradle.kts
-    ui-components/build.gradle.kts
   )
   local existing=()
   local file
@@ -219,14 +220,14 @@ collect_diff() {
 }
 
 collect_changed_files() {
-  collect_diff --name-only --diff-filter=ACMR
+  collect_diff --name-only --diff-filter=ACMR --find-renames=100%
   if [ "$mode" = "working-tree" ]; then
     git ls-files --others --exclude-standard
   fi
 }
 
 collect_changed_statuses() {
-  collect_diff --name-status --diff-filter=ACMR
+  collect_diff --name-status --diff-filter=ACMR --find-renames=100%
   if [ "$mode" = "working-tree" ]; then
     git ls-files --others --exclude-standard | sed $'s/^/A\t/'
   fi
@@ -245,7 +246,7 @@ production_source_changed=false
 
 if [ "$all_mode" = true ] || [ "${MEANINGFUL_TEST_CHECK_ALL:-}" = "true" ]; then
   # Scan all test files
-  mapfile -t all_candidates < <(find app domain data ui-components -type f \( -name "*Test.kt" -o -name "*Test.kts" \) | grep -v "/build/" | sort -u)
+  mapfile -t all_candidates < <(find app domain data ui-components -type f \( -name "*Test.kt" -o -name "*Test.kts" \) | grep -vE "/(build|bin)/" | sort -u)
   for file in "${all_candidates[@]}"; do
     if is_fixture_support_path "$file" || is_test_support_path "$file"; then
       continue
@@ -271,14 +272,17 @@ else
       continue
     fi
 
-    changed_file_statuses["$path"]="$status"
+    changed_file_statuses["$path"]="$raw_status"
   done
 
   for file in "${changed_files[@]}"; do
     if is_fixture_support_path "$file" || is_test_support_path "$file"; then
       continue
     fi
-    if [[ "$file" =~ /src/main/.*\.(kt|java)$ ]]; then
+    # Amper production lives under module/src/ (not module/src/test or androidTest).
+    # Maven-like fixtures may still use src/main; never treat test roots as production.
+    if [[ "$file" =~ ^(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]] &&
+      [[ ! "$file" =~ /src/(test|androidTest|test@android)/ ]]; then
       production_source_changed=true
       break
     fi
@@ -289,8 +293,12 @@ else
       continue
     fi
     case "$file" in
-      */src/test/*.kt|*/src/test/*.kts|*/src/androidTest/*.kt|*/src/androidTest/*.kts)
-        [ -f "$file" ] && test_files+=("$file")
+      *Test.kt|*Test.kts)
+        case "$file" in
+          */test/*|*/test@android/*|*/src/test/*|*/src/androidTest/*)
+            [ -f "$file" ] && test_files+=("$file")
+            ;;
+        esac
         ;;
     esac
   done
@@ -309,6 +317,11 @@ fi
 failures=()
 for file in "${test_files[@]}"; do
   file_status="${changed_file_statuses["$file"]:-M}"
+  # Pure renames (including similarity-detected renames) are layout moves, not behavior edits.
+  case "$file_status" in
+    R*) continue ;;
+  esac
+
   if has_contract_comment "$file"; then
     contract_source="$file"
   else

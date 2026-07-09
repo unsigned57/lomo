@@ -53,7 +53,7 @@ import kotlin.io.path.writeText
  * - Fails before the fix because the new test anti-pattern rules are not registered.
  *
  * Excludes:
- * - full Gradle task integration and semantic type resolution.
+ * - full Toolchain task integration and semantic type resolution.
  */
 class TestAntiPatternRulesTest : FunSpec({
     test("registers test anti-pattern guard rules") {
@@ -169,7 +169,7 @@ class TestAntiPatternRulesTest : FunSpec({
     test("flags ViewModel state flow first usage") {
         val findings =
             rule("NoFlowFirstForStateSequence").findingsForTestSource(
-                relativePath = "src/test/java/com/lomo/app/feature/main/MainViewModelTest.kt",
+                relativePath = "test/feature/main/MainViewModelTest.kt",
                 code =
                     """
                     package com.lomo.sample
@@ -233,7 +233,7 @@ class TestAntiPatternRulesTest : FunSpec({
     test("flags non-architecture source-string behavior tests") {
         val findings =
             rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "src/test/java/com/lomo/sample/BusinessLogicTest.kt",
+                relativePath = "test/sample/BusinessLogicTest.kt",
                 code =
                     """
                     package com.lomo.sample
@@ -243,7 +243,7 @@ class TestAntiPatternRulesTest : FunSpec({
 
                     class BusinessLogicTest {
                         fun testSource() {
-                            val content = File("src/main/java/com/lomo/sample/Policy.kt").readText()
+                            val content = File("src/sample/Policy.kt").readText()
                             content shouldContain "class Policy"
                         }
                     }
@@ -257,7 +257,7 @@ class TestAntiPatternRulesTest : FunSpec({
     test("allows source-string test if in architecture package") {
         val findings =
             rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "src/test/java/com/lomo/sample/architecture/DomainPurityTest.kt",
+                relativePath = "test/sample/architecture/DomainPurityTest.kt",
                 code =
                     """
                     package com.lomo.sample.architecture
@@ -267,7 +267,7 @@ class TestAntiPatternRulesTest : FunSpec({
 
                     class DomainPurityTest {
                         fun testSource() {
-                            val content = File("src/main/java/com/lomo/sample/Policy.kt").readText()
+                            val content = File("src/sample/Policy.kt").readText()
                             content shouldContain "class Policy"
                         }
                     }
@@ -280,7 +280,7 @@ class TestAntiPatternRulesTest : FunSpec({
     test("allows source-string test if architectural-boundary-check marker is present") {
         val findings =
             rule("NoSourceStringBehaviorTest").findingsForTestSource(
-                relativePath = "src/test/java/com/lomo/sample/BusinessLogicTest.kt",
+                relativePath = "test/sample/BusinessLogicTest.kt",
                 code =
                     """
                     // architectural-boundary-check
@@ -291,7 +291,7 @@ class TestAntiPatternRulesTest : FunSpec({
 
                     class BusinessLogicTest {
                         fun testSource() {
-                            val content = File("src/main/java/com/lomo/sample/Policy.kt").readText()
+                            val content = File("src/sample/Policy.kt").readText()
                             content shouldContain "class Policy"
                         }
                     }
@@ -312,7 +312,7 @@ private fun rule(
 
 private fun Rule.findingsForTestSource(
     code: String,
-    relativePath: String = "src/test/java/com/lomo/sample/FixtureTest.kt",
+    relativePath: String = "test/sample/FixtureTest.kt",
 ): List<Finding> {
     val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
     val file = tempDir.resolve(relativePath)

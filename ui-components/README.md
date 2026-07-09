@@ -21,13 +21,13 @@ This module provides reusable UI infrastructure shared across app features. It c
 
 ## Start Here
 
-- `src/main/java/com/lomo/ui/component/input/InputSheet.kt`
+- `src/component/input/InputSheet.kt`
   - Shared memo input shell, input interception, focus and dismiss flow, recording/image hooks, and display-mode handling.
-- `src/main/java/com/lomo/ui/component/card/MemoCard.kt`
+- `src/component/card/MemoCard.kt`
   - Shared memo presentation surface with header/body/footer composition, collapse behavior, tag display, and interaction wiring.
-- `src/main/java/com/lomo/ui/component/markdown/ModernMarkdownRenderer.kt`
+- `src/component/markdown/ModernMarkdownRenderer.kt`
   - Async markdown render-plan pipeline with fallback rendering while plans are computed.
-- `src/main/java/com/lomo/ui/theme/Theme.kt`
+- `src/theme/Theme.kt`
   - Shared theme root, dynamic color handling, dark-mode resolution, animated color transitions, and typography integration.
 
 ## Key Subdirectories

@@ -21,7 +21,7 @@ import kotlin.io.path.writeText
  * - Priority tier: P0 — forbids soft-migration landing pads. `@Deprecated` is the most common
  *   form of "migration tail" left behind by half-finished refactors, and no existing rule covers it.
  *
- * Capability: forbid any `@Deprecated` annotation in production source (`/src/main/`). The
+ * Capability: forbid any `@Deprecated` annotation in production source (`/src/`). The
  * repository has no public SDK API, so every `@Deprecated` is a migration tail that must be
  * replaced by completing the migration (delete the old API and update every call site in the
  * same change).
@@ -37,7 +37,7 @@ import kotlin.io.path.writeText
  *   then it reports one finding (short-name match still catches the qualified form).
  * - Given a production source with no annotations, when the rule runs, then it reports
  *   no finding.
- * - Given the same `@Deprecated` annotation in `/src/test/`, when the rule runs, then it
+ * - Given the same `@Deprecated` annotation in `/test/`, when the rule runs, then it
  *   reports no finding (production-only scope).
  *
  * Observable outcomes:
@@ -53,7 +53,14 @@ import kotlin.io.path.writeText
  * - Test source — `@Deprecated` is acceptable in test fixtures that exercise legacy APIs.
  * - `@Deprecated` retained intentionally for a published SDK API (this repo has none today;
  *   add a path allowlist in the rule config if the future need arises).
- */
+ 
+ * Test Change Justification:
+ * - Reason category: mechanical layout path update.
+ * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
+ * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
+ * - Coverage preserved by: same Detekt finding contracts and assertion messages.
+ * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
+*/
 class NoDeprecatedKeptRuleTest : FunSpec({
     test("registers NoDeprecatedKept in the rule set") {
         val rules = LomoArchitectureRuleSetProvider().instance().rules
@@ -154,10 +161,10 @@ private fun rule(
     }.invoke(config)
 
 private fun Rule.findingsForMainSource(code: String) =
-    findingsForSource("src/main/java/com/lomo/sample/Fixture.kt", code)
+    findingsForSource("src/sample/Fixture.kt", code)
 
 private fun Rule.findingsForTestSource(code: String) =
-    findingsForSource("src/test/java/com/lomo/sample/Fixture.kt", code)
+    findingsForSource("test/sample/Fixture.kt", code)
 
 private fun Rule.findingsForSource(
     relativePath: String,

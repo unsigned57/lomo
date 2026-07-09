@@ -27,7 +27,7 @@ internal class NoDispatchersSetMainInTestsRule(
         reportElement(
             expression,
             "Direct Dispatchers.$callee in test source is forbidden. " +
-                "Register MainDispatcherExtension (app/src/test/.../MainDispatcherExtension.kt) instead.",
+                "Register MainDispatcherExtension (app/test/.../MainDispatcherExtension.kt) instead.",
         )
     }
 

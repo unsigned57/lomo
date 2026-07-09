@@ -2,121 +2,295 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>EmptyFunctionBlock:MainViewModelInitialImportStateTest.kt:MainViewModelInitialImportStateTest.FakeAppWidgetRepository${}</ID>
-    <ID>EmptyFunctionBlock:MainViewModelInitialImportStateTest.kt:MainViewModelInitialImportStateTest.FakeAudioPlayerManager${}</ID>
-    <ID>EmptyFunctionBlock:SettingsAppConfigCoordinatorMemoActionOrderingTest.kt:SettingsAppConfigCoordinatorMemoActionOrderingTest.FakeWorkspaceStateResolver${}</ID>
-    <ID>EmptyFunctionBlock:SettingsAppConfigCoordinatorShareCardTest.kt:SettingsAppConfigCoordinatorShareCardTest.FakeWorkspaceStateResolver${}</ID>
-    <ID>EmptyFunctionBlock:SettingsAppConfigCoordinatorSnapshotTest.kt:SettingsAppConfigCoordinatorSnapshotTest.FakeWorkspaceStateResolver${}</ID>
-    <ID>EmptyFunctionBlock:SettingsAppConfigCoordinatorSyncInboxStructureTest.kt:SettingsAppConfigCoordinatorSyncInboxStructureTest.FakeWorkspaceStateResolver${}</ID>
-    <ID>EmptyFunctionBlock:SettingsSystemFeatureViewModelTest.kt:SettingsSystemFeatureViewModelTest.FakeWorkspaceStateResolver${}</ID>
-    <ID>LargeClass:MainViewModelTest.kt:MainViewModelTest : AppFunSpec</ID>
-    <ID>MaxLineLength:AppConfigUiCoordinatorMemoActionUsageTest.kt:AppConfigUiCoordinatorMemoActionUsageTest$/* * Behavior Contract: * - Unit under test: AppConfigUiCoordinator memo action auto-reordering. * - Owning layer: app * - Priority tier: P1 * - Capability: promotes or retains memo actions based on usage when enabled/disabled. * * Scenarios: * - Given existing memo action history and auto-reorder enabled, when an action is used, then promote it one position. * - Given empty action history and auto-reorder enabled, when an action is used, then seed default order and nudge the action. * - Given auto-reorder disabled, when an action is used, then skip ordering updates. * * Observable outcomes: * - Persisted memo action order state matches the expected Heat-style promotion rules. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose rendering, DataStore serialization details, and settings screen wiring. */</ID>
-    <ID>MaxLineLength:AppConfigUiCoordinatorScopedMemoActionUsageTest.kt:AppConfigUiCoordinatorScopedMemoActionUsageTest$/* * Behavior Contract: * - Unit under test: AppConfigUiCoordinator scoped memo-action ordering. * - Owning layer: app * - Priority tier: P1 * - Capability: coordinates separate memo action lists for different page scopes (like GALLERY, REVIEW, etc.). * * Scenarios: * - Given a specific screen scope, when recordMemoActionUsage is called, then only promote that requested surface order. * - Given a specific screen scope, when manual reorder is triggered, then only write to that requested surface order. * * Observable outcomes: * - Persisted state for a specific scope is updated correctly, while other scopes remain unchanged. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose menu rendering, DataStore serialization, and drag gesture detection. */</ID>
-    <ID>MaxLineLength:AppLayerBoundaryTest.kt:AppLayerBoundaryTest$withClue("App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { ((offenders.isEmpty())) shouldBe true }</ID>
-    <ID>MaxLineLength:AppLayerBoundaryTest.kt:AppLayerBoundaryTest$withClue("app/build.gradle.kts must not expose :data outside implementation. Offenders: ${offenders.joinToString()}") { ((offenders.isNotEmpty())) shouldBe false }</ID>
-    <ID>MaxLineLength:AppLayerBoundaryTest.kt:AppLayerBoundaryTest.Companion$"""(?s)\b(?:api|compileOnly|ksp)\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)"""</ID>
-    <ID>MaxLineLength:AppLayerBoundaryTest.kt:AppLayerBoundaryTest.Companion$"""(?s)\badd\s*\(\s*['"](?:api|compileOnly|ksp)['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)"""</ID>
-    <ID>MaxLineLength:AppNightModePolicyTest.kt:/* * Behavior Contract: * - Unit under test: platform night-mode resolution for app-level theme synchronization. * - Owning layer: app * - Priority tier: P2 * - Capability: determine the correct platform night mode setting based on app theme mode. * * Scenarios: * - Given ThemeMode.SYSTEM, when resolving platform night mode, then return UiModeManager.MODE_NIGHT_AUTO to clear explicit overrides. * - Given ThemeMode.LIGHT or ThemeMode.DARK, when resolving, then return UiModeManager.MODE_NIGHT_NO or UiModeManager.MODE_NIGHT_YES. * * Observable outcomes: * - resolved platform night mode integer. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - AppCompatDelegate side effects, activity lifecycle timing, and OEM dark-mode propagation. */</ID>
-    <ID>MaxLineLength:AppP0RepositoryBoundaryTest.kt:AppP0RepositoryBoundaryTest$withClue("P0 hotspot files must not import domain repositories. Offenders: ${offenders.joinToString()}") { ((offenders.isEmpty())) shouldBe true }</ID>
-    <ID>MaxLineLength:AppPreferencesMemoActionStateTest.kt:AppPreferencesMemoActionStateTest$/* * Behavior Contract: * - Unit under test: observeAppPreferences in AppPreferencesState.kt * - Owning layer: app * - Priority tier: P1 * - Capability: aggregates memo action auto-reorder and list preferences into the shared app-preferences state. * * Scenarios: * - Given configured auto-reorder and scope ordering preferences, when observeAppPreferences is observed, then include those action preferences in the emitted state. * * Observable outcomes: * - Emitted AppPreferencesState snapshot fields for reorder and scoped list orderings match the fake settings. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - screen-specific menu rendering, DataStore serialization, and unrelated settings groups. */</ID>
-    <ID>MaxLineLength:AppPreferencesStateTest.kt:AppPreferencesStateTest$/* * Behavior Contract: * - Unit under test: observeAppPreferences state aggregation. * - Owning layer: app * - Priority tier: P1 * - Capability: combines all individual preference streams into a single clean app-preferences snapshot. * * Scenarios: * - Given all preference streams configured, when observeAppPreferences is observed, then emit a single consolidated snapshot matching all configurations. * * Observable outcomes: * - Consolidated AppPreferencesState snapshot fields perfectly aggregate all values from the backing repository. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose rendering and repository implementation details. */</ID>
-    <ID>MaxLineLength:AppUpdateDownloadManagerDebugSimulationTest.kt:AppUpdateDownloadManagerDebugSimulationTest$/* * Test Contract: * - Unit under test: AppUpdateDownloadManager * - Behavior focus: debug-only simulated in-app update states reuse the shared progress dialog state machine without invoking the real download use case. * - Observable outcomes: exposed progressDialogState terminal state and absence of real download-use-case invocation. * - Red phase: Fails before the fix because the manager has no debug simulation branch, so debug test-mode updates cannot drive the progress dialog without a real APK download. * - Excludes: Compose dialog rendering, settings item visibility wiring, and actual APK transport or installer behavior. */</ID>
-    <ID>MaxLineLength:AppUpdateDownloadManagerDebugSimulationTest.kt:AppUpdateDownloadManagerDebugSimulationTest$every { context.getString(com.lomo.app.R.string.debug_update_simulation_failed) } returns "Simulated failure"</ID>
-    <ID>MaxLineLength:AppUpdateProgressPresentationTest.kt:AppUpdateProgressPresentationTest$(presentation.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Default(UpdateProgressMessageKey.Downloading))</ID>
-    <ID>MaxLineLength:AppUpdateProgressPresentationTest.kt:AppUpdateProgressPresentationTest$(presentation.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Default(UpdateProgressMessageKey.Preparing))</ID>
-    <ID>MaxLineLength:AppUpdateProgressPresentationTest.kt:AppUpdateProgressPresentationTest$(requiresPermission.supportingMessage) shouldBe (UpdateProgressSupportingMessage.Raw("Allow unknown app installs to continue."))</ID>
-    <ID>MaxLineLength:DailyReviewViewModelSessionTest.kt:DailyReviewViewModelSessionTest$val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"), sampleMemo("memo-3"), sampleMemo("memo-4"))</ID>
-    <ID>MaxLineLength:FakeMemoRepository.kt:FakeMemoRepository$override fun getActiveDayCount: Flow&lt;Int&gt;</ID>
-    <ID>MaxLineLength:GalleryGridLayoutTest.kt:GalleryGridLayoutTest$(tiles.map { tile -&gt; tile.aspectKind }) shouldBe (listOf(GalleryAspectKind.Square, GalleryAspectKind.Square))</ID>
-    <ID>MaxLineLength:GalleryGridLayoutTest.kt:GalleryGridLayoutTest$/* * Test Contract: * - Unit under test: GalleryGridLayout planner. * - Behavior focus: aspect classification boundaries, organic mosaic rect planning, and local lookahead integrity. * - Observable outcomes: planned aspect kind, selected first image URL, tile rect spans, sealed-row occupancy, memo ID set. * - Red phase: Fails before the fix because the planner forces later images into unreadably narrow fallback tiles * and keeps extreme-aspect images in small containers that visibly crop content. * - Excludes: Compose custom-layout measurement, image decoding, pager gestures, shared-transition animation. * * Test Change Justification: * - Reason category: Product contract changed. * - Old behavior/assertion being replaced: fixed every-eighth square memo highlight cadence, fixed bento section grouping, and hard full-bottom fill. * - Why old assertion is no longer correct: the gallery now prioritizes left/right fill, then aspect-shaped organic placement, while allowing a ragged bottom edge. * - Coverage preserved by: boundary/fallback tests plus rect-shape, sealed-row packing, trailing-item, and ID-integrity tests. * - Why this is not fitting the test to the implementation: these tests define the user-requested planner contract before production edits. */</ID>
-    <ID>MaxLineLength:GalleryImageDimensionResolverTest.kt:GalleryImageDimensionResolverTest$/* * Test Contract: * - Unit under test: GalleryImageDimensionResolver. * * Scenario matrix: * - Happy: standard happy path for GalleryImageDimensionResolverTest. * - Boundary: boundary and edge cases for GalleryImageDimensionResolverTest. * - Failure: failure and error scenarios for GalleryImageDimensionResolverTest. * - Must-not-happen: invariants are never violated for GalleryImageDimensionResolverTest. * - Behavior focus: resolved image aspects stay available when the gallery screen is recreated. * - Observable outcomes: a new resolver instance starts with an aspect resolved by an earlier resolver. * - Red phase: Fails before the fix because the resolver cache is instance-local, so returning from reel exposes an empty aspect map. * - Excludes: BitmapFactory decoding details, ContentResolver I/O, Compose rendering, navigation wiring. */</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:/* * Behavior Contract: * - Unit under test: LanSharePairingCodePolicy * - Owning layer: app * - Priority tier: P2 * - Capability: parse and validate pairing codes for local area sharing. * * Scenarios: * - Given an input pairing code, when validating length, then return true only if trimmed length is between 6 and 64 characters. * - Given a message string, when checking invalid code message, then return true only if it matches standard invalid patterns. * - Given an exception from save operation, when extracting failure message, then map recognized exceptions or fallback to default. * - Given a message string, when resolving user message key, then map correctly to recognized enum keys. * * Observable outcomes: * - boolean validation result, mapped string message, and resolved UserMessageKey enum. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - network pairing protocol, encryption algorithms, preference persistence. */</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:LanSharePairingCodePolicyTest$((LanSharePairingCodePolicy.isInvalidPairingCodeMessage("Pairing code must be 6-64 characters"))) shouldBe true</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:LanSharePairingCodePolicyTest$(LanSharePairingCodePolicy.saveFailureMessage(invalid)) shouldBe (LanSharePairingCodePolicy.INVALID_PASSWORD_MESSAGE)</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:LanSharePairingCodePolicyTest$(LanSharePairingCodePolicy.saveFailureMessage(unknown)) shouldBe (LanSharePairingCodePolicy.INVALID_LENGTH_MESSAGE)</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:LanSharePairingCodePolicyTest$(LanSharePairingCodePolicy.userMessageKey("Pairing code must be 6-64 characters")) shouldBe (LanSharePairingCodePolicy.UserMessageKey.INVALID_PAIRING_CODE)</ID>
-    <ID>MaxLineLength:LanSharePairingCodePolicyTest.kt:LanSharePairingCodePolicyTest$(LanSharePairingCodePolicy.userMessageKey("network down")) shouldBe (LanSharePairingCodePolicy.UserMessageKey.UNKNOWN)</ID>
-    <ID>MaxLineLength:MainDirectoryGuideControllerTest.kt:/* * Behavior Contract: * - Unit under test: MainDirectoryGuideController * - Owning layer: app * - Priority tier: P2 * - Capability: manage guide types during directory setup flow. * * Scenarios: * - Given a directory guide controller, when requesting image setup, then setup type is updated to DirectorySetupType.Image. * - Given a controller with active setup type, when cleared, then setup type is reset to null. * * Observable outcomes: * - changes to setupType state. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - view components, lifecycle wiring. */</ID>
-    <ID>MaxLineLength:MainScreenAppActionConsumptionPolicyTest.kt:MainScreenAppActionConsumptionPolicyTest$/* * Test Contract: * - Unit under test: main-screen app-action consumption policy. * - Behavior focus: FocusMemo jump events must remain pending when the main list cannot yet locate the target, then be consumed only after a successful focus. * - Observable outcomes: boolean consume/retain decision for create, open, successful focus, and failed focus actions. * - Red phase: Fails before the fix because HandleAppActionEvents consumes FocusMemo immediately even when focusMemoInList returns false. * - Excludes: Compose LaunchedEffect scheduling, NavHost back-stack transitions, and LazyListState scroll physics. */</ID>
-    <ID>MaxLineLength:MainScreenFocusRequestResolverTest.kt:MainScreenFocusRequestResolverTest$/* * Test Contract: * - Unit under test: main-screen Jump focus request resolver. * - Behavior focus: Jump actions returning from Daily Review or Gallery must resolve to an immediate list-focus * request for the matching memo and request direct list placement instead of a visible scroll effect. * - Observable outcomes: returned focus request type, target index for hit and miss cases, and requested direct-placement indexes. * - Red phase: Fails before the fix because main-screen Jump handling still inlines a long-distance animated * list scroll instead of resolving an immediate-focus request contract. * - Excludes: Compose rendering, NavHost back-stack transitions, and LazyListState scroll physics. */</ID>
-    <ID>MaxLineLength:MainVersionHistoryCoordinatorTest.kt:MainVersionHistoryCoordinatorTest$(repository.requestedCursors) shouldBe (listOf(null, MemoRevisionCursor(createdAt = 2L, revisionId = "r2")))</ID>
-    <ID>MaxLineLength:MainVersionHistoryCoordinatorTest.kt:MainVersionHistoryCoordinatorTest$/* * Test Contract: * - Unit under test: MainVersionHistoryCoordinator * - Behavior focus: history pagination state, incremental loading, and restore re-entry protection. * - Observable outcomes: exposed loaded state contents, has-more/loading-more/restoring flags, hidden-on-success, * and suppressed duplicate restore attempts while one restore is still in flight. * - Red phase: Fails before the fix because the coordinator only supports one-shot loads and has no restore-in-progress guard. * - Excludes: Compose rendering, ViewModel wiring, and repository persistence internals. */</ID>
-    <ID>MaxLineLength:MainVersionHistoryCoordinatorTest.kt:MainVersionHistoryCoordinatorTest$items = listOf(testRevision(id = "r3", content = "v3"), testRevision(id = "r2", content = "v2"))</ID>
-    <ID>MaxLineLength:MainViewModelInitialImportStateTest.kt:MainViewModelInitialImportStateTest$initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository)</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$(viewModel.appActionEvents.value.single().payload) shouldBe (MainViewModel.AppAction.FocusMemo("memo-focus"))</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$/* * Test Change Justification: * - Reason category: product contract changed. * - Old behavior/assertion being replaced: this test previously asserted that visibleUiMemos becomes empty * as soon as the fade completes. * - Why the previous assertion is no longer correct: removing the row from the rendered list at fade * completion causes a second structural list update when the repository result arrives, which shows up as * a visible delete-time rebound. * - Coverage preserved by: the updated scenario still locks delete timing, delete markers, and final removal * after repository completion, while now protecting the single-collapse contract. * - Why this is not fitting the test to the implementation: the revised assertion encodes the user-visible * motion requirement rather than a private state-flow detail. */</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$coEvery { appConfigRepository.currentLocation(StorageArea.IMAGE) } returns StorageLocation("/images/initial")</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$every { repository.getAllMemosList() } returns flow { error("full memo flow should stay unused for date filtering") }</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$every { repository.getAllMemosList() } returns flow { error("full memo flow should stay unused for gallery") }</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$every { repository.getGalleryMemosList() } returns flowOf(listOf(newerImageMemo, noImageMemo, olderImageMemo))</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository)</ID>
-    <ID>MaxLineLength:MainViewModelTest.kt:MainViewModelTest$toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase())</ID>
-    <ID>MaxLineLength:MemoEditorControllerTest.kt:MemoEditorControllerTest$/* * Test Contract: * - Unit under test: MemoEditorController * - Behavior focus: create/edit opening state, markdown append behavior, compact/expanded mode transitions, visibility management, backfill timestamp selection, and close reset semantics. * - Observable outcomes: visible flag, editingMemo selection, editor mode, input text/value selection, back-press consumption, backfill timestamp state, and appended markdown content. * - Red phase: Fails before the fix because MemoEditorController has no long-form mode state, cannot expand/collapse the active session, and cannot consume back to collapse before dismiss. * - Excludes: Compose sheet rendering, activity-result launchers, and media save wiring. */</ID>
-    <ID>MaxLineLength:MemoEditorDisplayModePolicyTest.kt:MemoEditorDisplayModePolicyTest$/* * Test Contract: * - Unit under test: MemoEditorController preview display-mode policy. * - Behavior focus: long-form editor sessions should default to edit mode, allow switching into preview without re-requesting focus, re-request focus when returning to edit, and reset preview mode on collapse or close. * - Observable outcomes: displayMode value and focusRequestToken progression across preview transitions, collapse, and close. * - Red phase: Fails before the fix because MemoEditorController has no preview display-mode state, cannot switch between edit and preview, and cannot reset preview mode when the long-form session collapses or closes. * - Excludes: Compose sheet rendering, keyboard controller internals, and markdown renderer output. */</ID>
-    <ID>MaxLineLength:MemoEditorFocusRequestPolicyTest.kt:MemoEditorFocusRequestPolicyTest$/* * Test Contract: * - Unit under test: MemoEditorController focus-request policy. * - Behavior focus: create, edit, and ensure-visible entry points must each emit a fresh focus request token, while pure content mutations must not request keyboard focus again. * - Observable outcomes: focusRequestToken progression across controller actions and unchanged token during content-only mutations. * - Red phase: Would fail before the fix because MemoEditorController had no explicit focus-request token, so open and ensure-visible flows could not re-trigger InputSheet focus for an active editor session. * - Excludes: Compose sheet rendering, IME activation timing, and memo persistence. */</ID>
-    <ID>MaxLineLength:MemoEditorFocusStabilityTest.kt:MemoEditorFocusStabilityTest$/* * Test Contract: * - Unit under test: MemoEditorController focus-token stability during long-form mode toggles. * - Behavior focus: expanding and collapsing the current editor session must not request a new editor focus cycle, because the existing keyboard session should stay intact while the sheet morphs between compact and long-form. * - Observable outcomes: focusRequestToken remains unchanged across expand and collapse on an already-visible session. * - Red phase: Fails before the fix because expand() and collapse() both bump focusRequestToken, which re-triggers InputSheet focus effects and causes the keyboard layout to flicker during long-form transitions. * - Excludes: Compose rendering, Android IME OEM behavior, and memo submission flow. */</ID>
-    <ID>MaxLineLength:MemoEditorUndoRedoPolicyTest.kt:MemoEditorUndoRedoPolicyTest$/* * Test Contract: * - Unit under test: MemoEditorController undo/redo history policy. * - Behavior focus: snapshotting text edits, walking backward and forward through history, and clearing redo after a fresh edit. * - Observable outcomes: inputValue text/selection and canUndo/canRedo flags across undo/redo transitions. * - Red phase: Fails before the fix because MemoEditorController exposes no undo/redo operations or history state. * - Excludes: Compose toolbar rendering, Android EditText platform undo integration, and IME behavior. */</ID>
-    <ID>MaxLineLength:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$/* * Behavior Contract: * - Capability: Draft persistence state machine, success-path cleanup side effects, optional backfill timestamp forwarding, and failure message mapping. * - Scenarios: * - Given starting a memo draft, save/clear persists state to storage. * - Given constructor is called, it does not block on first persisted draft emission. * - Given createMemo/updateMemo success, discard inputs, clear draft text, and update widgets. * - Given saveImage success or failure, manage tracked image list and propagate error states appropriately. * - Observable outcomes: * - draftText/errorMessage state, callbacks, and use-case invocation payloads. * - TDD proof: Asserts correct draft persistence flow and exception mapping in the memo editor. * - Excludes: actual widgets UI layout and Compose rendering components. */</ID>
-    <ID>MaxLineLength:MemoListScrollbarPaddingPolicyTest.kt:/* * Behavior Contract: * - Unit under test: memo list horizontal padding policy. * - Owning layer: app * - Priority tier: P2 * - Capability: keep memo cards balanced in center by ensuring consistent start and end content padding. * * Scenarios: * - Given scrollbar is disabled, when resolving memo list horizontal content padding, then start and end padding are equal. * - Given scrollbar is enabled, when resolving memo list horizontal content padding, then start and end padding are still equal. * * Observable outcomes: * - balanced start and end padding values (both equal to 16.dp). * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose LazyColumn rendering, scrollbar drag behavior, and navigation bar insets. */</ID>
-    <ID>MaxLineLength:MemoUiMapperStorageHeaderRecoveryTest.kt:MemoUiMapperStorageHeaderRecoveryTest$(Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalDate()) shouldBe (LocalDate.of(2022, 8, 18))</ID>
-    <ID>MaxLineLength:MemoUiMapperStorageHeaderRecoveryTest.kt:MemoUiMapperStorageHeaderRecoveryTest$(Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime()) shouldBe (LocalTime.of(21, 0))</ID>
-    <ID>MaxLineLength:MemoUiMapperStorageHeaderRecoveryTest.kt:MemoUiMapperStorageHeaderRecoveryTest$(Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime()) shouldBe (LocalTime.of(21, 0, 33))</ID>
-    <ID>MaxLineLength:MemoUiMapperStorageHeaderRecoveryTest.kt:MemoUiMapperStorageHeaderRecoveryTest$/* * Test Contract: * - Unit under test: MemoUiMapper * - Behavior focus: display-safe recovery of memo content and timestamp when stale memo state still leaks a storage header into app-layer mapping or when plain-markdown raw content is the only non-blank source body. * - Observable outcomes: mapped memo timestamp, processed content, collapsed summary, markdown precompute choice for deferred rendering, and URL-only raw markdown recovery when memo.content is blank. * - Red phase: Fails before the fix when a stale `- &lt;zero-width&gt;HH:mm:ss` storage header still surfaces as `00:00:00` plus leaked header text in collapsed/expanded memo rendering, or when URL-only raw markdown still maps to blank UI content. * - Excludes: Compose tree rendering, Room query wiring, and repository refresh orchestration. */</ID>
-    <ID>MaxLineLength:MemoUiMapperTest.kt:MemoUiMapperTest$/* * Test Contract: * - Unit under test: MemoUiMapper * - Behavior focus: processed memo content maps to the shared modern markdown render plan, strips known tags only from rendered output, and invalidates cached render plans when display content changes. * - Observable outcomes: processed content, precomputed render-plan content, render-plan block count, collapsed summary metadata, and render-plan instance reuse behavior. * - Red phase: Fails before the fix because the app layer still precomputes the legacy CommonMark node path and cannot supply the unified modern render plan consumed by memo cards. * - Excludes: Compose card rendering, TextView paragraph layout, and repository/data-layer loading. */</ID>
-    <ID>MaxLineLength:MemoVersionHistoryInteractionPolicyTest.kt:MemoVersionHistoryInteractionPolicyTest$/* * Test Contract: * - Unit under test: version-history card interaction policy in MemoVersionHistorySheet * - Behavior focus: current revisions must stay visually emphasized while only true historical revisions remain tappable for restore. * - Observable outcomes: card interaction mode and highlight style selected from revision/current-restore state. * - Red phase: Fails before the fix because the sheet relies on a disabled clickable Card for current or restoring items, which mutes the current highlight and keeps all behavior buried in Compose wiring instead of an explicit policy. * - Excludes: ModalBottomSheet host behavior, Markdown rendering internals, and repository restore execution. */</ID>
-    <ID>MaxLineLength:MemoVersionHistoryUiMapperTest.kt:MemoVersionHistoryUiMapperTest$/* * Test Contract: * - Unit under test: MemoVersionHistoryUiMapper * - Behavior focus: history revision content must resolve image references the same way as normal memo cards. * - Observable outcomes: processed history content rewrites relative Markdown image paths into loadable resolved URLs. * - Red phase: Fails before the fix because the history sheet uses raw revision content directly, so relative image paths are never resolved for rendering. * - Excludes: Compose rendering, image decoding, and version-history coordinator state transitions. */</ID>
-    <ID>MaxLineLength:PagedMainReadyContentStateResolverTest.kt:/* * Behavior Contract: * - Unit under test: resolvePagedMainReadyContentState * - Owning layer: app * - Priority tier: P2 * - Capability: determine the correct ready content state for the main paged screen. * * Scenarios: * - Given itemCount is 0 and paging refresh is Loading, when resolving state, then return MainReadyContentState.List. * - Given itemCount is 0 and refresh is NotLoading with end of pagination reached, when resolving state, then return MainReadyContentState.Empty. * - Given itemCount is 0 and refresh is NotLoading without reaching end of pagination, when resolving state, then return MainReadyContentState.List. * - Given itemCount is greater than 0, when resolving state, then return MainReadyContentState.List. * * Observable outcomes: * - resolved MainReadyContentState enum value. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose rendering, pager configuration, append/prepend load states, and retry UX. */</ID>
-    <ID>MaxLineLength:PendingNewMemoCreationCoordinatorTest.kt:PendingNewMemoCreationCoordinatorTest$/* * Test Contract: * - Unit under test: pending new-memo creation coordinator. * - Behavior focus: a submitted new-memo request must remain pending while the list is scrolling to the top, retain optional backfill timestamp metadata, reject overlap, and clear only when the matching request is consumed or canceled. * - Observable outcomes: exposed pending request snapshot, returned request value with timestamp metadata, overlap rejection, and matching consume/cancel behavior. * - Red phase: Fails before the fix because the main-screen flow has no durable pending-create state, so submitted content cannot survive the top-scroll wait as an explicit request. * - Excludes: Compose recomposition, LazyList animation internals, and repository persistence. */</ID>
-    <ID>MaxLineLength:RecordingViewModelTimerContractTest.kt:RecordingViewModelTimerContractTest$/* * Behavior Contract: * - Capability: Recording timer duration advances deterministically with the test dispatcher's virtual scheduler. * - Scenarios: * - Given starting a recording with standard dispatcher replaced, confirm duration/amplitude starts at 0, and increments precisely with virtual time steps. * - Observable outcomes: * - recordingDuration and recordingAmplitude matches advanced virtual scheduler duration and mocked amplitude return value. * - TDD proof: Confirms precise timer progression without dependency on physical host system clock. * - Excludes: Direct microphone inputs and disk operations. */</ID>
-    <ID>MaxLineLength:SearchViewModelTest.kt:SearchViewModelTest$testDispatcher.scheduler.advanceTimeBy(130)</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorMemoActionOrderingTest.kt:SettingsAppConfigCoordinatorMemoActionOrderingTest$val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorShareCardTest.kt:SettingsAppConfigCoordinatorShareCardTest$val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorSyncInboxStructureTest.kt:SettingsAppConfigCoordinatorSyncInboxStructureTest$/* * Behavior Contract: * - Capability: Settings app config coordination and sync-inbox subdirectory creation structure. * - Scenarios: * - Given a newly selected sync-inbox root, coordinator applies the location to the repository and creates the required sync-inbox subdirectories immediately. * - Observable outcomes: * - AppConfigRepository applied locations for SYNC_INBOX. * - SyncInboxRepository ensureDirectoryStructure invocation count. * - TDD proof: Ensures coordinator applies storage area updates and runs directory structural setup. * - Excludes: DataStore persistence internals, Compose UI. */</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorSyncInboxStructureTest.kt:SettingsAppConfigCoordinatorSyncInboxStructureTest$appConfigRepository.currentLocation(StorageArea.SYNC_INBOX) shouldBe StorageLocation("content://tree/sync-inbox")</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorTest.kt:SettingsAppConfigCoordinatorTest$/* * Behavior Contract: * - Capability: Settings app config coordination and preference state updates. * - Scenarios: * - Given initial state, directory display states remain Loading until values are emitted. * - Given emitted location display names, directory display states are resolved. * - Given root directory updates, switch-root use case is delegated to and updates repository/state. * - Given image/voice/sync inbox directory updates, correct repository storage locations are applied. * - Given preference toggle updates (double-tap, free-text copy), each updates its own repository state and never touches the other. * - Given date/time/theme/haptic/etc. preference updates, correct repository settings are applied. * - Observable outcomes: * - Directory display state Flow emissions. * - Backing repository preference states and storage locations. * - Rebuild call count from WorkspaceStateResolver. * - TDD proof: Ensures all coordinate actions map directly to repository states without side effects. * - Excludes: Datastore file serialization, Android system settings integration. */</ID>
-    <ID>MaxLineLength:SettingsAppConfigCoordinatorTest.kt:SettingsAppConfigCoordinatorTest$appConfigRepository.currentLocation(StorageArea.SYNC_INBOX) shouldBe StorageLocation("content://tree/sync-inbox")</ID>
-    <ID>MaxLineLength:SettingsErrorPresenterDetailSanitizerTest.kt:SettingsErrorPresenterDetailSanitizerTest$/* * Test Contract: * - Unit under test: sanitizedDetail in SettingsErrorPresenter.kt * - Behavior focus: S3 settings error presentation should keep actionable diagnostic lines while dropping bare exception-class noise. * - Observable outcomes: returned sanitized detail string for user-visible settings errors. * - Red phase: Fails before the fix because a first-line exception wrapper causes sanitizedDetail to discard the second-line transport detail completely. * - Excludes: Compose rendering, string-resource formatting, coordinator state machines, and transport execution. */</ID>
-    <ID>MaxLineLength:SettingsFeatureViewModelsTest.kt:FakeSettingsActionCoordinator$override val updateS3RcloneFilenameEncryption: (S3RcloneFilenameEncryption) -&gt; Unit = { s3FilenameEncryptionArg = it }</ID>
-    <ID>MaxLineLength:SettingsManualUpdateLayoutPolicyTest.kt:SettingsManualUpdateLayoutPolicyTest$/* * Test Contract: * - Unit under test: SettingsManualUpdateLayoutPolicy * - Behavior focus: manual-update preference subtitle reserves a stable number of supporting-text lines across inline status transitions. * - Observable outcomes: subtitle min-line policy returned for representative manual update states. * - Red phase: Fails before the fix because the manual-update settings row has no dedicated layout policy to keep its subtitle height stable across state changes. * - Excludes: Compose text measurement internals, Material3 ListItem rendering, and network update-check behavior. */</ID>
-    <ID>MaxLineLength:SettingsSyncInboxSectionPolicyTest.kt:/* * Behavior Contract: * - Unit under test: sync inbox settings section policy. * - Owning layer: app * - Priority tier: P2 * - Capability: determine visibility and interactivity of sync inbox settings rows based on enablement state. * * Scenarios: * - Given sync inbox is disabled, when resolving section policy, then header is visible and interactive, but directory preference is hidden. * - Given sync inbox is enabled, when resolving section policy, then header is visible and interactive, and directory preference is visible. * * Observable outcomes: * - SyncInboxSectionPolicies state booleans. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Compose animations, picker launching, and repository persistence. */</ID>
-    <ID>MaxLineLength:SettingsSystemFeatureViewModelTest.kt:SettingsSystemFeatureViewModelTest$/* * Behavior Contract: * - Capability: Settings system feature ViewModel, showing version name and manual updates. * - Scenarios: * - Given a specific current version name, initialization exposes it in StateFlow. * - Given an available update and check triggers, manual update state transitions correctly and suppresses duplicate requests. * - Given no update available, manual update check transitions to UpToDate. * - Given checker failure, manual update check transitions to Error state with message. * - Given debug release preview trigger, opens preview dialog even if filter would hide it. * - Observable outcomes: * - ViewModel StateFlow values (currentVersion, manualUpdateState, debugPreviewDialogState). * - Number of repository manual update check invocations. * - TDD proof: Confirms version name resolution, checked/available update state machines, and concurrency gating. * - Excludes: Compose UI rendering, snackbar displaying. */</ID>
-    <ID>MaxLineLength:SettingsSystemFeatureViewModelTest.kt:SettingsSystemFeatureViewModelTest$test</ID>
-    <ID>MaxLineLength:SettingsTypographyPercentFormatterTest.kt:/* * Behavior Contract: * - Unit under test: formatTypographyScalePercent * - Owning layer: app * - Priority tier: P2 * - Capability: format float typography scale values into clean integer percentages. * * Scenarios: * - Given an exact float 1.0f, when formatting percent, then return "100%". * - Given a float slightly below 1.1f due to float imprecision (1.0999998f), when formatting percent, then return "110%". * - Given a float slightly above 1.1f (1.1000001f), when formatting percent, then return "110%". * - Given the minimum scale 0.5f, when formatting percent, then return "50%". * - Given the maximum scale 3.0f, when formatting percent, then return "300%". * * Observable outcomes: * - formatted percent String. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - Slider composable wiring, datastore persistence, preview card layout. */</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$clearMocks(gitSyncSettingsUseCase, webDavSyncSettingsUseCase, s3SyncSettingsUseCase, switchRootStorageUseCase)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.RCLONE_CRYPT)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf(PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns flowOf(S3RcloneFilenameEncoding.BASE64)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$mockEvery { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns flowOf(S3RcloneFilenameEncryption.STANDARD)</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$private fun &lt;T&gt; mockCoEvery: MockKStubScope&lt;T, T&gt;</ID>
-    <ID>MaxLineLength:SettingsViewModelTest.kt:SettingsViewModelTest$viewModel.operationError.value shouldBe SettingsOperationError.Message("Failed to run Git sync: sync failed")</ID>
-    <ID>MaxLineLength:ShareCardBitmapRendererBodyTest.kt:ShareCardBitmapRendererBodyTest$/* * Behavior Contract: * - Unit under test: preprocessShareCardContent and buildShareBodyLines * - Behavior focus: share-card body preprocessing for image markers, audio preservation across supported voice formats, body-line classification, blank-line collapsing, and max-line truncation. * - Observable outcomes: processed share-card text, image slot count, parsed ShareBodyLine types/text/imageIndex, and enforced line cap. * - TDD proof: Fails before the fix because `.ogg` voice attachments are treated like images and replaced with image markers instead of being preserved as audio markdown. * - Excludes: bitmap pixel rendering, Android resources, and share intent/file-provider wiring. */</ID>
-    <ID>MaxLineLength:ShareCardBitmapRendererBodyTest.kt:ShareCardBitmapRendererBodyTest$test</ID>
-    <ID>MaxLineLength:ShareCardBitmapRendererFooterTest.kt:ShareCardBitmapRendererFooterTest$/* * Behavior Contract: * - Unit under test: buildShareCardFooterContent * - Behavior focus: share-card footer single-line composition, custom signature rendering, and Lomo fallback after recorded-days removal. * - Observable outcomes: ShareCardFooterContent row structure and footer visibility used by footer rendering. * - TDD proof: Fails before the fix because footer composition still accepts recorded-days input and builds a two-row footer instead of a single-line time/signature footer. * - Test Change Justification: reason category = product contract changed; old assertions expected recorded-days gating and a two-row layout, which is no longer correct after the product requirement changed to remove recorded days and keep only one footer line. Coverage is preserved by asserting the new single-line time/signature layout plus footer-hidden and blank-signature fallback paths. This is not changing the test to fit the implementation because the user explicitly changed the footer contract. * - Excludes: canvas drawing, bitmap creation, and Android resource lookup. */</ID>
-    <ID>MaxLineLength:ShareCardBitmapRendererTextTest.kt:ShareCardBitmapRendererTextTest$/* * Behavior Contract: * - Unit under test: shouldUseCenteredBody, bodyTextSizeSp, and quote line layout policy. * - Behavior focus: centered-body layout policy, body text size thresholds, and share-card quote block visual affordance. * - Observable outcomes: Boolean decision to use centered body, selected body text size, and quote indicator/text layout metrics. * - TDD proof: Quote layout test fails before the fix because share-card quote lines are rendered as plain text without a rounded indicator bar or text inset. * - Test Change Justification: reason category = pure refactor preserved behavior; removed the obsolete activeDayCountText constructor argument after recorded-days footer content was deleted. Coverage is preserved by keeping the same centered-body and text-size assertions. This is not fitting the test to the implementation because the assertions remain identical and only the input shape changed. * - Excludes: bitmap drawing, text paint construction, and Android typography/resource lookups. */</ID>
-    <ID>MaxLineLength:ShareCardMarkdownBodyLinesTest.kt:ShareCardMarkdownBodyLinesTest$/* * Behavior Contract: * - Unit under test: share-card Markdown body line builder. * - Behavior focus: generated share-card images must apply common Markdown semantics instead of flattening Markdown to plain body text. * - Observable outcomes: share body line type, text, checked task state, table rows, image slots, and inline text style ranges. * - TDD proof: Fails before the fix because share-card rendering uses regex cleanup that drops Markdown semantics for headings, strikethrough, tables, and parser-resolved image syntax. * - Excludes: bitmap pixel rendering, Android resource lookup, image decoding, and share intent/file-provider wiring. */</ID>
-    <ID>MaxLineLength:ShareCardParagraphLayoutPolicyTest.kt:ShareCardParagraphLayoutPolicyTest$/* * Behavior Contract: * - Unit under test: resolveShareCardParagraphLayoutPolicy * - Behavior focus: share-card paragraph layout policy for pure CJK prose, mixed-script prose, and centered short-body rendering. * - Observable outcomes: selected Layout alignment, justification mode, break strategy, and hyphenation frequency for a paragraph. * - TDD proof: Fails before the fix because share-card image rendering does not yet expose or apply the memo CJK paragraph layout policy to StaticLayout. * - Excludes: bitmap drawing, TextPaint sizing, resource lookups, and markdown-to-plain-text cleanup. */</ID>
-    <ID>MaxLineLength:ShareErrorPolicyTest.kt:/* * Behavior Contract: * - Unit under test: ShareErrorPolicy * - Owning layer: app * - Priority tier: P2 * - Capability: filter and sanitize error messages for sharing flow to protect users from technical details. * * Scenarios: * - Given a technical network exception message, when sanitizing, then map it to the fallback message and identify it as technical. * - Given a clean user-facing error message, when sanitizing, then preserve the raw message. * * Observable outcomes: * - sanitized error message string, and boolean indicating if message is technical. * * TDD proof: * - Compilation failure on Kotest transition - test-only migration; no production change. * * Excludes: * - file share protocol, device discovery. */</ID>
-    <ID>MaxLineLength:ShareViewModelTest.kt:ShareViewModelTest$viewModel.isTechnicalShareError("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall") shouldBe true</ID>
-    <ID>MaxLineLength:StatisticsTimeDistributionLayoutPolicyTest.kt:StatisticsTimeDistributionLayoutPolicyTest$(resolveStatisticsTimeDistributionLayout(widthDp = 720)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)</ID>
-    <ID>MaxLineLength:StatisticsTimeDistributionLayoutPolicyTest.kt:StatisticsTimeDistributionLayoutPolicyTest$(resolveStatisticsTimeDistributionLayout(widthDp = 840)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)</ID>
-    <ID>MaxLineLength:StatisticsViewModelTest.kt:StatisticsViewModelTest$(viewModel.shareImageEvent.value) shouldBe (StatisticsShareImageEvent(id = 1L, filePath = "/tmp/stats_share_1.png"))</ID>
-    <ID>MaxLineLength:SyncConflictViewModelTest.kt:SyncConflictViewModelTest$/* * Behavior Contract: * - Capability: Conflict dialog state transitions, default conflict choice preselection, and resolution application. * - Scenarios: * - Given a conflict set, dialog displays correct initial showing state. * - Given backend type and content heuristics (strict superset, disjoint insertions, identical content with newer metadata), suggest optimal default resolution choices. * - Given inbox blocked items, leave their choices unselected. * - Given user choice overrides or bulk selection, apply choices appropriately. * - Given apply resolution trigger, verify backup and resolve use cases are invoked in correct order. * - Observable outcomes: * - ViewModel state (Hidden, Showing) and per-file resolution choices. * - TDD proof: Verifies resolution heuristics and ensures that backup/resolve operations succeed and transition the state correctly. * - Excludes: Compose UI dialog representation and sync engine transport operations. */</ID>
-    <ID>MaxLineLength:SyncConflictViewModelTest.kt:SyncConflictViewModelTest$coEvery { backupSyncConflictFilesUseCase.invoke(any(), any()) } throws IllegalStateException("backup failed")</ID>
-    <ID>MaxLineLength:SyncConflictViewModelTest.kt:SyncConflictViewModelTest$coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Pending(pending)</ID>
-    <ID>MaxLineLength:SyncConflictViewModelTest.kt:SyncConflictViewModelTest$coEvery { syncConflictResolutionUseCase.resolve(any(), any()) } returns SyncConflictResolutionResult.Resolved</ID>
-    <ID>MaxLineLength:SyncConflictViewModelTest.kt:SyncConflictViewModelTest$perFileChoices = mapOf("images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW).toImmutableMap()</ID>
-    <ID>MaxLineLength:ThemeResyncPolicyTest.kt:ThemeResyncPolicyTest$/* * Behavior Contract: * - Unit under test: theme resync policy for lifecycle resume and handled uiMode changes. * - Behavior focus: when the user follows the system theme, Lomo must re-sync app night mode on handled uiMode transitions without relying on a visible resume-time correction; explicit light/dark choices must remain sticky. * - Observable outcomes: boolean resync decisions for resume and uiMode-change events. * - TDD proof: Fails before the fix because the policy still asks MainActivity to re-sync on resume, which causes a visible foreground theme flip after the app becomes visible. * - Excludes: AppCompatDelegate side effects, OEM dark-mode rendering, and Compose recomposition details. */</ID>
-    <ID>MaxLineLength:ThemeResyncPolicyTest.kt:ThemeResyncPolicyTest$/* * Test Change Justification: * - Reason category: product contract changed. * - Exact behavior/assertion being replaced: resume under ThemeMode.SYSTEM previously asserted that a re-sync should occur. * - Why the previous assertion is no longer correct: the desired behavior is now to finish theme correction while backgrounded via handled configuration changes and avoid a visible on-resume flash. * - Retained/new coverage: the config-change assertions still protect system-theme following, and the new resume assertion protects the no-foreground-flip requirement. * - Why this is not changing the test to fit the implementation: the user explicitly rejected the visible resume-time transition, so the observable requirement changed. */</ID>
-    <ID>MaxLineLength:UpdateProgressBackdropSupportTest.kt:UpdateProgressBackdropSupportTest$/* * Test Contract: * - Unit under test: resolveUpdateProgressBackdropMode * - Behavior focus: shader-backed update-progress background selection degrades safely when runtime shader support is unavailable or initialization fails. * - Observable outcomes: returned UpdateProgressBackdropMode value and whether the shader probe executes. * - Red phase: Fails before the fix because update-progress backdrop selection is embedded in Compose rendering with no safe fallback contract when shader setup throws. * - Excludes: Compose drawing, AGSL correctness, and APK download or installer behavior. */</ID>
-    <ID>UseCaseLocation:MainViewModelInitialImportStateTest.kt:MainViewModelInitialImportStateTest$FakeSwitchRootStorageUseCase : SwitchRootStorageUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeCreateMemoUseCase : CreateMemoUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeDiscardMemoDraftAttachmentsUseCase : DiscardMemoDraftAttachmentsUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeObserveDraftTextUseCase : ObserveDraftTextUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeSaveImageUseCase : SaveImageUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeSetDraftTextUseCase : SetDraftTextUseCase</ID>
-    <ID>UseCaseLocation:MemoEditorViewModelTest.kt:MemoEditorViewModelTest$FakeUpdateMemoContentUseCase : UpdateMemoContentUseCase</ID>
+    <ID>InvalidPackageDeclaration:AndroidDynamicShortcutPublisher.kt:package com.lomo.app.startup</ID>
+    <ID>InvalidPackageDeclaration:AppBuildInfo.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:AppConfigStateProvider.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:AppConfigUiCoordinator.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:AppFlowSharing.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:AppLockPolicy.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:AppModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:AppNightMode.kt:package com.lomo.app.theme</ID>
+    <ID>InvalidPackageDeclaration:AppPreferencesState.kt:package com.lomo.app.feature.preferences</ID>
+    <ID>InvalidPackageDeclaration:AppScope.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:AppShutdownCoordinator.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:AppStartupWorkflow.kt:package com.lomo.app.startup</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateChecker.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateDialog.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateDownloadManager.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateProgressBackdrop.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateProgressBackdropApi33.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateProgressDialog.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateProgressPresentation.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppUpdateViewModel.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:AppWidgetRepository.kt:package com.lomo.app.repository</ID>
+    <ID>InvalidPackageDeclaration:AudioAttachmentClassifier.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:AudioPlayerManager.kt:package com.lomo.app.media</ID>
+    <ID>InvalidPackageDeclaration:BenchmarkAnchorContract.kt:package com.lomo.app.benchmark</ID>
+    <ID>InvalidPackageDeclaration:CalendarHeatmapThresholdsEditor.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:CameraCaptureUtils.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:CapabilityGatePolicy.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:ColorPickerMath.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:ColorSourceLabels.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:DailyReviewScreen.kt:package com.lomo.app.feature.review</ID>
+    <ID>InvalidPackageDeclaration:DailyReviewViewModel.kt:package com.lomo.app.feature.review</ID>
+    <ID>InvalidPackageDeclaration:DeleteAnimationRunner.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:DeviceDiscoveryContentState.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:DomainAppUpdateBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainCoreBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainMemoMutationBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainMemoReadBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainSearchBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainShareBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainSyncBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:DomainWorkspaceBindingsModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:ExternalAppCommandExecutionPolicy.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:ExternalAppCommands.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:FeedImagePreloadPlanner.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:FontPreferenceLabels.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:ForegroundEntryPolicy.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:GalleryGridContent.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryGridLayout.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryImageDimensionResolver.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryMosaicPlanner.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelActiveMemoResolution.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelChromeVisibility.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelImageIndicator.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelImmersiveSystemBars.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelMemoOverlay.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelMode.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelNavigation.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelOverlayAnchor.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelRequest.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelScreen.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryReelTopBar.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryScreen.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GalleryScreenDisplayState.kt:package com.lomo.app.feature.gallery</ID>
+    <ID>InvalidPackageDeclaration:GitSyncDialogActions.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:ImageMapProvider.kt:package com.lomo.app.provider</ID>
+    <ID>InvalidPackageDeclaration:ImagePreloadRequest.kt:package com.lomo.app.feature.image</ID>
+    <ID>InvalidPackageDeclaration:ImageViewerRequest.kt:package com.lomo.app.feature.image</ID>
+    <ID>InvalidPackageDeclaration:ImageViewerScreen.kt:package com.lomo.app.feature.image</ID>
+    <ID>InvalidPackageDeclaration:KoinViewModel.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:LanShareAvailabilityViewModel.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:LanShareNetworkPermissionPolicy.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:LanSharePairingDialogTriggerPolicy.kt:package com.lomo.app.feature.lanshare</ID>
+    <ID>InvalidPackageDeclaration:LanShareUiCoordinator.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:LomoAppRoot.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:LomoApplication.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:LomoImageLoaderConfig.kt:package com.lomo.app.feature.image</ID>
+    <ID>InvalidPackageDeclaration:LomoImageRequest.kt:package com.lomo.app.feature.image</ID>
+    <ID>InvalidPackageDeclaration:LomoNavHost.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:LomoWidget.kt:package com.lomo.app.widget</ID>
+    <ID>InvalidPackageDeclaration:LomoWidgetReceiver.kt:package com.lomo.app.widget</ID>
+    <ID>InvalidPackageDeclaration:MainActivity.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:MainActivityIntentExtraction.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:MainActivityLaunchRouting.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:MainEventQueueCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainForegroundAutoInputPolicy.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainForegroundEntryRoutingPolicy.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:MainMemoEditorSurface.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoFilterColorPolicy.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoFilterPanel.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoFilterPanelSections.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoListStateHolder.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoLocationCommand.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainMemoMutationCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainReminderClickAction.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreen.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenDirectoryGuide.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenEmptyState.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenEventEffects.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenExternalAppCommandEffects.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenFab.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenFocusRequest.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenLayout.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenNavigationActions.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenScaffold.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenStateHosts.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenTopBar.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainScreenTransientCommandEffects.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainSidebarStateHolder.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainStartupCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainVersionHistoryCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainViewModel.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MainWorkspaceCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MarkdownCleanupFormatter.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:MemoActionId.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoActionOrderScopes.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoBackfillDateTime.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoBackfillSelectionState.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoCardEntry.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoCardListAnimation.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoCollectionActionStateHolder.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoCollectionActions.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoCollectionProjectionMapper.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoCollectionUiState.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoEditorController.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoEditorSurface.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoEditorViewModel.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoExpansionState.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoFilterSheetHost.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoGeoUriSupport.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoInteractionHost.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoJumpNavigation.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoListContent.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoListFilterController.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoMarkdownMediaAdapter.kt:package com.lomo.app.presentation.markdown</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuBinder.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuCommandHandler.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoMenuSelection.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoPagingSource.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:MemoUiImageContentDependency.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoUiImageContentResolver.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoUiMapper.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:MemoVersionHistorySheet.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoVersionHistoryUiMapper.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:MemoVisibleContentReplacement.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:NavRoute.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:NavigationPayloadRegistry.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:NavigationSharedTransitionScope.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:NavigationTransitions.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:NewMemoCreationCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:NewMemoTileService.kt:package com.lomo.app.widget</ID>
+    <ID>InvalidPackageDeclaration:PagedMemoListContent.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:PagedMemoListContentSupport.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:PagedMemoListPlaceholderRow.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:PendingNewMemoCreationCoordinator.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:ProviderSelectionDialogs.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:ProviderSettingsDialogs.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:RecordingTileClickPolicy.kt:package com.lomo.app.widget</ID>
+    <ID>InvalidPackageDeclaration:RecordingTileService.kt:package com.lomo.app.widget</ID>
+    <ID>InvalidPackageDeclaration:RecordingViewModel.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:ReminderInsertDialog.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:ReminderIntervalChoiceLayoutPolicy.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:ReminderPermissionGate.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:ReminderPermissionPolicy.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:RemoteProviderSectionSurface.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:RemoteProviderSettingsController.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:S3SyncLabelSources.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SearchBarHideSnapshot.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchBarTrailingIcons.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchContentState.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchInputMorph.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchMemoEditorSurface.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchMemoMenuCommandHandler.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchScreen.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchScreenContent.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchScreenUiSnapshot.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SearchViewModel.kt:package com.lomo.app.feature.search</ID>
+    <ID>InvalidPackageDeclaration:SettingsActionCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsAppConfigCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsColorPalettePage.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsConnectionTestPresentation.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsCoordinatorFactory.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsCredentialCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsCredentialPresentation.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsDialogOptions.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsDialogState.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsEnumParsing.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsErrorPresenter.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsFeatureViewModels.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsFlowSharing.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsFontPage.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsGitCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsGitSyncSections.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsHeatmapSection.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsHomeHero.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsHomeHeroState.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsHomeRows.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsLanShareCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsLanShareDialogs.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsManualUpdateLayoutPolicy.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsManualUpdatePresentation.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsMigrationFeatureViewModel.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsMigrationOperationPresentation.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsOperationError.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsOperationErrorMapper.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsPreferenceDialogs.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsQuickControls.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsS3Coordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsS3StateProvider.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsS3SyncPresentation.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsS3SyncSections.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsScreen.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsScreenLayout.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsScreenState.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsScreenSupport.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsScreenSyncContainers.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSections.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSnapshotDialogs.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSnapshotStrings.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsStateProvider.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSubPages.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSyncCoordinatorSupport.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSyncDialogHelpers.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsSyncSections.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsTypographyPage.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsUnifiedSyncState.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsViewModel.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsWebDavCoordinator.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SettingsWebDavSyncSections.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRenderer.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererBody.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererCanvas.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererFooter.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererModels.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererRenderLines.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardBitmapRendererText.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardDisplayFormatter.kt:package com.lomo.app.presentation.sharecard</ID>
+    <ID>InvalidPackageDeclaration:ShareCardImageDecodeSource.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardMarkdownBodyLines.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardMarkdownHtmlStyleHelpers.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardMarkdownTextStyleHelpers.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardPalettePolicy.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareCardParagraphLayoutPolicy.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareDeviceDiscoveryList.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareDeviceDiscoverySection.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareDialogHost.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareErrorPolicy.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareErrorPresenter.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareImagePngEncodingPolicy.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareNetworkPermissionHandlers.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareRoutePayloadPersistentCache.kt:package com.lomo.app.navigation</ID>
+    <ID>InvalidPackageDeclaration:ShareScreen.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareScreenImeActions.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareScreenState.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareSections.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareTransferBanner.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:ShareUtils.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:ShareViewModel.kt:package com.lomo.app.feature.share</ID>
+    <ID>InvalidPackageDeclaration:SharedMemoCacheCleaner.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:SidebarViewModel.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:StatisticsPresentationPolicy.kt:package com.lomo.app.feature.statistics</ID>
+    <ID>InvalidPackageDeclaration:StatisticsScreen.kt:package com.lomo.app.feature.statistics</ID>
+    <ID>InvalidPackageDeclaration:StatisticsShare.kt:package com.lomo.app.feature.statistics</ID>
+    <ID>InvalidPackageDeclaration:StatisticsViewModel.kt:package com.lomo.app.feature.statistics</ID>
+    <ID>InvalidPackageDeclaration:SuspendCatching.kt:package com.lomo.app.util</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictDialogController.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictDialogHost.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictDialogState.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictDialogStateReducer.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictSafeAutoResolve.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictStateHandler.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictStateViewModel.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncConflictViewModel.kt:package com.lomo.app.feature.conflict</ID>
+    <ID>InvalidPackageDeclaration:SyncInboxSectionPolicies.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:SyncSettingsSection.kt:package com.lomo.app.feature.settings</ID>
+    <ID>InvalidPackageDeclaration:TagFilterScreen.kt:package com.lomo.app.feature.tag</ID>
+    <ID>InvalidPackageDeclaration:TagFilterViewModel.kt:package com.lomo.app.feature.tag</ID>
+    <ID>InvalidPackageDeclaration:ThemeResyncPolicy.kt:package com.lomo.app.theme</ID>
+    <ID>InvalidPackageDeclaration:ThrowableMessageMapper.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:TopViewportMemoId.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:TrashScreen.kt:package com.lomo.app.feature.trash</ID>
+    <ID>InvalidPackageDeclaration:TrashViewModel.kt:package com.lomo.app.feature.trash</ID>
+    <ID>InvalidPackageDeclaration:TrustedLaunchIntents.kt:package com.lomo.app</ID>
+    <ID>InvalidPackageDeclaration:UiMemoMappingInput.kt:package com.lomo.app.feature.main</ID>
+    <ID>InvalidPackageDeclaration:UiState.kt:package com.lomo.app.feature.common</ID>
+    <ID>InvalidPackageDeclaration:UndoRedoManager.kt:package com.lomo.app.feature.memo</ID>
+    <ID>InvalidPackageDeclaration:UpdateProgressBackdropMode.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:UpdateStartupOrchestration.kt:package com.lomo.app.feature.update</ID>
+    <ID>InvalidPackageDeclaration:ViewModelModule.kt:package com.lomo.app.di</ID>
+    <ID>InvalidPackageDeclaration:WidgetUpdater.kt:package com.lomo.app.widget</ID>
+    <ID>LongMethod:SettingsScreen.kt:@Composable fun SettingsScreen</ID>
   </CurrentIssues>
 </SmellBaseline>

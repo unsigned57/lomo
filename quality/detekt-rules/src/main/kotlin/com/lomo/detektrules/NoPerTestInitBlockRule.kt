@@ -15,7 +15,7 @@ internal class NoPerTestInitBlockRule(
         super.visitClass(klass)
         val file = klass.containingKtFile
         val path = file.getViewProvider().getVirtualFile().getPath().replace('\\', '/')
-        if (!path.contains("/src/test/") && !path.contains("/src/androidTest/")) return
+        if (!path.contains("/test/") && !path.contains("/test@android/")) return
 
         if (!klass.looksLikeKotestSpec()) return
 
