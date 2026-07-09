@@ -22,8 +22,15 @@ package com.lomo.detektrules
  * - RED: this test fails before the fix because NoHardcodedVisibleText is not registered.
  *
  * Excludes:
- * - Android XML hardcoded text, full Gradle Detekt task wiring, runtime locale selection, and resource key parity.
- */
+ * - Android XML hardcoded text, full Toolchain static-analysis task wiring, runtime locale selection, and resource key parity.
+ 
+ * Test Change Justification:
+ * - Reason category: mechanical layout path update.
+ * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
+ * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
+ * - Coverage preserved by: same Detekt finding contracts and assertion messages.
+ * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
+*/
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -49,7 +56,7 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
     test("reports Compose visible text and content descriptions backed by literals") {
         val findings =
             rule().findingsForSource(
-                relativePath = "app/src/main/java/com/lomo/app/feature/sample/BadText.kt",
+                relativePath = "app/src/feature/sample/BadText.kt",
                 code =
                     """
                     package com.lomo.app.feature.sample
@@ -74,7 +81,7 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
     test("reports Android feedback and clipboard labels backed by literals") {
         val findings =
             rule().findingsForSource(
-                relativePath = "app/src/main/java/com/lomo/app/feature/sample/BadFeedback.kt",
+                relativePath = "app/src/feature/sample/BadFeedback.kt",
                 code =
                     """
                     package com.lomo.app.feature.sample
@@ -105,7 +112,7 @@ class NoHardcodedVisibleTextRuleTest : FunSpec({
     test("allows resource backed copy and non-copy source literals") {
         val findings =
             rule().findingsForSource(
-                relativePath = "ui-components/src/main/java/com/lomo/ui/component/sample/GoodText.kt",
+                relativePath = "ui-components/src/component/sample/GoodText.kt",
                 code =
                     """
                     package com.lomo.ui.component.sample

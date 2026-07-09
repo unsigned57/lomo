@@ -20,11 +20,11 @@ This module defines the platform-free core of the app: domain models, use cases,
 
 ## Start Here
 
-- `src/main/java/com/lomo/domain/repository/`
+- `src/repository/`
   - Contract definitions such as `MemoRepository.kt`.
-- `src/main/java/com/lomo/domain/usecase/`
+- `src/usecase/`
   - Business rules such as `ApplyMainMemoFilterUseCase.kt`.
-- `src/main/java/com/lomo/domain/model/`
+- `src/model/`
   - Shared state and value types passed across layers.
 
 ## Key Subdirectories

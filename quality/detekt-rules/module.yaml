@@ -1,0 +1,22 @@
+product: jvm/lib
+
+layout: maven-like
+
+settings:
+  junit: junit-5
+  jvm:
+    release: 25
+    jdk:
+      version: 26
+      selectionMode: javaHome
+  kotlin:
+    allWarningsAsErrors: true
+
+dependencies:
+  - dev.detekt:detekt-api:2.0.0-alpha.3: compile-only
+
+test-dependencies:
+  - io.kotest:kotest-runner-junit5:6.1.11
+  - io.kotest:kotest-assertions-core:6.1.11
+  - io.kotest:kotest-framework-engine:6.1.11
+  - dev.detekt:detekt-test:2.0.0-alpha.3

@@ -1,0 +1,6 @@
+modules:
+  - app
+  - data
+  - domain
+  - quality/detekt-rules
+  - ui-components

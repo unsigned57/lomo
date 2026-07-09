@@ -19,10 +19,8 @@ internal class NoHardcodedVisibleTextRule(
         config.valueOrDefault(
             "sourcePathFragments",
             listOf(
-                "/app/src/main/java/",
-                "/app/src/main/kotlin/",
-                "/ui-components/src/main/java/",
-                "/ui-components/src/main/kotlin/",
+                "/app/src/",
+                "/ui-components/src/",
             ),
         )
     private val textCallees = config.valueOrDefault("textCallees", listOf("Text", "BasicText", "ClickableText")).toSet()

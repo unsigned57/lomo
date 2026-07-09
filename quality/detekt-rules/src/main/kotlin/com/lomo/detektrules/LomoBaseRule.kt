@@ -18,11 +18,17 @@ internal abstract class LomoBaseRule(
 ) : Rule(config, description) {
     protected fun KtFile.path(): String = getViewProvider().getVirtualFile().getPath().replace('\\', '/')
 
-    protected fun KtFile.isProductionSource(): Boolean = path().contains("/src/main/")
+    protected fun KtFile.isProductionSource(): Boolean {
+        val normalizedPath = path()
+        return normalizedPath.contains("/src/") &&
+            !normalizedPath.contains("/test/") &&
+            !normalizedPath.contains("/test@android/") &&
+            !normalizedPath.contains("/src/test/")
+    }
 
     protected fun KtFile.isTestFile(): Boolean {
         val normalizedPath = path()
-        return normalizedPath.contains("/src/test/") || normalizedPath.contains("/src/androidTest/")
+        return normalizedPath.contains("/test/") || normalizedPath.contains("/test@android/")
     }
 
     protected fun KtFile.isPathExcluded(): Boolean =
@@ -53,13 +59,13 @@ internal abstract class LomoBaseRule(
         }
 
     protected fun KtFile.moduleRoot(): String? =
-        path().substringBefore("/src/main/", missingDelimiterValue = "").ifBlank { null }
+        path().substringBefore("/src/", missingDelimiterValue = "").ifBlank { null }
 
     protected fun KtFile.productionSourcePaths(): Set<String> {
         val moduleRoot = moduleRoot() ?: return setOf(path())
-        val mainRoot = Path.of(moduleRoot, "src", "main")
-        if (!Files.exists(mainRoot)) return setOf(path())
-        return Files.walk(mainRoot).use { stream ->
+        val sourceRoot = Path.of(moduleRoot, "src")
+        if (!Files.exists(sourceRoot)) return setOf(path())
+        return Files.walk(sourceRoot).use { stream ->
             stream
                 .filter { candidate -> Files.isRegularFile(candidate) }
                 .map { candidate -> candidate.toString().replace('\\', '/') }

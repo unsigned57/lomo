@@ -54,7 +54,7 @@ import kotlin.io.path.writeText
  *   the line containing `runCatching`, when the rule runs, then it reports no finding.
  * - Given a `// behavior-contract:` comment that lacks the `silent-result-ok` marker, when
  *   the rule runs, then it still reports (the marker must be explicit).
- * - Given the same offending pattern in `/src/test/`, when the rule runs, then it reports
+ * - Given the same offending pattern in `/test/`, when the rule runs, then it reports
  *   no finding (production-only scope).
  *
  * Observable outcomes:
@@ -72,7 +72,14 @@ import kotlin.io.path.writeText
  * - Terminals that re-throw (`getOrThrow`) or inspect the exception (`exceptionOrNull`).
  * - Result chains whose terminal value is mapped onward (chain does not end in a silent
  *   value extractor).
- */
+ 
+ * Test Change Justification:
+ * - Reason category: mechanical layout path update.
+ * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
+ * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
+ * - Coverage preserved by: same Detekt finding contracts and assertion messages.
+ * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
+*/
 class NoSwallowedResultRuleTest : FunSpec({
     test("registers NoSwallowedResult in the rule set") {
         val rules = LomoArchitectureRuleSetProvider().instance().rules
@@ -324,10 +331,10 @@ private fun rule(
     }.invoke(config)
 
 private fun Rule.findingsForMainSource(code: String) =
-    findingsForSource("src/main/java/com/lomo/sample/Fixture.kt", code)
+    findingsForSource("src/sample/Fixture.kt", code)
 
 private fun Rule.findingsForTestSource(code: String) =
-    findingsForSource("src/test/java/com/lomo/sample/Fixture.kt", code)
+    findingsForSource("test/sample/Fixture.kt", code)
 
 private fun Rule.findingsForSource(
     relativePath: String,

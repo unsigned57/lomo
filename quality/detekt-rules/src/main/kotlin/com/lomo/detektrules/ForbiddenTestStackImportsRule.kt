@@ -12,7 +12,7 @@ internal class ForbiddenTestStackImportsRule(
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.getViewProvider().getVirtualFile().getPath().replace('\\', '/')
-        if (!path.contains("/src/test/") && !path.contains("/src/androidTest/")) return
+        if (!path.contains("/test/") && !path.contains("/test@android/")) return
 
         val offending =
             file.importPaths().firstOrNull { import ->

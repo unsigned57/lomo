@@ -21,8 +21,15 @@ package com.lomo.detektrules
  * - RED: this test fails before the fix because UiComponentDesignTokenUsage is not registered.
  *
  * Excludes:
- * - Full Gradle Detekt task wiring, type resolution, rendering output, and app-feature token policy.
- */
+ * - Full Toolchain static-analysis task wiring, type resolution, rendering output, and app-feature token policy.
+ 
+ * Test Change Justification:
+ * - Reason category: mechanical layout path update.
+ * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
+ * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
+ * - Coverage preserved by: same Detekt finding contracts and assertion messages.
+ * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
+*/
 
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
@@ -48,7 +55,7 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
     test("reports static shape and alpha bypasses in ui component source") {
         val findings =
             rule().findingsForSource(
-                relativePath = "ui-components/src/main/java/com/lomo/ui/component/card/BadCard.kt",
+                relativePath = "ui-components/src/component/card/BadCard.kt",
                 code =
                     """
                     package com.lomo.ui.component.card
@@ -75,7 +82,7 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
     test("allows component token files to centralize static visual primitives") {
         val findings =
             rule().findingsForSource(
-                relativePath = "ui-components/src/main/java/com/lomo/ui/component/card/MemoCardTokens.kt",
+                relativePath = "ui-components/src/component/card/MemoCardTokens.kt",
                 code =
                     """
                     package com.lomo.ui.component.card
@@ -97,7 +104,7 @@ class UiComponentDesignTokenUsageRuleTest : FunSpec({
     test("allows runtime shape and alpha state in ui component source") {
         val findings =
             rule().findingsForSource(
-                relativePath = "ui-components/src/main/java/com/lomo/ui/component/input/DynamicInputSheet.kt",
+                relativePath = "ui-components/src/component/input/DynamicInputSheet.kt",
                 code =
                     """
                     package com.lomo.ui.component.input

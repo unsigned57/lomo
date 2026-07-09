@@ -38,9 +38,9 @@ import kotlin.io.path.writeText
  * Behavior Contract:
  * - Unit under test: LomoArchitectureRuleSetProvider dead-code guard rules.
  * - Behavior focus: literal branch rejection, unreachable tail detection, redundant exhaustive else detection, duplicate helper detection, and module-local dead declaration detection.
- * - Observable outcomes: finding count, finding message content, duplicate declaration reporting, unreferenced declaration reporting, and src/main-only enforcement.
+ * - Observable outcomes: finding count, finding message content, duplicate declaration reporting, unreferenced declaration reporting, and src-only enforcement.
  * - TDD proof: Fails before the fix because the new duplicate/dead-declaration rules are not yet registered and therefore do not report the cross-file regressions.
- * - Excludes: detekt engine integration, Gradle task wiring, compiler-native diagnostics outside rule execution, and cross-module dead-code analysis for public APIs.
+ * - Excludes: detekt engine integration, Toolchain task wiring, compiler-native diagnostics outside rule execution, and cross-module dead-code analysis for public APIs.
  */
 class DeadCodeGuardRulesTest : FunSpec() {
     init {
@@ -126,7 +126,7 @@ class DeadCodeGuardRulesTest : FunSpec() {
     test("ignores production guards in test source paths") {
         val findings =
             rule("NoConstantBranchCondition").findingsForSource(
-                relativePath = "src/test/kotlin/com/lomo/sample/DeadCodeGuardRulesFixtureTest.kt",
+                relativePath = "test/sample/DeadCodeGuardRulesFixtureTest.kt",
                 code =
                     """
                     package com.lomo.sample
@@ -152,7 +152,7 @@ class DeadCodeGuardRulesTest : FunSpec() {
                         "excludes" to listOf("ui/component/input/InputSheetFocusEffects.kt"),
                     ),
             ).findingsForSource(
-                relativePath = "src/main/java/com/lomo/ui/component/input/InputSheetFocusEffects.kt",
+                relativePath = "src/ui/component/input/InputSheetFocusEffects.kt",
                 code =
                     """
                     package com.lomo.ui.component.input
@@ -188,13 +188,13 @@ class DeadCodeGuardRulesTest : FunSpec() {
     test("reports duplicate top level functions across production files") {
         val findings =
             rule("NoCrossFileDuplicateTopLevel").findingsForSources(
-                "src/main/java/com/lomo/sample/First.kt" to
+                "src/sample/First.kt" to
                     """
                     package com.lomo.sample
 
                     internal fun dpToPx(value: Int): Int = value * 2
                     """,
-                "src/main/java/com/lomo/sample/Second.kt" to
+                "src/sample/Second.kt" to
                     """
                     package com.lomo.sample
 
@@ -209,13 +209,13 @@ class DeadCodeGuardRulesTest : FunSpec() {
     test("ignores duplicate top level functions when only test sources are involved") {
         val findings =
             rule("NoCrossFileDuplicateTopLevel").findingsForSources(
-                "src/main/java/com/lomo/sample/First.kt" to
+                "src/sample/First.kt" to
                     """
                     package com.lomo.sample
 
                     internal fun dpToPx(value: Int): Int = value * 2
                     """,
-                "src/test/java/com/lomo/sample/FirstTest.kt" to
+                "test/sample/FirstTest.kt" to
                     """
                     package com.lomo.sample
 
@@ -229,13 +229,13 @@ class DeadCodeGuardRulesTest : FunSpec() {
     test("reports unreferenced non public top level declarations across production files") {
         val findings =
             rule("NoUnreferencedTopLevelDeclaration").findingsForSources(
-                "src/main/java/com/lomo/sample/UnusedHelper.kt" to
+                "src/sample/UnusedHelper.kt" to
                     """
                     package com.lomo.sample
 
                     internal fun unreachableHelper(): Int = 7
                     """,
-                "src/main/java/com/lomo/sample/Consumer.kt" to
+                "src/sample/Consumer.kt" to
                     """
                     package com.lomo.sample
 
@@ -250,13 +250,13 @@ class DeadCodeGuardRulesTest : FunSpec() {
     test("keeps referenced non public top level declarations") {
         val findings =
             rule("NoUnreferencedTopLevelDeclaration").findingsForSources(
-                "src/main/java/com/lomo/sample/Helpers.kt" to
+                "src/sample/Helpers.kt" to
                     """
                     package com.lomo.sample
 
                     internal fun reachableHelper(): Int = 7
                     """,
-                "src/main/java/com/lomo/sample/Consumer.kt" to
+                "src/sample/Consumer.kt" to
                     """
                     package com.lomo.sample
 
@@ -276,7 +276,7 @@ class DeadCodeGuardRulesTest : FunSpec() {
             "Expected rule '$name' to be registered."
         }.invoke(config)
 
-    private fun Rule.findingsForMainSource(code: String) = findingsForSource("src/main/java/com/lomo/sample/Fixture.kt", code)
+    private fun Rule.findingsForMainSource(code: String) = findingsForSource("src/sample/Fixture.kt", code)
 
     private fun Rule.findingsForSource(
         relativePath: String,

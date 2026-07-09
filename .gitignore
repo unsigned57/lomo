@@ -16,9 +16,14 @@ gen/
 out/
 architecture-test/
 
-# Gradle files
+# Build and tooling state
 .gradle/
 build/
+.cache/
+.kotlin-cli/
+.android-sdk/
+__pycache__/
+*.pyc
 
 # Local configuration file (sdk.dir)
 local.properties
@@ -54,6 +59,7 @@ captures/
 *.keystore
 release.keystore
 debug.keystore
+keystore.properties
 
 # External native build folder
 .externalNativeBuild
@@ -67,7 +73,6 @@ google-services.json
 
 # Package Files #
 *.jar
-!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 *.zip

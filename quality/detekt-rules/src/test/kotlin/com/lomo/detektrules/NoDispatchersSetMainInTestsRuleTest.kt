@@ -52,7 +52,7 @@ import kotlin.io.path.writeText
 class NoDispatchersSetMainInTestsRuleTest : FunSpec({
     test("flags Dispatchers.setMain in feature test source") {
         val findings = rule().findingsForTestSource(
-            "src/test/java/com/lomo/sample/FeatureTest.kt",
+            "test/sample/FeatureTest.kt",
             """
             package com.lomo.sample
 
@@ -69,7 +69,7 @@ class NoDispatchersSetMainInTestsRuleTest : FunSpec({
 
     test("allows production source uses") {
         val findings = rule().findingsForTestSource(
-            "src/main/java/com/lomo/sample/Setup.kt",
+            "src/sample/Setup.kt",
             """
             package com.lomo.sample
 
@@ -86,7 +86,7 @@ class NoDispatchersSetMainInTestsRuleTest : FunSpec({
 
     test("allows MainDispatcherExtension implementation file itself") {
         val findings = rule().findingsForTestSource(
-            "src/test/java/com/lomo/app/testing/MainDispatcherExtension.kt",
+            "test/testing/MainDispatcherExtension.kt",
             """
             package com.lomo.app.testing
 
