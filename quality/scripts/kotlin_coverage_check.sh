@@ -22,7 +22,7 @@ report_dir="$repo_root/build/reports/kover"
 exec_file="$work_dir/jacoco.exec"
 xml_report="$report_dir/coverage.xml"
 html_report="$report_dir/html"
-build_dir="${LOMO_COVERAGE_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/coverage-gate}"
+build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/coverage-gate}}"
 mkdir -p "$cache_dir" "$work_dir" "$report_dir"
 
 download() {

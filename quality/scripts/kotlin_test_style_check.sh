@@ -11,13 +11,14 @@ source "$script_dir/kotlin_detekt_env.sh"
 lomo_kotlin_prepare_env "kotlin-test-style-check"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/test-style-gate}"
 
 report_root="$repo_root/build/reports/detekt-test-style"
 mkdir -p "$report_root"
 
 echo "kotlin-test-style-check: ensuring detekt-rules jar exists"
-if [ ! -f "${LOMO_KOTLIN_BUILD_DIR:-$repo_root/build}/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
-  lomo_kotlin_run build --module detekt-rules
+if [ ! -f "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
+  lomo_kotlin_run build --module detekt-rules --build-dir "$build_dir"
 fi
 
 config="quality/detekt/config/test-style.yml"

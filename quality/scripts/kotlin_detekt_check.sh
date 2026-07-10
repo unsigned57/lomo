@@ -11,12 +11,13 @@ source "$script_dir/kotlin_detekt_env.sh"
 lomo_kotlin_prepare_env "kotlin-detekt-check"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/detekt-gate}"
 
 report_root="$repo_root/build/reports/detekt"
 mkdir -p "$report_root"
 
 echo "kotlin-detekt-check: building custom detekt-rules"
-lomo_kotlin_run build --module detekt-rules
+lomo_kotlin_run build --module detekt-rules --build-dir "$build_dir"
 
 declare -A module_config=(
   [app]="quality/detekt/config/app.yml"
