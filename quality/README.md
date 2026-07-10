@@ -24,6 +24,10 @@ quality scripts, and testing policy.
 
 ## Which Command Should I Run?
 
+For human local development, start with `just --list`. The short commands wrap
+the same scripts below without replacing them; for example, `just quality` runs
+the full repository quality gate.
+
 | Situation | Command |
 | --- | --- |
 | Validate model, build, Detekt, Lint, shell contracts, tests | `quality/scripts/kotlin_static_quality_check.sh` |
@@ -34,6 +38,8 @@ quality scripts, and testing policy.
 | Compose static (compiler metrics + Lint) | `quality/scripts/kotlin_compose_static_analysis.sh` |
 | Coverage only (Kover CLI, min 70%) | `quality/scripts/kotlin_coverage_check.sh` |
 | Format staged/all Kotlin | `quality/scripts/kotlin_detekt_format.sh staged\|all` |
+| Audit repo-local generated-state size | `quality/scripts/kotlin_cache_audit.sh` |
+| Clean old repo-local generated state | `quality/scripts/kotlin_cache_cleanup.sh --dry-run`, then `--apply` |
 | Build all modules directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-build && lomo_kotlin_run build` |
 | Run tests directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-test && lomo_kotlin_run test` |
 | Inspect Toolchain modules | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-model && lomo_kotlin_run show modules` |
@@ -81,6 +87,18 @@ The Kotlin Toolchain scripts create repo-local tooling state by default:
 - `.home`, `.cache`, `.config`, and `.local/share` for Toolchain and Android support files
 - `.gradle/kotlin-toolchain` only for the Kotlin Toolchain Android app bridge
 - `.cache/detekt` and `.cache/kover` for CLI fat jars used by quality scripts
+
+Generated state has a bounded ownership model:
+
+- `kotlin_static_quality_check.sh` writes Toolchain build output to
+  `.kotlin/toolchain-build/static-gate` by default.
+- `kotlin_quality_check.sh` writes Toolchain build output to
+  `.kotlin/toolchain-build/quality-gate` by default.
+- Standalone Lint and Coverage keep `lint-gate` and `coverage-gate` defaults,
+  but inherit `LOMO_KOTLIN_BUILD_DIR` when orchestrated by a higher-level gate.
+- `quality/scripts/kotlin_cache_cleanup.sh` removes old named Toolchain build
+  directories and generated reports, while retaining dependency/tool downloads
+  that are expensive to recreate.
 
 Current Kotlin Toolchain Android app packaging delegates part of `android/app`
 preparation through an internal Gradle/AGP bridge. This is a Toolchain

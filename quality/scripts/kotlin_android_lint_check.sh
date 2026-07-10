@@ -22,7 +22,7 @@ project_xml="$report_root/project.xml"
 report_xml="$report_root/lint-report.xml"
 report_html="$report_root/lint-report.html"
 expanded_dir="$report_root/expanded-aars"
-build_dir="${LOMO_LINT_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/lint-gate}"
+build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/lint-gate}}"
 
 echo "kotlin-android-lint-check: building Android app (debug) to materialize classpath"
 lomo_kotlin_run build --module app --platform android --variant debug --build-dir "$build_dir"

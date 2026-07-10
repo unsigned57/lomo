@@ -27,7 +27,7 @@ lomo_detekt_cli_jar() {
 lomo_detekt_rules_jar() {
   local repo_root build_dir jar_path
   repo_root="$(lomo_detekt_repo_root)"
-  build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/build}"
+  build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/detekt-gate}"
   jar_path="$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
   if [ ! -f "$jar_path" ]; then
     echo "kotlin-detekt: detekt-rules jar missing at $jar_path; build detekt-rules first" >&2

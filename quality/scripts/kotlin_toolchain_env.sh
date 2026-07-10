@@ -31,6 +31,59 @@ lomo_kotlin_prepare_env() {
     "$kotlin_gradle_user_home"
 }
 
+lomo_kotlin_explicit_build_dir() {
+  local previous=""
+  local arg
+
+  for arg in "$@"; do
+    if [ "$previous" = "--build-dir" ]; then
+      if [ -z "$arg" ]; then
+        echo "kotlin-toolchain-env: --build-dir requires a non-empty value" >&2
+        exit 2
+      fi
+      printf '%s\n' "$arg"
+      return 0
+    fi
+
+    case "$arg" in
+      --build-dir=*)
+        if [ -z "${arg#--build-dir=}" ]; then
+          echo "kotlin-toolchain-env: --build-dir requires a non-empty value" >&2
+          exit 2
+        fi
+        printf '%s\n' "${arg#--build-dir=}"
+        return 0
+        ;;
+      --build-dir)
+        previous="--build-dir"
+        ;;
+      *)
+        previous=""
+        ;;
+    esac
+  done
+
+  if [ "$previous" = "--build-dir" ]; then
+    echo "kotlin-toolchain-env: --build-dir requires a value" >&2
+    exit 2
+  fi
+}
+
+lomo_kotlin_quality_build_dir() {
+  local gate_name="$1"
+  shift
+
+  local explicit_build_dir
+  explicit_build_dir="$(lomo_kotlin_explicit_build_dir "$@")"
+  if [ -n "$explicit_build_dir" ]; then
+    printf '%s\n' "$explicit_build_dir"
+    return 0
+  fi
+
+  local quality_build_root="${LOMO_QUALITY_BUILD_ROOT:-$repo_root/.kotlin/toolchain-build}"
+  printf '%s/%s\n' "$quality_build_root" "$gate_name"
+}
+
 lomo_kotlin_run() {
   env \
     HOME="$kotlin_home" \
