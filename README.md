@@ -1,97 +1,135 @@
-# Lomo
-
-English | [中文](README_CN.md)
-
-Lomo is a local-first, Markdown-based memo application for Android, built with Jetpack Compose and Material 3.
-It manages your notes as plain `.md` files on your device—no **digital walled gardens**. It supports S3/Git/WebDAV backup, and you can still sync files however you want (Syncthing, Nextcloud, etc.).
-
 <p align="center">
-  <img src="docs/screenshots/01_menu.png" width="32%" />
-  <img src="docs/screenshots/02_home.png" width="32%" />
-  <img src="docs/screenshots/03_detail.png" width="32%" />
+  <img src="docs/logo.png" width="96" height="96" alt="Lomo logo" />
 </p>
 
-## Why Lomo?
+<h1 align="center">Lomo</h1>
 
-Lomo draws inspiration from excellent predecessors like **Memos**, **Flomo**, **Moe-Memos**, and the **Thino** plugin for Obsidian. The name itself is a nod to "**Lo**cal Me**mo**" (or simply Flomo without the *F*—Foreign/Cloud), as well as a blend of **Lo**calsend and **Me**mo.
+<p align="center">
+  English | <a href="README_CN.md">中文</a>
+</p>
 
-Why build another one?
-Most existing solutions require a server or network connection. I wanted the "Memos experience"—lightweight, timestamped thoughts—but strictly **offline** and based on local Markdown files (proven to be the most universal and portable format).
+<p align="center">
+  <strong>Local-first Markdown memos on Android — no cloud lock-in.</strong>
+</p>
 
-For a long time, I relied on the Thino plugin in Obsidian. While Thino covers the basics, Obsidian's mobile client can feel heavy, and I found the plugin's mobile UI/UX lacking in snappiness and polish.
+<p align="center">
+  <a href="https://github.com/unsigned57/lomo/releases/latest"><img src="https://img.shields.io/github/v/release/unsigned57/lomo?label=release&style=flat-square" alt="Release" /></a>
+  <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License GPL-3.0" />
+  <img src="https://img.shields.io/badge/minSdk-26-informational?style=flat-square" alt="minSdk 26" />
+</p>
 
-**Compatibility**: Lomo is fully compatible with Thino's daily note format. You can effectively treat it as a standalone, native Android client for your Thino data.
+<p align="center">
+  <a href="https://github.com/unsigned57/lomo/releases/latest"><b>Download APK</b></a>
+  ·
+  <a href="docs/sponsor_en.md">Sponsor</a>
+</p>
 
-> **A Note on Maintenance**: Lomo is tailored to my own workflow, and I also use it heavily myself. As long as it remains part of my daily toolchain, I plan to keep maintaining it.
-
-> **A Note on Development**: This project was built almost entirely using **Google Antigravity** and **Codex**. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
-
-## How Should You Sync Your Notes?
-
-Lomo stores your notes entirely on local storage, so you can back them up and sync them with any method you prefer, including tools like Syncthing. Lomo also includes built-in S3/Git/WebDAV sync options. S3 is the only built-in option that supports end-to-end encryption, so it is strongly recommended if you care about data privacy and security. It is also the sync method used by the author, so it receives the most active maintenance.
-
-Lomo's S3 sync is fully compatible with the Obsidian Remotely Save plugin. That plugin has not been actively maintained for a long time, though, so for Android-to-Android syncing it is recommended to use Lomo's S3 sync directly against the root of your Obsidian vault instead. Lomo's S3 sync also supports custom folder sync, and on Linux it is generally better to sync with Rclone directly.
+<p align="center">
+  <img src="docs/screenshots/01_menu.png" width="32%" alt="Menu" />
+  <img src="docs/screenshots/02_home.png" width="32%" alt="Home" />
+  <img src="docs/screenshots/03_detail.png" width="32%" alt="Detail" />
+</p>
+<p align="center"><sub>Menu · Home · Detail</sub></p>
 
 ## Features
 
-- **Local & Plain Text**: All memos are stored as standard Markdown files.
-- **Material 3 Design**: Clean, modern UI with dynamic theming.
-- **Tag Management**: Organize notes with `#tags`. Supports nested tags, e.g., `#tag1/tag2`.
-- **Review Tools**:
-  - **Heatmap**: GitHub-style contribution graph for your writing habits.
-  - **Daily Review**: Flashback to what you wrote on this day in previous years.
-- **Widgets**: Home screen widgets for quick capture and recent notes.
-- **Search**: Full-text search with indexing.
-- **Voice Recording**: Support for voice memos.
-- **LAN Sharing**: Support sharing notes to other Lomo apps via local network.
-- **S3 Backup (Recommended)**: Support backing up notes to standard object storage via S3.
-- **Git Backup**: Support backing up notes to GitHub via Git.
-- **WebDAV Backup**: Support backing up notes via WebDAV. Currently only tested with Nutstore.
+#### Capture
+
+- **Local plain text** — memos are standard Markdown files
+- **Voice recording** — capture thoughts hands-free
+- **Home screen widgets** — quick capture and recent notes
+
+#### Organize
+
+- **Tags** — organize with `#tags`, including nested tags like `#tag1/tag2`
+- **Full-text search** — indexed local search
+- **Material 3** — clean UI with dynamic color
+
+#### Review
+
+- **Heatmap** — GitHub-style contribution graph for writing habits
+- **Daily review** — flashback to this day in previous years
+
+#### Sync & share
+
+- **S3 backup (recommended)** — object storage with end-to-end encryption
+- **Git / WebDAV** — optional built-in backup paths
+- **LAN sharing** — share notes to other Lomo devices on the local network
+
+## How should you sync?
+
+Notes live entirely on your device. Pick one path:
+
+1. **S3 (recommended)** — the only built-in option with end-to-end encryption; what the author uses day to day, and the most actively maintained
+2. **Any file sync** — Syncthing, Nextcloud, or anything else that syncs the local folder
+3. **Git / WebDAV** — built-in backups (WebDAV has mainly been tested with Nutstore)
+
+<details>
+<summary>Obsidian / Rclone notes</summary>
+
+Lomo’s S3 sync is compatible with the Obsidian Remotely Save plugin. That plugin has not been actively maintained for a long time, so for Android-to-Android syncing it is better to point Lomo’s S3 sync at the root of your Obsidian vault. Custom folder sync is supported; on Linux, Rclone is usually the better desktop companion.
+
+</details>
+
+## Why Lomo?
+
+I wanted a Memos / Flomo-style lightweight, timestamped capture flow — but **strictly offline**, with local Markdown as the single source of truth. The name is **Lo**cal Me**mo**. Lomo is fully compatible with **Thino** daily-note format, so you can treat it as a native Android client for Thino data.
+
+<details>
+<summary>Maintenance & development notes</summary>
+
+**Maintenance:** Lomo is tailored to my own workflow and I use it heavily. As long as it stays in my daily toolchain, I plan to keep maintaining it.
+
+**Development:** This project was built almost entirely with **Google Antigravity** and **Codex**. If you have concerns about AI-generated code stability, feel free to fork and adapt it.
+
+</details>
+
+## Install
+
+1. Download the latest APK from [Releases](https://github.com/unsigned57/lomo/releases/latest)
+2. Install on an Android device (Min SDK 26)
+3. On first launch, choose a local folder for your memos
+
+Building from source is covered under **Building** below.
 
 ## Support
 
 If Lomo is useful to you, you can support the project here: [Sponsor page](docs/sponsor_en.md).
 
-## Tech Stack
+<details>
+<summary>Tech stack</summary>
 
-- **Language**: Kotlin
-- **UI**: Jetpack Compose (Material 3)
-- **Architecture**: MVVM + Clean Architecture (Domain/Data/UI Separation)
-- **DI**: Hilt
-- **Async**: Coroutines & Flow
-- **Data**: 
-  - File-system based storage (Storage Access Framework)
-  - Room (for FTS indexing and caching)
+- **Language:** Kotlin
+- **UI:** Jetpack Compose (Material 3)
+- **Architecture:** MVVM + Clean Architecture (Domain / Data / UI)
+- **DI:** Koin
+- **Async:** Coroutines & Flow
+- **Data:**
+  - File-system storage (Storage Access Framework)
+  - Room (FTS indexing and cache)
 
-## Building
+</details>
 
-### Prerequisites
-- JDK 26
-- Android SDK API 37
+<details>
+<summary>Building</summary>
 
-### Common Commands
+**Prerequisites:** JDK 26 · Android SDK API 37 · just
 
 ```bash
 # Build Debug APK
-source quality/scripts/kotlin_toolchain_env.sh
-lomo_kotlin_prepare_env readme-build
-lomo_kotlin_run build --module app --platform android --variant debug
+just debug
 
-# Run Unit Tests
-lomo_kotlin_run test
+# Run unit tests
+just test
 
 # Full pre-merge gate
-quality/scripts/kotlin_quality_check.sh
+just quality
 ```
 
-## Setup
+Or open the project in Android Studio (Ladybug or newer recommended), use the Kotlin Toolchain project model, and run on an emulator or device.
 
-1. Download the latest APK from the Releases page.
-2. Or, build manually:
-   1. Open the project in Android Studio (Ladybug or newer recommended).
-   2. Use the Kotlin Toolchain project model.
-   3. Build and Run on an Emulator or Device (Min SDK 26).
-4. On first launch, select a local folder to store your memos.
+</details>
 
 ## License
 

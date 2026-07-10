@@ -1,95 +1,135 @@
-# Lomo
-
-[English](README.md) | 中文
-
-Lomo 是一款基于 Jetpack Compose 和 Material 3 构建的 Android 本地优先 Markdown 备忘录应用。
-它将你的笔记作为纯文本 `.md` 文件保存在本地的设备上——没有任何**数字围栏**，支持 S3/Git/Webdav 备份，或者你可以使用任何你喜欢的方式（如 Syncthing, Nextcloud 等）进行同步。
-
 <p align="center">
-  <img src="docs/screenshots/01_menu.png" width="32%" />
-  <img src="docs/screenshots/02_home.png" width="32%" />
-  <img src="docs/screenshots/03_detail.png" width="32%" />
+  <img src="docs/logo.png" width="96" height="96" alt="Lomo logo" />
 </p>
 
-## 为什么开发 Lomo？
+<h1 align="center">Lomo</h1>
 
-Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe-Memos** 以及 Obsidian 的 **Thino** 插件。Lomo 这个名字本身就是 "**Lo**cal Me**mo**"（本地备忘录）的缩写，或者说是去掉 *F(Foreign,外部云服务器)* 的 Flomo以及**Lo**calsend + **Me**mo的结合体。
+<p align="center">
+  <a href="README.md">English</a> | 中文
+</p>
 
-为什么要重复造轮子？
-大多数现有的解决方案都需要服务器或网络连接。我想要类似 "Memos" 的体验——轻量级、带时间戳的碎片化记录——但是必须是**纯离线**的，并且基于本地 Markdown 文件 (markdown 作为一种通用的可迁移的格式显然是最佳选择)。
+<p align="center">
+  <strong>本地优先的 Android Markdown 备忘录——无云端围栏。</strong>
+</p>
 
-很长一段时间以来，我一直依赖 Obsidian 中的 Thino 插件。虽然 Thino 满足了基本需求，但 Obsidian 的移动端客户端感觉比较沉重，而且我发现该插件在移动端的 UI/UX 不够流畅和精致。
+<p align="center">
+  <a href="https://github.com/unsigned57/lomo/releases/latest"><img src="https://img.shields.io/github/v/release/unsigned57/lomo?label=release&style=flat-square" alt="Release" /></a>
+  <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License GPL-3.0" />
+  <img src="https://img.shields.io/badge/minSdk-26-informational?style=flat-square" alt="minSdk 26" />
+</p>
 
-**兼容性**：Lomo 完全兼容 Thino 的日记文件格式。你完全可以把它当作是你 Thino 数据的独立原生 Android 客户端。
+<p align="center">
+  <a href="https://github.com/unsigned57/lomo/releases/latest"><b>下载 APK</b></a>
+  ·
+  <a href="docs/sponsor.md">赞助</a>
+</p>
 
-> **关于维护的说明**：由于 Lomo 是根据我的特定需求定制的，作者也在高强度使用，所以只要它还是我日常工具链的一部分，我就会一直维护它。
-
-> **关于开发的说明**：本项目几乎完全由 **Google Antigravity** 与 **Codex** 构建。如果你对 AI 生成代码的稳定性有顾虑，欢迎 Fork 并根据你的需求进行修改。
-
-## 如何同步笔记？
-
-Lomo 的笔记完全存储在本地，您可以使用任何方式来备份同步您的笔记，比如 Syncthing 等项目。Lomo 也内置了 S3/Git/Webdav 等同步方式，S3 是唯一支持端对端加密的同步选项，为了您的数据安全与隐私强烈推荐您使用 S3 进行同步，这也是作者使用的同步方式，所以也会得到积极维护，Lomo 的 S3 同步完全兼容 Obsidian 的 Remotely Save 插件，但是该插件已经很久没有得到更新和维护了，所以在安卓间同步时推荐使用 Lome 的 S3 来直接同步 Obsidian 的根目录，Lome 的 S3 支持自定义文件夹同步，在 Linux 上则推荐直接使用 Rclone 进行同步。
+<p align="center">
+  <img src="docs/screenshots/01_menu.png" width="32%" alt="菜单" />
+  <img src="docs/screenshots/02_home.png" width="32%" alt="首页" />
+  <img src="docs/screenshots/03_detail.png" width="32%" alt="详情" />
+</p>
+<p align="center"><sub>菜单 · 首页 · 详情</sub></p>
 
 ## 功能特性
 
-- **本地纯文本**：所有备忘录都存储为标准的 Markdown 文件。
-- **Material 3 设计**：简洁现代的 UI，支持动态取色。
-- **标签管理**：使用 `#tags` 组织笔记。支持嵌套标签，如 `#tag1/tag2`。
-- **回顾工具**：
-  - **热力图**：GitHub 风格的写作习惯贡献图。
-  - **每日回顾**：回顾“当年今日”你写了什么。
-- **桌面小组件**：主屏幕小组件，支持快速记录和查看最近笔记。
-- **搜索**：支持全文索引搜索。
-- **语音记录**：支持语音记录。
-- **局域网分享**：支持通过局域网将笔记分享到其他lomo应用。
-- **S3 备份（推荐）**：支持通过 S3 将笔记备份至标准对象存储。
-- **Git 备份**：支持通过 Git 将笔记备份至 Github。
-- **Webdav 备份**：支持通过 Webdav 备份（目前仅测试了坚果云）。
+#### 记录
+
+- **本地纯文本** — 备忘录存为标准 Markdown 文件
+- **语音记录** — 快速录入语音备忘
+- **桌面小组件** — 主屏幕快速记录与查看最近笔记
+
+#### 整理
+
+- **标签** — 使用 `#tags` 组织笔记，支持嵌套如 `#tag1/tag2`
+- **全文搜索** — 本地索引加速检索
+- **Material 3** — 简洁现代 UI，支持动态取色
+
+#### 回顾
+
+- **热力图** — GitHub 风格的写作习惯贡献图
+- **每日回顾** — 回顾「当年今日」你写了什么
+
+#### 同步与分享
+
+- **S3 备份（推荐）** — 标准对象存储，支持端对端加密
+- **Git / WebDAV** — 可选内置备份方式
+- **局域网分享** — 将笔记分享到其他 Lomo 设备
+
+## 如何同步笔记
+
+笔记完全存储在本地。任选其一：
+
+1. **S3（推荐）** — 唯一支持端对端加密的内置选项；作者日常使用，维护最积极
+2. **任意文件同步** — Syncthing、Nextcloud 等同步本地文件夹
+3. **Git / WebDAV** — 内置备份（WebDAV 目前主要测试了坚果云）
+
+<details>
+<summary>Obsidian / Rclone 说明</summary>
+
+Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很久没有更新维护，安卓间同步时推荐使用 Lomo 的 S3 直接同步 Obsidian 的 vault 根目录。S3 支持自定义文件夹同步；在 Linux 上则更推荐直接使用 Rclone。
+
+</details>
+
+## 为什么是 Lomo？
+
+想要类似 Memos / Flomo 的轻量、带时间戳的碎片化记录，但必须**纯离线**，并以本地 Markdown 为唯一真相源。名字来自 **Lo**cal Me**mo**。Lomo 完全兼容 **Thino** 日记文件格式，可当作 Thino 数据的独立原生 Android 客户端。
+
+<details>
+<summary>关于维护与开发</summary>
+
+**维护：** Lomo 按作者自身工作流定制，并高强度自用。只要它仍是日常工具链的一部分，就会持续维护。
+
+**开发：** 本项目几乎完全由 **Google Antigravity** 与 **Codex** 构建。若对 AI 生成代码的稳定性有顾虑，欢迎 Fork 并按需修改。
+
+</details>
+
+## 安装
+
+1. 从 [Releases](https://github.com/unsigned57/lomo/releases/latest) 下载最新 APK
+2. 安装到 Android 设备（Min SDK 26）
+3. 首次启动时，选择一个本地文件夹存放备忘录
+
+从源码构建见下方 **构建指南**。
 
 ## 赞助
 
 如果 Lomo 对你有帮助，可以在这里支持项目：[赞助页面](docs/sponsor.md)。
 
-## 技术栈
+<details>
+<summary>技术栈</summary>
 
-- **语言**: Kotlin
-- **UI**: Jetpack Compose (Material 3)
-- **架构**: MVVM + Clean Architecture (Domain/Data/UI 分层)
-- **依赖注入**: Hilt
-- **异步**: Coroutines & Flow
-- **数据**:
-  - 基于文件系统的存储 (Storage Access Framework)
-  - Room (用于 FTS 索引和缓存)
+- **语言：** Kotlin
+- **UI：** Jetpack Compose（Material 3）
+- **架构：** MVVM + Clean Architecture（Domain / Data / UI）
+- **依赖注入：** Koin
+- **异步：** Coroutines & Flow
+- **数据：**
+  - 基于文件系统的存储（Storage Access Framework）
+  - Room（FTS 索引与缓存）
 
-## 构建指南
+</details>
 
-### 前置要求
-- JDK 26
-- Android SDK API 37
+<details>
+<summary>构建指南</summary>
 
-### 常用命令
+**前置要求：** JDK 26 · Android SDK API 37 · just
 
 ```bash
 # 构建 Debug APK
-source quality/scripts/kotlin_toolchain_env.sh
-lomo_kotlin_prepare_env readme-build
-lomo_kotlin_run build --module app --platform android --variant debug
+just debug
 
 # 运行单元测试
-lomo_kotlin_run test
+just test
 
 # 完整合并前检查
-quality/scripts/kotlin_quality_check.sh
+just quality
 ```
 
-## 安装设置
+也可使用 Android Studio（推荐 Ladybug 或更新版本）打开项目，使用 Kotlin Toolchain 项目模型，在模拟器或真机上构建运行。
 
-1. 直接在 Releases 页面下载最新 APK 安装包。
-2. 或者，手动构建：
-   1. 使用 Android Studio (推荐 Ladybug 或更新版本) 打开项目。
-   2. 使用 Kotlin Toolchain 项目模型。
-   3. 在模拟器或真机上构建并运行 (Min SDK 26)。
-4. 首次启动时，选择一个本地文件夹来存储你的备忘录。
+</details>
 
 ## 许可证
 
