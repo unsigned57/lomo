@@ -1,22 +1,9 @@
-> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
-
 # Domain Module Index
 
+> Responsibilities and boundaries: see [ARCHITECTURE.md](../ARCHITECTURE.md). Contribution rules: see [AGENTS.md](../AGENTS.md).
+> This file is a task map for locating code, not a source of truth — verify paths and APIs against the codebase before acting.
+
 This module defines the platform-free core of the app: domain models, use cases, validators, and repository interfaces. New business behavior should start here before it is wired into `app` and implemented in `data`.
-
-## What Belongs Here
-
-- pure business rules
-- domain models shared across layers
-- repository interfaces that describe required capabilities
-- validators and policy objects that do not depend on Android or storage details
-
-## What Does Not Belong Here
-
-- Android framework types
-- Compose, Lifecycle, Room, Hilt/Dagger, Ktor, JGit
-- concrete repository implementations
-- file-system, network, or database glue
 
 ## Start Here
 
@@ -68,7 +55,7 @@ If the logic requires:
 - Android storage integration
 - concrete sync implementation details
 
-then it belongs in `data`, not `domain`.
+then it belongs in `data`, not `domain`. Continue in `data/README.md` when the change is really persistence or sync behavior.
 
 ## Concrete Entry Examples
 
@@ -82,22 +69,3 @@ then it belongs in `data`, not `domain`.
 - use cases that encode sorting, filtering, conflict handling, or fallback behavior
 - repository interfaces that can accidentally leak implementation detail
 - shared model changes that cascade into both `app` and `data`
-
-## How This Module Connects To Other Modules
-
-- `app` consumes its use cases and repository interfaces.
-- `data` implements its repository interfaces.
-- `domain` must remain free of `data` and Android-specific concerns.
-
-## Rules For AI Contributors
-
-- Keep this module platform-free.
-- Prefer expressing capability and policy, not implementation mechanism.
-- When adding a new behavior, decide here first whether the contract itself needs to change.
-- Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in new or modified code.
-
-## When To Read Deeper Files
-
-- Read deeper when the task is about business rules, ordering/filtering decisions, domain contracts, or shared models.
-- Stop descending once you identify the owning use case, model, or interface.
-- If the requested change requires actual persistence or sync behavior, continue in `data/README.md`.

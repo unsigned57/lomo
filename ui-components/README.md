@@ -1,23 +1,9 @@
-> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
-
 # UI Components Module Index
 
-This module provides reusable UI infrastructure shared across app features. It contains shared Compose components, memo rendering, input surfaces, theme tokens, and text/layout helpers. It should stay free of feature orchestration and data-layer dependencies.
+> Responsibilities and boundaries: see [ARCHITECTURE.md](../ARCHITECTURE.md). Contribution rules: see [AGENTS.md](../AGENTS.md).
+> This file is a task map for locating code, not a source of truth — verify paths and APIs against the codebase before acting.
 
-## What Belongs Here
-
-- reusable UI components used by multiple features
-- markdown rendering and memo presentation primitives
-- shared input surfaces and editor helpers
-- typography, colors, shapes, spacing, motion tokens
-- text layout, script-aware rendering, and selection handling
-
-## What Does Not Belong Here
-
-- feature-specific navigation or screen orchestration
-- repository or storage logic
-- direct `com.lomo.data.*` usage
-- business rules that belong in `domain`
+This module provides reusable UI infrastructure shared across app features. It contains shared Compose components, memo rendering, input surfaces, theme tokens, and text/layout helpers.
 
 ## Start Here
 
@@ -88,7 +74,7 @@ Start in:
 
 ### Add a new reusable cross-feature component
 
-Place it under the closest `component/<area>` package. If it starts needing feature-specific state or navigation knowledge, it does not belong here.
+Place it under the closest `component/<area>` package. If it starts needing feature-specific state or navigation knowledge, it belongs in `app` instead — switch to `app/README.md`.
 
 ## High-Risk Areas
 
@@ -98,23 +84,3 @@ Place it under the closest `component/<area>` package. If it starts needing feat
   - Script-aware rendering and selection behavior can regress subtly across devices.
 - `component/markdown`
   - Render-plan performance and behavior correctness both matter.
-
-## How This Module Connects To Other Modules
-
-- Consumed mainly by `app`.
-- Must stay free of `data` imports and feature-specific orchestration.
-- May render `domain`-shaped data, but should not own domain business policy.
-
-## Rules For AI Contributors
-
-- Keep this module reusable and presentation-focused.
-- Do not add feature-specific screen logic here.
-- Do not import `com.lomo.data.*`.
-- Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in new or modified code.
-- Existing platform suppressions in a few legacy files are not precedent for new code.
-
-## When To Read Deeper Files
-
-- Read deeper when a task is clearly about shared presentation, markdown, input, theme, or text behavior.
-- Stop descending once you identify the component family that owns the behavior.
-- If the issue is actually screen state orchestration, switch back to `app/README.md`.

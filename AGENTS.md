@@ -83,7 +83,7 @@ Read in this order only when the task needs the next layer:
 4. `quality/testing/ai-meaningful-tests.md`: mandatory before writing, editing, or reviewing tests.
 5. `quality/testing/ai-kotlin-test-style.md`: mandatory before authoring or editing Kotlin tests.
 
-Verify concrete paths, files, and APIs against the repository before acting. Module READMEs are orientation only, not source of truth.
+Verify concrete paths, files, and APIs against the repository before acting. Module READMEs are task maps (Start Here / Common Tasks / High-Risk Areas) for locating code; responsibilities and boundaries live in `ARCHITECTURE.md`.
 
 ## 6. Behavior And Tests
 
