@@ -1,23 +1,9 @@
-> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
-
 # App Module Index
 
+> Responsibilities and boundaries: see [ARCHITECTURE.md](../ARCHITECTURE.md). Contribution rules: see [AGENTS.md](../AGENTS.md).
+> This file is a task map for locating code, not a source of truth — verify paths and APIs against the codebase before acting.
+
 This module owns app-level UI orchestration. It wires screens, navigation, ViewModels, settings flows, widgets, and app startup behavior on top of `domain` contracts and shared UI from `ui-components`.
-
-## What Belongs Here
-
-- screens and screen-specific ViewModels
-- navigation graph and route wiring
-- app startup, theme application, and WorkManager bootstrap
-- settings orchestration and feature coordinators
-- widgets, share-card presentation, and Android-facing app adapters
-
-## What Does Not Belong Here
-
-- repository implementations
-- DAO, Room, file-system, or sync-engine code
-- durable business rules that should live in `domain`
-- reusable cross-feature UI primitives that belong in `ui-components`
 
 ## Start Here
 
@@ -85,7 +71,7 @@ Start with the feature ViewModel, then inspect:
 - `feature/common` flow-sharing helpers
 - mappers that turn domain models into UI models
 
-Most bugs here are state-shaping or event-consumption issues, not storage-layer issues.
+Most bugs here are state-shaping or event-consumption issues, not storage-layer issues. If the change forces a business-rule decision, switch to `domain/README.md` first.
 
 ### Add or adjust navigation
 
@@ -105,22 +91,3 @@ Start in `widget/` or `presentation/sharecard/` first. These are app-specific pr
   - Route/payload mistakes create broken back-stack or payload-loss bugs.
 - widget/share-card code
   - Android integration and rendering behavior can diverge from main-screen expectations.
-
-## How This Module Connects To Other Modules
-
-- Uses `domain` for business contracts and use cases.
-- Uses `ui-components` for reusable UI primitives, markdown rendering, input, cards, and theme building blocks.
-- Must not import `com.lomo.data.*`.
-
-## Rules For AI Contributors
-
-- Do not place repository or Room logic here.
-- Do not bypass architecture problems by importing `data` types.
-- Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in new or modified code.
-- If a composable hides branch-heavy behavior, prefer extracting that behavior into a ViewModel or coordinator instead of adding more inline state logic.
-
-## When To Read Deeper Files
-
-- Read deeper when a task is clearly inside one feature package.
-- Stop descending once you have the owning ViewModel/coordinator/screen and can identify the code to change.
-- If a feature change starts forcing business-rule decisions, switch to `domain/README.md` before continuing.

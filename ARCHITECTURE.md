@@ -8,7 +8,7 @@ This document is the stable architecture entrypoint for the repository. It descr
 
 - Pure business layer.
 - Owns domain models, repository contracts, and use cases.
-- Must stay free of Android, Compose, Lifecycle, Room, Hilt/Dagger, Ktor, JGit, and any `com.lomo.data.*` type.
+- Must stay free of Android, Compose, Lifecycle, Room, Koin (or any DI framework), Ktor, JGit, and any `com.lomo.data.*` type.
 
 ### `data`
 
@@ -53,5 +53,5 @@ This document is the stable architecture entrypoint for the repository. It descr
 ## Documentation Trust Model
 
 - Treat this file and `AGENTS.md` as the durable architecture source.
-- Treat module README files as best-effort orientation only.
+- Module READMEs are task maps (Start Here / Key Subdirectories / Common Tasks / High-Risk Areas): they help locate code, but do not define responsibilities or boundaries — this file does.
 - When a decision depends on a concrete path, API, or current implementation detail, verify it against the codebase before acting.
