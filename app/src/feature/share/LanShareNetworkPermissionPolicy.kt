@@ -14,7 +14,6 @@ import com.lomo.domain.model.LanShareNetworkPermissionPolicy
 import com.lomo.domain.model.LanShareNetworkPermissionRequirement
 
 internal const val ACCESS_LOCAL_NETWORK_PERMISSION = CapabilityPermissionNames.AccessLocalNetwork
-internal const val NEARBY_WIFI_DEVICES_PERMISSION = CapabilityPermissionNames.NearbyWifiDevices
 
 internal typealias LanSharePermissionRecognizer = (String) -> Boolean
 
@@ -40,7 +39,6 @@ internal fun requiredLanShareNetworkPermissions(
 
 private fun LanShareNetworkPermissionRequirement.toAndroidPermissionName(): String =
     when (this) {
-        LanShareNetworkPermissionRequirement.NearbyWifiDevices -> NEARBY_WIFI_DEVICES_PERMISSION
         LanShareNetworkPermissionRequirement.AccessLocalNetwork -> ACCESS_LOCAL_NETWORK_PERMISSION
     }
 

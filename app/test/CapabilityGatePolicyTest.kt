@@ -13,8 +13,8 @@ package com.lomo.app
  *   data categories are typed independently from optional/blocking severity.
  * - Given system capabilities, when recovery metadata is read, then the primary system-settings action
  *   is explicit without blocking the first screen.
- * - Given Local Network, when recovery metadata is read, then its API-gated multi-permission runtime
- *   request, all-grants aggregation, app-settings fallback, and retry behavior are explicit.
+ * - Given Local Network, when recovery metadata is read, then only the API-36 recognized
+ *   ACCESS_LOCAL_NETWORK permission, app-settings fallback, and retry behavior are explicit.
  * - Given SAF-backed workspace and media capabilities, when recovery metadata is read, then user-selected
  *   recovery actions are explicit.
  *
@@ -22,11 +22,18 @@ package com.lomo.app
  * - Returned CapabilityGate and CapabilityRecoveryPlan values.
  *
  * TDD proof:
- * - RED: targeted app test fails before the fix because CapabilityGate has no typed sensitivity
- *   model or runtime action plan, and Local Network cannot expose an app-settings fallback.
+ * - RED: before the fix, the catalog invented a NEARBY_WIFI_DEVICES requirement for API 33-35 and included
+ *   it alongside ACCESS_LOCAL_NETWORK on API 36.
  *
  * Excludes:
  * - Compose rendering, Android permission launchers, system Intent dispatch, localized copy.
+ *
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: asserting NearbyWifiDevices and AccessLocalNetwork are both requested on API 33-36.
+ * - Why old assertion is no longer correct: Local Network capability does not actually require NearbyWifiDevices.
+ * - Coverage preserved by: asserting that only AccessLocalNetwork is requested on API 36+.
+ * - Why this is not fitting the test to the implementation: It reflects the true platform API requirements.
  */
 
 import com.lomo.app.testing.AppFunSpec
@@ -100,7 +107,7 @@ class CapabilityGatePolicyTest : AppFunSpec() {
             }
         }
 
-        test("given Local Network when recovery metadata is read then API-gated multi-permission plan is explicit") {
+        test("given Local Network when recovery metadata is read then only the real platform permission is explicit") {
             val localNetwork = CapabilityGatePolicies.requirePolicy(CapabilityGateId.LocalNetwork)
             val permissionPlan = requireNotNull(localNetwork.recoveryPlan.runtimePermissionPlan)
 
@@ -116,15 +123,10 @@ class CapabilityGatePolicyTest : AppFunSpec() {
             assertSoftly(permissionPlan) {
                 grantAggregation shouldBe CapabilityGrantAggregation.All
                 requiredPermissions(sdkInt = 32, isPermissionRecognized = { true }) shouldBe emptyList()
-                requiredPermissions(sdkInt = 33, isPermissionRecognized = { true }) shouldBe
-                    listOf(CapabilityPermissionNames.NearbyWifiDevices)
+                requiredPermissions(sdkInt = 33, isPermissionRecognized = { true }) shouldBe emptyList()
                 requiredPermissions(sdkInt = 36, isPermissionRecognized = { true }) shouldBe
-                    listOf(
-                        CapabilityPermissionNames.NearbyWifiDevices,
-                        CapabilityPermissionNames.AccessLocalNetwork,
-                    )
-                requiredPermissions(sdkInt = 36, isPermissionRecognized = { false }) shouldBe
-                    listOf(CapabilityPermissionNames.NearbyWifiDevices)
+                    listOf(CapabilityPermissionNames.AccessLocalNetwork)
+                requiredPermissions(sdkInt = 36, isPermissionRecognized = { false }) shouldBe emptyList()
             }
         }
 

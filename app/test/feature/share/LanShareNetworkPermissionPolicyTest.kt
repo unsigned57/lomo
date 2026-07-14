@@ -7,10 +7,10 @@
  *
  * Scenarios:
  * - Given API 32, when LAN sharing asks for required permissions, then no runtime permission is needed.
- * - Given API 33 through 35, when LAN sharing asks for required permissions, then NEARBY_WIFI_DEVICES
- *   is requested.
- * - Given API 36+, when ACCESS_LOCAL_NETWORK is recognized, then LAN sharing requests both nearby Wi-Fi
- *   and local-network permissions.
+ * - Given API 33 through 35, when LAN sharing asks for required permissions, then no runtime permission
+ *   is requested because NSD and bound LAN HTTP do not use nearby-Wi-Fi APIs.
+ * - Given API 36+, when ACCESS_LOCAL_NETWORK is recognized, then LAN sharing requests only that
+ *   platform local-network permission.
  * - Given API 36+ when ACCESS_LOCAL_NETWORK is not recognized, then LAN sharing omits that permission.
  * - Given a permission callback, when all required permissions are granted or current state is already
  *   granted, then LAN sharing proceeds.
@@ -25,13 +25,18 @@
  * - Permission name lists, grant aggregation result, fallback recovery action, and executed recovery callback.
  *
  * TDD proof:
- * - RED: targeted app test fails before the fix because LAN sharing builds permissions directly and
- *   exposes no catalog-backed recovery plan or permanent-denial fallback action.
- * - RED: targeted app test fails before the fix because no app-layer executor maps
- *   CapabilityRecoveryAction.OpenAppSettings to the production settings callback.
+ * - RED: before the fix, SDK 33-35 returned NEARBY_WIFI_DEVICES and SDK 36 returned both permissions,
+ *   violating the platform API contract for the NSD and LAN HTTP APIs actually used by this feature.
  *
  * Excludes:
  * - Compose launcher wiring, Android permission dialog rendering, localized denial copy.
+ *
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: asserting NearbyWifiDevices is required on API 33-35, and both permissions on API 36+.
+ * - Why old assertion is no longer correct: NSD and bound LAN HTTP APIs do not require NearbyWifiDevices.
+ * - Coverage preserved by: asserting that API 33-35 requires no permissions, and API 36+ requires only ACCESS_LOCAL_NETWORK.
+ * - Why this is not fitting the test to the implementation: It aligns with actual platform API requirements.
  */
 
 package com.lomo.app.feature.share
@@ -39,8 +44,6 @@ package com.lomo.app.feature.share
 import com.lomo.app.CapabilityRecoveryAction
 import com.lomo.app.CapabilityRecoveryDecision
 import com.lomo.app.testing.AppFunSpec
-import io.kotest.matchers.collections.shouldContain
-import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 
@@ -62,37 +65,34 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
             ) shouldBe emptyList()
         }
 
-        test("API 33 (Tiramisu) requires NEARBY_WIFI_DEVICES only") {
+        test("API 33 (Tiramisu) requires no LAN share runtime permission") {
             val permissions =
                 requiredLanShareNetworkPermissions(
                     sdkInt = SDK_TIRAMISU,
                     isPermissionRecognized = PermissionAlwaysRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions shouldBe emptyList()
         }
 
-        test("API 34 (UpsideDownCake) still requires NEARBY_WIFI_DEVICES only") {
+        test("API 34 (UpsideDownCake) requires no LAN share runtime permission") {
             val permissions =
                 requiredLanShareNetworkPermissions(
                     sdkInt = SDK_UPSIDE_DOWN_CAKE,
                     isPermissionRecognized = PermissionAlwaysRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions shouldBe emptyList()
         }
 
-        test("API 35 (VanillaIceCream) still requires NEARBY_WIFI_DEVICES only") {
+        test("API 35 (VanillaIceCream) requires no LAN share runtime permission") {
             val permissions =
                 requiredLanShareNetworkPermissions(
                     sdkInt = SDK_VANILLA_ICE_CREAM,
                     isPermissionRecognized = PermissionAlwaysRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions shouldBe emptyList()
         }
 
         test("API 36 (Baklava) requests ACCESS_LOCAL_NETWORK only when system recognizes the permission") {
@@ -102,8 +102,7 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
                     isPermissionRecognized = PermissionAlwaysRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions.shouldContainExactly(ACCESS_LOCAL_NETWORK_PERMISSION)
         }
 
         test("API 36 skips ACCESS_LOCAL_NETWORK when system does not recognize the permission") {
@@ -113,8 +112,7 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
                     isPermissionRecognized = PermissionNeverRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions shouldBe emptyList()
         }
 
         test("API 37+ still gates ACCESS_LOCAL_NETWORK on system recognition") {
@@ -124,8 +122,7 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
                     isPermissionRecognized = PermissionAlwaysRecognized,
                 )
 
-            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
-            permissions shouldContain ACCESS_LOCAL_NETWORK_PERMISSION
+            permissions.shouldContainExactly(ACCESS_LOCAL_NETWORK_PERMISSION)
         }
 
         test("required LAN share permissions are derived from the shared capability catalog") {
@@ -143,14 +140,11 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
         }
 
         test("permission request is granted when all required permissions return true") {
-            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+            val required = listOf(ACCESS_LOCAL_NETWORK_PERMISSION)
 
             val granted = isLanSharePermissionRequestGranted(
                 requiredPermissions = required,
-                permissionResults = mapOf(
-                    NEARBY_WIFI_DEVICES_PERMISSION to true,
-                    ACCESS_LOCAL_NETWORK_PERMISSION to true,
-                ),
+                permissionResults = mapOf(ACCESS_LOCAL_NETWORK_PERMISSION to true),
                 hasCurrentPermissions = false,
             )
 
@@ -158,11 +152,11 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
         }
 
         test("permission request falls back to current grant state when callback misses entries") {
-            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+            val required = listOf(ACCESS_LOCAL_NETWORK_PERMISSION)
 
             val granted = isLanSharePermissionRequestGranted(
                 requiredPermissions = required,
-                permissionResults = mapOf(NEARBY_WIFI_DEVICES_PERMISSION to true),
+                permissionResults = emptyMap(),
                 hasCurrentPermissions = true,
             )
 
@@ -170,14 +164,11 @@ class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
         }
 
         test("permission request fails when a required permission is denied and OS doesn't already grant it") {
-            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+            val required = listOf(ACCESS_LOCAL_NETWORK_PERMISSION)
 
             val granted = isLanSharePermissionRequestGranted(
                 requiredPermissions = required,
-                permissionResults = mapOf(
-                    NEARBY_WIFI_DEVICES_PERMISSION to true,
-                    ACCESS_LOCAL_NETWORK_PERMISSION to false,
-                ),
+                permissionResults = mapOf(ACCESS_LOCAL_NETWORK_PERMISSION to false),
                 hasCurrentPermissions = false,
             )
 

@@ -90,7 +90,7 @@ class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
                         savedMemos += SavedMemo(content, timestamp, attachmentMappings)
                     }
                 }
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -178,7 +178,7 @@ class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
                         savedMemos += SavedMemo(content, timestamp, attachmentMappings)
                     }
                 }
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -254,7 +254,7 @@ class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
                         throw IllegalStateException("Memo commit failed")
                     }
                 }
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -302,6 +302,7 @@ class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
 
     private fun device(port: Int): DiscoveredDevice =
         DiscoveredDevice(
+            uuid = null,
             name = "Receiver",
             host = "127.0.0.1",
             port = port,
@@ -334,3 +335,5 @@ class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
         val attachmentMappings: Map<String, String>,
     )
 }
+
+private const val TEST_DEVICE_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

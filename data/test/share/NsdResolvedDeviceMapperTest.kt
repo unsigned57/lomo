@@ -1,39 +1,39 @@
-package com.lomo.data.share
-
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
-
-import java.net.InetAddress
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.nulls.shouldBeNull
-
 /*
  * Behavior Contract:
  * - Unit under test: NSD resolved-device mapping for LAN share discovery.
- * - Behavior focus: resolved NSD peers must become reachable DiscoveredDevice entries on IPv4 and
- *   IPv6 networks, while self advertisements and incomplete endpoints must be ignored.
- * - Observable outcomes: mapped device name, HTTP-ready host string, port, and null results for
- *   self or invalid service records.
- * - TDD proof: Fails before the fix because NsdDiscoveryService only accepts IPv4 hosts inline
- *   and has no IPv6-safe endpoint mapping contract.
- * - Excludes: live mDNS traffic, Android NsdManager callback delivery, and Ktor transfer calls.
+ * - Owning layer: data.
+ * - Priority tier: P0.
+ * - Capability: map resolved NSD records to UUID-identified peers independently of display names.
+ *
+ * Scenarios:
+ * - Given a peer with a valid UUID and reachable IPv4 or IPv6 endpoint, when it resolves, then its
+ *   UUID and HTTP-ready endpoint are retained.
+ * - Given a peer with the same display name but a different UUID, when it resolves, then it remains discoverable.
+ * - Given the local UUID, a missing/invalid UUID, or an incomplete endpoint, when it resolves, then it is rejected.
+ *
+ * Observable outcomes:
+ * - Mapped UUID, display name, host, port, and null results at invalid/self boundaries.
+ *
+ * TDD proof:
+ * - RED: before the fix, the mapper dropped the UUID from DiscoveredDevice and accepted records without a valid UUID.
+ *
+ * Excludes:
+ * - Live mDNS traffic, Android NsdManager callback delivery, and Ktor transfer calls.
+ *
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: asserting mapper mappings with simple placeholders like "remote-uuid".
+ * - Why old assertion is no longer correct: NSD discovery now enforces valid UUID formats for deduplication and pings.
+ * - Coverage preserved by: asserting that valid UUIDs are mapped correctly, and invalid UUID formats are ignored/rejected.
+ * - Why this is not fitting the test to the implementation: it ensures that peer identity validation conforms to the new ping/identity protocol.
  */
+package com.lomo.data.share
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+import java.net.InetAddress
+
 class NsdResolvedDeviceMapperTest : DataFunSpec() {
     init {
         test("resolved ipv4 peer maps to discovered device") { `resolved ipv4 peer maps to discovered device`() }
@@ -42,7 +42,11 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
 
         test("resolved peer prefers ipv4 when both address families are present") { `resolved peer prefers ipv4 when both address families are present`() }
 
-        test("resolved self and incomplete endpoints are ignored") { `resolved self and incomplete endpoints are ignored`() }
+        test("same display name with different uuid remains discoverable") { `same display name with different uuid remains discoverable`() }
+
+        test("resolved self invalid identity and incomplete endpoints are ignored") {
+            `resolved self invalid identity and incomplete endpoints are ignored`()
+        }
     }
 
 
@@ -52,11 +56,12 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
                 serviceName = "Lomo-Pixel",
                 hostAddresses = listOf(InetAddress.getByName("192.168.1.25")),
                 port = 1080,
-                attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "11111111-1111-1111-1111-111111111111".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             )
 
         device?.name shouldBe "Pixel"
+        device?.uuid shouldBe "11111111-1111-1111-1111-111111111111"
         device?.host shouldBe "192.168.1.25"
         device?.port shouldBe 1080
     }
@@ -67,8 +72,8 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
                 serviceName = "Lomo-Tablet",
                 hostAddresses = listOf(InetAddress.getByName("fd00::24")),
                 port = 1081,
-                attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "22222222-2222-2222-2222-222222222222".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             )
 
         device?.name shouldBe "Tablet"
@@ -86,34 +91,62 @@ class NsdResolvedDeviceMapperTest : DataFunSpec() {
                         InetAddress.getByName("192.168.1.26"),
                     ),
                 port = 1082,
-                attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "33333333-3333-3333-3333-333333333333".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             )
 
         device?.host shouldBe "192.168.1.26"
     }
 
-    private fun `resolved self and incomplete endpoints are ignored`() {
+    private fun `same display name with different uuid remains discoverable`() {
+        val device =
+            mapResolvedLanShareDevice(
+                serviceName = "Lomo-Pixel",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.27")),
+                port = 1083,
+                attributes = mapOf("uuid" to "44444444-4444-4444-4444-444444444444".toByteArray()),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            )
+
+        device?.name shouldBe "Pixel"
+        device?.uuid shouldBe "44444444-4444-4444-4444-444444444444"
+    }
+
+    private fun `resolved self invalid identity and incomplete endpoints are ignored`() {
         mapResolvedLanShareDevice(
                 serviceName = "Lomo-Local",
                 hostAddresses = listOf(InetAddress.getByName("192.168.1.27")),
                 port = 1083,
-                attributes = mapOf("uuid" to "local-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            ).shouldBeNull()
+        mapResolvedLanShareDevice(
+                serviceName = "Lomo-NoUuid",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.29")),
+                port = 1083,
+                attributes = emptyMap(),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            ).shouldBeNull()
+        mapResolvedLanShareDevice(
+                serviceName = "Lomo-BadUuid",
+                hostAddresses = listOf(InetAddress.getByName("192.168.1.30")),
+                port = 1083,
+                attributes = mapOf("uuid" to "not-a-uuid".toByteArray()),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             ).shouldBeNull()
         mapResolvedLanShareDevice(
                 serviceName = "Lomo-NoHost",
                 hostAddresses = emptyList(),
                 port = 1084,
-                attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "55555555-5555-5555-5555-555555555555".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             ).shouldBeNull()
         mapResolvedLanShareDevice(
                 serviceName = "Lomo-NoPort",
                 hostAddresses = listOf(InetAddress.getByName("192.168.1.28")),
                 port = 0,
-                attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
-                localUuid = "local-uuid",
+                attributes = mapOf("uuid" to "66666666-6666-6666-6666-666666666666".toByteArray(Charsets.UTF_8)),
+                localUuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             ).shouldBeNull()
     }
 }

@@ -54,7 +54,6 @@ internal object CapabilityPermissionNames {
     const val RecordAudio = "android.permission.RECORD_AUDIO"
     const val AccessFineLocation = "android.permission.ACCESS_FINE_LOCATION"
     const val AccessCoarseLocation = "android.permission.ACCESS_COARSE_LOCATION"
-    const val NearbyWifiDevices = "android.permission.NEARBY_WIFI_DEVICES"
     const val AccessLocalNetwork = "android.permission.ACCESS_LOCAL_NETWORK"
 }
 
@@ -184,10 +183,6 @@ internal object CapabilityGatePolicies {
                 recoveryPlan = runtimeRecoveryPlan(
                     permissions = listOf(
                         CapabilityRuntimePermission(
-                            name = CapabilityPermissionNames.NearbyWifiDevices,
-                            minSdk = ANDROID_TIRAMISU_API_LEVEL,
-                        ),
-                        CapabilityRuntimePermission(
                             name = CapabilityPermissionNames.AccessLocalNetwork,
                             minSdk = ANDROID_BAKLAVA_API_LEVEL,
                             requiresSystemRecognition = true,
@@ -233,7 +228,6 @@ internal object CapabilityGatePolicies {
         all.filter { gate -> gate.blocksFirstScreen }
 }
 
-internal const val ANDROID_TIRAMISU_API_LEVEL = 33
 internal const val ANDROID_BAKLAVA_API_LEVEL = 36
 
 private fun runtimeRecoveryPlan(

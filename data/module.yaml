@@ -54,7 +54,6 @@ dependencies:
   - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
   - com.squareup.okio:okio:3.17.0
   - org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r: exported
-  - com.github.bitfireAT:dav4jvm:2.2.1
   - com.jakewharton.timber:timber:5.0.1
 
 test-dependencies:

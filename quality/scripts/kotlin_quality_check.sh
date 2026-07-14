@@ -4,8 +4,6 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=quality/scripts/kotlin_toolchain_env.sh
 source "$script_dir/kotlin_toolchain_env.sh"
-# shellcheck source=quality/scripts/kotlin_toolchain_test_args.sh
-source "$script_dir/kotlin_toolchain_test_args.sh"
 
 lomo_kotlin_prepare_env "kotlin-quality-check"
 quality_build_dir="$(lomo_kotlin_quality_build_dir quality-gate "$@")"
@@ -35,12 +33,13 @@ LOMO_KOTLIN_BUILD_DIR="$quality_build_dir" LOMO_COMPOSE_BUILD_DIR="$quality_buil
 echo "kotlin-quality-check: running repository shell quality contracts"
 "$script_dir/check_meaningful_tests.sh"
 "$script_dir/check_string_resource_parity.sh"
+"$script_dir/test/android_runtime_dependency_boundary_contract_test.sh"
 "$script_dir/test/kotlin_quality_check_contract_test.sh"
 
-echo "kotlin-quality-check: running Kotlin Toolchain tests"
-lomo_kotlin_run test "${toolchain_test_modules[@]}" "${toolchain_args[@]}"
-
-echo "kotlin-quality-check: running coverage verification"
+# Host tests run once under the JaCoCo agent inside coverage verification.
+# A separate uninstrumented test pass would double wall-clock cost without
+# additional gate strength (coverage already fails on test failure).
+echo "kotlin-quality-check: running host tests under coverage verification"
 LOMO_KOTLIN_BUILD_DIR="$quality_build_dir" LOMO_COVERAGE_BUILD_DIR="$quality_build_dir" "$script_dir/kotlin_coverage_check.sh"
 
 echo "kotlin-quality-check: ok"

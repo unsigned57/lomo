@@ -7,7 +7,6 @@ data class LanShareDiscoveryDiagnostics(
     val serverPort: Int = 0,
     val serviceSnapshots: List<LanShareRouteSnapshot> = emptyList(),
     val discoverySnapshots: List<LanShareRouteSnapshot> = emptyList(),
-    val nsdStrategies: List<LanShareNsdStrategyStatus> = emptyList(),
     val activeProbe: LanShareActiveProbeDiagnostics = LanShareActiveProbeDiagnostics(),
     val lastDegradedReason: LanShareDiscoveryDegradedReason? = null,
 )
@@ -22,11 +21,6 @@ enum class LanShareProbeRouteState {
     BoundNetwork,
     DegradedNoNetwork,
 }
-
-data class LanShareNsdStrategyStatus(
-    val networkKey: String,
-    val scopedToAndroidNetwork: Boolean,
-)
 
 data class LanShareActiveProbeDiagnostics(
     val state: LanShareActiveProbeState = LanShareActiveProbeState.Idle,

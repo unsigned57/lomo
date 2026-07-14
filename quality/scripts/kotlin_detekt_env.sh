@@ -42,7 +42,7 @@ lomo_detekt_extra_plugin_jars() {
   # ktlint-repackage fat classpath and is only used by kotlin_detekt_format.sh.
   local repo_root
   repo_root="$(lomo_detekt_repo_root)"
-  find "$repo_root/.gradle" \
+  find "$repo_root/.gradle" "$HOME/.gradle" \
     -path "*/dev.detekt/detekt-rules-coroutines/${DETEKT_VERSION}/*" \
     -name "detekt-rules-coroutines-${DETEKT_VERSION}.jar" \
     2>/dev/null | head -1 || true

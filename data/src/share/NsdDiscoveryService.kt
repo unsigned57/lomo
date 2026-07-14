@@ -1,7 +1,6 @@
 package com.lomo.data.share
 
 import android.content.Context
-import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
@@ -15,33 +14,22 @@ import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Manages NSD (Network Service Discovery) for discovering and advertising
- * Lomo instances on the local network.
+ * Owns the process-wide NSD advertisement and discovery session for LAN sharing.
  */
 interface LanShareDiscoveryCoordinator {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
 
     fun registerService(
-        networkKey: String,
         port: Int,
         deviceName: String,
         uuid: String,
-        targetNetwork: Network? = null,
     ): Boolean
 
-    fun unregisterService(networkKey: String)
+    fun unregisterService()
 
-    fun unregisterAll()
+    fun startDiscovery(uuid: String): Boolean
 
-    fun startDiscovery(
-        networkKey: String,
-        uuid: String,
-        targetNetwork: Network? = null,
-    ): Boolean
-
-    fun stopDiscovery(networkKey: String)
-
-    fun stopAllDiscovery()
+    fun stopDiscovery()
 
     fun mergeDiscoveredDevices(devices: List<DiscoveredDevice>)
 }
@@ -54,147 +42,106 @@ class NsdDiscoveryService(
     private val nsdManager: NsdManager by lazy {
         context.getSystemService(Context.NSD_SERVICE) as NsdManager
     }
-
+    private val listenerLock = Any()
     private val _discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _discoveredDevices.asStateFlow()
-
-    private val registrationListeners = ConcurrentHashMap<String, NsdManager.RegistrationListener>()
-    private val discoveryListeners = ConcurrentHashMap<String, NsdManager.DiscoveryListener>()
-    private val registeredServiceNames = ConcurrentHashMap<String, String>()
     private val serviceInfoCallbacks = ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
+    private val endpointRegistry = LanShareNsdEndpointRegistry()
+    private var registrationListener: NsdManager.RegistrationListener? = null
+    private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var localUuid: String? = null
 
-    // --- Service Registration ---
-
     override fun registerService(
-        networkKey: String,
         port: Int,
         deviceName: String,
         uuid: String,
-        targetNetwork: Network?,
     ): Boolean {
-        unregisterService(networkKey)
-
+        unregisterService()
         val serviceInfo =
             NsdServiceInfo().apply {
                 serviceName = "$SERVICE_NAME_PREFIX$deviceName"
                 serviceType = SERVICE_TYPE
                 setPort(port)
                 setAttribute("uuid", uuid)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
-                    setNetwork(targetNetwork)
-                }
             }
-
         val listener =
             object : NsdManager.RegistrationListener {
                 override fun onServiceRegistered(info: NsdServiceInfo) {
-                    registeredServiceNames[networkKey] = info.serviceName
-                    Timber.tag(TAG).d("Service registered on %s: %s", networkKey, info.serviceName)
+                    Timber.tag(TAG).d("Service registered globally: %s", info.serviceName)
                 }
 
                 override fun onRegistrationFailed(
                     info: NsdServiceInfo,
                     errorCode: Int,
                 ) {
-                    Timber.tag(TAG).e("Registration failed on %s: %d", networkKey, errorCode)
-                    registrationListeners.remove(networkKey, this)
-                    registeredServiceNames.remove(networkKey)
+                    Timber.tag(TAG).e("Global registration failed: %d", errorCode)
+                    clearRegistrationListener(this)
                     onServiceRegistrationFailed()
                 }
 
                 override fun onServiceUnregistered(info: NsdServiceInfo) {
-                    Timber.tag(TAG).d("Service unregistered on %s: %s", networkKey, info.serviceName)
+                    Timber.tag(TAG).d("Service unregistered globally: %s", info.serviceName)
                 }
 
                 override fun onUnregistrationFailed(
                     info: NsdServiceInfo,
                     errorCode: Int,
                 ) {
-                    Timber.tag(TAG).e("Unregistration failed on %s: %d", networkKey, errorCode)
+                    Timber.tag(TAG).e("Global unregistration failed: %d", errorCode)
                 }
             }
-
-        registrationListeners[networkKey] = listener
+        synchronized(listenerLock) {
+            registrationListener = listener
+        }
         return runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
-                nsdManager.registerService(
-                    serviceInfo,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    ContextCompat.getMainExecutor(context),
-                    listener,
-                )
-            } else {
-                nsdManager.registerService(
-                    serviceInfo,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    listener,
-                )
-            }
+            nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
         }.onFailure { error ->
-            registrationListeners.remove(networkKey, listener)
-            registeredServiceNames.remove(networkKey)
-            logNsdOperationFailure(error, "Failed to register NSD service on $networkKey")
+            clearRegistrationListener(listener)
+            logNsdOperationFailure(error, "Failed to register global NSD service")
         }.isSuccess
     }
 
-    override fun unregisterService(networkKey: String) {
-        val listener = registrationListeners.remove(networkKey) ?: return
+    override fun unregisterService() {
+        val listener =
+            synchronized(listenerLock) {
+                registrationListener.also { registrationListener = null }
+            } ?: return
         runCatching { nsdManager.unregisterService(listener) }
-            .onFailure { error -> logNsdOperationFailure(error, "Failed to unregister NSD service on $networkKey") }
-        registeredServiceNames.remove(networkKey)
+            .onFailure { error -> logNsdOperationFailure(error, "Failed to unregister global NSD service") }
     }
 
-    override fun unregisterAll() {
-        registrationListeners.keys.toList().forEach(::unregisterService)
-    }
-
-    override fun startDiscovery(
-        networkKey: String,
-        uuid: String,
-        targetNetwork: Network?,
-    ): Boolean {
-        this.localUuid = uuid
-        stopDiscovery(networkKey)
-
+    override fun startDiscovery(uuid: String): Boolean {
+        localUuid = uuid
+        stopDiscovery()
+        localUuid = uuid
         val listener =
             object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(serviceType: String) {
-                    Timber.tag(TAG).d("Discovery started on %s for %s", networkKey, serviceType)
+                    Timber.tag(TAG).d("Global discovery started for %s", serviceType)
                 }
 
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                    Timber.tag(TAG).d("Service found on %s: %s", networkKey, serviceInfo.serviceName)
-                    if (serviceInfo.serviceName in registeredServiceNames.values) return
-
+                    Timber.tag(TAG).d("Service found globally: %s", serviceInfo.serviceName)
                     resolveService(serviceInfo)
                 }
 
                 override fun onServiceLost(serviceInfo: NsdServiceInfo) {
-                    Timber.tag(TAG).d("Service lost on %s: %s", networkKey, serviceInfo.serviceName)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        val key = callbackKey(serviceInfo)
-                        serviceInfoCallbacks.remove(key)?.let { callback ->
-                            runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
-                                .onFailure { Timber.tag(TAG).d(it, "Ignore callback unregister failure for $key") }
-                        }
-                    }
-                    val lostName = serviceInfo.serviceName.removePrefix(SERVICE_NAME_PREFIX)
-                    _discoveredDevices.update { list ->
-                        list.filter { it.name != lostName }
-                    }
+                    val serviceKey = callbackKey(serviceInfo)
+                    Timber.tag(TAG).d("Service lost globally: %s", serviceInfo.serviceName)
+                    unregisterServiceInfoCallback(serviceKey)
+                    removeResolvedService(serviceKey)
                 }
 
                 override fun onDiscoveryStopped(serviceType: String) {
-                    Timber.tag(TAG).d("Discovery stopped on %s for %s", networkKey, serviceType)
+                    Timber.tag(TAG).d("Global discovery stopped for %s", serviceType)
                 }
 
                 override fun onStartDiscoveryFailed(
                     serviceType: String,
                     errorCode: Int,
                 ) {
-                    Timber.tag(TAG).e("Start discovery failed on %s: %d", networkKey, errorCode)
-                    discoveryListeners.remove(networkKey, this)
+                    Timber.tag(TAG).e("Global discovery start failed: %d", errorCode)
+                    clearDiscoveryListener(this)
                     onDiscoveryStartFailed()
                 }
 
@@ -202,100 +149,72 @@ class NsdDiscoveryService(
                     serviceType: String,
                     errorCode: Int,
                 ) {
-                    Timber.tag(TAG).e("Stop discovery failed on %s: %d", networkKey, errorCode)
+                    Timber.tag(TAG).e("Global discovery stop failed: %d", errorCode)
                 }
             }
-
-        discoveryListeners[networkKey] = listener
+        synchronized(listenerLock) {
+            discoveryListener = listener
+        }
         return runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
-                nsdManager.discoverServices(
-                    SERVICE_TYPE,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    targetNetwork,
-                    ContextCompat.getMainExecutor(context),
-                    listener,
-                )
-            } else {
-                nsdManager.discoverServices(
-                    SERVICE_TYPE,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    listener,
-                )
-            }
+            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
         }.onFailure { error ->
-            discoveryListeners.remove(networkKey, listener)
-            logNsdOperationFailure(error, "Failed to start NSD discovery on $networkKey")
+            clearDiscoveryListener(listener)
+            logNsdOperationFailure(error, "Failed to start global NSD discovery")
         }.isSuccess
     }
 
-    override fun stopDiscovery(networkKey: String) {
-        val listener = discoveryListeners.remove(networkKey) ?: return
-        runCatching { nsdManager.stopServiceDiscovery(listener) }
-            .onFailure { error -> logNsdOperationFailure(error, "Failed to stop NSD discovery on $networkKey") }
-    }
-
-    override fun stopAllDiscovery() {
-        discoveryListeners.keys.toList().forEach(::stopDiscovery)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            serviceInfoCallbacks.values.toList().forEach { callback ->
-                runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
-                    .onFailure { Timber.tag(TAG).d(it, "Ignore callback unregister failure") }
+    override fun stopDiscovery() {
+        val listener =
+            synchronized(listenerLock) {
+                discoveryListener.also { discoveryListener = null }
             }
-            serviceInfoCallbacks.clear()
+        if (listener != null) {
+            runCatching { nsdManager.stopServiceDiscovery(listener) }
+                .onFailure { error -> logNsdOperationFailure(error, "Failed to stop global NSD discovery") }
         }
+        unregisterAllServiceInfoCallbacks()
+        endpointRegistry.clear()
         _discoveredDevices.value = emptyList()
     }
 
     override fun mergeDiscoveredDevices(devices: List<DiscoveredDevice>) {
         if (devices.isEmpty()) return
         _discoveredDevices.update { existing ->
-            mergeLanShareDiscoveredDevices(
-                existing = existing,
-                incoming = devices,
-            )
+            mergeLanShareDiscoveredDevices(existing = existing, incoming = devices)
         }
     }
 
     private fun resolveService(serviceInfo: NsdServiceInfo) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             resolveServiceApi34(serviceInfo)
-            return
+        } else {
+            resolveServiceLegacy(serviceInfo)
         }
-        resolveServiceLegacy(serviceInfo)
     }
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun resolveServiceApi34(serviceInfo: NsdServiceInfo) {
-        val key = callbackKey(serviceInfo)
-
+        val serviceKey = callbackKey(serviceInfo)
         val callback =
             object : NsdManager.ServiceInfoCallback {
                 override fun onServiceUpdated(info: NsdServiceInfo) {
-                    handleResolvedService(info)
+                    handleResolvedService(serviceKey, info)
                 }
 
                 override fun onServiceLost() {
-                    val name = serviceInfo.serviceName.removePrefix(SERVICE_NAME_PREFIX)
-                    _discoveredDevices.update { list -> list.filter { it.name != name } }
+                    removeResolvedService(serviceKey)
                 }
 
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
-                    Timber
-                        .tag(TAG)
-                        .e("ServiceInfo callback registration failed for ${serviceInfo.serviceName}: $errorCode")
-                    serviceInfoCallbacks.remove(key, this)
+                    Timber.tag(TAG).e("ServiceInfo callback registration failed for %s: %d", serviceKey, errorCode)
+                    serviceInfoCallbacks.remove(serviceKey, this)
                 }
 
                 override fun onServiceInfoCallbackUnregistered() {
-                    serviceInfoCallbacks.remove(key, this)
+                    serviceInfoCallbacks.remove(serviceKey, this)
                 }
             }
-
-        if (serviceInfoCallbacks.putIfAbsent(key, callback) != null) {
-            return
-        }
-
+        if (serviceInfoCallbacks.putIfAbsent(serviceKey, callback) != null) return
         runCatching {
             nsdManager.registerServiceInfoCallback(
                 serviceInfo,
@@ -303,40 +222,43 @@ class NsdDiscoveryService(
                 callback,
             )
         }.onFailure { error ->
-            logNsdOperationFailure(error, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
-            serviceInfoCallbacks.remove(key, callback)
+            serviceInfoCallbacks.remove(serviceKey, callback)
+            logNsdOperationFailure(error, "Failed to register ServiceInfo callback for $serviceKey")
         }
     }
 
     private fun resolveServiceLegacy(serviceInfo: NsdServiceInfo) {
+        val serviceKey = callbackKey(serviceInfo)
         val listener =
             object : NsdManager.ResolveListener {
                 override fun onResolveFailed(
                     info: NsdServiceInfo,
                     errorCode: Int,
                 ) {
-                    Timber.tag(TAG).e("Resolve failed for ${info.serviceName}: $errorCode")
+                    Timber.tag(TAG).e("Resolve failed for %s: %d", serviceKey, errorCode)
                 }
 
                 override fun onServiceResolved(info: NsdServiceInfo) {
-                    handleResolvedService(info)
+                    handleResolvedService(serviceKey, info)
                 }
             }
-
         runCatching {
             val resolveService =
                 NsdManager::class.java.getMethod(
                     "resolveService",
                     NsdServiceInfo::class.java,
                     NsdManager.ResolveListener::class.java,
-            )
+                )
             resolveService.invoke(nsdManager, serviceInfo, listener)
         }.onFailure { error ->
-            logNsdOperationFailure(error, "Failed to resolve service for ${serviceInfo.serviceName}")
+            logNsdOperationFailure(error, "Failed to resolve service for $serviceKey")
         }
     }
 
-    private fun handleResolvedService(info: NsdServiceInfo) {
+    private fun handleResolvedService(
+        serviceKey: String,
+        info: NsdServiceInfo,
+    ) {
         val device =
             mapResolvedLanShareDevice(
                 serviceName = info.serviceName,
@@ -346,16 +268,49 @@ class NsdDiscoveryService(
                 localUuid = localUuid,
             )
         if (device == null) {
-            Timber.tag(TAG).d("Ignored unresolved or self NSD service: ${info.serviceName}")
+            removeResolvedService(serviceKey)
+            Timber.tag(TAG).d("Ignored invalid or self NSD service: %s", serviceKey)
             return
         }
-
-        Timber.tag(TAG).d("Resolved: ${device.name} at ${device.host}:${device.port}")
-        _discoveredDevices.update { list ->
+        val staleEndpoint = endpointRegistry.record(serviceKey, device)
+        _discoveredDevices.update { existing ->
             mergeLanShareDiscoveredDevices(
-                existing = list,
+                existing = removeLanShareEndpoint(existing, staleEndpoint),
                 incoming = listOf(device),
             )
+        }
+        Timber.tag(TAG).d("Resolved %s at %s:%d", device.name, device.host, device.port)
+    }
+
+    private fun removeResolvedService(serviceKey: String) {
+        val endpointKey = endpointRegistry.remove(serviceKey)
+        _discoveredDevices.update { devices -> removeLanShareEndpoint(devices, endpointKey) }
+    }
+
+    private fun unregisterServiceInfoCallback(serviceKey: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        val callback = serviceInfoCallbacks.remove(serviceKey) ?: return
+        runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
+            .onFailure { error -> Timber.tag(TAG).d(error, "Ignore callback unregister failure for $serviceKey") }
+    }
+
+    private fun unregisterAllServiceInfoCallbacks() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            serviceInfoCallbacks.clear()
+            return
+        }
+        serviceInfoCallbacks.keys.toList().forEach(::unregisterServiceInfoCallback)
+    }
+
+    private fun clearRegistrationListener(listener: NsdManager.RegistrationListener) {
+        synchronized(listenerLock) {
+            if (registrationListener === listener) registrationListener = null
+        }
+    }
+
+    private fun clearDiscoveryListener(listener: NsdManager.DiscoveryListener) {
+        synchronized(listenerLock) {
+            if (discoveryListener === listener) discoveryListener = null
         }
     }
 

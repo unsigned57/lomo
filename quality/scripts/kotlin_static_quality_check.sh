@@ -32,6 +32,7 @@ LOMO_KOTLIN_BUILD_DIR="$static_build_dir" LOMO_LINT_BUILD_DIR="$static_build_dir
 echo "kotlin-static-quality-check: running repository shell quality contracts"
 "$script_dir/check_meaningful_tests.sh"
 "$script_dir/check_string_resource_parity.sh"
+"$script_dir/test/android_runtime_dependency_boundary_contract_test.sh"
 "$script_dir/test/kotlin_quality_check_contract_test.sh"
 
 echo "kotlin-static-quality-check: running Kotlin Toolchain tests"

@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
+import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
@@ -48,7 +48,7 @@ constructor(
         private val credentialStore: WebDavCredentialStore,
         private val credentialRepository: CredentialRepository,
         private val securitySessionPolicy: SecuritySessionPolicy,
-        private val clientFactory: Dav4jvmWebDavClientFactory,
+        private val clientFactory: OkHttpWebDavClientFactory,
     ) : WebDavSyncConfigurationMutationRepository {
         override suspend fun setWebDavSyncEnabled(enabled: Boolean) {
             dataStore.updateWebDavSyncEnabled(enabled)

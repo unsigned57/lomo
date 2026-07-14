@@ -57,9 +57,5 @@
 -dontwarn javax.management.**
 -dontwarn org.ietf.jgss.**
 
-# R8 fix: org.xmlpull conflict with platform
--dontwarn org.xmlpull.v1.**
--keep class org.xmlpull.v1.** { *; }
-
 # Keep Lomo list motion, exit scopes, and states to avoid aggressive optimization/dead code elimination by R8 in full mode
 -keep class com.lomo.ui.component.common.** { *; }

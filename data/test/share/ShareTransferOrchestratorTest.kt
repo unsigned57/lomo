@@ -61,7 +61,7 @@ class ShareTransferOrchestratorTest : DataFunSpec() {
     private val context = mockk<Context>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
     private val pairingConfig = mockk<SharePairingConfig>(relaxed = true)
-    private val device = DiscoveredDevice(name = "Pixel", host = "127.0.0.1", port = 8080)
+    private val device = DiscoveredDevice(uuid = null, name = "Pixel", host = "127.0.0.1", port = 8080)
 
     private fun `sendMemo stops immediately when pairing is required before send`() =
         runTest {

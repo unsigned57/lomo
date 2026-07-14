@@ -4,6 +4,7 @@ package com.lomo.domain.model
  * Represents a discovered device on the LAN running Lomo.
  */
 data class DiscoveredDevice(
+    val uuid: String?,
     val name: String,
     val host: String,
     val port: Int,

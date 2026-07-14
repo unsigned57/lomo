@@ -9,9 +9,12 @@ set -euo pipefail
 #
 # Scenarios:
 # - Given a developer runs kotlin_quality_check, when the script body is inspected,
-#   then it must orchestrate model/build/detekt/lint/compose/tests/coverage without Gradle entrypoints.
+#   then it must orchestrate model/build/detekt/lint/compose/shell contracts/coverage without Gradle
+#   entrypoints, and host tests must run once under coverage (no separate uninstrumented re-run).
 # - Given kotlin_static_quality_check is used for iteration, when the script body is inspected,
 #   then it must run model/build/detekt/test-style/lint/shell contracts/tests without coverage requirement.
+# - Given kotlin_fast_quality_check is used for lightweight iteration, when the script body is inspected,
+#   then it must run model/build/host tests only (no detekt/lint/coverage).
 # - Given Kotlin Toolchain invokes Android compilation, when the shared environment is inspected,
 #   then repo-local home, cache, SDK, Android user home, bootstrap cache, and Gradle bridge home are set.
 # - Given a quality gate invokes sub-checks, when build directories are resolved,
@@ -19,13 +22,14 @@ set -euo pipefail
 # - Given local generated state grows over time, when cleanup is requested,
 #   then dry-run is non-mutating and apply is limited to documented generated-state roots.
 # - Given a human developer needs a memorable command surface, when the Justfile is inspected,
-#   then it is only a thin menu over quality/scripts and the Kotlin Toolchain wrapper.
+#   then it is only a thin menu over quality/scripts and the Toolchain env helpers, and just test
+#   reuses toolchain_test_modules.
 # - Given zero-tail policy, when quality/scripts is listed, then ai_quality/ai_static/ai_fast/ai_compose shims are absent.
 #
 # Observable outcomes:
 # - Missing Toolchain orchestration, stale Gradle runner calls, non-canonical build directories,
-#   unsafe cleanup scope, duplicated Justfile build logic, residual ai_* entrypoints, or missing
-#   writable homes fail this script.
+#   unsafe cleanup scope, duplicated Justfile build logic, residual ai_* entrypoints, double host-test
+#   flights in the full gate, or missing writable homes fail this script.
 #
 # TDD proof:
 # - Fails before the Justfile fix because no human command menu exists.
@@ -38,6 +42,7 @@ cd "$repo_root"
 
 kotlin_quality_script="quality/scripts/kotlin_quality_check.sh"
 kotlin_static_script="quality/scripts/kotlin_static_quality_check.sh"
+kotlin_fast_script="quality/scripts/kotlin_fast_quality_check.sh"
 kotlin_env_script="quality/scripts/kotlin_toolchain_env.sh"
 kotlin_test_args_script="quality/scripts/kotlin_toolchain_test_args.sh"
 kotlin_detekt_script="quality/scripts/kotlin_detekt_check.sh"
@@ -49,6 +54,7 @@ kotlin_coverage_script="quality/scripts/kotlin_coverage_check.sh"
 cache_audit_script="quality/scripts/kotlin_cache_audit.sh"
 cache_cleanup_script="quality/scripts/kotlin_cache_cleanup.sh"
 local_maintenance_script="quality/scripts/ai_local_maintenance_check.sh"
+android_runtime_dependency_contract="quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh"
 justfile="Justfile"
 root_build="project.yaml"
 quality_readme="quality/README.md"
@@ -115,6 +121,7 @@ require_function_text() {
 
 require_file "$kotlin_quality_script"
 require_file "$kotlin_static_script"
+require_file "$kotlin_fast_script"
 require_file "$kotlin_env_script"
 require_file "$kotlin_test_args_script"
 require_file "$kotlin_detekt_script"
@@ -126,6 +133,7 @@ require_file "$kotlin_coverage_script"
 require_file "$cache_audit_script"
 require_file "$cache_cleanup_script"
 require_file "$local_maintenance_script"
+require_file "$android_runtime_dependency_contract"
 require_file "$justfile"
 require_file "$pre_commit"
 require_file "$quality_workflow"
@@ -141,6 +149,7 @@ reject_file "settings.gradle.kts"
 
 bash -n "$kotlin_quality_script"
 bash -n "$kotlin_static_script"
+bash -n "$kotlin_fast_script"
 bash -n "$kotlin_env_script"
 bash -n "$kotlin_test_args_script"
 bash -n "$kotlin_detekt_script"
@@ -159,18 +168,22 @@ fi
 
 require_text "$kotlin_quality_script" "lomo_kotlin_run show modules"
 require_text "$kotlin_quality_script" "lomo_kotlin_run build"
-require_text "$kotlin_quality_script" "lomo_kotlin_run test"
 require_text "$kotlin_quality_script" "kotlin_detekt_check.sh"
 require_text "$kotlin_quality_script" "kotlin_test_style_check.sh"
 require_text "$kotlin_quality_script" "kotlin_android_lint_check.sh"
 require_text "$kotlin_quality_script" "kotlin_compose_static_analysis.sh"
 require_text "$kotlin_quality_script" "kotlin_coverage_check.sh"
 require_text "$kotlin_quality_script" "check_meaningful_tests.sh"
+require_text "$kotlin_quality_script" "android_runtime_dependency_boundary_contract_test.sh"
 require_text "$kotlin_quality_script" "lomo_kotlin_quality_build_dir quality-gate"
 require_text "$kotlin_quality_script" 'LOMO_KOTLIN_BUILD_DIR="$quality_build_dir"'
 require_text "$kotlin_quality_script" 'LOMO_LINT_BUILD_DIR="$quality_build_dir"'
 require_text "$kotlin_quality_script" 'LOMO_COMPOSE_BUILD_DIR="$quality_build_dir"'
 require_text "$kotlin_quality_script" 'LOMO_COVERAGE_BUILD_DIR="$quality_build_dir"'
+# Full gate must not re-run host tests outside coverage (single instrumented flight).
+if grep -Eq -- 'lomo_kotlin_run[[:space:]]+test' "$kotlin_quality_script"; then
+  fail "source file $kotlin_quality_script must not call lomo_kotlin_run test directly; coverage owns the host-test flight"
+fi
 reject_text "$kotlin_quality_script" "./gradlew"
 reject_text "$kotlin_quality_script" "gradlew"
 
@@ -179,15 +192,29 @@ require_text "$kotlin_static_script" "lomo_kotlin_run build"
 require_text "$kotlin_static_script" "kotlin_detekt_check.sh"
 require_text "$kotlin_static_script" "kotlin_test_style_check.sh"
 require_text "$kotlin_static_script" "kotlin_android_lint_check.sh"
+require_text "$kotlin_static_script" "android_runtime_dependency_boundary_contract_test.sh"
 require_text "$kotlin_static_script" "lomo_kotlin_run test"
 require_text "$kotlin_static_script" "lomo_kotlin_quality_build_dir static-gate"
 require_text "$kotlin_static_script" 'LOMO_KOTLIN_BUILD_DIR="$static_build_dir"'
 require_text "$kotlin_static_script" 'LOMO_LINT_BUILD_DIR="$static_build_dir"'
 reject_text "$kotlin_static_script" "./gradlew"
 
+require_text "$kotlin_fast_script" "lomo_kotlin_run show modules"
+require_text "$kotlin_fast_script" "lomo_kotlin_run build"
+require_text "$kotlin_fast_script" "lomo_kotlin_run test"
+require_text "$kotlin_fast_script" "lomo_kotlin_quality_build_dir fast-gate"
+require_text "$kotlin_fast_script" 'toolchain_test_modules[@]'
+reject_text "$kotlin_fast_script" "kotlin_detekt_check.sh"
+reject_text "$kotlin_fast_script" "kotlin_android_lint_check.sh"
+reject_text "$kotlin_fast_script" "kotlin_coverage_check.sh"
+reject_text "$kotlin_fast_script" "./gradlew"
+
 require_text "$kotlin_test_args_script" "toolchain_test_modules"
 reject_text "$kotlin_test_args_script" "toolchain_android_instrumentation_excludes"
 reject_text "$kotlin_test_args_script" "--exclude-classes"
+
+require_text "$kotlin_coverage_script" 'lomo_kotlin_run test "${toolchain_test_modules[@]}"'
+require_text "$kotlin_coverage_script" "jacoco"
 
 require_function_text "$kotlin_env_script" "lomo_kotlin_prepare_env" "kotlin_android_sdk="
 require_function_text "$kotlin_env_script" "lomo_kotlin_prepare_env" "kotlin_gradle_user_home="
@@ -218,17 +245,20 @@ require_text "$cache_cleanup_script" "--dry-run"
 require_text "$cache_cleanup_script" "--apply"
 require_text "$cache_cleanup_script" ".kotlin/toolchain-build"
 require_text "$cache_cleanup_script" "build/reports/configuration-cache"
+require_text "$cache_cleanup_script" "fast-gate"
 reject_text "$cache_cleanup_script" ".git"
 
 require_text "$justfile" "quality/scripts/kotlin_quality_check.sh"
 require_text "$justfile" "quality/scripts/kotlin_static_quality_check.sh"
+require_text "$justfile" "quality/scripts/kotlin_fast_quality_check.sh"
 require_text "$justfile" "quality/scripts/kotlin_detekt_format.sh staged"
 require_text "$justfile" "quality/scripts/kotlin_cache_audit.sh"
 require_text "$justfile" "quality/scripts/kotlin_cache_cleanup.sh --dry-run"
 require_text "$justfile" "quality/scripts/kotlin_cache_cleanup.sh --apply"
 require_text "$justfile" "source quality/scripts/kotlin_toolchain_env.sh"
+require_text "$justfile" "source quality/scripts/kotlin_toolchain_test_args.sh"
 require_text "$justfile" "lomo_kotlin_prepare_env"
-require_text "$justfile" "lomo_kotlin_run test --build-dir .kotlin/toolchain-build/test"
+require_text "$justfile" 'lomo_kotlin_run test "${toolchain_test_modules[@]}" --build-dir .kotlin/toolchain-build/test'
 require_text "$justfile" "lomo_kotlin_run build --module app --platform android --variant debug --build-dir .kotlin/toolchain-build/app-debug"
 require_text "$justfile" "lomo_kotlin_run build --module app --platform android --variant release --build-dir .kotlin/toolchain-build/app-release"
 reject_text "$justfile" "ANDROID_HOME="
@@ -251,6 +281,9 @@ require_text "$root_build" "modules:"
 require_text "$quality_readme" "Kotlin Toolchain"
 require_text "$quality_readme" "just --list"
 require_text "$quality_readme" "just quality"
+require_text "$quality_readme" "Command Ladder"
+require_text "$quality_readme" "kotlin_fast_quality_check.sh"
+require_text "$quality_readme" "single test flight"
 reject_text "$quality_readme" "LOMO_SKIP_LOCAL_MAINTENANCE"
 
 echo "kotlin-quality-check-contract: ok"

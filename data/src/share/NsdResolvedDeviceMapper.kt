@@ -14,11 +14,15 @@ internal fun mapResolvedLanShareDevice(
 ): DiscoveredDevice? {
     if (port <= 0) return null
 
-    val remoteUuid = attributes["uuid"]?.let { String(it, Charsets.UTF_8) }
-    if (localUuid != null && remoteUuid == localUuid) return null
+    val remoteUuid =
+        LanSharePingProtocol.parseUuid(
+            attributes["uuid"]?.let { value -> String(value, Charsets.UTF_8) },
+        ) ?: return null
+    if (remoteUuid == LanSharePingProtocol.parseUuid(localUuid)) return null
 
     val hostAddress = selectLanShareHostAddress(hostAddresses) ?: return null
     return DiscoveredDevice(
+        uuid = remoteUuid,
         name = serviceName.removePrefix(NsdDiscoveryService.SERVICE_NAME_PREFIX),
         host = hostAddress.toLanShareHttpHost() ?: return null,
         port = port,
