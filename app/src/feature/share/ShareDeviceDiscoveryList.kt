@@ -113,7 +113,7 @@ private fun DeviceCard(
     }
 }
 
-private fun DiscoveredDevice.motionKey(): String = "$host:$port"
+private fun DiscoveredDevice.motionKey(): String = uuid ?: "$host:$port"
 
 private fun ShareTransferState.allowsDeviceSelection(): Boolean =
     this is ShareTransferState.Idle ||

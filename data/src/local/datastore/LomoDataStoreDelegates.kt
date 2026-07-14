@@ -9,6 +9,7 @@ import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 
 internal class RootLocationStoreImpl(
     private val dataStore: DataStore<Preferences>,
@@ -456,6 +457,21 @@ internal class LanSharePreferencesStoreImpl(
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_DEVICE_NAME, name)
     }
 
+    override suspend fun getOrCreateLanShareDeviceUuid(): String {
+        var resolvedUuid: String? = null
+        dataStore.editPreferences {
+            val existing = this[LomoDataStoreKeys.LAN_SHARE_DEVICE_UUID]
+            resolvedUuid =
+                if (existing == null) {
+                    UUID.randomUUID().toString()
+                } else {
+                    canonicalStoredLanShareDeviceUuid(existing)
+                }
+            this[LomoDataStoreKeys.LAN_SHARE_DEVICE_UUID] = checkNotNull(resolvedUuid)
+        }
+        return checkNotNull(resolvedUuid)
+    }
+
     override suspend fun updateShareCardShowTime(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SHARE_CARD_SHOW_TIME] = enabled }
     }
@@ -472,6 +488,18 @@ internal class LanSharePreferencesStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
     }
 }
+
+private fun canonicalStoredLanShareDeviceUuid(value: String): String =
+    try {
+        val candidate = value.trim()
+        val canonical = UUID.fromString(candidate).toString()
+        check(canonical.equals(candidate, ignoreCase = true)) {
+            "Stored LAN share device UUID is not canonical."
+        }
+        canonical
+    } catch (error: IllegalArgumentException) {
+        throw IllegalStateException("Stored LAN share device UUID is invalid.", error)
+    }
 
 internal class LegacyCredentialDrainStoreImpl(
     private val dataStore: DataStore<Preferences>,

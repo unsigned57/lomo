@@ -10,8 +10,9 @@ files / diff guards.
 
 | Gate | Scope | Enforcement mode | Full gate? |
 | --- | --- | --- | --- |
+| `quality/scripts/kotlin_fast_quality_check.sh` | Model + build + host tests only. | Toolchain orchestration for lightweight iteration. | No; intentionally omits Detekt/Lint/coverage. |
 | `quality/scripts/kotlin_static_quality_check.sh` | Model + build + architecture Detekt + test-style Detekt + Android Lint + shell contracts + host tests. | Toolchain + CLI quality orchestration. | Yes for iterative static gate. |
-| `quality/scripts/kotlin_quality_check.sh` | Static gate plus Compose static analysis, full host tests, and Kover coverage (min 70%). | Full Toolchain quality parity gate. | Yes for pre-commit / pre-merge. |
+| `quality/scripts/kotlin_quality_check.sh` | Static surface plus Compose static analysis and a single host-test flight under JaCoCo coverage (min 70%). | Full Toolchain quality parity gate. | Yes for pre-commit / pre-merge. |
 | `quality/scripts/kotlin_detekt_check.sh` / `kotlin_test_style_check.sh` | Product `src/` and host `test/` roots via detekt CLI + custom rules jar. | Always-on architecture and test-style enforcement. | Yes when invoked by static/full gates. |
 | `quality/scripts/check_meaningful_tests.sh` | By default collects changed test files from staged, CI, or working-tree diff depending on `MEANINGFUL_TEST_CHECK_MODE`. | Changed files / diff guard by default. `MEANINGFUL_TEST_CHECK_ALL=true` or `--all` scans all `*Test.kt` / `*Test.kts` files under `app`, `domain`, `data`, and `ui-components`, including `test@android` where present. | Partly. It is included in `quality/scripts/kotlin_quality_check.sh`, but its default repository run is diff-scoped. |
 | `quality/scripts/test/check_meaningful_tests_smoke_test.sh` | Fixture-level shell smoke tests for meaningful-test diff behavior. | Executable script contract, manual unless invoked by a maintainer or targeted verification. | No. |

@@ -30,18 +30,19 @@ the full repository quality gate.
 
 | Situation | Command |
 | --- | --- |
-| Validate model, build, Detekt, Lint, shell contracts, tests | `quality/scripts/kotlin_static_quality_check.sh` |
-| Final handoff / pre-merge / pre-commit gate | `quality/scripts/kotlin_quality_check.sh` |
+| Lightweight model + build + host tests | `quality/scripts/kotlin_fast_quality_check.sh` (`just fast`) |
+| Iterative gate: model, build, Detekt, Lint, shell contracts, host tests | `quality/scripts/kotlin_static_quality_check.sh` (`just static`) |
+| Final handoff / pre-merge / pre-commit gate | `quality/scripts/kotlin_quality_check.sh` (`just quality`) |
 | Architecture Detekt only | `quality/scripts/kotlin_detekt_check.sh` |
 | Test-style Detekt only | `quality/scripts/kotlin_test_style_check.sh` |
 | Android Lint only | `quality/scripts/kotlin_android_lint_check.sh` |
-| Compose static (compiler metrics + Lint) | `quality/scripts/kotlin_compose_static_analysis.sh` |
-| Coverage only (Kover CLI, min 70%) | `quality/scripts/kotlin_coverage_check.sh` |
+| Compose static (compile + lint-checks readiness; metrics soft) | `quality/scripts/kotlin_compose_static_analysis.sh` |
+| Coverage only (JaCoCo agent + host tests, min 70%) | `quality/scripts/kotlin_coverage_check.sh` |
 | Format staged/all Kotlin | `quality/scripts/kotlin_detekt_format.sh staged\|all` |
 | Audit repo-local generated-state size | `quality/scripts/kotlin_cache_audit.sh` |
 | Clean old repo-local generated state | `quality/scripts/kotlin_cache_cleanup.sh --dry-run`, then `--apply` |
 | Build all modules directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-build && lomo_kotlin_run build` |
-| Run tests directly | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-test && lomo_kotlin_run test` |
+| Run host tests (same modules as gates) | `just test` or source env + `kotlin_toolchain_test_args.sh` then `lomo_kotlin_run test "${toolchain_test_modules[@]}"` |
 | Inspect Toolchain modules | `source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env manual-model && lomo_kotlin_run show modules` |
 | Local dependency and release packaging maintenance | `quality/scripts/ai_local_maintenance_check.sh` |
 | Regenerate static baseline profile | `quality/scripts/generate_static_baseline_profile.py --build-dir <toolchain-build-dir>` |
@@ -49,25 +50,42 @@ the full repository quality gate.
 
 There is a **single quality CLI family**: `quality/scripts/kotlin_*.sh`. Gradle entrypoints and
 legacy `ai_quality` / `ai_static` / `ai_fast` / `ai_compose` shims are not part of this repository.
+Human shortcuts live in `Justfile` and only wrap those scripts or the Toolchain env helpers.
 
-## Old Gradle → Toolchain Parity Matrix
+## Command Ladder (semantic contract)
 
-| Old Gradle task | Toolchain attachment |
-| --- | --- |
-| `compileGateCheck` / module compile | `lomo_kotlin_run build` |
-| `unitTestCheck` | `lomo_kotlin_run test` (host modules; no permanent class excludes) |
-| `architectureCheck` / module `detekt` | `quality/scripts/kotlin_detekt_check.sh` |
-| `testStyleCheck` | `quality/scripts/kotlin_test_style_check.sh` |
-| `detektFormat` / `detektFormatStaged` | `quality/scripts/kotlin_detekt_format.sh` |
-| `androidLintCheck` | `quality/scripts/kotlin_android_lint_check.sh` |
-| `composeStaticAnalysisCheck` | `quality/scripts/kotlin_compose_static_analysis.sh` |
-| `coverageCheck` / `koverVerifyQuality` | `quality/scripts/kotlin_coverage_check.sh` (min 70%) |
-| `meaningfulTestCheck` | `quality/scripts/check_meaningful_tests.sh` |
-| `stringResourceParityCheck` | `quality/scripts/check_string_resource_parity.sh` |
-| `qualityWorkflowContractCheck` | `quality/scripts/test/kotlin_quality_check_contract_test.sh` |
-| `staticQualityCheck` | `quality/scripts/kotlin_static_quality_check.sh` |
-| `qualityCheck` / `fullQualityCheck` | `quality/scripts/kotlin_quality_check.sh` |
-| dependency update / release packaging | `quality/scripts/ai_local_maintenance_check.sh` |
+| Command | Includes | Omits |
+| --- | --- | --- |
+| `just fast` / `kotlin_fast_quality_check.sh` | model, build, host tests | Detekt, Lint, Compose, shell contracts, coverage |
+| `just static` / `kotlin_static_quality_check.sh` | model, build, architecture + test-style Detekt, Android Lint, shell contracts, host tests | Compose static, coverage |
+| `just quality` / `kotlin_quality_check.sh` | static surface + Compose static + host tests under JaCoCo + coverage min 70% | nothing in the quality surface |
+| `just test` | host tests for the canonical module set | build/static analysis unless Toolchain needs compile |
+
+Notes:
+
+- `static` is **not** compile-only: it includes host tests. Prefer `fast` when you only need build + tests.
+- Full `quality` runs host tests **once**, under coverage instrumentation (no separate uninstrumented re-run).
+- Host test modules are centralized in `quality/scripts/kotlin_toolchain_test_args.sh` and shared by gates and `just test`.
+
+## Old Gradle → Toolchain Attachment (with honesty notes)
+
+| Old Gradle task | Toolchain attachment | Parity notes |
+| --- | --- | --- |
+| `compileGateCheck` / module compile | `lomo_kotlin_run build` | Closest equivalent; no per-module task list. |
+| `unitTestCheck` | `lomo_kotlin_run test` via `toolchain_test_modules` | Host modules only; device/instrumentation suites removed by design. |
+| `fastQualityCheck` | `quality/scripts/kotlin_fast_quality_check.sh` | Restored as model + build + host tests. |
+| `architectureCheck` / module `detekt` | `quality/scripts/kotlin_detekt_check.sh` | Detekt CLI + custom rules jar. |
+| `testStyleCheck` | `quality/scripts/kotlin_test_style_check.sh` | Detekt CLI test-style config. |
+| `detektFormat` / `detektFormatStaged` | `quality/scripts/kotlin_detekt_format.sh` | CLI format path. |
+| `androidLintCheck` | `quality/scripts/kotlin_android_lint_check.sh` | SDK lint + Toolchain prepareAndroid bridge scrape (not AGP lint task). |
+| `composeStaticAnalysisCheck` | `quality/scripts/kotlin_compose_static_analysis.sh` | Hard path is compose-lint-checks via Lint; compiler metrics soft unless `LOMO_REQUIRE_COMPOSE_COMPILER_REPORTS=true`. |
+| `coverageCheck` / `koverVerifyQuality` | `quality/scripts/kotlin_coverage_check.sh` (min 70%) | JaCoCo agent + `*-jvm.jar` classfiles (not Kover plugin). |
+| `meaningfulTestCheck` | `quality/scripts/check_meaningful_tests.sh` | Unchanged shell policy. |
+| `stringResourceParityCheck` | `quality/scripts/check_string_resource_parity.sh` | Unchanged shell policy. |
+| `qualityWorkflowContractCheck` | `quality/scripts/test/kotlin_quality_check_contract_test.sh` | Structural workflow contract. |
+| `staticQualityCheck` | `quality/scripts/kotlin_static_quality_check.sh` | **Stronger than old static**: also runs host tests. |
+| `qualityCheck` / `fullQualityCheck` | `quality/scripts/kotlin_quality_check.sh` | Coverage owns the single host-test pass. |
+| dependency update / release packaging | `quality/scripts/ai_local_maintenance_check.sh` | Low-frequency maintenance (name retains `ai_` prefix). |
 
 ## Execution Defaults
 
@@ -90,6 +108,8 @@ The Kotlin Toolchain scripts create repo-local tooling state by default:
 
 Generated state has a bounded ownership model:
 
+- `kotlin_fast_quality_check.sh` writes Toolchain build output to
+  `.kotlin/toolchain-build/fast-gate` by default.
 - `kotlin_static_quality_check.sh` writes Toolchain build output to
   `.kotlin/toolchain-build/static-gate` by default.
 - `kotlin_quality_check.sh` writes Toolchain build output to
@@ -98,7 +118,9 @@ Generated state has a bounded ownership model:
   but inherit `LOMO_KOTLIN_BUILD_DIR` when orchestrated by a higher-level gate.
 - `quality/scripts/kotlin_cache_cleanup.sh` removes old named Toolchain build
   directories and generated reports, while retaining dependency/tool downloads
-  that are expensive to recreate.
+  that are expensive to recreate. Canonical retained gates include
+  `fast-gate`, `static-gate`, `quality-gate`, `lint-gate`, `coverage-gate`,
+  and `local-maintenance-release`.
 
 Current Kotlin Toolchain Android app packaging delegates part of `android/app`
 preparation through an internal Gradle/AGP bridge. This is a Toolchain
@@ -118,8 +140,8 @@ remain under an AGP-shaped path for packaging. All product Kotlin sources use Am
 3. architecture Detekt + test-style Detekt
 4. Android Lint + Compose static analysis
 5. shell contracts (meaningful tests, string parity, quality workflow contract)
-6. `lomo_kotlin_run test`
-7. Kover coverage verification (min 70%)
+6. host tests under JaCoCo + line coverage verification (min 70%) via
+   `kotlin_coverage_check.sh` (single test flight; no separate uninstrumented re-run)
 
 ## Failure Triage
 

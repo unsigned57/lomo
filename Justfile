@@ -8,11 +8,15 @@ default:
 list:
     @just --list
 
-# Run the iterative static quality gate.
+# Lightweight iterative gate: model + build + host tests.
+fast *args:
+    quality/scripts/kotlin_fast_quality_check.sh {{args}}
+
+# Iterative static quality gate (build, Detekt, Lint, shell contracts, host tests).
 static *args:
     quality/scripts/kotlin_static_quality_check.sh {{args}}
 
-# Run the full quality gate.
+# Full quality gate (static surface + Compose static + coverage/host tests).
 quality *args:
     quality/scripts/kotlin_quality_check.sh {{args}}
 
@@ -24,9 +28,9 @@ format:
 format-all:
     quality/scripts/kotlin_detekt_format.sh all
 
-# Run Kotlin Toolchain host tests.
+# Run Kotlin Toolchain host tests (same module set as quality gates).
 test *args:
-    source quality/scripts/kotlin_toolchain_env.sh && lomo_kotlin_prepare_env just-test && lomo_kotlin_run test --build-dir .kotlin/toolchain-build/test {{args}}
+    source quality/scripts/kotlin_toolchain_env.sh && source quality/scripts/kotlin_toolchain_test_args.sh && lomo_kotlin_prepare_env just-test && lomo_kotlin_run test "${toolchain_test_modules[@]}" --build-dir .kotlin/toolchain-build/test {{args}}
 
 # Build the app debug variant.
 debug *args:

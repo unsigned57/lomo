@@ -57,6 +57,7 @@ object PreferenceKeys {
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
     const val LAN_SHARE_E2E_ENABLED = "lan_share_e2e_enabled"
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
+    const val LAN_SHARE_DEVICE_UUID = "lan_share_device_uuid"
     const val SHARE_CARD_SHOW_TIME = "share_card_show_time"
     const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
     const val SHARE_CARD_SIGNATURE_TEXT = "share_card_signature_text"

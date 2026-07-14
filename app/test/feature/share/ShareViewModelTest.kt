@@ -80,6 +80,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
+                        uuid = null,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -103,6 +104,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
+                        uuid = null,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -118,6 +120,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content with photo ![photo](images/photo.png)")
                 val device = DiscoveredDevice(
+                    uuid = null,
                     name = "Peer",
                     host = "192.168.1.2",
                     port = 1080,
@@ -143,6 +146,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
                 val device = DiscoveredDevice(
+                    uuid = null,
                     name = "Peer",
                     host = "192.168.1.2",
                     port = 1080,
@@ -321,6 +325,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
+                        uuid = null,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -337,6 +342,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
                 val device = DiscoveredDevice(
+                    uuid = null,
                     name = "Peer",
                     host = "192.168.1.2",
                     port = 1080,

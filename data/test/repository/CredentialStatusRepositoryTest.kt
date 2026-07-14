@@ -11,7 +11,7 @@ import com.lomo.data.security.LanShareCredentialStore
 import com.lomo.data.security.SecureStringStore
 import com.lomo.data.security.SecureStringReadResult
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
+import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
@@ -130,7 +130,7 @@ class CredentialStatusRepositoryTest : DataFunSpec() {
                         credentialRepository = credentialRepository,
                         securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
                         clientFactory =
-                            Dav4jvmWebDavClientFactory(
+                            OkHttpWebDavClientFactory(
                                 httpClientProvider = SyncHttpClientProvider(),
                                 performanceTuner = DisabledSyncPerformanceTuner,
                             ),

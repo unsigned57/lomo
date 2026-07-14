@@ -84,7 +84,7 @@ done < <(
 
 require_source_text "$kotlin_quality_script" "lomo_kotlin_run show modules"
 require_source_text "$kotlin_quality_script" "lomo_kotlin_run build"
-require_source_text "$kotlin_quality_script" "lomo_kotlin_run test"
+require_source_text "$kotlin_quality_script" "kotlin_coverage_check.sh"
 require_source_text "$kotlin_quality_script" "check_meaningful_tests.sh"
 require_source_text "$kotlin_static_script" "lomo_kotlin_run show modules"
 require_source_text "$kotlin_static_script" "lomo_kotlin_run build"
@@ -100,6 +100,7 @@ require_matrix_text 'All-mode is narrower: it enumerates only `app`, `domain`, `
 require_matrix_text 'diff-mode covered when touched; all-mode does not enumerate `quality/detekt-rules`'
 
 for gate in \
+  "quality/scripts/kotlin_fast_quality_check.sh" \
   "quality/scripts/kotlin_static_quality_check.sh" \
   "quality/scripts/kotlin_quality_check.sh" \
   "quality/scripts/check_meaningful_tests.sh" \

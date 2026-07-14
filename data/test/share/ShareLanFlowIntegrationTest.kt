@@ -73,7 +73,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
                         savedMemos += SavedMemo(content, timestamp, attachmentMappings)
                     },
                 )
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -130,7 +130,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
                     onIncomingPrepare = { _, _ -> error("Prepare should fail before approval without sender pairing") },
                     onSaveMemo = { _, _, _ -> error("Memo should not be saved without sender pairing") },
                 )
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { null }
 
             try {
@@ -169,7 +169,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
                         savedMemos += SavedMemo(content, timestamp, attachmentMappings)
                     },
                 )
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -228,7 +228,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
                     },
                     onSaveMemo = { _, _, _ -> error("Memo should not be saved when prepare is rejected") },
                 )
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
@@ -263,7 +263,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
                         saveInvoked = true
                     },
                 )
-            val port = server.start()
+            val port = server.start(deviceUuid = TEST_DEVICE_UUID)
             val client = LomoShareClient(context = context) { null }
 
             try {
@@ -303,6 +303,7 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
 
     private fun device(port: Int): DiscoveredDevice =
         DiscoveredDevice(
+            uuid = null,
             name = "Receiver",
             host = "127.0.0.1",
             port = port,
@@ -314,3 +315,5 @@ class ShareLanFlowIntegrationTest : DataFunSpec() {
         val attachmentMappings: Map<String, String>,
     )
 }
+
+private const val TEST_DEVICE_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

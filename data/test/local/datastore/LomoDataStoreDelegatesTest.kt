@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import java.nio.file.Files
+import java.util.UUID
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -30,7 +31,8 @@ import io.kotest.matchers.nulls.shouldBeNull
  * Scenarios:
  * - Given legacy root and media directories, when content URIs are set, then URI values take precedence and legacy directory values are cleared.
  * - Given invalid storage formats, when settings are persisted, then storage format defaults are exposed.
- * - Given LAN share non-sensitive preferences and legacy pairing material, when stores are used, then preferences persist and legacy pairing material can only be drained.
+ * - Given LAN share preferences, when a device identity is requested repeatedly, then one valid UUID is generated and persisted.
+ * - Given legacy pairing material, when the migration store is used, then the credential can only be drained.
  * - Given blank nullable settings, when values are persisted, then nullable settings are removed.
  * - Given sync and draft settings, when stores are updated, then persisted flow values reflect the updates.
  *
@@ -38,7 +40,7 @@ import io.kotest.matchers.nulls.shouldBeNull
  * - DataStore-backed flow values, one-shot reads, and drain result after update operations.
  *
  * TDD proof:
- * - RED: fails before the credential-boundary fix because LAN pairing material is still exposed as a normal DataStore preference.
+ * - RED: before the fix, LanSharePreferencesStoreImpl had no persisted device identity and the lifecycle created a new UUID per process.
  *
  * Excludes:
  * - Android Context wiring, DataStore internal corruption handling, credential repository storage, and repository consumers.
@@ -60,6 +62,8 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
         test("lan share app version and legacy credential stores remove blank values persist toggles and drain pairing key") {
             `lan share app version and legacy credential stores remove blank values persist toggles and drain pairing key`()
         }
+
+        test("lan share device uuid is generated once and reused") { `lan share device uuid is generated once and reused`() }
 
         test("git webdav and draft stores persist configuration and clear empty draft") { `git webdav and draft stores persist configuration and clear empty draft`() }
     }
@@ -152,6 +156,17 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
 
             lanShareStore.lanShareDeviceName.first().shouldBeNull()
             appVersionStore.getLastAppVersionOnce().shouldBeNull()
+        }
+
+    private fun `lan share device uuid is generated once and reused`() =
+        runTest {
+            val store = LanSharePreferencesStoreImpl(newDataStore(backgroundScope))
+
+            val first = store.getOrCreateLanShareDeviceUuid()
+            val second = store.getOrCreateLanShareDeviceUuid()
+
+            UUID.fromString(first).toString() shouldBe first
+            second shouldBe first
         }
 
     private fun `git webdav and draft stores persist configuration and clear empty draft`() =

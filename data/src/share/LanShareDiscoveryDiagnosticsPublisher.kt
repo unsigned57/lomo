@@ -4,7 +4,6 @@ import com.lomo.domain.model.LanShareActiveProbeDiagnostics
 import com.lomo.domain.model.LanShareActiveProbeState
 import com.lomo.domain.model.LanShareDiscoveryDegradedReason
 import com.lomo.domain.model.LanShareDiscoveryDiagnostics
-import com.lomo.domain.model.LanShareNsdStrategyStatus
 import com.lomo.domain.model.LanShareRuntimeState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,17 +66,6 @@ internal class LanShareDiscoveryDiagnosticsPublisher(
         activeProbe: LanShareActiveProbeDiagnostics,
         degradedReason: LanShareDiscoveryDegradedReason?,
     ): LanShareDiscoveryDiagnostics {
-        val strategySnapshots =
-            (runtimeSnapshot.serviceSnapshots + runtimeSnapshot.discoverySnapshots)
-                .distinctBy { snapshot -> "${snapshot.networkKey}:${snapshot.bindHost}" }
-        val nsdStrategies =
-            buildLanShareNsdStrategies(strategySnapshots)
-                .map { strategy ->
-                    LanShareNsdStrategyStatus(
-                        networkKey = strategy.networkKey,
-                        scopedToAndroidNetwork = strategy.targetNetwork != null,
-                    )
-                }
         return LanShareDiscoveryDiagnostics(
             runtimeState = runtimeState,
             servicesDesired = runtimeSnapshot.servicesDesired,
@@ -85,7 +73,6 @@ internal class LanShareDiscoveryDiagnosticsPublisher(
             serverPort = runtimeSnapshot.serverPort,
             serviceSnapshots = runtimeSnapshot.serviceSnapshots.map(LanShareActiveNetworkSnapshot::toRouteSnapshot),
             discoverySnapshots = runtimeSnapshot.discoverySnapshots.map(LanShareActiveNetworkSnapshot::toRouteSnapshot),
-            nsdStrategies = nsdStrategies,
             activeProbe = activeProbe.forDiscoveryDesired(runtimeSnapshot.discoveryDesired),
             lastDegradedReason = degradedReason,
         )

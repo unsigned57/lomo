@@ -684,24 +684,17 @@
     <ID>NullableBooleanCheck:MemoMutationFileOps.kt:currentFileContent?.let { content -&gt; buildUpdatedFileContent(storageFormatProvider, content, memo, newContent)?.let { updatedContent -&gt; persistUpdatedMainFile(runtime, filename, updatedContent) true } ?: false } ?: false</ID>
     <ID>NullableBooleanCheck:SyncInboxFilesystemSupport.kt:context.contentResolver.openInputStream(target.uri)?.use { input -&gt; input.copyTo(output) true } ?: false</ID>
     <ID>NullableBooleanCheck:WorkspaceMediaAccess.kt:DefaultWorkspaceMediaAccess$workspaceMediaRoot(workspaceConfigSource, category)?.let { root -&gt; val safeFilename = requireWorkspaceMediaFilename(filename) if (isContentUriRoot(root)) { readWorkspaceSafFileToStream(context, category, root, safeFilename, destination) } else { readWorkspaceDirectFileToStream(category, File(root), safeFilename, destination) } } ?: false</ID>
-    <ID>ObjectLiteralToLambda:Dav4jvmWebDavClient.kt:Dav4jvmWebDavClient$object : MultiResponseCallback { override fun onResponse( response: Response, relation: Response.HrefRelation, ) { if (!response.isSuccess() || relation == Response.HrefRelation.SELF) { return } val relativePath = relativeToRoot(response.href.toString()) ?: return resources += WebDavRemoteResource( path = relativePath, isDirectory = response.href.toString().endsWith("/"), etag = response.get(GetETag::class.java)?.eTag, lastModified = response.get(GetLastModified::class.java)?.lastModified, size = response.get(GetContentLength::class.java)?.contentLength, ) } }</ID>
-    <ID>ObjectLiteralToLambda:Dav4jvmWebDavClient.kt:Dav4jvmWebDavClient$object : ResponseCallback { override fun onResponse(response: OkHttpResponse) { response.use { httpResponse -&gt; destination.outputStream().use { output -&gt; httpResponse.body.byteStream().use { input -&gt; input.copyTo(output) } } } } }</ID>
-    <ID>ObjectLiteralToLambda:Dav4jvmWebDavClient.kt:Dav4jvmWebDavClient$object : ResponseCallback { override fun onResponse(response: OkHttpResponse) { response.use { httpResponse -&gt; file = WebDavRemoteFile( path = normalizedPath, bytes = httpResponse.body.bytes(), etag = httpResponse.header("ETag"), lastModified = parseHttpDate(httpResponse.header("Last-Modified")), ) } } }</ID>
-    <ID>ObjectLiteralToLambda:Dav4jvmWebDavClient.kt:object : MultiResponseCallback { override fun onResponse( response: Response, relation: Response.HrefRelation, ) = Unit }</ID>
-    <ID>ObjectLiteralToLambda:Dav4jvmWebDavClient.kt:object : ResponseCallback { override fun onResponse(response: OkHttpResponse) { response.close() } }</ID>
     <ID>RedundantSuspendModifier:S3SyncActionApplier.kt:S3SyncActionApplier$suspend</ID>
     <ID>RedundantSuspendModifier:S3SyncOperationRepositoryImpl.kt:S3SyncStatusTester$suspend</ID>
     <ID>RedundantSuspendModifier:WebDavInitialSyncClassification.kt:suspend</ID>
     <ID>ReplaceSafeCallChainWithRun:AppUpdateRepositoryImpl.kt:AppUpdateReleaseAssetNamePolicy$match.groups["versionCode"]?.value?.toLongOrNull()</ID>
     <ID>ReplaceSafeCallChainWithRun:AppUpdateRepositoryImpl.kt:AppUpdateReleaseAssetNamePolicy$match.groups["versionName"]?.value?.takeIf { it.isNotBlank() }</ID>
     <ID>ReplaceSafeCallChainWithRun:AppUpdateRepositoryImpl.kt:this?.jsonPrimitive?.content</ID>
-    <ID>ReplaceSafeCallChainWithRun:Dav4jvmWebDavClient.kt:Dav4jvmWebDavClient$resolvedUrl?.pathSegments?.filter(String::isNotEmpty)</ID>
     <ID>ReplaceSafeCallChainWithRun:DirectMarkdownStorageListing.kt:trashDir .listFiles { _, name -&gt; name.endsWith(DIRECT_MARKDOWN_SUFFIX) } ?.asSequence() ?.filter(File::isFile)</ID>
     <ID>ReplaceSafeCallChainWithRun:DirectMediaStorageBackendDelegate.kt:rootDir .listFiles() ?.asSequence() ?.filter { file -&gt; file.isFile &amp;&amp; directIsImageFilename(file.name) } ?.map { file -&gt; file.name to Uri.fromFile(file).toString() } ?.toList()</ID>
     <ID>ReplaceSafeCallChainWithRun:GitMediaSyncBridge.kt:GitMediaSyncBridge$action?.direction?.name</ID>
     <ID>ReplaceSafeCallChainWithRun:GitMediaSyncBridge.kt:GitMediaSyncBridge$action?.reason?.name</ID>
     <ID>ReplaceSafeCallChainWithRun:GitSyncRepositorySupport.kt:GitSyncRepositorySupport$directPath ?.takeIf(String::isNotBlank) ?.let(::File) ?.takeIf { it.exists() &amp;&amp; it.isDirectory }</ID>
-    <ID>ReplaceSafeCallChainWithRun:LanShareActiveDiscovery.kt:body .takeIf { it.startsWith(LAN_SHARE_PING_RESPONSE_PREFIX) } ?.removePrefix(LAN_SHARE_PING_RESPONSE_PREFIX) ?.trim() ?.takeIf(String::isNotBlank)</ID>
     <ID>ReplaceSafeCallChainWithRun:LanShareAddressPolicy.kt:linkProperties?.linkAddresses?.map { it.address }?.let(::selectLanShareBindHostAddress)</ID>
     <ID>ReplaceSafeCallChainWithRun:LanShareEligibleSnapshotPolicy.kt:connectivityManager ?.toLanShareNetworkProbes(candidateNetworks) ?.let(::selectLanShareEligibleNetworkSnapshots)</ID>
     <ID>ReplaceSafeCallChainWithRun:LanShareNetworkPriority.kt:hostAddress?.substringBefore('%')?.lowercase(Locale.ROOT)</ID>

@@ -53,7 +53,6 @@
     <ID>InvalidPackageDeclaration:DatabaseSyncStateMigrations.kt:package com.lomo.data.local</ID>
     <ID>InvalidPackageDeclaration:DatabaseTransitionStrategy.kt:package com.lomo.data.local</ID>
     <ID>InvalidPackageDeclaration:DatabaseWorkspaceScopedSyncMigrations.kt:package com.lomo.data.local</ID>
-    <ID>InvalidPackageDeclaration:Dav4jvmWebDavClient.kt:package com.lomo.data.webdav</ID>
     <ID>InvalidPackageDeclaration:DefaultCredentialRepository.kt:package com.lomo.data.security</ID>
     <ID>InvalidPackageDeclaration:DefaultMainListDao.kt:package com.lomo.data.local.dao</ID>
     <ID>InvalidPackageDeclaration:DirectMarkdownStorageBackendDelegate.kt:package com.lomo.data.source</ID>
@@ -111,13 +110,14 @@
     <ID>InvalidPackageDeclaration:LanShareDebouncedAction.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareDiscoveredDeviceDedupe.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareDiscoveryDiagnosticsPublisher.kt:package com.lomo.data.share</ID>
+    <ID>InvalidPackageDeclaration:LanShareDeviceIdentityProvider.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareEligibleSnapshotPolicy.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareMulticastLockLease.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareMulticastLockManager.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareNetworkPermissionGateway.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareNetworkPriority.kt:package com.lomo.data.share</ID>
-    <ID>InvalidPackageDeclaration:LanShareNsdStrategy.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LanShareObservedNetworkRegistry.kt:package com.lomo.data.share</ID>
+    <ID>InvalidPackageDeclaration:LanSharePingProtocol.kt:package com.lomo.data.share</ID>
     <ID>InvalidPackageDeclaration:LocalFileStateDao.kt:package com.lomo.data.local.dao</ID>
     <ID>InvalidPackageDeclaration:LocalFileStateEntity.kt:package com.lomo.data.local.entity</ID>
     <ID>InvalidPackageDeclaration:LocalMediaSyncStore.kt:package com.lomo.data.webdav</ID>
@@ -412,6 +412,7 @@
     <ID>InvalidPackageDeclaration:WebDavClient.kt:package com.lomo.data.webdav</ID>
     <ID>InvalidPackageDeclaration:WebDavCredentialStore.kt:package com.lomo.data.webdav</ID>
     <ID>InvalidPackageDeclaration:WebDavEndpointResolver.kt:package com.lomo.data.webdav</ID>
+    <ID>InvalidPackageDeclaration:OkHttpWebDavClient.kt:package com.lomo.data.webdav</ID>
     <ID>InvalidPackageDeclaration:WebDavIncrementalSyncSupport.kt:package com.lomo.data.repository</ID>
     <ID>InvalidPackageDeclaration:WebDavInitialSyncClassification.kt:package com.lomo.data.repository</ID>
     <ID>InvalidPackageDeclaration:WebDavLocalChangeJournalDao.kt:package com.lomo.data.local.dao</ID>

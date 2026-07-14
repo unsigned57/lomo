@@ -29,6 +29,7 @@ class LomoShareServer {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val stateLock = Any()
     private var discoveryDeviceName: String = DEFAULT_DISCOVERY_DEVICE_NAME
+    private var discoveryDeviceUuid: String? = null
 
     private data class PendingApproval(
         val deferred: CompletableDeferred<Boolean>,
@@ -71,11 +72,12 @@ class LomoShareServer {
         }
 
     suspend fun start(
+        deviceUuid: String,
         port: Int = 0,
         host: String = LOOPBACK_SERVER_HOST,
         deviceName: String = DEFAULT_DISCOVERY_DEVICE_NAME,
     ): Int {
-        updateDiscoveryDeviceName(deviceName)
+        updateDiscoveryIdentity(deviceUuid, deviceName)
         if (port != 0) {
             // Ktor's CIO engine binds asynchronously from an internal coroutine, so a
             // BindException is thrown from a child job and propagates to the process'
@@ -121,7 +123,7 @@ class LomoShareServer {
                 jsonSerializer = json,
                 prepareHandler = prepareHandler,
                 transferHandler = transferHandler,
-                discoveryDeviceName = ::discoveryDeviceNameSnapshot,
+                discoveryPingResponse = ::discoveryPingResponseSnapshot,
             ).start(wait = false)
 
         val finalPort = resolveBoundPort(server, port)
@@ -131,6 +133,20 @@ class LomoShareServer {
 
     fun updateDiscoveryDeviceName(deviceName: String) {
         synchronized(stateLock) {
+            discoveryDeviceName = deviceName.ifBlank { DEFAULT_DISCOVERY_DEVICE_NAME }
+        }
+    }
+
+    private fun updateDiscoveryIdentity(
+        deviceUuid: String,
+        deviceName: String,
+    ) {
+        val canonicalUuid =
+            requireNotNull(LanSharePingProtocol.parseUuid(deviceUuid)) {
+                "LAN share device UUID must be valid."
+            }
+        synchronized(stateLock) {
+            discoveryDeviceUuid = canonicalUuid
             discoveryDeviceName = deviceName.ifBlank { DEFAULT_DISCOVERY_DEVICE_NAME }
         }
     }
@@ -282,9 +298,12 @@ class LomoShareServer {
         private const val DEFAULT_DISCOVERY_DEVICE_NAME = "Lomo"
     }
 
-    private fun discoveryDeviceNameSnapshot(): String =
+    private fun discoveryPingResponseSnapshot(): String =
         synchronized(stateLock) {
-            discoveryDeviceName
+            LanSharePingProtocol.encode(
+                uuid = checkNotNull(discoveryDeviceUuid) { "LAN share server identity is not initialized." },
+                name = discoveryDeviceName,
+            )
         }
 }
 
@@ -296,7 +315,7 @@ private fun buildShareServer(
     jsonSerializer: Json,
     prepareHandler: SharePrepareRequestProcessor,
     transferHandler: LomoShareTransferHandler,
-    discoveryDeviceName: () -> String,
+    discoveryPingResponse: () -> String,
 ): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> =
     embeddedServer(CIO, port = port, host = host) {
         install(ContentNegotiation) {
@@ -306,7 +325,7 @@ private fun buildShareServer(
         routing {
             get("/share/ping") {
                 call.respondText(
-                    "$LAN_SHARE_PING_RESPONSE_PREFIX${discoveryDeviceName()}",
+                    discoveryPingResponse(),
                     ContentType.Text.Plain,
                 )
             }

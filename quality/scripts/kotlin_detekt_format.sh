@@ -57,19 +57,19 @@ esac
 echo "kotlin-detekt-format: formatting ${#inputs[@]} path(s) ($mode)"
 
 wrapper_jar="$(
-  find "$repo_root/.gradle" \
+  find "$repo_root/.gradle" "$HOME/.gradle" \
     -path "*/dev.detekt/detekt-rules-ktlint-wrapper/${DETEKT_VERSION}/*" \
     -name "detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar" \
     2>/dev/null | head -1 || true
 )"
 ktlint_jar="$(
-  find "$repo_root/.gradle" \
+  find "$repo_root/.gradle" "$HOME/.gradle" \
     -path "*/dev.detekt/ktlint-repackage/${DETEKT_VERSION}/*" \
     -name "ktlint-repackage-${DETEKT_VERSION}-all.jar" \
     2>/dev/null | head -1 || true
 )"
 if [ -z "$wrapper_jar" ] || [ -z "$ktlint_jar" ]; then
-  echo "kotlin-detekt-format: ktlint plugin jars not cached under .gradle; run a Toolchain build once or download detekt ktlint artifacts" >&2
+  echo "kotlin-detekt-format: ktlint plugin jars not cached under .gradle or home directory; run a Toolchain build once or download detekt ktlint artifacts" >&2
   exit 1
 fi
 

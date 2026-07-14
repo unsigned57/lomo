@@ -14,6 +14,8 @@ import com.lomo.data.share.LanShareLifecycleControllerImpl
 import com.lomo.data.share.LanShareTransferControllerImpl
 import com.lomo.data.share.LanShareConfigurationControllerImpl
 import com.lomo.data.share.ShareServiceManager
+import com.lomo.data.share.DataStoreLanShareDeviceIdentityProvider
+import com.lomo.data.share.LanShareDeviceIdentityProvider
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.VoiceRecordingRepository
@@ -28,8 +30,9 @@ val mediaShareModule = module {
 
     single { LanShareCredentialStore(androidContext()) }
     single { SharePairingConfig(get(), get(), get()) }
+    single<LanShareDeviceIdentityProvider> { DataStoreLanShareDeviceIdentityProvider(get()) }
     single { ShareTransferOrchestrator(androidContext(), get(), get()) }
-    single { ShareServiceLifecycleController(androidContext(), get()) }
+    single { ShareServiceLifecycleController(androidContext(), get(), get()) }
     single { ShareAttachmentStorage(androidContext(), get(), get()) }
     single { ShareIncomingMemoSaver(get(), get()) }
     single { ShareIncomingStateHolder() }

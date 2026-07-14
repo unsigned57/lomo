@@ -103,7 +103,7 @@ import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.sync.GitSyncWorkPolicyPlanner
 import com.lomo.data.sync.WebDavSyncWorkPolicyPlanner
 import com.lomo.data.sync.S3SyncWorkPolicyPlanner
-import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
+import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.DefaultWebDavEndpointResolver
 import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavEndpointResolver
@@ -148,7 +148,7 @@ val syncDataModule = module {
     single { S3SyncPlanner() }
 
     // Client factories & resolvers
-    singleOf(::Dav4jvmWebDavClientFactory) bind WebDavClientFactory::class
+    singleOf(::OkHttpWebDavClientFactory) bind WebDavClientFactory::class
     singleOf(::DefaultWebDavEndpointResolver) bind WebDavEndpointResolver::class
     single { AndroidS3SafTreeAccess(androidContext()) } bind S3SafTreeAccess::class
     singleOf(::AwsSdkS3ClientFactory) bind LomoS3ClientFactory::class

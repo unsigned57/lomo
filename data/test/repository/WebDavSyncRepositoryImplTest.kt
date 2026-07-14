@@ -23,7 +23,7 @@ import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.data.testing.fakes.FakeWebDavSyncMetadataDao
-import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
+import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
@@ -91,7 +91,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
     private lateinit var credentialStore: WebDavCredentialStore
 
     @MockK(relaxed = true)
-    private lateinit var configurationClientFactory: Dav4jvmWebDavClientFactory
+    private lateinit var configurationClientFactory: OkHttpWebDavClientFactory
 
     @MockK(relaxed = true)
     private lateinit var endpointResolver: WebDavEndpointResolver

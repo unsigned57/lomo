@@ -12,7 +12,8 @@ import io.kotest.matchers.shouldBe
  *
  * Scenarios:
  * - Given a new discovery session, when the next scan delay is requested, then the first scan is prompt.
- * - Given empty scans, when scan results are recorded, then retry delay backs off from the legacy one-second loop.
+ * - Given a new session, when the first four scans are empty, then all four subnet windows run without delay.
+ * - Given later empty scans, when scan results are recorded, then retry delay backs off with a 15-second ceiling.
  * - Given a discovered peer, when the result is recorded, then follow-up scans use a low-frequency cadence.
  * - Given a stopped session with prior backoff, when a new policy session is created, then the next scan is prompt again.
  *
@@ -20,11 +21,18 @@ import io.kotest.matchers.shouldBe
  * - returned scan delay values.
  *
  * TDD proof:
- * - RED observed with `./kotlin test --include-classes='com.lomo.data.share.LanShareActiveDiscoveryPolicyTest'`.
- * - Before Batch 2A, policy creation/usage was missing and lifecycle retries occurred after the legacy 1,000 ms delay instead of returning 4,000 ms empty-scan backoff, 8,000 ms second backoff, and 30,000 ms discovered-peer cadence.
+ * - RED: before the fix, the policy waited 4 seconds immediately after the first empty 64-host window
+ *   and grew to 60 seconds, so a /24 could take tens of seconds to cover.
  *
  * Excludes:
  * - coroutine delay mechanics, NSD callbacks, live sockets, and active probe target construction.
+ *
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: asserting empty scan backoff increases immediately to 4, 8 seconds.
+ * - Why old assertion is no longer correct: to discover devices faster, we scan the first four subnet windows without delay.
+ * - Coverage preserved by: asserting that the first four empty scans run with 0 delay, and subsequent scans backoff up to 15 seconds.
+ * - Why this is not fitting the test to the implementation: it verifies the new optimized scanning cadence required to avoid discovery delays.
  */
 class LanShareActiveDiscoveryPolicyTest : DataFunSpec() {
     init {
@@ -34,15 +42,30 @@ class LanShareActiveDiscoveryPolicyTest : DataFunSpec() {
             policy.delayBeforeNextScanMs() shouldBe 0L
         }
 
-        test("given empty scans when results are recorded then retry delay backs off") {
+        test("given new session when first four scans are empty then subnet windows remain prompt") {
             val policy = LanShareActiveDiscoverySchedulePolicy()
 
-            policy.recordScanResult(foundDeviceCount = 0)
-            val firstBackoff = policy.delayBeforeNextScanMs()
-            policy.recordScanResult(foundDeviceCount = 0)
+            val delaysAfterEmptyScans =
+                (1..4).map {
+                    policy.recordScanResult(foundDeviceCount = 0)
+                    policy.delayBeforeNextScanMs()
+                }
 
-            firstBackoff shouldBe 4_000L
-            policy.delayBeforeNextScanMs() shouldBe 8_000L
+            delaysAfterEmptyScans shouldBe listOf(0L, 0L, 0L, 4_000L)
+        }
+
+        test("given prompt coverage is complete when empty scans continue then backoff is capped at fifteen seconds") {
+            val policy = LanShareActiveDiscoverySchedulePolicy()
+            repeat(4) { policy.recordScanResult(foundDeviceCount = 0) }
+
+            val backoffs =
+                (1..4).map {
+                    val current = policy.delayBeforeNextScanMs()
+                    policy.recordScanResult(foundDeviceCount = 0)
+                    current
+                }
+
+            backoffs shouldBe listOf(4_000L, 8_000L, 15_000L, 15_000L)
         }
 
         test("given discovered peer when result is recorded then next scan uses low frequency cadence") {
@@ -55,7 +78,7 @@ class LanShareActiveDiscoveryPolicyTest : DataFunSpec() {
 
         test("given prior backoff when a new policy session starts then next scan is prompt again") {
             val previousSession = LanShareActiveDiscoverySchedulePolicy()
-            previousSession.recordScanResult(foundDeviceCount = 0)
+            repeat(4) { previousSession.recordScanResult(foundDeviceCount = 0) }
             previousSession.delayBeforeNextScanMs() shouldBe 4_000L
 
             val newSession = LanShareActiveDiscoverySchedulePolicy()

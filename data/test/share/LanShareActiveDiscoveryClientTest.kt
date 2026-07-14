@@ -8,9 +8,9 @@
  *   binding, and rotating coverage across a discovery session.
  *
  * Scenarios:
- * - Given a stable ping response, when it is mapped, then a discovered device
+ * - Given a UUID-bearing ping response, when it is mapped, then a UUID-identified discovered device
  *   on the stable share port is returned.
- * - Given invalid ping responses, when they are mapped, then they are ignored.
+ * - Given an old, malformed, or self ping response, when it is mapped, then it is ignored.
  * - Given duplicate active probe results, when a scan completes, then devices
  *   are deduplicated by endpoint.
  * - Given a hotspot network snapshot, when probes run, then targets keep the
@@ -20,20 +20,17 @@
  *   diagnostics are returned.
  * - Given a bound active-discovery target, when the target is probed, then the
  *   HTTP connection is opened through Android Network.openConnection.
- * - Given repeated scans in one client session, when a subnet is larger than
- *   the per-scan budget, then priority hosts are retained and the non-priority
- *   budget window advances.
+ * - Given four prompt scans in one client session, when the subnet is /24, then their rotating
+ *   64-host windows cover every usable peer address while excluding the local host.
  *
  * Observable outcomes:
  * - parsed DiscoveredDevice values, scan result list, probe route diagnostics,
  *   Android Network-bound connection use, and recorded target hosts per scan.
  *
  * TDD proof:
- * - RED observed with `./kotlin test --include-classes='com.lomo.data.share.LanShareActiveDiscoveryClientTest'`.
- * - Before Slice 4, the no-Network fallback contract failed to compile because route diagnostics did not
- *   exist, and production probing used URL.openConnection when no Android Network was present.
- * - Earlier rotation coverage failed before the rotation fix because repeated scans reused the same
- *   first budgeted target list and never reached the next non-priority window.
+ * - RED: the old ping parser treated the whole post-prefix body as a display name and could not exclude self.
+ * - RED: before the fix, target rotation repeated priority hosts every round, so four scans covered only 244
+ *   of the 253 usable peer addresses.
  *
  * Excludes:
  * - live HTTP sockets, Android NSD callbacks, timeout tuning, and
@@ -91,8 +88,8 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             `probe opens HTTP connection through bound Android network`()
         }
 
-        test("repeated scans keep priority hosts and rotate non priority budget window") {
-            `repeated scans keep priority hosts and rotate non priority budget window`()
+        test("four prompt scans cover the full usable subnet") {
+            `four prompt scans cover the full usable subnet`()
         }
     }
 
@@ -102,29 +99,43 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
     private fun `ping response maps to discovered device on stable share port`() {
         val target = LanShareActiveDiscoveryTarget(host = "192.168.1.42", port = LAN_SHARE_DISCOVERY_PORT)
 
-        val device = mapLanSharePingResponse(target, "lomo-share\tPixel 8\n")
+        val device =
+            mapLanSharePingResponse(
+                target = target,
+                body = LanSharePingProtocol.encode(uuid = REMOTE_UUID, name = "Pixel 8") + "\n",
+                localUuid = LOCAL_UUID,
+            )
 
-        device shouldBe DiscoveredDevice(name = "Pixel 8", host = "192.168.1.42", port = LAN_SHARE_DISCOVERY_PORT)
+        device shouldBe
+            DiscoveredDevice(
+                uuid = REMOTE_UUID,
+                name = "Pixel 8",
+                host = "192.168.1.42",
+                port = LAN_SHARE_DISCOVERY_PORT,
+            )
     }
 
     private fun `invalid ping response is ignored`() {
         val target = LanShareActiveDiscoveryTarget(host = "192.168.1.42", port = LAN_SHARE_DISCOVERY_PORT)
 
-        mapLanSharePingResponse(target, "not-lomo").shouldBeNull()
-        mapLanSharePingResponse(target, "lomo-share\t   ").shouldBeNull()
+        mapLanSharePingResponse(target, "not-lomo", LOCAL_UUID).shouldBeNull()
+        mapLanSharePingResponse(target, "lomo-share\tPixel 8", LOCAL_UUID).shouldBeNull()
+        mapLanSharePingResponse(target, "lomo-share\tnot-a-uuid\tPixel 8", LOCAL_UUID).shouldBeNull()
+        mapLanSharePingResponse(target, "lomo-share\t$LOCAL_UUID\tThis device", LOCAL_UUID).shouldBeNull()
     }
 
     private fun `scan deduplicates devices returned by active probes`() =
         runTest {
             val duplicate =
                 DiscoveredDevice(
+                    uuid = REMOTE_UUID,
                     name = "Pixel",
                     host = "192.168.1.2",
                     port = LAN_SHARE_DISCOVERY_PORT,
                 )
             val client =
                 LanShareActiveDiscoveryClient(
-                    probeDevice = { target ->
+                    probeDevice = { target, _ ->
                         when (target.host) {
                             "192.168.1.2",
                             "192.168.1.3",
@@ -142,6 +153,7 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
                         bindHost = "192.168.1.37",
                         network = mockk(),
                     ),
+                    localUuid = LOCAL_UUID,
                 )
 
             result.devices shouldBe listOf(duplicate)
@@ -153,10 +165,11 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             val probeNetworks = mutableListOf<android.net.Network?>()
             val client =
                 LanShareActiveDiscoveryClient(
-                    probeDevice = { target ->
+                    probeDevice = { target, _ ->
                         if (target.host == "192.168.43.2") {
                             probeNetworks += target.network
                             DiscoveredDevice(
+                                uuid = HOTSPOT_UUID,
                                 name = "Hotspot peer",
                                 host = target.host,
                                 port = target.port,
@@ -174,9 +187,18 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
                         bindHost = "192.168.43.1",
                         network = hotspotNetwork,
                     ),
+                    localUuid = LOCAL_UUID,
                 )
 
-            result.devices shouldBe listOf(DiscoveredDevice("Hotspot peer", "192.168.43.2", LAN_SHARE_DISCOVERY_PORT))
+            result.devices shouldBe
+                listOf(
+                    DiscoveredDevice(
+                        uuid = HOTSPOT_UUID,
+                        name = "Hotspot peer",
+                        host = "192.168.43.2",
+                        port = LAN_SHARE_DISCOVERY_PORT,
+                    ),
+                )
             result.activeProbe.routeCapableSnapshotCount shouldBe 1
             (probeNetworks.single() === hotspotNetwork).shouldBeTrue()
         }
@@ -186,7 +208,7 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             var probeCount = 0
             val client =
                 LanShareActiveDiscoveryClient(
-                    probeDevice = {
+                    probeDevice = { _, _ ->
                         probeCount += 1
                         error("No-Network fallback snapshots must not probe through the process default route")
                     },
@@ -195,6 +217,7 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             val result =
                 client.scan(
                     LanShareActiveNetworkSnapshot(networkKey = "if:ap0", bindHost = "192.168.43.1"),
+                    localUuid = LOCAL_UUID,
                 )
 
             probeCount shouldBe 0
@@ -212,7 +235,9 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
             val connection =
                 mockk<HttpURLConnection> {
                     every { responseCode } returns HttpURLConnection.HTTP_OK
-                    every { inputStream } answers { ByteArrayInputStream("lomo-share\tBound peer".toByteArray()) }
+                    every { inputStream } answers {
+                        ByteArrayInputStream("lomo-share\t$REMOTE_UUID\tBound peer".toByteArray())
+                    }
                     every { disconnect() } returns Unit
                     every { requestMethod = "GET" } returns Unit
                     every { connectTimeout = any() } returns Unit
@@ -226,18 +251,24 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
                     network = network,
                 )
 
-            val device = probeLanShareDevice(target)
+            val device = probeLanShareDevice(target, localUuid = LOCAL_UUID)
 
-            device shouldBe DiscoveredDevice("Bound peer", "192.168.43.2", LAN_SHARE_DISCOVERY_PORT)
+            device shouldBe
+                DiscoveredDevice(
+                    uuid = REMOTE_UUID,
+                    name = "Bound peer",
+                    host = "192.168.43.2",
+                    port = LAN_SHARE_DISCOVERY_PORT,
+                )
             verify(exactly = 1) { network.openConnection(any()) }
         }
 
-    private fun `repeated scans keep priority hosts and rotate non priority budget window`() =
+    private fun `four prompt scans cover the full usable subnet`() =
         runTest {
             val probedHosts = ConcurrentLinkedQueue<String>()
             val client =
                 LanShareActiveDiscoveryClient(
-                    probeDevice = { target ->
+                    probeDevice = { target, _ ->
                         probedHosts += target.host
                         null
                     },
@@ -249,19 +280,22 @@ class LanShareActiveDiscoveryClientTest : DataFunSpec() {
                     network = mockk(),
                 )
 
-            client.scan(snapshot)
-            val firstScanHosts = probedHosts.toSet()
-            probedHosts.clear()
-            client.scan(snapshot)
-            val secondScanHosts = probedHosts.toSet()
+            val scanWindows =
+                (1..4).map {
+                    probedHosts.clear()
+                    client.scan(snapshot, localUuid = LOCAL_UUID)
+                    probedHosts.toSet()
+                }
 
-            firstScanHosts.size shouldBe EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET
-            secondScanHosts.size shouldBe EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET
-            firstScanHosts.containsAll(setOf("192.168.1.1", "192.168.1.38", "192.168.1.254")) shouldBe true
-            secondScanHosts.containsAll(setOf("192.168.1.1", "192.168.1.38", "192.168.1.254")) shouldBe true
-            firstScanHosts.contains("192.168.1.65") shouldBe false
-            secondScanHosts.contains("192.168.1.65") shouldBe true
+            scanWindows.map(Set<String>::size) shouldBe List(4) { EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET }
+            scanWindows.first().containsAll(setOf("192.168.1.1", "192.168.1.38", "192.168.1.254")) shouldBe true
+            scanWindows.flatten().toSet().size shouldBe EXPECTED_USABLE_PEER_COUNT
+            scanWindows.flatten().contains("192.168.1.37") shouldBe false
         }
 }
 
 private const val EXPECTED_ACTIVE_DISCOVERY_TARGET_BUDGET = 64
+private const val EXPECTED_USABLE_PEER_COUNT = 253
+private const val LOCAL_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+private const val REMOTE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+private const val HOTSPOT_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"

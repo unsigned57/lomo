@@ -20,7 +20,6 @@ import java.net.URI
 import kotlin.coroutines.cancellation.CancellationException
 
 internal const val LAN_SHARE_DISCOVERY_PORT = 42137
-internal const val LAN_SHARE_PING_RESPONSE_PREFIX = "lomo-share\t"
 
 internal data class LanShareActiveDiscoveryTarget(
     val host: String,
@@ -78,7 +77,10 @@ internal data class LanShareActiveDiscoveryScanResult(
 }
 
 internal interface LanShareActiveDiscoveryScanner {
-    suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult
+    suspend fun scan(
+        snapshot: LanShareActiveNetworkSnapshot,
+        localUuid: String,
+    ): LanShareActiveDiscoveryScanResult
 }
 
 internal fun buildLanShareActiveDiscoveryTargets(
@@ -117,31 +119,32 @@ private fun prioritizedLanShareHostSuffixes(
             IPV4_USABLE_HOST_MAX,
         ).filterNot { hostSuffix -> hostSuffix == localHostSuffix }
             .distinct()
-    val prioritySet = prioritySuffixes.toSet()
-    val nonPrioritySuffixes =
+    val orderedSuffixes =
+        prioritySuffixes +
         (IPV4_USABLE_HOST_MIN..IPV4_USABLE_HOST_MAX)
-            .filterNot { hostSuffix -> hostSuffix == localHostSuffix || hostSuffix in prioritySet }
-    val nonPriorityBudget = (ACTIVE_DISCOVERY_TARGET_BUDGET - prioritySuffixes.size).coerceAtLeast(0)
+            .filterNot { hostSuffix -> hostSuffix == localHostSuffix || hostSuffix in prioritySuffixes }
     val normalizedWindowOffset =
-        if (nonPrioritySuffixes.isEmpty()) {
+        if (orderedSuffixes.isEmpty()) {
             0
         } else {
-            scanWindowOffset.coerceAtLeast(0) % nonPrioritySuffixes.size
+            scanWindowOffset.coerceAtLeast(0) % orderedSuffixes.size
         }
-    val rotatedNonPrioritySuffixes =
-        nonPrioritySuffixes.drop(normalizedWindowOffset) + nonPrioritySuffixes.take(normalizedWindowOffset)
-    return (prioritySuffixes + rotatedNonPrioritySuffixes.take(nonPriorityBudget))
-        .take(ACTIVE_DISCOVERY_TARGET_BUDGET)
+    val rotatedSuffixes =
+        orderedSuffixes.drop(normalizedWindowOffset) + orderedSuffixes.take(normalizedWindowOffset)
+    return rotatedSuffixes.take(ACTIVE_DISCOVERY_TARGET_BUDGET)
 }
 
 internal class LanShareActiveDiscoveryClient(
-    private val probeDevice: suspend (LanShareActiveDiscoveryTarget) -> DiscoveredDevice? =
+    private val probeDevice: suspend (LanShareActiveDiscoveryTarget, String) -> DiscoveredDevice? =
         ::probeLanShareDevice,
 ) : LanShareActiveDiscoveryScanner {
     private val scanWindowLock = Any()
     private val nextScanWindowOffsets = mutableMapOf<String, Int>()
 
-    override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult {
+    override suspend fun scan(
+        snapshot: LanShareActiveNetworkSnapshot,
+        localUuid: String,
+    ): LanShareActiveDiscoveryScanResult {
         if (snapshot.network == null) {
             Timber
                 .tag(TAG)
@@ -176,7 +179,7 @@ internal class LanShareActiveDiscoveryClient(
                             async(Dispatchers.IO) {
                                 // behavior-contract: silent-result-ok:
                                 // unreachable probe target means no peer at this address.
-                                runCatching { probeDevice(target) }
+                                runCatching { probeDevice(target, localUuid) }
                                     .onFailure { error ->
                                         if (error is CancellationException) throw error
                                         Timber.tag(TAG).d(error, "LAN active probe failed for ${target.host}")
@@ -185,7 +188,7 @@ internal class LanShareActiveDiscoveryClient(
                         }.awaitAll()
                         .filterNotNull()
                 }
-            }.distinctBy { device -> device.endpointKey() }
+            }.distinctBy(DiscoveredDevice::lanShareIdentityKey)
         return LanShareActiveDiscoveryScanResult.routed(
             snapshot = snapshot,
             devices = devices,
@@ -198,12 +201,15 @@ internal class LanShareActiveDiscoveryClient(
         synchronized(scanWindowLock) {
             val key = "${snapshot.networkKey}:${snapshot.bindHost}"
             val currentOffset = nextScanWindowOffsets[key] ?: 0
-            nextScanWindowOffsets[key] = currentOffset + ACTIVE_DISCOVERY_NON_PRIORITY_TARGET_BUDGET
+            nextScanWindowOffsets[key] = currentOffset + ACTIVE_DISCOVERY_TARGET_BUDGET
             currentOffset
         }
 }
 
-internal suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget): DiscoveredDevice? =
+internal suspend fun probeLanShareDevice(
+    target: LanShareActiveDiscoveryTarget,
+    localUuid: String,
+): DiscoveredDevice? =
     withContext(Dispatchers.IO) {
         val network = target.network ?: return@withContext null
         val url = URI("http://${target.host}:${target.port}/share/ping").toURL()
@@ -217,7 +223,7 @@ internal suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget):
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext null
             val body = connection.inputStream.bufferedReader().use { reader -> reader.readText() }
-            mapLanSharePingResponse(target, body)
+            mapLanSharePingResponse(target, body, localUuid)
         } finally {
             connection.disconnect()
         }
@@ -226,22 +232,17 @@ internal suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget):
 internal fun mapLanSharePingResponse(
     target: LanShareActiveDiscoveryTarget,
     body: String,
+    localUuid: String,
 ): DiscoveredDevice? {
-    val deviceName =
-        body
-            .takeIf { it.startsWith(LAN_SHARE_PING_RESPONSE_PREFIX) }
-            ?.removePrefix(LAN_SHARE_PING_RESPONSE_PREFIX)
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?: return null
+    val identity = LanSharePingProtocol.decode(body) ?: return null
+    if (identity.uuid == LanSharePingProtocol.parseUuid(localUuid)) return null
     return DiscoveredDevice(
-        name = deviceName,
+        uuid = identity.uuid,
+        name = identity.name,
         host = target.host,
         port = target.port,
     )
 }
-
-private fun DiscoveredDevice.endpointKey(): String = "$host:$port"
 
 internal fun LanShareActiveNetworkSnapshot.toRouteSnapshot(
     routeState: LanShareProbeRouteState =
@@ -260,7 +261,6 @@ internal fun LanShareActiveNetworkSnapshot.toRouteSnapshot(
 private const val TAG = "LanShareActiveDiscovery"
 private const val ACTIVE_DISCOVERY_CONCURRENCY = 32
 internal const val ACTIVE_DISCOVERY_TARGET_BUDGET = 64
-internal const val ACTIVE_DISCOVERY_NON_PRIORITY_TARGET_BUDGET = ACTIVE_DISCOVERY_TARGET_BUDGET - 4
 private const val ACTIVE_DISCOVERY_TIMEOUT_MS = 250
 private const val IPV4_OCTET_COUNT = 4
 private const val IPV4_USABLE_HOST_MIN = 1

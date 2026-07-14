@@ -167,6 +167,8 @@ interface LomoLanSharePreferencesStore {
 
     suspend fun updateLanShareDeviceName(name: String?)
 
+    suspend fun getOrCreateLanShareDeviceUuid(): String
+
     suspend fun updateShareCardShowTime(enabled: Boolean)
 
     suspend fun updateShareCardShowBrand(enabled: Boolean)
@@ -553,6 +555,7 @@ internal object LomoDataStoreKeys {
     val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
     val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
+    val LAN_SHARE_DEVICE_UUID = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_UUID)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
     val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
     val SHARE_CARD_SIGNATURE_TEXT = stringPreferencesKey(PreferenceKeys.SHARE_CARD_SIGNATURE_TEXT)

@@ -34,14 +34,20 @@ internal class LanShareActiveDiscoveryLoop(
     val hasJob: Boolean
         get() = activeDiscoveryJob != null
 
-    fun restart(snapshots: List<LanShareActiveNetworkSnapshot>) {
+    fun restart(
+        snapshots: List<LanShareActiveNetworkSnapshot>,
+        localUuid: String,
+    ) {
         activeDiscoveryJob?.cancel()
-        start(snapshots)
+        start(snapshots, localUuid)
     }
 
-    fun startIfIdle(snapshots: List<LanShareActiveNetworkSnapshot>) {
+    fun startIfIdle(
+        snapshots: List<LanShareActiveNetworkSnapshot>,
+        localUuid: String,
+    ) {
         if (!isRunning) {
-            start(snapshots)
+            start(snapshots, localUuid)
         }
     }
 
@@ -50,7 +56,10 @@ internal class LanShareActiveDiscoveryLoop(
         activeDiscoveryJob = null
     }
 
-    private fun start(snapshots: List<LanShareActiveNetworkSnapshot>) {
+    private fun start(
+        snapshots: List<LanShareActiveNetworkSnapshot>,
+        localUuid: String,
+    ) {
         activeDiscoveryJob =
             scope.launch {
                 val schedulePolicy = LanShareActiveDiscoverySchedulePolicy()
@@ -60,7 +69,7 @@ internal class LanShareActiveDiscoveryLoop(
                     if (!isActive || !isDiscoveryStarted()) {
                         return@launch
                     }
-                    val result = runActiveDiscoveryScan(snapshots)
+                    val result = runActiveDiscoveryScan(snapshots, localUuid)
                     schedulePolicy.recordScanResult(result.foundDeviceCount)
                     publishDiagnostics(result.toDiagnosticsUpdate(schedulePolicy.delayBeforeNextScanMs()))
                 }
@@ -69,6 +78,7 @@ internal class LanShareActiveDiscoveryLoop(
 
     private suspend fun runActiveDiscoveryScan(
         seedSnapshots: List<LanShareActiveNetworkSnapshot>,
+        localUuid: String,
     ): LanShareActiveDiscoveryLoopScanResult {
         val snapshots =
             seedSnapshots
@@ -92,7 +102,7 @@ internal class LanShareActiveDiscoveryLoop(
                     snapshots
                         .map { snapshot ->
                             async {
-                                scanSnapshot(snapshot)
+                                scanSnapshot(snapshot, localUuid)
                             }
                         }.awaitAll()
                 }
@@ -105,7 +115,7 @@ internal class LanShareActiveDiscoveryLoop(
         val merged =
             scanResults
                 .flatMap(LanShareActiveDiscoveryScanResult::devices)
-                .distinctBy(DiscoveredDevice::lanShareEndpointKey)
+                .distinctBy(DiscoveredDevice::lanShareIdentityKey)
 
         if (isDiscoveryStarted() && merged.isNotEmpty()) {
             discoveryCoordinator.mergeDiscoveredDevices(merged)
@@ -121,8 +131,11 @@ internal class LanShareActiveDiscoveryLoop(
         return scanResults.toLoopScanResult(merged)
     }
 
-    private suspend fun scanSnapshot(snapshot: LanShareActiveNetworkSnapshot): LanShareActiveDiscoveryScanResult =
-        runCatching { activeDiscoveryClient.scan(snapshot) }
+    private suspend fun scanSnapshot(
+        snapshot: LanShareActiveNetworkSnapshot,
+        localUuid: String,
+    ): LanShareActiveDiscoveryScanResult =
+        runCatching { activeDiscoveryClient.scan(snapshot, localUuid) }
             .getOrElse { error ->
                 if (error is CancellationException) throw error
                 Timber

@@ -97,8 +97,9 @@ Verify concrete paths, files, and APIs against the repository before acting. Mod
 
 Run commands from the repository root. Prefer `quality/scripts/` because they set repo-local Kotlin Toolchain, Android, and internal bridge homes.
 
-- **Iterative Check**: `quality/scripts/kotlin_static_quality_check.sh`
-- **Full Gate**: `quality/scripts/kotlin_quality_check.sh`
+- **Fast Check**: `quality/scripts/kotlin_fast_quality_check.sh` (model + build + host tests)
+- **Iterative Check**: `quality/scripts/kotlin_static_quality_check.sh` (adds Detekt, Lint, shell contracts)
+- **Full Gate**: `quality/scripts/kotlin_quality_check.sh` (adds Compose static + coverage; host tests run once under JaCoCo)
 - **Direct Build**: `./kotlin build`
 - **Direct Test**: `./kotlin test`
 - **Commit Rule**: Run `quality/scripts/kotlin_quality_check.sh` before committing.

@@ -36,7 +36,7 @@ esac
 
 canonical_toolchain_dir() {
   case "$1" in
-    static-gate|quality-gate|lint-gate|coverage-gate|local-maintenance-release)
+    static-gate|quality-gate|fast-gate|lint-gate|coverage-gate|local-maintenance-release)
       return 0
       ;;
     *)

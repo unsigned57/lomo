@@ -41,9 +41,7 @@ internal class AndroidLanShareNetworkPermissionGateway(
 
 private fun LanShareNetworkPermissionRequirement.toAndroidPermissionName(): String =
     when (this) {
-        LanShareNetworkPermissionRequirement.NearbyWifiDevices -> NEARBY_WIFI_DEVICES_PERMISSION
         LanShareNetworkPermissionRequirement.AccessLocalNetwork -> ACCESS_LOCAL_NETWORK_PERMISSION
     }
 
-private const val NEARBY_WIFI_DEVICES_PERMISSION = "android.permission.NEARBY_WIFI_DEVICES"
 private const val ACCESS_LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
