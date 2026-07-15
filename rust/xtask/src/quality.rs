@@ -450,9 +450,7 @@ fn is_docs_path(path: &str) -> bool {
         || path == "README_CN.md"
         || path == "AGENTS.md"
         || path == "ARCHITECTURE.md"
-        || path == "ROADMAP.MD"
-        || path == "plan.md"
-        || path == "README_CN.md"
+        // Local-only planning notes (gitignored); still docs for path-aware preflight.
         || path == "ROADMAP.MD"
         || path == "plan.md"
 }
