@@ -1,0 +1,44 @@
+name: Rust Diagnostics
+
+on:
+  schedule:
+    - cron: '23 18 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
+
+jobs:
+  diagnostics:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Cache pinned Rust diagnostics
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache/cargo-home
+            .cache/cargo-tools
+            rust/target
+          key: diagnostics-1.96-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
+      - name: Bootstrap diagnostics
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+      - name: Run planner and size diagnostics
+        run: |
+          mkdir -p build/reports/rust-diagnostics
+          cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- perf 2>&1 | tee build/reports/rust-diagnostics/output.txt
+      - name: Upload trends
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-diagnostics
+          path: build/reports/rust-diagnostics/output.txt
+          if-no-files-found: error

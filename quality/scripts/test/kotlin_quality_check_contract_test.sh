@@ -1,289 +1,111 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Behavior Contract:
-# - Unit under test: Kotlin Toolchain quality workflow scripts.
-# - Owning layer: quality
-# - Priority tier: P0
-# - Capability: keep high-frequency quality verification deterministic with a single Toolchain CLI family.
-#
+# Behavior Contract
+# Capability: prove xtask is the only public Rust/Kotlin/native/Android quality orchestrator.
 # Scenarios:
-# - Given a developer runs kotlin_quality_check, when the script body is inspected,
-#   then it must orchestrate model/build/detekt/lint/compose/shell contracts/coverage without Gradle
-#   entrypoints, and host tests must run once under coverage (no separate uninstrumented re-run).
-# - Given kotlin_static_quality_check is used for iteration, when the script body is inspected,
-#   then it must run model/build/detekt/test-style/lint/shell contracts/tests without coverage requirement.
-# - Given kotlin_fast_quality_check is used for lightweight iteration, when the script body is inspected,
-#   then it must run model/build/host tests only (no detekt/lint/coverage).
-# - Given Kotlin Toolchain invokes Android compilation, when the shared environment is inspected,
-#   then repo-local home, cache, SDK, Android user home, bootstrap cache, and Gradle bridge home are set.
-# - Given a quality gate invokes sub-checks, when build directories are resolved,
-#   then all Toolchain sub-checks share the gate build directory unless explicitly overridden.
-# - Given local generated state grows over time, when cleanup is requested,
-#   then dry-run is non-mutating and apply is limited to documented generated-state roots.
-# - Given a human developer needs a memorable command surface, when the Justfile is inspected,
-#   then it is only a thin menu over quality/scripts and the Toolchain env helpers, and just test
-#   reuses toolchain_test_modules.
-# - Given zero-tail policy, when quality/scripts is listed, then ai_quality/ai_static/ai_fast/ai_compose shims are absent.
-#
-# Observable outcomes:
-# - Missing Toolchain orchestration, stale Gradle runner calls, non-canonical build directories,
-#   unsafe cleanup scope, duplicated Justfile build logic, residual ai_* entrypoints, double host-test
-#   flights in the full gate, or missing writable homes fail this script.
-#
-# TDD proof:
-# - Fails before the Justfile fix because no human command menu exists.
-#
-# Excludes:
-# - Toolchain command execution and external dependency resolution.
+# - Given public commands, when Justfile and hooks are inspected, then they call only lomo-xtask.
+# - Given native inputs, when configuration is inspected, then Rust 1.96, NDK 29, JNA 5.18.1,
+#   four Android ABIs, and ignored generated outputs are fixed at the owning boundary.
+# - Given old workflow tails, when the repository is inspected, then none remain.
+# Observable outcomes: missing canonical wiring or retained legacy orchestration fails this script.
+# TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained.
+# Excludes: executing external tools, compiling product code, and device runtime behavior.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-kotlin_quality_script="quality/scripts/kotlin_quality_check.sh"
-kotlin_static_script="quality/scripts/kotlin_static_quality_check.sh"
-kotlin_fast_script="quality/scripts/kotlin_fast_quality_check.sh"
-kotlin_env_script="quality/scripts/kotlin_toolchain_env.sh"
-kotlin_test_args_script="quality/scripts/kotlin_toolchain_test_args.sh"
-kotlin_detekt_script="quality/scripts/kotlin_detekt_check.sh"
-kotlin_test_style_script="quality/scripts/kotlin_test_style_check.sh"
-kotlin_format_script="quality/scripts/kotlin_detekt_format.sh"
-kotlin_lint_script="quality/scripts/kotlin_android_lint_check.sh"
-kotlin_compose_script="quality/scripts/kotlin_compose_static_analysis.sh"
-kotlin_coverage_script="quality/scripts/kotlin_coverage_check.sh"
-cache_audit_script="quality/scripts/kotlin_cache_audit.sh"
-cache_cleanup_script="quality/scripts/kotlin_cache_cleanup.sh"
-local_maintenance_script="quality/scripts/ai_local_maintenance_check.sh"
-android_runtime_dependency_contract="quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh"
-justfile="Justfile"
-root_build="project.yaml"
-quality_readme="quality/README.md"
-quality_workflow=".github/workflows/architecture_checks.yml"
-release_workflow=".github/workflows/android_release.yml"
-pre_commit=".githooks/pre-commit"
-
 fail() {
-  echo "kotlin-quality-check-contract: $1" >&2
+  echo "xtask-contract: $*" >&2
   exit 1
-}
-
-require_file() {
-  local file="$1"
-  [ -f "$file" ] || fail "missing file: $file"
-}
-
-reject_file() {
-  local file="$1"
-  [ ! -e "$file" ] || fail "file should not exist under zero-tail policy: $file"
 }
 
 require_text() {
   local file="$1"
-  local expected="$2"
-  grep -Fq -- "$expected" "$file" ||
-    fail "source file $file is missing required text: $expected"
+  local text="$2"
+  grep -Fq -- "$text" "$file" || fail "$file is missing: $text"
 }
 
-reject_text() {
-  local file="$1"
-  local rejected="$2"
-  if grep -Fq -- "$rejected" "$file"; then
-    fail "source file $file still contains rejected text: $rejected"
-  fi
+reject_path() {
+  [ ! -e "$1" ] || fail "legacy path remains: $1"
 }
 
-function_body() {
-  local file="$1"
-  local function_name="$2"
+for file in \
+  Justfile \
+  rust/Cargo.toml \
+  rust/rust-toolchain.toml \
+  rust/tools.toml \
+  rust/xtask/src/quality.rs \
+  rust/xtask/src/native.rs \
+  rust/xtask/src/android.rs \
+  .githooks/pre-commit \
+  .githooks/pre-push; do
+  [ -f "$file" ] || fail "required file missing: $file"
+done
 
-  awk -v function_name="$function_name" '
-    $0 == function_name "() {" {
-      in_body = 1
-    }
+require_text Justfile 'cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --'
+for command in bootstrap fmt test preflight check native android ci device-smoke deps perf cache; do
+  grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
+done
 
-    in_body {
-      print
-      if ($0 == "}") {
-        exit
-      }
-    }
-  ' "$file"
-}
+require_text rust/Cargo.toml 'rust-version = "1.96"'
+require_text rust/Cargo.toml 'license = "GPL-3.0-only"'
+require_text rust/Cargo.toml 'warnings = "deny"'
+require_text rust/Cargo.toml 'pedantic = "deny"'
+require_text rust/Cargo.toml '[profile.release-ci]'
+require_text rust/rust-toolchain.toml 'channel = "1.96"'
+require_text rust/xtask/src/workspace.rs '29.0.14206865'
+require_text rust/xtask/src/workspace.rs 'JNA_VERSION: &str = "5.18.1"'
+require_text rust/xtask/src/native.rs 'liblomo_native.so'
+require_text rust/xtask/src/native.rs 'Abi::ALL'
+require_text rust/xtask/src/native.rs 'ReleaseCi'
+require_text rust/xtask/src/android.rs 'assets/dexopt/baseline.prof'
+require_text rust/xtask/src/android.rs 'env:LOMO_APK_STORE_PASSWORD'
+require_text rust/xtask/src/quality.rs 'pub fn preflight'
+require_text rust-bindings/module.yaml 'namespace: com.lomo.rust'
+require_text rust-bindings/module.yaml 'allWarningsAsErrors: true'
+require_text .gitignore '/rust-bindings/src/'
+require_text .gitignore '/app/jniLibs/'
+require_text .githooks/pre-commit 'preflight'
+require_text .githooks/pre-push 'just check'
+if grep -Eq 'just ci' .githooks/pre-commit .githooks/pre-push; then
+  fail "hooks must not invoke full just ci"
+fi
 
-require_function_text() {
-  local file="$1"
-  local function_name="$2"
-  local expected="$3"
+for legacy in \
+  quality/scripts/kotlin_fast_quality_check.sh \
+  quality/scripts/kotlin_static_quality_check.sh \
+  quality/scripts/kotlin_quality_check.sh \
+  quality/scripts/kotlin_toolchain_env.sh \
+  quality/scripts/rust_sync_core_check.sh \
+  quality/scripts/generate_rust_sync_bindings.sh \
+  quality/scripts/generate_rust_sync_android_libs.sh \
+  quality/scripts/check_rust_sync_apk_packaging.sh \
+  quality/scripts/ai_local_maintenance_check.sh \
+  quality/scripts/verified_batch_commit.sh; do
+  reject_path "$legacy"
+done
 
-  function_body "$file" "$function_name" | grep -Fq -- "$expected" ||
-    fail "function $function_name in $file is missing required text: $expected"
-}
+if rg -n '28\.2\.13676358|liblomo_sync_ffi|com\.lomo\.rustsync' \
+  --glob '!quality/scripts/test/kotlin_quality_check_contract_test.sh' \
+  --glob '!rust/target/**' --glob '!build/**' --glob '!.git/**' . >/dev/null; then
+  fail "old NDK, native library, or Kotlin package reference remains"
+fi
 
-require_file "$kotlin_quality_script"
-require_file "$kotlin_static_script"
-require_file "$kotlin_fast_script"
-require_file "$kotlin_env_script"
-require_file "$kotlin_test_args_script"
-require_file "$kotlin_detekt_script"
-require_file "$kotlin_test_style_script"
-require_file "$kotlin_format_script"
-require_file "$kotlin_lint_script"
-require_file "$kotlin_compose_script"
-require_file "$kotlin_coverage_script"
-require_file "$cache_audit_script"
-require_file "$cache_cleanup_script"
-require_file "$local_maintenance_script"
-require_file "$android_runtime_dependency_contract"
-require_file "$justfile"
-require_file "$pre_commit"
-require_file "$quality_workflow"
-require_file "$release_workflow"
+for script in \
+  quality/scripts/kotlin_detekt_check.sh \
+  quality/scripts/kotlin_test_style_check.sh \
+  quality/scripts/kotlin_android_lint_check.sh \
+  quality/scripts/kotlin_compose_static_analysis.sh \
+  quality/scripts/kotlin_coverage_check.sh \
+  quality/scripts/kotlin_detekt_format.sh \
+  .githooks/pre-commit \
+  .githooks/pre-push; do
+  bash -n "$script"
+done
 
-reject_file "quality/scripts/ai_quality_check.sh"
-reject_file "quality/scripts/ai_static_quality_check.sh"
-reject_file "quality/scripts/ai_fast_quality_check.sh"
-reject_file "quality/scripts/ai_compose_static_analysis.sh"
-reject_file "quality/scripts/ai_gradle_env.sh"
-reject_file "gradlew"
-reject_file "settings.gradle.kts"
-
-bash -n "$kotlin_quality_script"
-bash -n "$kotlin_static_script"
-bash -n "$kotlin_fast_script"
-bash -n "$kotlin_env_script"
-bash -n "$kotlin_test_args_script"
-bash -n "$kotlin_detekt_script"
-bash -n "$kotlin_test_style_script"
-bash -n "$kotlin_format_script"
-bash -n "$kotlin_lint_script"
-bash -n "$kotlin_compose_script"
-bash -n "$kotlin_coverage_script"
-bash -n "$cache_audit_script"
-bash -n "$cache_cleanup_script"
-bash -n "$local_maintenance_script"
-bash -n "$pre_commit"
 if command -v just >/dev/null 2>&1; then
   just --list >/dev/null
 fi
 
-require_text "$kotlin_quality_script" "lomo_kotlin_run show modules"
-require_text "$kotlin_quality_script" "lomo_kotlin_run build"
-require_text "$kotlin_quality_script" "kotlin_detekt_check.sh"
-require_text "$kotlin_quality_script" "kotlin_test_style_check.sh"
-require_text "$kotlin_quality_script" "kotlin_android_lint_check.sh"
-require_text "$kotlin_quality_script" "kotlin_compose_static_analysis.sh"
-require_text "$kotlin_quality_script" "kotlin_coverage_check.sh"
-require_text "$kotlin_quality_script" "check_meaningful_tests.sh"
-require_text "$kotlin_quality_script" "android_runtime_dependency_boundary_contract_test.sh"
-require_text "$kotlin_quality_script" "lomo_kotlin_quality_build_dir quality-gate"
-require_text "$kotlin_quality_script" 'LOMO_KOTLIN_BUILD_DIR="$quality_build_dir"'
-require_text "$kotlin_quality_script" 'LOMO_LINT_BUILD_DIR="$quality_build_dir"'
-require_text "$kotlin_quality_script" 'LOMO_COMPOSE_BUILD_DIR="$quality_build_dir"'
-require_text "$kotlin_quality_script" 'LOMO_COVERAGE_BUILD_DIR="$quality_build_dir"'
-# Full gate must not re-run host tests outside coverage (single instrumented flight).
-if grep -Eq -- 'lomo_kotlin_run[[:space:]]+test' "$kotlin_quality_script"; then
-  fail "source file $kotlin_quality_script must not call lomo_kotlin_run test directly; coverage owns the host-test flight"
-fi
-reject_text "$kotlin_quality_script" "./gradlew"
-reject_text "$kotlin_quality_script" "gradlew"
-
-require_text "$kotlin_static_script" "lomo_kotlin_run show modules"
-require_text "$kotlin_static_script" "lomo_kotlin_run build"
-require_text "$kotlin_static_script" "kotlin_detekt_check.sh"
-require_text "$kotlin_static_script" "kotlin_test_style_check.sh"
-require_text "$kotlin_static_script" "kotlin_android_lint_check.sh"
-require_text "$kotlin_static_script" "android_runtime_dependency_boundary_contract_test.sh"
-require_text "$kotlin_static_script" "lomo_kotlin_run test"
-require_text "$kotlin_static_script" "lomo_kotlin_quality_build_dir static-gate"
-require_text "$kotlin_static_script" 'LOMO_KOTLIN_BUILD_DIR="$static_build_dir"'
-require_text "$kotlin_static_script" 'LOMO_LINT_BUILD_DIR="$static_build_dir"'
-reject_text "$kotlin_static_script" "./gradlew"
-
-require_text "$kotlin_fast_script" "lomo_kotlin_run show modules"
-require_text "$kotlin_fast_script" "lomo_kotlin_run build"
-require_text "$kotlin_fast_script" "lomo_kotlin_run test"
-require_text "$kotlin_fast_script" "lomo_kotlin_quality_build_dir fast-gate"
-require_text "$kotlin_fast_script" 'toolchain_test_modules[@]'
-reject_text "$kotlin_fast_script" "kotlin_detekt_check.sh"
-reject_text "$kotlin_fast_script" "kotlin_android_lint_check.sh"
-reject_text "$kotlin_fast_script" "kotlin_coverage_check.sh"
-reject_text "$kotlin_fast_script" "./gradlew"
-
-require_text "$kotlin_test_args_script" "toolchain_test_modules"
-reject_text "$kotlin_test_args_script" "toolchain_android_instrumentation_excludes"
-reject_text "$kotlin_test_args_script" "--exclude-classes"
-
-require_text "$kotlin_coverage_script" 'lomo_kotlin_run test "${toolchain_test_modules[@]}"'
-require_text "$kotlin_coverage_script" "jacoco"
-
-require_function_text "$kotlin_env_script" "lomo_kotlin_prepare_env" "kotlin_android_sdk="
-require_function_text "$kotlin_env_script" "lomo_kotlin_prepare_env" "kotlin_gradle_user_home="
-require_function_text "$kotlin_env_script" "lomo_kotlin_quality_build_dir" 'LOMO_QUALITY_BUILD_ROOT'
-require_function_text "$kotlin_env_script" "lomo_kotlin_explicit_build_dir" '--build-dir'
-require_function_text "$kotlin_env_script" "lomo_kotlin_run" 'HOME="$kotlin_home"'
-require_function_text "$kotlin_env_script" "lomo_kotlin_run" 'ANDROID_USER_HOME="$kotlin_android_home"'
-require_function_text "$kotlin_env_script" "lomo_kotlin_run" 'ANDROID_HOME="$kotlin_android_sdk"'
-require_function_text "$kotlin_env_script" "lomo_kotlin_run" 'GRADLE_USER_HOME="$kotlin_gradle_user_home"'
-require_function_text "$kotlin_env_script" "lomo_kotlin_run" '"$kotlin_wrapper"'
-reject_text "$kotlin_env_script" "gradlew"
-
-require_text "$local_maintenance_script" "lomo_kotlin_run build --module app --platform android --variant release"
-require_text "$local_maintenance_script" "generate_static_baseline_profile.py"
-reject_text "$local_maintenance_script" "./gradlew"
-
-require_text "$kotlin_detekt_script" 'build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/detekt-gate}"'
-require_text "$kotlin_test_style_script" 'build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/test-style-gate}"'
-require_text "$kotlin_format_script" 'build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/format-gate}"'
-require_text "$kotlin_format_script" 'lomo_kotlin_run build --module detekt-rules --build-dir "$build_dir"'
-require_text "$kotlin_compose_script" 'build_dir="${LOMO_COMPOSE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/compose-gate}}"'
-require_text "$kotlin_compose_script" 'lomo_kotlin_run build --module app --platform android --variant debug --build-dir "$build_dir"'
-require_text "$kotlin_lint_script" 'build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/lint-gate}}"'
-require_text "$kotlin_coverage_script" 'build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/coverage-gate}}"'
-
-require_text "$cache_audit_script" "du -h -d 1"
-require_text "$cache_cleanup_script" "--dry-run"
-require_text "$cache_cleanup_script" "--apply"
-require_text "$cache_cleanup_script" ".kotlin/toolchain-build"
-require_text "$cache_cleanup_script" "build/reports/configuration-cache"
-require_text "$cache_cleanup_script" "fast-gate"
-reject_text "$cache_cleanup_script" ".git"
-
-require_text "$justfile" "quality/scripts/kotlin_quality_check.sh"
-require_text "$justfile" "quality/scripts/kotlin_static_quality_check.sh"
-require_text "$justfile" "quality/scripts/kotlin_fast_quality_check.sh"
-require_text "$justfile" "quality/scripts/kotlin_detekt_format.sh staged"
-require_text "$justfile" "quality/scripts/kotlin_cache_audit.sh"
-require_text "$justfile" "quality/scripts/kotlin_cache_cleanup.sh --dry-run"
-require_text "$justfile" "quality/scripts/kotlin_cache_cleanup.sh --apply"
-require_text "$justfile" "source quality/scripts/kotlin_toolchain_env.sh"
-require_text "$justfile" "source quality/scripts/kotlin_toolchain_test_args.sh"
-require_text "$justfile" "lomo_kotlin_prepare_env"
-require_text "$justfile" 'lomo_kotlin_run test "${toolchain_test_modules[@]}" --build-dir .kotlin/toolchain-build/test'
-require_text "$justfile" "lomo_kotlin_run build --module app --platform android --variant debug --build-dir .kotlin/toolchain-build/app-debug"
-require_text "$justfile" "lomo_kotlin_run build --module app --platform android --variant release --build-dir .kotlin/toolchain-build/app-release"
-reject_text "$justfile" "ANDROID_HOME="
-reject_text "$justfile" "GRADLE_USER_HOME="
-reject_text "$justfile" "HOME="
-reject_text "$justfile" "gradlew"
-reject_text "$justfile" "Makefile"
-
-reject_text "$quality_workflow" "just "
-reject_text "$release_workflow" "just "
-
-require_text "$pre_commit" "kotlin_detekt_format.sh"
-require_text "$pre_commit" "kotlin_quality_check.sh"
-require_text "$pre_commit" "kotlin_toolchain_env.sh"
-reject_text "$pre_commit" "gradlew"
-reject_text "$pre_commit" "ai_gradle_env"
-reject_text "$pre_commit" "detektFormatStaged"
-
-require_text "$root_build" "modules:"
-require_text "$quality_readme" "Kotlin Toolchain"
-require_text "$quality_readme" "just --list"
-require_text "$quality_readme" "just quality"
-require_text "$quality_readme" "Command Ladder"
-require_text "$quality_readme" "kotlin_fast_quality_check.sh"
-require_text "$quality_readme" "single test flight"
-reject_text "$quality_readme" "LOMO_SKIP_LOCAL_MAINTENANCE"
-
-echo "kotlin-quality-check-contract: ok"
+echo "xtask-contract: ok"

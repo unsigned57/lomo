@@ -2,15 +2,9 @@
 # Coverage verification via JaCoCo runtime agent (parity with koverVerifyQuality minBound 70).
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$script_dir/kotlin_toolchain_env.sh"
-# shellcheck source=quality/scripts/kotlin_toolchain_test_args.sh
-source "$script_dir/kotlin_toolchain_test_args.sh"
-
-lomo_kotlin_prepare_env "kotlin-coverage-check"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+read -r -a toolchain_test_modules <<< "${LOMO_KOTLIN_TEST_MODULE_ARGS:?xtask must provide LOMO_KOTLIN_TEST_MODULE_ARGS}"
 
 JACOCO_VERSION="${LOMO_JACOCO_VERSION:-0.8.14}"
 coverage_min_bound="${LOMO_COVERAGE_MIN_BOUND:-70}"
@@ -40,13 +34,14 @@ download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${JACOCO_VE
 download "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/${JACOCO_VERSION}/org.jacoco.cli-${JACOCO_VERSION}-nodeps.jar" "$cli_jar"
 
 echo "kotlin-coverage-check: building modules"
-lomo_kotlin_run build --build-dir "$build_dir"
+"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+  build --build-dir "$build_dir"
 
 rm -f "$exec_file"
 echo "kotlin-coverage-check: running host tests under JaCoCo agent"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -javaagent:${agent_jar}=destfile=${exec_file},append=true,excludes=jdk.*:java.*:sun.*:com.sun.*:org.gradle.*:worker.org.gradle.*"
 set +e
-lomo_kotlin_run test "${toolchain_test_modules[@]}" --build-dir "$build_dir"
+"$LOMO_KOTLIN_WRAPPER" --log-level=warn test "${toolchain_test_modules[@]}" --build-dir "$build_dir"
 test_status=$?
 set -e
 unset JAVA_TOOL_OPTIONS || true

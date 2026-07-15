@@ -3,18 +3,16 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$script_dir/kotlin_toolchain_env.sh"
 # shellcheck source=quality/scripts/kotlin_detekt_env.sh
 source "$script_dir/kotlin_detekt_env.sh"
 
-lomo_kotlin_prepare_env "kotlin-detekt-format"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/format-gate}"
 
 if [ ! -f "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
-  lomo_kotlin_run build --module detekt-rules --build-dir "$build_dir"
+  "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+    build --module detekt-rules --build-dir "$build_dir"
 fi
 
 config="quality/detekt/config/formatting.yml"
@@ -56,20 +54,43 @@ esac
 
 echo "kotlin-detekt-format: formatting ${#inputs[@]} path(s) ($mode)"
 
+# xtask policy scripts may set HOME to a repo-local Kotlin home. Search real Gradle
+# caches first (GRADLE_USER_HOME, host home, repo-local Toolchain caches).
+gradle_search_roots=()
+if [ -n "${GRADLE_USER_HOME:-}" ]; then
+  gradle_search_roots+=("$GRADLE_USER_HOME")
+fi
+if [ -n "${HOME:-}" ]; then
+  gradle_search_roots+=("$HOME/.gradle")
+fi
+# Host user Gradle cache (not rewritten when LOMO sets HOME to .home).
+if [ -n "${USER:-}" ] && [ -d "/home/${USER}/.gradle" ]; then
+  gradle_search_roots+=("/home/${USER}/.gradle")
+fi
+gradle_search_roots+=("$repo_root/.gradle" "$repo_root/.gradle/kotlin-toolchain")
+
+find_detekt_jar() {
+  local path_glob="$1"
+  local name_glob="$2"
+  local root
+  for root in "${gradle_search_roots[@]}"; do
+    [ -d "$root" ] || continue
+    find "$root" -path "$path_glob" -name "$name_glob" 2>/dev/null | head -1
+  done | head -1
+}
+
 wrapper_jar="$(
-  find "$repo_root/.gradle" "$HOME/.gradle" \
-    -path "*/dev.detekt/detekt-rules-ktlint-wrapper/${DETEKT_VERSION}/*" \
-    -name "detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar" \
-    2>/dev/null | head -1 || true
+  find_detekt_jar \
+    "*/dev.detekt/detekt-rules-ktlint-wrapper/${DETEKT_VERSION}/*" \
+    "detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar"
 )"
 ktlint_jar="$(
-  find "$repo_root/.gradle" "$HOME/.gradle" \
-    -path "*/dev.detekt/ktlint-repackage/${DETEKT_VERSION}/*" \
-    -name "ktlint-repackage-${DETEKT_VERSION}-all.jar" \
-    2>/dev/null | head -1 || true
+  find_detekt_jar \
+    "*/dev.detekt/ktlint-repackage/${DETEKT_VERSION}/*" \
+    "ktlint-repackage-${DETEKT_VERSION}-all.jar"
 )"
 if [ -z "$wrapper_jar" ] || [ -z "$ktlint_jar" ]; then
-  echo "kotlin-detekt-format: ktlint plugin jars not cached under .gradle or home directory; run a Toolchain build once or download detekt ktlint artifacts" >&2
+  echo "kotlin-detekt-format: ktlint plugin jars not cached under GRADLE_USER_HOME/.gradle; run a Toolchain build once or download detekt ktlint artifacts" >&2
   exit 1
 fi
 

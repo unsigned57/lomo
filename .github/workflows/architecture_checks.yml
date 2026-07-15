@@ -5,65 +5,317 @@ on:
   push:
     tags-ignore:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
+  HOME: ${{ github.workspace }}/.home
+  ANDROID_USER_HOME: ${{ github.workspace }}/.android
+  XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+  XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+  LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
+  KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
 
 jobs:
-  quality:
+  changes:
     runs-on: ubuntu-latest
-    env:
-      HOME: ${{ github.workspace }}/.home
-      ANDROID_USER_HOME: ${{ github.workspace }}/.android
-      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
-      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
-      LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
-      KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      kotlin: ${{ steps.filter.outputs.kotlin }}
+      native: ${{ steps.filter.outputs.native }}
+      smoke: ${{ steps.filter.outputs.smoke }}
+      quality_infra: ${{ steps.filter.outputs.quality_infra }}
+      run_rust: ${{ steps.flags.outputs.run_rust }}
+      run_native: ${{ steps.flags.outputs.run_native }}
+      run_android: ${{ steps.flags.outputs.run_android }}
+      run_smoke: ${{ steps.flags.outputs.run_smoke }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Detect changed paths
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'rust/**'
+              - 'Justfile'
+              - 'rust-bindings/**'
+              - 'native-smoke/**'
+            kotlin:
+              - 'app/**'
+              - 'data/**'
+              - 'domain/**'
+              - 'ui-components/**'
+              - 'quality/**'
+              - 'project.yaml'
+              - '**/module.yaml'
+              - 'rust-bindings/**'
+              - 'kotlin'
+            native:
+              - 'rust/native/**'
+              - 'rust/sync-core/**'
+              - 'rust/Cargo.toml'
+              - 'rust/Cargo.lock'
+              - 'rust/tools.toml'
+              - 'rust/rust-toolchain.toml'
+              - 'rust/xtask/src/native.rs'
+              - 'rust/xtask/src/android.rs'
+              - 'rust/xtask/src/tools.rs'
+              - 'native-smoke/**'
+              - 'rust-bindings/**'
+            smoke:
+              - 'rust/native/**'
+              - 'rust/sync-core/**'
+              - 'native-smoke/**'
+              - 'rust/xtask/src/android.rs'
+              - 'rust/xtask/src/native.rs'
+              - 'rust-bindings/**'
+            quality_infra:
+              - 'Justfile'
+              - '.githooks/**'
+              - '.github/workflows/**'
+              - 'quality/**'
+              - 'AGENTS.md'
+              - 'ARCHITECTURE.md'
+              - 'project.yaml'
+      - name: Derive required job flags
+        id: flags
+        run: |
+          rust='${{ steps.filter.outputs.rust }}'
+          kotlin='${{ steps.filter.outputs.kotlin }}'
+          native='${{ steps.filter.outputs.native }}'
+          smoke='${{ steps.filter.outputs.smoke }}'
+          quality='${{ steps.filter.outputs.quality_infra }}'
+          # workflow_dispatch always runs the full PR surface.
+          if [ '${{ github.event_name }}' = 'workflow_dispatch' ]; then
+            rust=true; kotlin=true; native=true; smoke=true; quality=true
+          fi
+          run_rust=false
+          run_native=false
+          run_android=false
+          run_smoke=false
+          if [ "$rust" = 'true' ] || [ "$quality" = 'true' ]; then run_rust=true; fi
+          # jniLibs are required for Kotlin APK packaging and for native contract verification.
+          if [ "$native" = 'true' ] || [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_native=true; fi
+          # Full Kotlin static/host surface only when app/data/domain/ui or quality infra moves.
+          if [ "$kotlin" = 'true' ] || [ "$quality" = 'true' ]; then run_android=true; fi
+          if [ "$smoke" = 'true' ] || [ "$quality" = 'true' ]; then run_smoke=true; fi
+          # Docs-only / unmatched changes still exercise the Rust host surface.
+          if [ "$run_rust" = 'false' ] && [ "$run_native" = 'false' ] && [ "$run_android" = 'false' ] && [ "$run_smoke" = 'false' ]; then
+            run_rust=true
+          fi
+          echo "run_rust=$run_rust" >> "$GITHUB_OUTPUT"
+          echo "run_native=$run_native" >> "$GITHUB_OUTPUT"
+          echo "run_android=$run_android" >> "$GITHUB_OUTPUT"
+          echo "run_smoke=$run_smoke" >> "$GITHUB_OUTPUT"
+
+  rust-host:
+    needs: changes
+    if: needs.changes.outputs.run_rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-
-      - name: Cache repo-local Toolchain state
-        uses: actions/cache@v4
+      - name: Cache pinned Rust tools and host build
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
-            ${{ github.workspace }}/.cache
-            ${{ github.workspace }}/.gradle/kotlin-toolchain
-            ${{ github.workspace }}/.kotlin-cli
-          key: quality-kotlin-toolchain-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml') }}
-          restore-keys: |
-            quality-kotlin-toolchain-${{ runner.os }}-
+            .cache/cargo-home
+            .cache/cargo-tools
+            rust/target
+          key: rust-host-1.96-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'rust/rust-toolchain.toml') }}
+      - name: Bootstrap pinned Rust tools
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+      - name: Run Rust host gate (no coverage)
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-rust fast
 
-      - name: Set up JDK 26
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '26'
-
+  native:
+    needs: changes
+    if: needs.changes.outputs.run_native == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Cache pinned native toolchain
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache/cargo-home
+            .cache/cargo-tools
+            rust/target
+            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+          key: native-1.96-ndk29-${{ matrix.abi }}-release-ci-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
+      - name: Bootstrap pinned native toolchain
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+      - name: Build and verify ${{ matrix.abi }} (release-ci)
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
+      - name: Upload native libraries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-${{ matrix.abi }}
+          path: app/jniLibs/${{ matrix.abi }}/*
+          if-no-files-found: error
 
-      - name: Ensure diff base refs exist
-        run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if [ -n "${GITHUB_BASE_REF:-}" ]; then
-            git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
-          fi
-
-      - name: Run repository quality gate
-        run: |
-          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
-          export LOMO_KOTLIN_ANDROID_SDK="$ANDROID_HOME"
-          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
-            export MEANINGFUL_TEST_DIFF_BASE="$(git merge-base HEAD origin/main)"
-          fi
-          quality/scripts/kotlin_quality_check.sh --build-dir=.kotlin/toolchain-build/ci-quality
-
-      - name: Upload quality reports
+  android-kotlin:
+    runs-on: ubuntu-latest
+    needs: [changes, native]
+    if: |
+      always() &&
+      needs.changes.outputs.run_android == 'true' &&
+      (needs.changes.outputs.run_native != 'true' || needs.native.result == 'success')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Set up JDK 26
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: zulu
+          java-version: '26'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Cache Android and Kotlin toolchains
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache
+            .gradle/kotlin-toolchain
+            .kotlin-cli
+            rust/target
+            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+          key: android-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+      - name: Download arm64-v8a
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-arm64-v8a
+          path: app/jniLibs/arm64-v8a
+      - name: Download armeabi-v7a
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-armeabi-v7a
+          path: app/jniLibs/armeabi-v7a
+      - name: Download x86_64
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-x86_64
+          path: app/jniLibs/x86_64
+      - name: Download x86
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: native-x86
+          path: app/jniLibs/x86
+      - name: Bootstrap pinned toolchain
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+      - name: Run Android and Kotlin gate (no coverage)
+        env:
+          MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-android fast
+      - name: Upload debug APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: debug-apk
+          path: .kotlin/toolchain-build/ci-android/**/*.apk
+          if-no-files-found: error
+      - name: Upload reports on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: quality-reports
+          path: build/reports/**
           if-no-files-found: ignore
+
+  api26-smoke:
+    runs-on: ubuntu-latest
+    needs: [changes, android-kotlin]
+    if: |
+      always() &&
+      needs.changes.outputs.run_smoke == 'true' &&
+      (needs.changes.outputs.run_android != 'true' || needs.android-kotlin.result == 'success')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up JDK 26
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: zulu
+          java-version: '26'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Cache smoke toolchain
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
           path: |
-            **/build/reports/**
-            **/build/test-results/**
+            .cache
+            .gradle/kotlin-toolchain
+            .kotlin-cli
+            rust/target
+            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+          key: smoke-api26-x86_64-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+      - name: Bootstrap pinned toolchain
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+      - name: Run API 26 x86_64 smoke
+        uses: ReactiveCircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
+        with:
+          api-level: 26
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- device-smoke
+
+  quality:
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [changes, rust-host, native, android-kotlin, api26-smoke]
+    steps:
+      - name: Aggregate required quality jobs
+        env:
+          RUN_RUST: ${{ needs.changes.outputs.run_rust }}
+          RUN_NATIVE: ${{ needs.changes.outputs.run_native }}
+          RUN_ANDROID: ${{ needs.changes.outputs.run_android }}
+          RUN_SMOKE: ${{ needs.changes.outputs.run_smoke }}
+          RUST_HOST: ${{ needs.rust-host.result }}
+          NATIVE: ${{ needs.native.result }}
+          ANDROID_KOTLIN: ${{ needs.android-kotlin.result }}
+          API26_SMOKE: ${{ needs.api26-smoke.result }}
+        run: |
+          require() {
+            local need="$1"
+            local result="$2"
+            local name="$3"
+            if [ "$need" = 'true' ]; then
+              test "$result" = 'success' || {
+                echo "$name required but result=$result" >&2
+                exit 1
+              }
+            else
+              case "$result" in
+                success|skipped) ;;
+                *)
+                  echo "$name unexpected result=$result when not required" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+          }
+          require "$RUN_RUST" "$RUST_HOST" rust-host
+          require "$RUN_NATIVE" "$NATIVE" native
+          require "$RUN_ANDROID" "$ANDROID_KOTLIN" android-kotlin
+          require "$RUN_SMOKE" "$API26_SMOKE" api26-smoke
+          echo "quality aggregate ok"

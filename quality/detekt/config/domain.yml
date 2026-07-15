@@ -48,6 +48,9 @@ exceptions:
       - Throwable
       - RuntimeException
       - Error
+naming:
+  InvalidPackageDeclaration:
+    rootPackage: com.lomo.domain
 style:
   ForbiddenMethodCall:
     active: true

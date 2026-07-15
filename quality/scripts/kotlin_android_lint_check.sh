@@ -2,13 +2,9 @@
 # Android Lint via SDK lint CLI with a Toolchain-derived project descriptor.
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$script_dir/kotlin_toolchain_env.sh"
-
-lomo_kotlin_prepare_env "kotlin-android-lint-check"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+kotlin_android_sdk="${LOMO_KOTLIN_ANDROID_SDK:?xtask must provide LOMO_KOTLIN_ANDROID_SDK}"
 
 lint_bin="${LOMO_ANDROID_LINT:-$kotlin_android_sdk/cmdline-tools/latest/bin/lint}"
 if [ ! -x "$lint_bin" ]; then
@@ -25,7 +21,8 @@ expanded_dir="$report_root/expanded-aars"
 build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/lint-gate}}"
 
 echo "kotlin-android-lint-check: building Android app (debug) to materialize classpath"
-lomo_kotlin_run build --module app --platform android --variant debug --build-dir "$build_dir"
+"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+  build --module app --platform android --variant debug --build-dir "$build_dir"
 
 echo "kotlin-android-lint-check: generating lint project descriptor"
 python3 - "$repo_root" "$build_dir" "$project_xml" "$kotlin_android_sdk" "$expanded_dir" <<'PY'

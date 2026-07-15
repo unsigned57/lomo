@@ -3,18 +3,12 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
-format_script="$repo_root/quality/scripts/kotlin_detekt_format.sh"
-quality_script="$repo_root/quality/scripts/kotlin_quality_check.sh"
-kotlin_env_script="$repo_root/quality/scripts/kotlin_toolchain_env.sh"
+justfile="$repo_root/Justfile"
 
-if [ ! -f "$kotlin_env_script" ]; then
-  echo "pre-commit: Kotlin Toolchain env script not found: $kotlin_env_script" >&2
+if [ ! -f "$justfile" ]; then
+  echo "pre-commit: Justfile not found: $justfile" >&2
   exit 1
 fi
-
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$kotlin_env_script"
-lomo_kotlin_prepare_env "pre-commit"
 
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
@@ -43,8 +37,8 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
     unstaged_diff_reversed=1
   fi
 
-  echo "pre-commit: formatting staged Kotlin files via detekt CLI..."
-  "$format_script" staged
+  echo "pre-commit: formatting staged sources through xtask..."
+  just --justfile "$justfile" fmt staged
   echo "pre-commit: format pass finished"
 
   for file in "${staged_kotlin_files[@]}"; do
@@ -53,7 +47,8 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
     fi
   done
 else
-  echo "pre-commit: no staged Kotlin files; skipping format."
+  echo "pre-commit: formatting staged sources through xtask..."
+  just --justfile "$justfile" fmt staged
 fi
 
 if [ ! -x "$meaningful_test_script" ]; then
@@ -64,10 +59,5 @@ fi
 echo "pre-commit: checking meaningful test contracts on staged tests..."
 MEANINGFUL_TEST_CHECK_MODE=staged "$meaningful_test_script"
 
-if [ ! -x "$quality_script" ]; then
-  echo "pre-commit: quality script not found or not executable: $quality_script" >&2
-  exit 1
-fi
-
-echo "pre-commit: running repository quality gate before commit..."
-"$quality_script"
+echo "pre-commit: running path-aware preflight gate..."
+just --justfile "$justfile" preflight

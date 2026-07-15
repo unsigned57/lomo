@@ -115,12 +115,4 @@ Static checks should carry the detailed anti-pattern burden. Current and planned
 
 When a static check fails, fix the code or test shape. Do not suppress the rule.
 
-## Samples
-
-Use the samples for shape, not as extra required reading:
-
-- `quality/testing/samples/usecase-golden-sample.md`
-- `quality/testing/samples/viewmodel-golden-sample.md`
-- `quality/testing/samples/property-based-golden-sample.md`
-
-`quality/scripts/kotlin_quality_check.sh` enforces the current repository quality gate. The meaningful-test policy decides whether the coverage is worth having.
+`just ci` enforces the current repository quality gate through `lomo-xtask`. The meaningful-test policy decides whether the coverage is worth having.

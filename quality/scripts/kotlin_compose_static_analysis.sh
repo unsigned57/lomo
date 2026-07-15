@@ -4,11 +4,6 @@
 # - Soft/required-optional: Compose compiler metrics presence under build outputs
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$script_dir/kotlin_toolchain_env.sh"
-
-lomo_kotlin_prepare_env "kotlin-compose-static-analysis"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_COMPOSE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/compose-gate}}"
@@ -18,8 +13,10 @@ mkdir -p "$report_root"
 
 # Ensure Compose modules compile (cheap when already built by prior gate stages).
 echo "kotlin-compose-static-analysis: ensuring Compose modules compile"
-lomo_kotlin_run build --module app --platform android --variant debug --build-dir "$build_dir"
-lomo_kotlin_run build --module ui-components --platform android --variant debug --build-dir "$build_dir"
+"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+  build --module app --platform android --variant debug --build-dir "$build_dir"
+"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+  build --module ui-components --platform android --variant debug --build-dir "$build_dir"
 
 mapfile -t compose_reports < <(
   find "$repo_root/build" "$repo_root/.kotlin" \

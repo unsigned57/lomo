@@ -3,12 +3,9 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=quality/scripts/kotlin_toolchain_env.sh
-source "$script_dir/kotlin_toolchain_env.sh"
 # shellcheck source=quality/scripts/kotlin_detekt_env.sh
 source "$script_dir/kotlin_detekt_env.sh"
 
-lomo_kotlin_prepare_env "kotlin-test-style-check"
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/test-style-gate}"
@@ -18,7 +15,8 @@ mkdir -p "$report_root"
 
 echo "kotlin-test-style-check: ensuring detekt-rules jar exists"
 if [ ! -f "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
-  lomo_kotlin_run build --module detekt-rules --build-dir "$build_dir"
+  "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
+    build --module detekt-rules --build-dir "$build_dir"
 fi
 
 config="quality/detekt/config/test-style.yml"

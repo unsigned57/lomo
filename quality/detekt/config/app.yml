@@ -55,6 +55,8 @@ naming:
     ignoreAnnotated:
       - Composable
       - Preview
+  InvalidPackageDeclaration:
+    rootPackage: com.lomo.app
 style:
   ForbiddenMethodCall:
     active: true

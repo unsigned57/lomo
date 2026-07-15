@@ -19,6 +19,32 @@ copy_fixture_tree() {
   done < <(find "$source_dir" -type f -print0 | sort -z)
 }
 
+validate_fixture_schema() {
+  local case_dir="$1"
+  local bucket_dir
+
+  for bucket_dir in "$case_dir"/*; do
+    [ -d "$bucket_dir" ] || continue
+    case "$(basename "$bucket_dir")" in
+      base-src|base-test|base-gradle|head-src|head-test|head-gradle) ;;
+      *)
+        echo "unsupported fixture bucket: $bucket_dir" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
+copy_fixture_phase() {
+  local case_dir="$1"
+  local phase="$2"
+  local repo_dir="$3"
+
+  copy_fixture_tree "$case_dir/$phase-src" "$repo_dir/app/src"
+  copy_fixture_tree "$case_dir/$phase-test" "$repo_dir/app/test"
+  copy_fixture_tree "$case_dir/$phase-gradle" "$repo_dir/gradle"
+}
+
 create_fixture_repo() {
   local case_dir="$1"
   local repo_dir="$2"
@@ -27,10 +53,10 @@ create_fixture_repo() {
   git -C "$repo_dir" init -q
   git -C "$repo_dir" config user.name "Fixture Runner"
   git -C "$repo_dir" config user.email "fixture@example.com"
+  validate_fixture_schema "$case_dir"
+  copy_fixture_phase "$case_dir" base "$repo_dir"
 
-  if [ -d "$case_dir/base" ]; then
-    copy_fixture_tree "$case_dir/base" "$repo_dir"
-  else
+  if [ -z "$(git -C "$repo_dir" ls-files --others --exclude-standard)" ]; then
     printf 'fixture\n' > "$repo_dir/README.md"
   fi
 
@@ -46,9 +72,7 @@ prepare_fixture_head() {
   local case_dir="$1"
   local repo_dir="$2"
 
-  if [ -d "$case_dir/head" ]; then
-    copy_fixture_tree "$case_dir/head" "$repo_dir"
-  fi
+  copy_fixture_phase "$case_dir" head "$repo_dir"
 }
 
 assert_contains() {

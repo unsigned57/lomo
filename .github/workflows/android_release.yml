@@ -1,4 +1,4 @@
-name: Android Release Build
+name: Android Release
 
 on:
   push:
@@ -6,100 +6,73 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
+  HOME: ${{ github.workspace }}/.home
+  ANDROID_USER_HOME: ${{ github.workspace }}/.android
+  XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+  XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+  LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
+  KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
+
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-    env:
-      NDK_VERSION: 29.0.14206865
-      HOME: ${{ github.workspace }}/.home
-      ANDROID_USER_HOME: ${{ github.workspace }}/.android
-      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
-      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
-      LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
-      KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-
       - name: Set up JDK 26
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '26'
-
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK
-        run: sdkmanager --install "ndk;${NDK_VERSION}"
-
-      - name: Validate Local Baseline Profiles
-        run: |
-          test -s app/src/main/baseline-prof.txt
-          test -s app/src/main/baselineProfiles/generated.txt
-
-      - name: Decode Keystore
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Cache release toolchain
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache
+            .gradle/kotlin-toolchain
+            .kotlin-cli
+            rust/target
+            ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+          key: release-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+      - name: Decode release keystore
         env:
-          ENCODED_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          test -n "$ENCODED_KEYSTORE"
-          echo "$ENCODED_KEYSTORE" | base64 -di > release.keystore
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
           test -s release.keystore
-
-      - name: Ensure origin main ref exists
-        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-
-      - name: Run repository quality gate
-        run: |
-          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
-          export LOMO_KOTLIN_ANDROID_SDK="$ANDROID_HOME"
-          export MEANINGFUL_TEST_DIFF_BASE="$(git merge-base HEAD origin/main)"
-          quality/scripts/kotlin_quality_check.sh --build-dir=.kotlin/toolchain-build/ci-quality
-
-      - name: Build Release APK
+      - name: Bootstrap pinned toolchain
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+      - name: Run full gate
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci
+      - name: Build, validate, and sign release APK
         env:
           KEYSTORE_FILE: release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
-          export LOMO_KOTLIN_ANDROID_SDK="$ANDROID_HOME"
-          source quality/scripts/kotlin_toolchain_env.sh
-          lomo_kotlin_prepare_env "android-release"
-          lomo_kotlin_run build --module app --platform android --variant release --build-dir=.kotlin/toolchain-build/release
-
-      - name: Verify Baseline Embedded In APK
-        run: |
-          APK_PATH="$(find .kotlin/toolchain-build/release -name '*.apk' | head -n 1)"
-          test -n "$APK_PATH"
-          unzip -l "$APK_PATH" > /tmp/apk-contents.txt
-          grep -q "assets/dexopt/baseline.prof" /tmp/apk-contents.txt
-          grep -q "assets/dexopt/baseline.profm" /tmp/apk-contents.txt
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- android release
+      - name: Upload release APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-apk
-          path: .kotlin/toolchain-build/release/**/*.apk
-
-      - name: Upload release reports
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-reports
-          if-no-files-found: ignore
-          path: |
-            **/build/reports/**
-            **/build/outputs/mapping/release/**
-            **/build/test-results/**
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          path: .kotlin/toolchain-build/android-release/lomo-release.apk
+          if-no-files-found: error
+      - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
-          files: .kotlin/toolchain-build/release/**/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: .kotlin/toolchain-build/android-release/lomo-release.apk

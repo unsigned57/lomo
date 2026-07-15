@@ -1,7 +1,5 @@
 product: jvm/lib
 
-layout: maven-like
-
 settings:
   junit: junit-5
   jvm:

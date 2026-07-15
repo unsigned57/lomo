@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "pre-push: repository quality gate now runs during pre-commit; skipping duplicate push-time check."
+repo_root="$(git rev-parse --show-toplevel)"
+echo "pre-push: running iterative repository gate (just check)..."
+echo "pre-push: full coverage + fat-LTO gate remains on GitHub Actions / local handoff."
+just --justfile "$repo_root/Justfile" check

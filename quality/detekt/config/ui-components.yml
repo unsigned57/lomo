@@ -62,6 +62,8 @@ naming:
     ignoreAnnotated:
       - Composable
       - Preview
+  InvalidPackageDeclaration:
+    rootPackage: com.lomo.ui
 style:
   ForbiddenMethodCall:
     active: true

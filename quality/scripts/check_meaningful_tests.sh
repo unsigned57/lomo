@@ -279,10 +279,7 @@ else
     if is_fixture_support_path "$file" || is_test_support_path "$file"; then
       continue
     fi
-    # Amper production lives under module/src/ (not module/src/test or androidTest).
-    # Maven-like fixtures may still use src/main; never treat test roots as production.
-    if [[ "$file" =~ ^(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]] &&
-      [[ ! "$file" =~ /src/(test|androidTest|test@android)/ ]]; then
+    if [[ "$file" =~ ^(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]]; then
       production_source_changed=true
       break
     fi
@@ -295,7 +292,7 @@ else
     case "$file" in
       *Test.kt|*Test.kts)
         case "$file" in
-          */test/*|*/test@android/*|*/src/test/*|*/src/androidTest/*)
+          */test/*|*/test@android/*)
             [ -f "$file" ] && test_files+=("$file")
             ;;
         esac
