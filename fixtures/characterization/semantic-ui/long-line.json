@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fixture": "long-line.md",
+  "block_count": 1,
+  "block_kinds": [
+    "list"
+  ],
+  "heading_count": 0,
+  "list_count": 1,
+  "table_count": 0,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 0,
+  "task_unchecked": 0,
+  "plain_text_fingerprint": "73163238bd64fe5ec96f6f9ce5e9f5fe3596b937acbf8cd85a32a919cf1bb34f"
+}

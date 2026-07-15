@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "fixture": "cjk-emoji.md",
+  "block_count": 2,
+  "block_kinds": [
+    "list",
+    "paragraph"
+  ],
+  "heading_count": 0,
+  "list_count": 1,
+  "table_count": 0,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 0,
+  "task_unchecked": 0,
+  "plain_text_fingerprint": "70f51d5aab7d9158a273e0afce71bbf9eadf971115e013654c8bdf5f8f60dfa0"
+}

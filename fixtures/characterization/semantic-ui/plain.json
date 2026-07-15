@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "fixture": "plain.md",
+  "block_count": 4,
+  "block_kinds": [
+    "heading",
+    "paragraph",
+    "list",
+    "table"
+  ],
+  "heading_count": 1,
+  "list_count": 1,
+  "table_count": 1,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 1,
+  "task_unchecked": 1,
+  "plain_text_fingerprint": "eef4db8d8354f08c48a750aa435d458a548a0d0b1434464bd60a72f27d1b0500"
+}

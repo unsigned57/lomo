@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "capability": "tag_counts",
+  "given": {
+    "seeded_tags": "project,project/mobile,life"
+  },
+  "then": {
+    "ids": [],
+    "count": null,
+    "tag_counts": {
+      "life": 1,
+      "project": 1,
+      "project/mobile": 2
+    }
+  }
+}

@@ -28,7 +28,7 @@ pub const CAPACITY_ATTACHMENT_LOGICAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 pub enum CorpusMode {
     /// Small contract corpus for CI.
     Quick,
-    /// 100k memos + 10k remote changes.
+    /// Logical 100k memos + 10k remote changes; sparse on-disk materialization only.
     Scale,
     /// 20 GiB logical attachment capacity without materializing full bytes.
     Capacity,
@@ -178,10 +178,14 @@ fn prepare_output_dirs(request: &GenerateRequest) -> Result<(), GenerateError> {
     Ok(())
 }
 
+/// On-disk materialization policy.
+/// - Quick: contract-size material files.
+/// - Scale: full memo/remote materialization for parse/store benchmarks (gitignored output).
+/// - Capacity: sparse material files; bulk attachment weight stays logical/stream-digested.
 const fn material_memo_count(mode: CorpusMode) -> u64 {
     match mode {
         CorpusMode::Quick => QUICK_MEMO_COUNT,
-        CorpusMode::Scale => 64,
+        CorpusMode::Scale => SCALE_MEMO_COUNT,
         CorpusMode::Capacity => 32,
     }
 }
@@ -189,7 +193,7 @@ const fn material_memo_count(mode: CorpusMode) -> u64 {
 const fn material_remote_count(mode: CorpusMode) -> u64 {
     match mode {
         CorpusMode::Quick => QUICK_REMOTE_CHANGES,
-        CorpusMode::Scale => 32,
+        CorpusMode::Scale => SCALE_REMOTE_CHANGES,
         CorpusMode::Capacity => 16,
     }
 }

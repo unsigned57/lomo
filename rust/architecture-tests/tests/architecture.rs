@@ -135,6 +135,10 @@ mod tests {
             "feasibility tooling crate is not a workspace member"
         );
         assert!(
+            workspace.contains("\"feasibility-device\""),
+            "feasibility-device linked tooling crate is not a workspace member"
+        );
+        assert!(
             !repository_root().join("rust/sync-ffi").exists(),
             "old sync-ffi facade remains"
         );
@@ -148,9 +152,14 @@ mod tests {
         assert!(!native.contains("lomo-xtask"));
         assert!(!native.contains("lomo-architecture-tests"));
         assert!(!native.contains("lomo-feasibility"));
+        assert!(!native.contains("lomo-feasibility-device"));
         assert!(!sync_core.contains("lomo-feasibility"));
         assert!(feasibility.contains("name = \"lomo-feasibility\""));
         assert!(feasibility.contains("publish = false"));
+        let feasibility_device = read("rust/feasibility-device/Cargo.toml");
+        assert!(feasibility_device.contains("name = \"lomo-feasibility-device\""));
+        assert!(feasibility_device.contains("publish = false"));
+        assert!(feasibility_device.contains("lomo-feasibility"));
     }
 
     #[test]

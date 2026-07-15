@@ -1,37 +1,35 @@
 //! Behavior Contract
 //!
-//! Capability: prove reqwest/Rustls HTTPS against a local fixture with streaming timeout,
-//! S3-shaped list pagination, and conditional put — no public network and no native TLS.
+//! Capability: prove reqwest/Rustls HTTPS against a local path-style S3-shaped fixture covering
+//! the P0-08 wire matrix — no public network and no native TLS.
 //!
 //! Scenarios:
-//! - Given a local HTTPS fixture, when `/echo` is requested, then the body matches.
-//! - Given a slow stream route and short timeout, when requested, then the client times out.
-//! - Given S3-shaped list pages, when walked, then all keys are observed in order.
-//! - Given conditional put with `If-None-Match: *`, when the object exists, then status is 412.
+//! - Given a local HTTPS fixture, when the full wire matrix runs, then echo, cert rejection,
+//!   stream timeout, stream upload, path-style list, pagination, conditional PUT, multipart abort,
+//!   and SigV4-shaped signing all pass.
 //!
-//! Observable outcomes: successful echo, timeout error, four keys, 412 precondition failure.
-//! Excludes: real AWS account, Docker, production DI, device `adb reverse`.
+//! Observable outcomes: `run_http_wire_matrix` returns `Ok(())`; fixture request counter advances.
+//! Excludes: full AWS SDK crate (volume-constrained; `SigV4` shape proven), Docker, real accounts.
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use lomo_feasibility::{
-        HttpsFixture, fixture_client, probe_echo, probe_s3_conditional_put,
-        probe_s3_list_pagination, probe_stream_timeout, reset_http_probe_state,
-    };
+    use lomo_feasibility::{HttpsFixture, reset_http_probe_state, run_http_wire_matrix};
 
     #[test]
-    fn https_fixture_supports_echo_timeout_s3_list_and_conditional_put() {
+    fn https_wire_matrix_covers_p0_08_capabilities() {
         reset_http_probe_state();
         let fixture = HttpsFixture::start().expect("fixture starts");
-        let client =
-            fixture_client(fixture.ca_pem(), Duration::from_secs(2)).expect("client builds");
-        probe_echo(&client, &fixture.base_url()).expect("echo");
-        probe_stream_timeout(&fixture.base_url(), fixture.ca_pem()).expect("timeout");
-        let keys = probe_s3_list_pagination(&client, &fixture.base_url()).expect("list");
-        assert_eq!(keys, 4);
-        probe_s3_conditional_put(&client, &fixture.base_url()).expect("conditional put");
-        assert!(fixture.stats().requests >= 4);
+        run_http_wire_matrix(&fixture).expect("wire matrix");
+        assert!(fixture.stats().requests >= 8);
+        // Drop-cancel path must surface a request-scoped stream write failure (not only a
+        // global counter that timeout workers can race-increment).
+        assert!(
+            !fixture.stats().failed_stream_ids.is_empty(),
+            "server must record at least one failed stream id after client cancel"
+        );
+        assert!(
+            fixture.stats().stream_write_failures >= 1,
+            "server must observe at least one stream write failure after client cancel"
+        );
     }
 }

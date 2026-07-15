@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fixture": "thino-basic.md",
+  "block_count": 1,
+  "block_kinds": [
+    "list"
+  ],
+  "heading_count": 0,
+  "list_count": 1,
+  "table_count": 0,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 0,
+  "task_unchecked": 0,
+  "plain_text_fingerprint": "7b4f788d6f114631ef64d734c79c2ceb117d9e5887edd29f56f70e6518fb085c"
+}

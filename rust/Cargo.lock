@@ -871,6 +871,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lomo-feasibility-device"
+version = "0.1.0"
+dependencies = [
+ "lomo-feasibility",
+ "thiserror",
+ "uniffi",
+]
+
+[[package]]
 name = "lomo-native"
 version = "0.1.0"
 dependencies = [

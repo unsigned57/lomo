@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "fixture": "bom-newline.md",
+  "block_count": 2,
+  "block_kinds": [
+    "paragraph",
+    "list"
+  ],
+  "heading_count": 0,
+  "list_count": 1,
+  "table_count": 0,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 0,
+  "task_unchecked": 0,
+  "plain_text_fingerprint": "94b7ac79ef9d47a1264bdcab10468f621ef5222d98d82b38425a60c8168dc16d"
+}

@@ -44,6 +44,15 @@ pub struct BaselineMetricV1 {
     pub peak_rss_bytes: Option<u64>,
     pub network_request_count: Option<u64>,
     pub workload_summary: String,
+    /// Samples used for this metric (may differ from report-level defaults for heavy workloads).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub samples: Option<u32>,
+    /// Observable result cardinality (e.g. memo files successfully parsed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_count: Option<u64>,
+    /// Single-item warm-path p50 in milliseconds when measured in the same isolated run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warm_path_p50_ms: Option<f64>,
 }
 
 /// APK and per-ABI native library sizes.

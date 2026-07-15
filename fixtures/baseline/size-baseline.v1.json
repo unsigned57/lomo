@@ -1,7 +1,7 @@
 {
   "apk": {
-    "debug_universal_compressed_bytes": 91198622,
-    "hard_gate_max_compressed_bytes": 104878416,
+    "debug_universal_compressed_bytes": 112467804,
+    "hard_gate_max_compressed_bytes": 129337975,
     "hard_gate_multiplier": 1.15,
     "kind": "host_relative_baseline",
     "source": "just perf / find_latest_debug_apk under .kotlin/toolchain-build"
@@ -11,9 +11,15 @@
     "liblomo_native.so sizes are from production app/jniLibs packaging (feasibility-probe disabled).",
     "native-smoke/jniLibs may be larger when built with --features feasibility-probe; smoke size is not the APK gate.",
     "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
-    "Time/RSS metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
+    "Time metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
+    "markdown_scale_100k_memo_parse runs in an isolated lomo-feasibility process; peak_rss_bytes is that process VmHWM.",
+    "Scale metric also records result_count (memo files parsed) and warm_path_p50_ms (single-memo warm path).",
+    "Other metrics omit peak_rss_bytes unless isolated; xtask /proc/self HWM is not product evidence.",
     "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
-    "Two measurement rounds must stay within 10% relative p50 or the metric is excluded from the established baseline."
+    "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms).",
+    "Pass requires every required_metrics entry established: planner trio, sqlite, markdown fixture set, and markdown_scale_100k_memo_parse with peak_rss/result_count/warm_path.",
+    "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
+    "Authoritative stage-0 status: STAGE0-STATUS.md (must not drift from this note)."
   ],
   "native": {
     "libjnidispatch_so_bytes": {
@@ -39,60 +45,110 @@
       {
         "name": "planner_local_only_pure_1000",
         "network_request_count": null,
-        "p50": 0.364,
-        "p95": 0.3695,
-        "peak_rss_bytes": 38592512,
+        "p50": 0.4215,
+        "p95": 0.4315,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 100,
         "unit": "ms",
-        "workload_summary": "sync_v1_local_only_pure_size_1000"
+        "warm_path_p50_ms": null,
+        "workload_summary": "sync_v1_local_only_pure_size_1000_iterations_100"
       },
       {
         "name": "planner_high_conflict_pure_1000",
         "network_request_count": null,
-        "p50": 1.0285,
-        "p95": 1.0415,
-        "peak_rss_bytes": 38592512,
+        "p50": 1.188,
+        "p95": 1.295,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 100,
         "unit": "ms",
-        "workload_summary": "sync_v1_high_conflict_pure_size_1000"
+        "warm_path_p50_ms": null,
+        "workload_summary": "sync_v1_high_conflict_pure_size_1000_iterations_100"
       },
       {
         "name": "planner_long_path_envelope_1000",
         "network_request_count": null,
-        "p50": 0.47350000000000003,
-        "p95": 0.495,
-        "peak_rss_bytes": 38592512,
+        "p50": 0.5465,
+        "p95": 0.5605,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 100,
         "unit": "ms",
-        "workload_summary": "sync_v1_long_path_envelope_size_1000"
+        "warm_path_p50_ms": null,
+        "workload_summary": "sync_v1_long_path_envelope_size_1000_iterations_100"
       },
       {
         "name": "sqlite_probe_wal_fts_backup",
         "network_request_count": null,
-        "p50": 90.14359300000001,
-        "p95": 95.3020915,
-        "peak_rss_bytes": 38592512,
+        "p50": 89.35076849999999,
+        "p95": 94.68217100000001,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 21,
         "unit": "ms",
+        "warm_path_p50_ms": null,
         "workload_summary": "bundled_sqlite_wal_fk_fts5_backup_reopen"
       },
       {
         "name": "markdown_fixture_set_parse",
         "network_request_count": null,
-        "p50": 0.295651,
-        "p95": 0.30282950000000003,
-        "peak_rss_bytes": 38592512,
+        "p50": 0.3415665,
+        "p95": 0.390073,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 21,
         "unit": "ms",
+        "warm_path_p50_ms": null,
         "workload_summary": "fixtures/markdown count=11"
+      },
+      {
+        "name": "markdown_scale_100k_memo_parse",
+        "network_request_count": null,
+        "p50": 516.0663795,
+        "p95": 1197.652838,
+        "peak_rss_bytes": 18075648,
+        "result_count": 100000,
+        "samples": 3,
+        "unit": "ms",
+        "warm_path_p50_ms": 0.0043035,
+        "workload_summary": "isolated scale-markdown-bench memo_files=100000 full_samples=3 warm_samples=21 total_events=900000"
+      },
+      {
+        "name": "https_s3_shape_fixture",
+        "network_request_count": 6,
+        "p50": 288.76557,
+        "p95": 309.558966,
+        "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 21,
+        "unit": "ms",
+        "warm_path_p50_ms": null,
+        "workload_summary": "local_https_echo_list_put_timeout"
       },
       {
         "name": "native_smoke_cold_start_wait_ms",
         "network_request_count": null,
-        "p50": 221.0,
-        "p95": 249.0,
+        "p50": 236.5,
+        "p95": 274.0,
         "peak_rss_bytes": null,
+        "result_count": null,
+        "samples": 21,
         "unit": "ms",
+        "warm_path_p50_ms": null,
         "workload_summary": "am_start_W_com.lomo.nativesmoke/.NativeSmokeActivity"
       }
     ],
     "policy": "Relative host/device baselines only; arm64 device evidence remains a stage-2 hard gate before first production ownership switch.",
     "required_device": "API 26+ attached device or host for relative metrics",
+    "required_metrics": [
+      "planner_local_only_pure_1000",
+      "planner_high_conflict_pure_1000",
+      "planner_long_path_envelope_1000",
+      "sqlite_probe_wal_fts_backup",
+      "markdown_fixture_set_parse",
+      "markdown_scale_100k_memo_parse"
+    ],
     "sample_count": 21,
     "status": "established"
   },

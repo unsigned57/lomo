@@ -1,5 +1,8 @@
 # Git feasibility evidence (P0-09)
 
+**Stage-0 status for this workstream: partial (host).**  
+See `fixtures/baseline/STAGE0-STATUS.md` (authoritative).
+
 ## Proven on host (vendored `git2` / libgit2)
 
 | Capability | Status | How |
@@ -7,27 +10,30 @@
 | Open / init local worktree | **pass** | `run_local_git_probe` |
 | Commit history (≥2) | **pass** | two sequential commits on `main` |
 | Diverged branch | **pass** | `feature` rewrite vs `main` rewrite |
-| Push to bare remote | **pass** | local filesystem bare (`remote.git`) via libgit2 push |
+| Push to bare remote | **pass** | local filesystem bare via libgit2 push |
 | Fetch from bare remote | **pass** | `refs/heads/main:refs/remotes/origin/main` |
 | Rebase conflict observation | **pass** | divergent rewrite → conflict → abort |
-| Four-ABI compile of vendored libgit2 | **pass** | cargo-ndk via `lomo-xtask` native packaging |
-| License / advisory gate | **pass** | workspace `cargo-deny` (`deny.toml`) |
+| HTTPS smart-HTTP push/fetch | **pass (host)** | `run_smart_http_git_probe` + `git-http-backend` over TLS |
+| Username/token credential callback | **pass (host)** | Basic auth via `Cred::userpass_plaintext` |
+| Certificate pin to fixture leaf DER | **pass (host)** | `certificate_check` compares X.509 DER; mismatch rejects |
+| Certificate rejection without pin | **pass (host)** | untrusted clone fails closed |
+| Non-force push rejection | **pass (host)** | divergent non-ff push rejected |
+| Index lock fail + recover after unlock | **pass (host)** | `.git/index.lock` present → commit fails; remove → succeed |
+| Transfer-progress cancel | **pass only if cancel aborts** | `probe_transfer_cancel`: progress must request cancel **and** clone/fetch must error; no unconditional success |
+| License / advisory gate | **pass when CI green** | `cargo-deny` |
 
-Contract test: `rust/feasibility/tests/git_probe_contract.rs`.
+Contract tests: `rust/feasibility/tests/git_probe_contract.rs`.
 
-## Explicit evidence boundary (not claimed in stage 0)
+## Packaging / follow-on
 
 | Capability | Status | Rationale |
 | --- | --- | --- |
-| HTTPS smart-HTTP push/fetch | **deferred** | Hermetic smart-HTTP+TLS fixture is not yet in the evidence graph. Local bare transport already exercises libgit2 push/fetch/rebase state machines without public network. Stage-4 Git work must add smart-HTTP over the same `git2` stack before production ownership. |
-| Username/token credential callback | **deferred** | Requires smart-HTTP or authenticated remote; classification remains a stage-4 hard gate. |
-| Certificate rejection classification | **partial** | Proven for HTTP probe (reqwest/Rustls fixture); not yet for git2 TLS path. |
-| Non-force push rejection | **partial** | Push path exercised; force/non-force matrix is stage-4. |
-| Process-interrupt / lock recovery | **deferred** | Crash-recovery of `.git/index.lock` is stage-4 with production journal. |
-| Device-smoke real push/rebase | **deferred** | API 26 emulator path reuses host-proven libgit2; optional device git smoke when emulator budget allows. |
+| Four-ABI **linked** feasibility graph | **partial** | Requires live `candidate_link_markers` (git2+reqwest) in device bundle; re-record sizes after rebuild |
+| Device/emulator smart-HTTP push in production APK | **stage-4 ownership** | not production-packaged |
 
-## Decision for stage 0 exit
+## Decision (candidate selection)
 
-- **Accept** vendored `git2 0.21.x` + vendored libgit2/OpenSSL as the Git candidate.
-- **Reject** long-term JGit dual-stack and pure-Rust gitoxide/`gix` as production Git (push/rebase incomplete for product needs).
-- **Do not block** stage 0 on smart-HTTP fixture; document it as a **stage-4 entry precondition** with the same dependency, not a new library search.
+- **Select** vendored `git2 0.21.x` + vendored libgit2/OpenSSL as the intended Git candidate.
+- **Reject** long-term JGit dual-stack and pure-Rust gitoxide/`gix` as the primary production path (push/rebase incomplete in gix).
+- Host smart-HTTP matrix is **partial** until cancel evidence is re-certified green under the fail-closed cancel probe.
+- Production adoption remains ownership-gated.

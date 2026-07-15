@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -170,6 +171,170 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     }
     verify_native_tree(workspace, abis)?;
     verify_smoke_native_tree(workspace, abis)
+}
+
+/// Build the linked `lomo-feasibility-device` cdylib for all Android ABIs, ELF-verify, and
+/// record per-ABI sizes. Not packaged into production `app/jniLibs`.
+#[allow(
+    clippy::too_many_lines,
+    reason = "packaging + ELF + evidence write is a single audit trail"
+)]
+pub fn verify_feasibility_android_targets(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
+    ensure_ndk(workspace)?;
+    tools::ensure_quality(workspace)?;
+    let output_dir = workspace.root.join("build/feasibility-device/jniLibs");
+    remove_if_exists(&output_dir)?;
+    fs::create_dir_all(&output_dir)?;
+
+    let mut command = cargo(workspace);
+    command.env("ANDROID_NDK_HOME", workspace.ndk_root()).args([
+        "ndk",
+        "--platform",
+        &ANDROID_API.to_string(),
+    ]);
+    for abi in abis {
+        command.args(["--target", abi.android_name()]);
+    }
+    command.arg("--output-dir").arg(&output_dir).args([
+        "build",
+        "--locked",
+        "-p",
+        "lomo-feasibility-device",
+        "--profile",
+        "release-ci",
+    ]);
+    run(&mut command)?;
+
+    let readelf = ndk_tool(workspace, "llvm-readelf")?;
+    let mut size_rows = String::new();
+    let mut sizes = BTreeMap::new();
+    for &abi in abis {
+        let so = output_dir
+            .join(abi.android_name())
+            .join("liblomo_feasibility_device.so");
+        if !so.is_file() {
+            bail!(
+                "missing linked feasibility-device library: {}",
+                so.display()
+            );
+        }
+        let mut header = Command::new(&readelf);
+        header.args(["--file-header", so.to_string_lossy().as_ref()]);
+        let header = text_output(&mut header)?;
+        if !header.contains(abi.machine()) {
+            bail!(
+                "{} has wrong ELF architecture for {}",
+                so.display(),
+                abi.android_name()
+            );
+        }
+        let bytes = fs::metadata(&so)
+            .with_context(|| format!("stat {}", so.display()))?
+            .len();
+        // Cargo dependency edges are not volume evidence. Require **exact** LOMO retention
+        // sentinels (not generic OpenSSL / aws-lc substrings — those false-pass).
+        let strings_out = text_output(Command::new("strings").arg(&so))?;
+        let required = [
+            lomo_feasibility::MARKER_GIT2,
+            lomo_feasibility::MARKER_REQWEST_RUSTLS,
+            lomo_feasibility::MARKER_SQLITE,
+        ];
+        let mut missing = Vec::new();
+        for marker in required {
+            if !strings_out.contains(marker) {
+                missing.push(marker);
+            }
+        }
+        if !missing.is_empty() {
+            bail!(
+                "{} missing exact LOMO retention markers after LTO: {:?}; \
+                 ensure run_feasibility_device_bundle returns candidate_link_markers + MARKER_SQLITE. \
+                 Note: generic OpenSSL/aws-lc strings are intentionally NOT accepted.",
+                so.display(),
+                missing
+            );
+        }
+        sizes.insert(abi.android_name().to_owned(), bytes);
+        writeln!(
+            size_rows,
+            "| `{}` | pass (ELF + exact LOMO_LINK_MARKER_*) | {} |",
+            abi.android_name(),
+            bytes
+        )
+        .expect("write");
+    }
+
+    // Host runtime of the same entrypoint (API-level process load of the Android .so is device).
+    let mut host = cargo(workspace);
+    host.args([
+        "test",
+        "--locked",
+        "-p",
+        "lomo-feasibility-device",
+        "--test",
+        "device_bundle_contract",
+        "--",
+        "--nocapture",
+    ]);
+    run(&mut host)?;
+
+    let evidence = workspace
+        .root
+        .join("fixtures/baseline/feasibility-android-targets.v1.md");
+    let mut body = String::from(
+        "# Feasibility dependency four-ABI **linked** evidence\n\n\
+         Tooling crate `lomo-feasibility-device` retains rusqlite/pulldown-cmark/reqwest/git2 via \
+         live call paths (`candidate_link_markers` + SQLite/Markdown probes) in \
+         `liblomo_feasibility_device.so` for Android API 26 via cargo-ndk (`release-ci`).\n\n\
+         **Proves:** constructor/version retention of candidate crates after LTO (volume selection).\n\
+         **Does not prove:** full smart-HTTP push/rebase or HTTP stream matrices inside this SO \
+         (those remain host-fixture contracts).\n\n\
+         Each `.so` is `strings`-checked for exact sentinels \
+         `LOMO_LINK_MARKER_GIT2_v1`, `LOMO_LINK_MARKER_REQWEST_RUSTLS_v1`, \
+         `LOMO_LINK_MARKER_SQLITE_v1`. Generic OpenSSL/aws-lc strings are **not** accepted.\n\
+         Not packaged into production `app/jniLibs`.\n\n\
+         | ABI | Result | `.so` bytes |\n| --- | --- | --- |\n",
+    );
+    body.push_str(&size_rows);
+    body.push_str(
+        "\nHost runtime: `cargo test -p lomo-feasibility-device --test device_bundle_contract` \
+         (SQLite+Markdown+exact markers).\n\
+         Device process load of this SO is optional tooling; production ownership still stage-gated.\n\n\
+         Generated by `lomo-xtask` `verify_feasibility_android_targets`.\n",
+    );
+    fs::write(&evidence, body).with_context(|| format!("write {}", evidence.display()))?;
+
+    let size_json = workspace
+        .root
+        .join("fixtures/baseline/feasibility-device-size.v1.json");
+    let document = serde_json::json!({
+        "schema_version": 1,
+        "description": "Linked feasibility-device .so sizes after live candidate_link_markers. Proves constructor retention volume only — not full smart-HTTP/push/rebase inside the SO.",
+        "liblomo_feasibility_device_so_bytes": sizes,
+        "not_production": true,
+        "stale": false,
+        "symbol_retention": {
+            "method": "strings exact match",
+            "required_markers": [
+                "LOMO_LINK_MARKER_GIT2_v1",
+                "LOMO_LINK_MARKER_REQWEST_RUSTLS_v1",
+                "LOMO_LINK_MARKER_SQLITE_v1"
+            ],
+            "rejected_as_insufficient": ["openssl-alone", "aws-lc-alone", "cargo-dep-edge"]
+        }
+    });
+    fs::write(
+        &size_json,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&document)
+                .context("serialize feasibility-device sizes")?
+        ),
+    )
+    .with_context(|| format!("write {}", size_json.display()))?;
+    eprintln!("xtask: wrote {}", evidence.display());
+    eprintln!("xtask: wrote {}", size_json.display());
+    Ok(())
 }
 
 fn build_android_ndk(

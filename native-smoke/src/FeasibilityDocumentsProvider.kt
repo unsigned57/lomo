@@ -130,6 +130,41 @@ class FeasibilityDocumentsProvider : DocumentsProvider() {
         return toDocumentId(target)
     }
 
+    /**
+     * Move a document into another parent directory under the feasibility root.
+     *
+     * Tooling-only surface for stage-0 SAF move evidence (not production SAF policy).
+     */
+    override fun moveDocument(
+        sourceDocumentId: String,
+        sourceParentDocumentId: String,
+        targetParentDocumentId: String,
+    ): String {
+        val source = resolve(sourceDocumentId)
+        if (!source.exists()) {
+            throw FileNotFoundException(sourceDocumentId)
+        }
+        val sourceParent = resolve(sourceParentDocumentId)
+        if (source.parentFile?.canonicalFile != sourceParent.canonicalFile) {
+            throw FileNotFoundException(
+                "source parent mismatch for $sourceDocumentId under $sourceParentDocumentId",
+            )
+        }
+        val targetParent = resolve(targetParentDocumentId)
+        if (!targetParent.isDirectory && !targetParent.mkdirs()) {
+            throw FileNotFoundException("unable to create target parent $targetParentDocumentId")
+        }
+        val target = File(targetParent, source.name)
+        if (target.exists()) {
+            throw FileNotFoundException("move target already exists: ${toDocumentId(target)}")
+        }
+        if (!source.renameTo(target)) {
+            // Same-filesystem rename should succeed under app private storage; fail closed.
+            throw FileNotFoundException("unable to move $sourceDocumentId")
+        }
+        return toDocumentId(target)
+    }
+
     override fun isChildDocument(
         parentDocumentId: String,
         documentId: String,
@@ -170,6 +205,7 @@ class FeasibilityDocumentsProvider : DocumentsProvider() {
                         DocumentsContract.Document.FLAG_SUPPORTS_WRITE or
                             DocumentsContract.Document.FLAG_SUPPORTS_DELETE or
                             DocumentsContract.Document.FLAG_SUPPORTS_RENAME or
+                            DocumentsContract.Document.FLAG_SUPPORTS_MOVE or
                             if (file.isDirectory || documentId == ROOT_DOC_ID) {
                                 DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
                             } else {

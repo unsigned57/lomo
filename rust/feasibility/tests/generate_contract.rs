@@ -94,6 +94,25 @@ mod tests {
             .expect("capacity");
         assert_eq!(scale.workload.memo_count, SCALE_MEMO_COUNT);
         assert_eq!(scale.workload.remote_change_count, SCALE_REMOTE_CHANGES);
+        // Scale materializes every memo/remote for parse/store baselines.
+        let scale_memo_files = scale
+            .files
+            .iter()
+            .filter(|entry| entry.relative_path.starts_with("memo/"))
+            .count();
+        let scale_remote_files = scale
+            .files
+            .iter()
+            .filter(|entry| entry.relative_path.starts_with("remote/"))
+            .count();
+        assert_eq!(
+            scale_memo_files,
+            usize::try_from(SCALE_MEMO_COUNT).expect("memo count fits usize")
+        );
+        assert_eq!(
+            scale_remote_files,
+            usize::try_from(SCALE_REMOTE_CHANGES).expect("remote count fits usize")
+        );
         assert_eq!(capacity.workload.memo_count, CAPACITY_MEMO_COUNT);
         assert_eq!(
             capacity.workload.remote_change_count,

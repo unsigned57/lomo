@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "fixture": "gfm-extensions.md",
+  "block_count": 9,
+  "block_kinds": [
+    "list",
+    "heading",
+    "paragraph",
+    "quote",
+    "code_block",
+    "list",
+    "table",
+    "paragraph",
+    "paragraph"
+  ],
+  "heading_count": 1,
+  "list_count": 2,
+  "table_count": 1,
+  "code_block_count": 1,
+  "quote_count": 1,
+  "link_count": 1,
+  "image_count": 1,
+  "task_checked": 1,
+  "task_unchecked": 1,
+  "plain_text_fingerprint": "556b0a2bb6fe614c40b9a599227b2f2c7842d8867f76200b151f0281cbf9e32e"
+}

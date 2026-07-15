@@ -1,29 +1,49 @@
 {
   "schema_version": 1,
-  "description": "rclone crypt compatibility golden vectors for filename/directory/data modes. Secrets are test-only and not production credentials.",
+  "status": "verified",
+  "description": "rclone crypt compatibility golden vectors (filename/directory/data). Secrets are test-only. Generated with rclone crypt standard filename encryption + directory name encryption.",
   "password": "fixture-test-password",
   "password2": "fixture-test-salt",
   "filename_encryption": "standard",
   "directory_name_encryption": true,
-  "filename_encoding": "base64",
+  "filename_encoding": "base32",
+  "generator": "rclone cryptdecode --reverse + rclone copy to crypt remote",
   "vectors": [
     {
       "id": "plain-memo-name",
-      "plaintext_path": "lomo/memo/2024-01-02.md",
       "mode": "filename",
-      "notes": "Placeholder vector identity for stage-0 corpus wiring; P0-08 must replace ciphertext with verified rclone outputs."
+      "plaintext_path": "2024-01-02.md",
+      "ciphertext_name": "7o3chldpojhcbj6rpgp3n45fi8",
+      "notes": "Verified rclone standard filename encryption (base32)."
     },
     {
       "id": "plain-dir-name",
-      "plaintext_path": "lomo/media",
       "mode": "directory",
-      "notes": "Directory name encryption vector slot."
+      "plaintext_path": "lomo",
+      "ciphertext_name": "n5jkq3ikgne08nnt2bguj7ompo",
+      "notes": "Verified directory name encryption segment for lomo/."
     },
     {
       "id": "plain-data-block",
-      "plaintext_utf8": "hello-lomo-fixture",
       "mode": "data",
-      "notes": "Data encryption vector slot for stream body."
+      "plaintext_utf8": "hello-lomo-fixture",
+      "ciphertext_hex": "52434c4f4e4500007857de49c7e359904998557133953426208b5d0996883bda1da7bc641c9b9602b4b28f2d1a7deefac8a11b4eeb4475ebe780f986829c88768ee961",
+      "ciphertext_name": "9mlek2dfi2om0vokast1sgpa00",
+      "notes": "Verified data encryption for file data.txt with RCLONE header magic."
+    },
+    {
+      "id": "plain-media-dir",
+      "mode": "directory",
+      "plaintext_path": "media",
+      "ciphertext_name": "pm5t4p9hsjlu79s5h4t8i302ik",
+      "notes": "Verified directory name encryption segment for media/."
+    },
+    {
+      "id": "plain-memo-dir",
+      "mode": "directory",
+      "plaintext_path": "memo",
+      "ciphertext_name": "8u8olquekmda1qnkv31dj1h5dk",
+      "notes": "Verified directory name encryption segment for memo/."
     }
   ]
 }

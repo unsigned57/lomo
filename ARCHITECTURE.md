@@ -52,13 +52,17 @@ This document is the stable architecture entrypoint for the repository. It descr
   `git/`, `characterization/`, `baseline/`). Quality scripts do not own these; generators and
   characterization tests consume them. Large generated corpora stay under gitignored `build/corpora/`.
   Stage-0 reports belong under gitignored `build/reports/feasibility/`.
+  Shared stage-0 audit status lives in `fixtures/baseline/STAGE0-STATUS.md`;
+  tooling-only `lomo-feasibility-device` packages linked feasibility deps for four-ABI volume/ELF
+  evidence and must never enter production `app/jniLibs`. Gitignored local planning notes are not
+  provenance.
 
 ### `native-smoke`
 
 - Tooling-only Android application used by CI and `just device-smoke`.
 - Loads smoke-packaged JNA and `liblomo_native.so` (with `feasibility-probe`), exercises the sync v1
-  planner, `FeasibilityProbe` lifecycle contracts, and a deterministic in-app `DocumentsProvider`
-  SAF surface, then emits an observable PASS/FAIL result.
+  planner, durable `FeasibilityProbe` journal recovery (seed + force-kill + relaunch), and a
+  deterministic in-app `DocumentsProvider` SAF surface, then emits an observable PASS/FAIL result.
 - Must not be packaged into or depended on by the production application.
 - Temporary stage-0/1 exception: probe types and the smoke DocumentsProvider are deleted once the
   formal stage-1 engine and platform-batch contracts replace them.

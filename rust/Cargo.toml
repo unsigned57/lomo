@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["architecture-tests", "feasibility", "native", "sync-core", "xtask"]
+members = ["architecture-tests", "feasibility", "feasibility-device", "native", "sync-core", "xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -79,3 +79,5 @@ strip = true
 inherits = "release"
 lto = "thin"
 codegen-units = 16
+
+# tooling-only; already listed members below will be updated

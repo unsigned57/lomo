@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "fixture": "plain.md",
+  "tag_count": 1,
+  "tags": [
+    "plain"
+  ],
+  "attachment_count": 0,
+  "attachments": [],
+  "checkbox_checked": 1,
+  "checkbox_unchecked": 1,
+  "http_link_count": 0
+}

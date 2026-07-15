@@ -260,7 +260,8 @@ class MemoOutboxMutationDelegateTest : DataFunSpec() {
                     ),
                 ),
             )
-            fileDataSource.files[MemoDirectoryType.MAIN to filename] shouldBe "- 10:00 after"
+            // Original shard ended with a trailing newline; unedited write-back preserves it.
+            fileDataSource.files[MemoDirectoryType.MAIN to filename] shouldBe "- 10:00 after\n"
         }
 
     private fun givenPermanentDeleteOutboxWhenCompletionSucceedsThenTrashStateMediaVersionAndRemoteJournalAreCompleted() =

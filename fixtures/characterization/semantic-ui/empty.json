@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "fixture": "empty.md",
+  "block_count": 0,
+  "block_kinds": [],
+  "heading_count": 0,
+  "list_count": 0,
+  "table_count": 0,
+  "code_block_count": 0,
+  "quote_count": 0,
+  "link_count": 0,
+  "image_count": 0,
+  "task_checked": 0,
+  "task_unchecked": 0,
+  "plain_text_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

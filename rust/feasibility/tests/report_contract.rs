@@ -44,6 +44,9 @@ mod tests {
                 peak_rss_bytes: Some(64 * 1024 * 1024),
                 network_request_count: None,
                 workload_summary: "empty_workspace".to_owned(),
+                samples: Some(5),
+                result_count: None,
+                warm_path_p50_ms: None,
             }],
             sizes: BaselineSizesV1 {
                 apk_compressed_bytes: 52_532_382,

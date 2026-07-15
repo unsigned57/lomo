@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "capability": "count_all_memos",
+  "given": {
+    "seeded_count": "3"
+  },
+  "then": {
+    "ids": [],
+    "count": 3,
+    "tag_counts": {}
+  }
+}

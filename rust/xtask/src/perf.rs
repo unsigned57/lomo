@@ -22,6 +22,19 @@ use crate::workspace::{self, Workspace};
 const SAMPLE_COUNT: usize = 21;
 const WARMUP: usize = 3;
 const STABILITY_MAX_REL_DELTA: f64 = 0.10;
+const SCALE_MARKDOWN_SAMPLES: usize = 3;
+
+/// Host metrics that must survive the two-round stability gate for `Pass`.
+/// I/O-noisy probes (HTTPS, git bare, device cold start) are optional: exclusion does not
+/// invent a pass, but missing any required name forces `Inconclusive`.
+const REQUIRED_BASELINE_METRICS: &[&str] = &[
+    "planner_local_only_pure_1000",
+    "planner_high_conflict_pure_1000",
+    "planner_long_path_envelope_1000",
+    "sqlite_probe_wal_fts_backup",
+    "markdown_fixture_set_parse",
+    "markdown_scale_100k_memo_parse",
+];
 
 pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
     tools::ensure_diagnostics(workspace)?;
@@ -36,6 +49,8 @@ pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
     run(&mut lines)?;
 
     emit_quick_corpus(workspace)?;
+    // Prove candidate dep graph compiles for four ABIs without shipping into production SO.
+    native::verify_feasibility_android_targets(workspace, &native::Abi::ALL)?;
     emit_baseline_report(workspace)?;
     Ok(())
 }
@@ -124,6 +139,9 @@ fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV
             "peak_rss_bytes": metric.peak_rss_bytes,
             "network_request_count": metric.network_request_count,
             "workload_summary": metric.workload_summary,
+            "samples": metric.samples,
+            "result_count": metric.result_count,
+            "warm_path_p50_ms": metric.warm_path_p50_ms,
         }));
     }
     let document = serde_json::json!({
@@ -133,9 +151,15 @@ fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV
             "liblomo_native.so sizes are from production app/jniLibs packaging (feasibility-probe disabled).",
             "native-smoke/jniLibs may be larger when built with --features feasibility-probe; smoke size is not the APK gate.",
             "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
-            "Time/RSS metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
+            "Time metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
+            "markdown_scale_100k_memo_parse runs in an isolated lomo-feasibility process; peak_rss_bytes is that process VmHWM.",
+            "Scale metric also records result_count (memo files parsed) and warm_path_p50_ms (single-memo warm path).",
+            "Other metrics omit peak_rss_bytes unless isolated; xtask /proc/self HWM is not product evidence.",
             "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
-            "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms)."
+            "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms).",
+            "Pass requires every required_metrics entry established: planner trio, sqlite, markdown fixture set, and markdown_scale_100k_memo_parse with peak_rss/result_count/warm_path.",
+            "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
+            "Authoritative stage-0 status: STAGE0-STATUS.md (must not drift from this note)."
         ],
         "native": {
             "liblomo_native_so_bytes": report.sizes.abi_so_bytes,
@@ -152,10 +176,11 @@ fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV
             "status": if matches!(report.conclusion, BaselineConclusion::Pass) {
                 "established"
             } else {
-                "inconclusive"
+                "partial_host_established"
             },
             "required_device": "API 26+ attached device or host for relative metrics",
             "sample_count": report.sample_count,
+            "required_metrics": REQUIRED_BASELINE_METRICS,
             "device": {
                 "api_level": report.device.api_level,
                 "abi": report.device.abi,
@@ -232,11 +257,7 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
             .map(|note| redact_sensitive_text(&note)),
     );
 
-    let conclusion = if metrics.is_empty() {
-        BaselineConclusion::Inconclusive
-    } else {
-        BaselineConclusion::Pass
-    };
+    let conclusion = baseline_conclusion(&metrics, &mut notes);
 
     Ok(BaselineReportV1 {
         schema_version: BaselineReportV1::SCHEMA_VERSION,
@@ -274,6 +295,7 @@ fn measure_all_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
     metrics.extend(measure_planner_metrics(workspace)?);
     metrics.push(measure_sqlite_metric(workspace)?);
     metrics.push(measure_markdown_metric(workspace)?);
+    metrics.push(measure_markdown_scale_metric(workspace)?);
     metrics.push(measure_http_metric()?);
     metrics.push(measure_git_metric(workspace)?);
     if let Some(metric) = measure_device_smoke_cold_start()? {
@@ -324,6 +346,32 @@ fn stabilize_metrics(
     (established, notes)
 }
 
+fn baseline_conclusion(
+    metrics: &[BaselineMetricV1],
+    notes: &mut Vec<String>,
+) -> BaselineConclusion {
+    let established: std::collections::BTreeSet<&str> =
+        metrics.iter().map(|metric| metric.name.as_str()).collect();
+    let mut missing_required = Vec::new();
+    for name in REQUIRED_BASELINE_METRICS {
+        if !established.contains(name) {
+            missing_required.push(*name);
+        }
+    }
+    if missing_required.is_empty() {
+        notes.push(redact_sensitive_text(
+            "conclusion=pass: all required host metrics established (optional I/O metrics may be absent)",
+        ));
+        BaselineConclusion::Pass
+    } else {
+        notes.push(redact_sensitive_text(&format!(
+            "conclusion=inconclusive: missing required metrics: {}",
+            missing_required.join(", ")
+        )));
+        BaselineConclusion::Inconclusive
+    }
+}
+
 fn average_metric(left: &BaselineMetricV1, right: &BaselineMetricV1) -> BaselineMetricV1 {
     BaselineMetricV1 {
         name: left.name.clone(),
@@ -336,6 +384,12 @@ fn average_metric(left: &BaselineMetricV1, right: &BaselineMetricV1) -> Baseline
         },
         network_request_count: left.network_request_count.or(right.network_request_count),
         workload_summary: left.workload_summary.clone(),
+        samples: left.samples.or(right.samples),
+        result_count: left.result_count.or(right.result_count),
+        warm_path_p50_ms: match (left.warm_path_p50_ms, right.warm_path_p50_ms) {
+            (Some(a), Some(b)) => Some(f64::midpoint(a, b)),
+            (a, b) => a.or(b),
+        },
     }
 }
 
@@ -366,6 +420,9 @@ fn measure_planner_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1
         }
         let scenario = columns[0];
         let size = columns[1];
+        let iterations: u32 = columns[2]
+            .parse()
+            .context("planner iterations from benchmark CSV")?;
         let p50: f64 = columns[3].parse().context("planner p50")?;
         let p95: f64 = columns[4].parse().context("planner p95")?;
         metrics.push(BaselineMetricV1 {
@@ -373,9 +430,13 @@ fn measure_planner_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1
             unit: "ms".to_owned(),
             p50,
             p95,
-            peak_rss_bytes: current_peak_rss_bytes(),
+            // Planner runs as a cargo subprocess; xtask /proc/self HWM is not the workload RSS.
+            peak_rss_bytes: None,
             network_request_count: None,
-            workload_summary: format!("sync_v1_{scenario}_size_{size}"),
+            samples: Some(iterations),
+            workload_summary: format!("sync_v1_{scenario}_size_{size}_iterations_{iterations}"),
+            result_count: None,
+            warm_path_p50_ms: None,
         });
     }
     if metrics.is_empty() {
@@ -390,14 +451,12 @@ fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
         .join("build/reports/feasibility/measure-sqlite");
     fs::create_dir_all(&root)?;
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut peak = None;
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let path = root.join(format!("probe-{index}.sqlite"));
         drop(fs::remove_file(&path));
         let started = Instant::now();
         run_sqlite_probe(&path).context("sqlite probe")?;
         let elapsed = started.elapsed();
-        peak = max_opt(peak, current_peak_rss_bytes());
         if index >= WARMUP {
             samples.push(duration_ms(elapsed));
         }
@@ -409,9 +468,113 @@ fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
         unit: "ms".to_owned(),
         p50,
         p95,
-        peak_rss_bytes: peak,
+        // In-process probe shares xtask address space; cumulative VmHWM is not isolated RSS.
+        peak_rss_bytes: None,
         network_request_count: None,
+        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
         workload_summary: "bundled_sqlite_wal_fk_fts5_backup_reopen".to_owned(),
+        result_count: None,
+        warm_path_p50_ms: None,
+    })
+}
+
+fn measure_markdown_scale_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
+    let output_dir = workspace.root.join("build/corpora/scale-perf");
+    let request = GenerateRequest {
+        seed: 1,
+        mode: CorpusMode::Scale,
+        output_dir: output_dir.clone(),
+        fixture_root: workspace.root.join("fixtures"),
+    };
+    let manifest = generate_corpus(&request).context("scale corpus for markdown perf")?;
+    let memo_count = manifest
+        .files
+        .iter()
+        .filter(|entry| entry.relative_path.starts_with("memo/"))
+        .count();
+    if memo_count != 100_000 {
+        bail!("scale corpus must materialize 100000 memos, got {memo_count}");
+    }
+    // Isolated process: peak RSS is the bench process only (not xtask HWM).
+    let mut command = cargo(workspace);
+    command.args([
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "lomo-feasibility",
+        "--bin",
+        "lomo-feasibility",
+        "--",
+        "scale-markdown-bench",
+        "--corpus",
+    ]);
+    command.arg(&output_dir);
+    command.args([
+        "--full-samples",
+        &SCALE_MARKDOWN_SAMPLES.to_string(),
+        "--warm-samples",
+        &SAMPLE_COUNT.to_string(),
+    ]);
+    let stdout = text_output(&mut command)?;
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.starts_with("SCALE_MARKDOWN_BENCH "))
+        .with_context(|| format!("missing SCALE_MARKDOWN_BENCH line in: {stdout}"))?;
+    let fields = parse_scale_bench_line(line)?;
+    Ok(BaselineMetricV1 {
+        name: "markdown_scale_100k_memo_parse".to_owned(),
+        unit: "ms".to_owned(),
+        p50: fields.full_p50_ms,
+        p95: fields.full_p95_ms,
+        peak_rss_bytes: Some(fields.peak_rss_bytes),
+        network_request_count: None,
+        samples: Some(u32::try_from(SCALE_MARKDOWN_SAMPLES).unwrap_or(u32::MAX)),
+        workload_summary: format!(
+            "isolated scale-markdown-bench memo_files={} full_samples={} warm_samples={} total_events={}",
+            fields.memo_files, fields.full_samples, fields.warm_samples, fields.total_events
+        ),
+        result_count: Some(fields.result_count),
+        warm_path_p50_ms: Some(fields.warm_p50_ms),
+    })
+}
+
+struct ScaleBenchFields {
+    full_p50_ms: f64,
+    full_p95_ms: f64,
+    warm_p50_ms: f64,
+    result_count: u64,
+    total_events: u64,
+    peak_rss_bytes: u64,
+    full_samples: u32,
+    warm_samples: u32,
+    memo_files: u64,
+}
+
+fn parse_scale_bench_line(line: &str) -> Result<ScaleBenchFields> {
+    let mut map = BTreeMap::new();
+    for token in line.split_whitespace().skip(1) {
+        let Some((key, value)) = token.split_once('=') else {
+            continue;
+        };
+        map.insert(key.to_owned(), value.to_owned());
+    }
+    let require = |key: &str| -> Result<&str> {
+        map.get(key)
+            .map(String::as_str)
+            .with_context(|| format!("missing {key} in scale bench line"))
+    };
+    Ok(ScaleBenchFields {
+        full_p50_ms: require("full_p50_ms")?.parse()?,
+        full_p95_ms: require("full_p95_ms")?.parse()?,
+        warm_p50_ms: require("warm_p50_ms")?.parse()?,
+        result_count: require("result_count")?.parse()?,
+        total_events: require("total_events")?.parse()?,
+        peak_rss_bytes: require("peak_rss_bytes")?.parse()?,
+        full_samples: require("full_samples")?.parse()?,
+        warm_samples: require("warm_samples")?.parse()?,
+        memo_files: require("memo_files")?.parse()?,
     })
 }
 
@@ -433,7 +596,6 @@ fn measure_markdown_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
     }
 
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut peak = None;
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let started = Instant::now();
         for path in &paths {
@@ -448,7 +610,6 @@ fn measure_markdown_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
             }
         }
         let elapsed = started.elapsed();
-        peak = max_opt(peak, current_peak_rss_bytes());
         if index >= WARMUP {
             samples.push(duration_ms(elapsed));
         }
@@ -459,15 +620,17 @@ fn measure_markdown_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
         unit: "ms".to_owned(),
         p50,
         p95,
-        peak_rss_bytes: peak,
+        peak_rss_bytes: None,
         network_request_count: None,
+        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
         workload_summary: format!("fixtures/markdown count={}", paths.len()),
+        result_count: None,
+        warm_path_p50_ms: None,
     })
 }
 
 fn measure_http_metric() -> Result<BaselineMetricV1> {
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut peak = None;
     let mut requests = 0_u64;
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         // Global S3-shaped object state is process-wide; reset before each sample.
@@ -491,7 +654,6 @@ fn measure_http_metric() -> Result<BaselineMetricV1> {
         let stats = fixture.stats();
         requests = stats.requests.max(requests);
         drop(fixture);
-        peak = max_opt(peak, current_peak_rss_bytes());
         if index >= WARMUP {
             samples.push(duration_ms(elapsed));
         }
@@ -502,22 +664,23 @@ fn measure_http_metric() -> Result<BaselineMetricV1> {
         unit: "ms".to_owned(),
         p50,
         p95,
-        peak_rss_bytes: peak,
+        peak_rss_bytes: None,
         network_request_count: Some(requests),
+        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
         workload_summary: "local_https_echo_list_put_timeout".to_owned(),
+        result_count: None,
+        warm_path_p50_ms: None,
     })
 }
 
 fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
     let root = workspace.root.join("build/reports/feasibility/measure-git");
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut peak = None;
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let path = root.join(format!("round-{index}"));
         let started = Instant::now();
         run_local_git_probe(&path).context("git probe")?;
         let elapsed = started.elapsed();
-        peak = max_opt(peak, current_peak_rss_bytes());
         if index >= WARMUP {
             samples.push(duration_ms(elapsed));
         }
@@ -529,9 +692,12 @@ fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
         unit: "ms".to_owned(),
         p50,
         p95,
-        peak_rss_bytes: peak,
+        peak_rss_bytes: None,
         network_request_count: None,
+        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
         workload_summary: "vendored_libgit2_local_bare_transport".to_owned(),
+        result_count: None,
+        warm_path_p50_ms: None,
     })
 }
 
@@ -561,7 +727,10 @@ fn measure_device_smoke_cold_start() -> Result<Option<BaselineMetricV1>> {
         p95,
         peak_rss_bytes: None,
         network_request_count: None,
+        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
         workload_summary: "am_start_W_com.lomo.nativesmoke/.NativeSmokeActivity".to_owned(),
+        result_count: None,
+        warm_path_p50_ms: None,
     }))
 }
 
@@ -659,33 +828,6 @@ fn duration_ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
 }
 
-fn current_peak_rss_bytes() -> Option<u64> {
-    // Linux-only high-water mark; non-Linux hosts report no RSS rather than fabricating numbers.
-    let Ok(status) = fs::read_to_string("/proc/self/status") else {
-        return None;
-    };
-    for line in status.lines() {
-        let Some(value) = line.strip_prefix("VmHWM:") else {
-            continue;
-        };
-        let Some(token) = value.split_whitespace().next() else {
-            continue;
-        };
-        match token.parse::<u64>() {
-            Ok(kb) => return Some(kb.saturating_mul(1024)),
-            Err(_) => return None,
-        }
-    }
-    None
-}
-
-fn max_opt(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (a, b) => a.or(b),
-    }
-}
-
 fn git_revision(workspace: &Workspace) -> Result<String> {
     let mut command = Command::new("git");
     command
@@ -695,7 +837,16 @@ fn git_revision(workspace: &Workspace) -> Result<String> {
     if value.is_empty() {
         bail!("git revision is empty");
     }
-    Ok(value)
+    let mut status = Command::new("git");
+    status
+        .args(["status", "--porcelain"])
+        .current_dir(&workspace.root);
+    let porcelain = text_output(&mut status)?;
+    if porcelain.trim().is_empty() {
+        Ok(value)
+    } else {
+        Ok(format!("{value}-dirty"))
+    }
 }
 
 fn rustc_version(_workspace: &Workspace) -> Result<String> {

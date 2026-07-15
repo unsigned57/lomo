@@ -136,18 +136,18 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
     let mut install = Command::new(&adb);
     install.args(["install", "-r"]).arg(&apk);
     run(&mut install)?;
-    let mut launch = Command::new(&adb);
-    launch.args([
-        "shell",
-        "am",
-        "start",
-        "-W",
-        "-n",
-        "com.lomo.nativesmoke/.NativeSmokeActivity",
-    ]);
-    run(&mut launch)?;
+    // Clear app data so durable journal recovery starts from a clean seed phase.
+    let mut clear_data = Command::new(&adb);
+    clear_data.args(["shell", "pm", "clear", "com.lomo.nativesmoke"]);
+    run(&mut clear_data)
+        .context("pm clear com.lomo.nativesmoke must succeed for hermetic journal")?;
 
-    for _ in 0..60 {
+    launch_native_smoke(&adb)?;
+
+    // seed → gap → recover may each force-kill; allow multiple RESTART_REQUIRED relaunches.
+    let mut restart_count = 0_u32;
+    let mut seen_restart_marker = 0_u32;
+    for _ in 0..180 {
         let mut logs = Command::new(&adb);
         logs.args(["logcat", "-d", "-s", "LomoNativeSmoke:I", "*:S"]);
         let logs = text_output(&mut logs)?;
@@ -158,9 +158,33 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
         if logs.contains("FAIL") {
             bail!("device smoke reported failure:\n{logs}");
         }
+        let restart_markers =
+            u32::try_from(logs.matches("RESTART_REQUIRED").count()).unwrap_or(u32::MAX);
+        if restart_markers > seen_restart_marker && restart_count < 4 {
+            seen_restart_marker = restart_markers;
+            restart_count += 1;
+            eprintln!(
+                "xtask: relaunching native-smoke for durable recovery (restart {restart_count})"
+            );
+            thread::sleep(Duration::from_millis(500));
+            launch_native_smoke(&adb)?;
+        }
         thread::sleep(Duration::from_millis(250));
     }
-    bail!("device smoke did not report PASS within 15 seconds")
+    bail!("device smoke did not report PASS within 45 seconds")
+}
+
+fn launch_native_smoke(adb: &Path) -> Result<()> {
+    let mut launch = Command::new(adb);
+    launch.args([
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-n",
+        "com.lomo.nativesmoke/.NativeSmokeActivity",
+    ]);
+    run(&mut launch)
 }
 
 fn validate_apk_elf(workspace: &Workspace, apk: &Path, entry: &str, abi: Abi) -> Result<()> {

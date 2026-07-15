@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "fixture": "gfm-extensions.md",
+  "tag_count": 0,
+  "tags": [],
+  "attachment_count": 1,
+  "attachments": [
+    "media/voice/a.m4a"
+  ],
+  "checkbox_checked": 1,
+  "checkbox_unchecked": 1,
+  "http_link_count": 0
+}

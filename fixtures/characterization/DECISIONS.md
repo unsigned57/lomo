@@ -11,10 +11,15 @@ that must not be golden-locked as product truth.
 | `markdown/dst-edge.md` | **external contract (logical times only)** | Absolute epoch depends on host zone; goldens lock time headers + ids, not epoch millis |
 | `remote/*` | **external contract** | Path layout rules only; no live network |
 | `git/scenarios.json` | **external contract** | Scenario ids/kinds for corpus materialization |
-| `git/EVIDENCE.md` | **evidence boundary** | Bare local push/fetch/rebase proven; smart-HTTP/TLS deferred to stage-4 entry on same `git2` stack |
-| rclone ciphertext vectors | **deferred (slot)** | Placeholder identities until verified rclone vectors land — do not lock fake ciphertext |
-| markdown semantic counters | **external contract (UI-neutral)** | heading/link/image/event counts only; formal `RenderDocument` IR is stage 2 |
-| SAF DocumentsProvider in native-smoke | **tooling-only** | Must not become production SAF policy; stage-1 formal platform batch replaces it |
+| `git/EVIDENCE.md` | **evidence boundary** | Host bare + smart-HTTP partial (DER pin, credentials); device/runtime still open — see STAGE0-STATUS |
+| rclone ciphertext vectors | **external contract** | `status=verified` vectors from rclone crypt (standard filename encryption + directory name encryption); regenerate with the documented passwords only |
+| markdown semantic counters (storage-visible) | **external contract (storage helpers)** | tags/attachments via `MemoTextProcessor` + regex under `characterization/semantic/` |
+| UI semantic parser (`parseMarkdownSemanticDocument`) | **external contract (UI)** | under `characterization/semantic-ui/` |
+| room **query results** | **external contract (P0-04)** | language-neutral capability goldens under `room-query/` — **no Entity/DAO type names** |
+| room schema-surface inventory | **internal inventory only** | entity/DAO/`@Query` names for developers; **not** the P0-04 golden exit |
+| storage double-parse stability | **external contract** | second parse keeps id/content/tags/spans |
+| unedited write-back (open-file bytes) | **external contract (P0-07)** | identity rewrite preserves BOM + CRLF/LF bytes |
+| SAF DocumentsProvider in native-smoke | **tooling-only** | create/read/replace/rename/**move**/delete |
 
 When a suspected defect appears during characterization: stop, add a row here, and either fix the
 parser or mark the fixture as non-contract with an explicit exclusion. Never commit a golden that

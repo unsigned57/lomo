@@ -19,8 +19,8 @@ internal fun replaceMemoBlockContent(
     if (!span.isValidFor(lines)) {
         return null
     }
-    return rebuildMemoContent(
-        lines = lines,
+    return rebuildMemoDocument(
+        originalContent = currentFileContent,
         startIndex = span.startLine,
         endIndex = span.endLine,
         replacementLines = replacementLines,
@@ -38,7 +38,8 @@ internal fun removeMemoBlockFromContent(
     val span = block.span
     return if (span.isValidFor(lines)) {
         RemovedMemoBlock(
-            remainingContent = rebuildRemainingMemoContent(lines, span.startLine, span.endLine),
+            remainingContent =
+                rebuildRemainingMemoContent(content, span.startLine, span.endLine),
             blockContent = lines.toBlockContent(span),
         )
     } else {
@@ -68,21 +69,23 @@ internal fun String?.toPersistedUriOrNull(): Uri? =
         ?.let(Uri::parse)
 
 private fun rebuildRemainingMemoContent(
-    lines: List<String>,
+    originalContent: String,
     startIndex: Int,
     endIndex: Int,
-): String =
-    buildString(lines.sumOf(String::length) + lines.size) {
-        for (index in lines.indices) {
-            if (index in startIndex..endIndex) {
-                continue
+): String {
+    val lineSeparator = detectLineSeparator(originalContent)
+    val lines = splitDocumentLines(originalContent)
+    val kept =
+        buildList(lines.size) {
+            for (index in lines.indices) {
+                if (index in startIndex..endIndex) {
+                    continue
+                }
+                add(lines[index])
             }
-            if (isNotEmpty()) {
-                append('\n')
-            }
-            append(lines[index])
         }
-    }
+    return joinDocumentLines(kept, lineSeparator, originalContent)
+}
 
 private fun findParsedMemoBlock(
     content: String,

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "fixture": "thino-basic.md",
+  "tag_count": 2,
+  "tags": [
+    "日记",
+    "标签/层级"
+  ],
+  "attachment_count": 0,
+  "attachments": [],
+  "checkbox_checked": 0,
+  "checkbox_unchecked": 0,
+  "http_link_count": 0
+}
