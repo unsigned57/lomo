@@ -10,6 +10,10 @@ if [ ! -f "$justfile" ]; then
   exit 1
 fi
 
+# Lightweight commit gate only: format + staged test contracts.
+# Heavy verification lives on pre-push (check) and handoff/CI (ci).
+# Manual path-aware iteration remains available via the preflight Just recipe.
+
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
   staged_kotlin_files+=("$file")
@@ -59,5 +63,4 @@ fi
 echo "pre-commit: checking meaningful test contracts on staged tests..."
 MEANINGFUL_TEST_CHECK_MODE=staged "$meaningful_test_script"
 
-echo "pre-commit: running path-aware preflight gate..."
-just --justfile "$justfile" preflight
+echo "pre-commit: lightweight gate complete (use preflight/check before push when needed)"

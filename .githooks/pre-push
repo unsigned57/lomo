@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
+# Heavy iterative gate once per push. Pre-commit stays lightweight (fmt + contracts).
+# Coverage + fat-LTO remain on GitHub Actions / local merge handoff (ci recipe).
 echo "pre-push: running iterative repository gate (just check)..."
-echo "pre-push: full coverage + fat-LTO gate remains on GitHub Actions / local handoff."
 just --justfile "$repo_root/Justfile" check
+echo "pre-push: check complete; run the ci recipe for coverage/fat-LTO before merge handoff"

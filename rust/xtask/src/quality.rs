@@ -431,12 +431,11 @@ fn is_native_path(path: &str) -> bool {
 }
 
 fn is_quality_infra(path: &str) -> bool {
+    // Executable gate ownership only. Narrative docs (AGENTS/ARCHITECTURE/README) are docs paths.
     path.starts_with("quality/")
         || path.starts_with(".githooks/")
         || path.starts_with(".github/workflows/")
         || path == "Justfile"
-        || path == "AGENTS.md"
-        || path == "ARCHITECTURE.md"
         || path == "project.yaml"
 }
 
@@ -445,8 +444,14 @@ fn is_docs_path(path: &str) -> bool {
         .extension()
         .is_some_and(|value| value.eq_ignore_ascii_case("md"))
         || path.starts_with("docs/")
+        || path.starts_with("fixtures/")
         || path == "LICENSE"
         || path == "README.md"
+        || path == "README_CN.md"
+        || path == "AGENTS.md"
+        || path == "ARCHITECTURE.md"
+        || path == "ROADMAP.MD"
+        || path == "plan.md"
         || path == "README_CN.md"
         || path == "ROADMAP.MD"
         || path == "plan.md"

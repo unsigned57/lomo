@@ -12,8 +12,8 @@ xtask; they are not public quality orchestrators.
 | Install pinned Rust tools, targets, and NDK | `just bootstrap` |
 | Format staged/all sources or check formatting | `just fmt staged`, `just fmt all`, `just fmt check` |
 | Run Rust and Kotlin host tests | `just test` |
-| Path-aware commit gate | `just preflight` |
-| Iterative repository gate | `just check` |
+| Path-aware iterative gate (manual) | `just preflight` |
+| Iterative repository gate (pre-push) | `just check` |
 | Generate four-ABI release native outputs and bindings | `just native` |
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
@@ -30,7 +30,8 @@ configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PA
 
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
-| `just preflight` | Path-aware subset: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add the matching native generation and Kotlin surfaces | unrelated languages, coverage, fat-LTO, device smoke |
+| pre-commit hook | `just fmt staged`, staged meaningful-test contracts | all compile/test/native gates (so multi-commit stacks stay cheap) |
+| `just preflight` | Path-aware subset for manual iteration: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add matching native generation and Kotlin surfaces | coverage, fat-LTO, device smoke; not attached to every commit |
 | `just test` | Cargo nextest + doc tests; Kotlin host tests | static analysis, coverage, native/APK validation |
 | `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
@@ -54,9 +55,13 @@ cargo run --manifest-path rust/Cargo.toml --locked -p lomo-feasibility -- \
 
 | Hook | Runs | Why |
 | --- | --- | --- |
-| pre-commit | `just fmt staged`, staged meaningful-test policy, `just preflight` | Fast feedback scoped to staged paths |
-| pre-push | `just check` | Full iterative gate before remote update |
+| pre-commit | `just fmt staged`, staged meaningful-test policy | Cheap per-commit feedback; does **not** re-run compile/test/native for every commit in a stack |
+| pre-push | `just check` | One iterative gate before remote update |
 | merge / handoff | `just ci` (local) + GitHub PR workflow | Coverage, fat-LTO release semantics, path-filtered remote jobs |
+
+Use `just preflight` while iterating when you want a path-aware subset without waiting for a full
+`just check`. Splitting a branch into several commits should only multiply the lightweight
+pre-commit surface, not N full quality gates.
 
 ### GitHub Actions PR surface
 

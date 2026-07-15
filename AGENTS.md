@@ -76,13 +76,15 @@ Run commands from the repository root. `Justfile` delegates to repository-owned 
 local and CI orchestration share one graph.
 
 - **Bootstrap**: `just bootstrap`
-- **Commit preflight**: `just preflight` (path-aware; also run by the pre-commit hook)
-- **Iterative Check**: `just check` (also run by the pre-push hook)
+- **Lightweight commit hook**: format staged sources + staged meaningful-test contracts only
+- **Path-aware iteration**: `just preflight` (manual; not on every commit)
+- **Iterative Check**: `just check` (pre-push hook and local iterative validation)
 - **Full Gate**: `just ci` (coverage + fat-LTO release native; PR/merge handoff and local confirmation)
 - **Device Smoke**: `just device-smoke`
 - **Android Build**: `just android debug` or `just android release`
-- **Commit Rule**: hooks run path-aware `just preflight` on commit and `just check` on push;
-  before merge or shared-branch handoff run `just ci` (GitHub Actions enforces the PR surface)
+- **Commit Rule**: pre-commit stays cheap (fmt + contracts); pre-push runs `just check`; before merge
+  or shared-branch handoff run `just ci` (GitHub Actions enforces the PR surface). Use
+  `just preflight` while iterating when you want a path-aware subset without a full check.
 
 ## 6. Repository Facts
 

@@ -289,12 +289,14 @@ mod tests {
             "native xtask must expose the release-ci profile"
         );
         assert!(
-            pre_commit.contains("preflight"),
-            "pre-commit must run the path-aware preflight gate"
+            pre_commit.contains("fmt staged") && pre_commit.contains("check_meaningful_tests"),
+            "pre-commit must stay lightweight: format + staged meaningful-test contracts"
         );
         assert!(
-            !pre_commit.contains("just check") && !pre_commit.contains("just ci"),
-            "pre-commit must not run the full check/ci surfaces"
+            !pre_commit.contains("just preflight")
+                && !pre_commit.contains("just check")
+                && !pre_commit.contains("just ci"),
+            "pre-commit must not run preflight/check/ci (those are push/handoff gates)"
         );
         assert!(
             pre_push.contains("just check") || pre_push.contains(" just check"),
