@@ -100,7 +100,7 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 <details>
 <summary>Tech stack</summary>
 
-- **Language:** Kotlin
+- **Languages:** Kotlin + Rust (native infrastructure through UniFFI)
 - **UI:** Jetpack Compose (Material 3)
 - **Architecture:** MVVM + Clean Architecture (Domain / Data / UI)
 - **DI:** Koin
@@ -114,20 +114,29 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 <details>
 <summary>Building</summary>
 
-**Prerequisites:** JDK 26 · Android SDK API 37 · just
+**Prerequisites:** JDK 26 · Android SDK API 37 · Rustup · just
 
 ```bash
-# Build Debug APK
-just debug
+# Install pinned Rust tools, targets, and Android NDK
+just bootstrap
 
-# Run unit tests
+# Build and validate Debug APK
+just android debug
+
+# Run Rust and Kotlin host tests
 just test
 
-# Full pre-merge gate
-just quality
+# Iterative / full pre-merge gates
+just check
+just ci
 ```
 
-Or open the project in Android Studio (Ladybug or newer recommended), use the Kotlin Toolchain project model, and run on an emulator or device.
+`rust-bindings/src` and native `.so` files are generated build outputs; a clean checkout is the
+expected input. Signed release builds use `just android release` and require explicit keystore
+configuration documented in `quality/release.md`.
+
+Android Studio may still be used for editing and device work, but repository verification and
+native generation must use the commands above.
 
 </details>
 
