@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "backend": "webdav",
+  "description": "Existing Lomo WebDAV directory layout contract.",
+  "collection_paths": [
+    "lomo/",
+    "lomo/memo/",
+    "lomo/media/",
+    "lomo/voice/"
+  ],
+  "sample_resources": [
+    {
+      "href": "lomo/memo/2024-01-02.md",
+      "etag": "W/\"1\"",
+      "content_type": "text/markdown",
+      "is_collection": false
+    },
+    {
+      "href": "lomo/media/",
+      "etag": "W/\"dir\"",
+      "content_type": "httpd/unix-directory",
+      "is_collection": true
+    }
+  ],
+  "path_rules": {
+    "forbid_absolute": true,
+    "forbid_parent_segments": true,
+    "normalized_slashes": true
+  }
+}

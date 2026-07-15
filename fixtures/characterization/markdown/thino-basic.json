@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "fixture": "thino-basic.md",
+  "filename_stem": "20240602",
+  "byte_length": 88,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "20240602_08:30:00_0",
+      "content": "Thino-style diary entry #日记",
+      "tags": [
+        "日记"
+      ],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 2
+    },
+    {
+      "id": "20240602_20:45:12_0",
+      "content": "Evening note with #标签/层级",
+      "tags": [
+        "标签/层级"
+      ],
+      "attachments": [],
+      "start_line": 3,
+      "end_line": 5
+    }
+  ]
+}

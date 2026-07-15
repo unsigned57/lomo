@@ -1,0 +1,100 @@
+{
+  "apk": {
+    "debug_universal_compressed_bytes": 91198622,
+    "hard_gate_max_compressed_bytes": 104878416,
+    "hard_gate_multiplier": 1.15,
+    "kind": "host_relative_baseline",
+    "source": "just perf / find_latest_debug_apk under .kotlin/toolchain-build"
+  },
+  "description": "Exact package/native size baseline plus host/device relative time metrics from `just perf`.",
+  "measurement_notes": [
+    "liblomo_native.so sizes are from production app/jniLibs packaging (feasibility-probe disabled).",
+    "native-smoke/jniLibs may be larger when built with --features feasibility-probe; smoke size is not the APK gate.",
+    "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
+    "Time/RSS metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
+    "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
+    "Two measurement rounds must stay within 10% relative p50 or the metric is excluded from the established baseline."
+  ],
+  "native": {
+    "libjnidispatch_so_bytes": {
+      "arm64-v8a": 176520,
+      "armeabi-v7a": 126496,
+      "x86": 124380,
+      "x86_64": 126912
+    },
+    "liblomo_native_so_bytes": {
+      "arm64-v8a": 445064,
+      "armeabi-v7a": 308228,
+      "x86": 500996,
+      "x86_64": 494056
+    }
+  },
+  "performance": {
+    "device": {
+      "abi": "arm64-v8a",
+      "api_level": 36,
+      "kind": "attached_device_plus_host_probes"
+    },
+    "metrics": [
+      {
+        "name": "planner_local_only_pure_1000",
+        "network_request_count": null,
+        "p50": 0.364,
+        "p95": 0.3695,
+        "peak_rss_bytes": 38592512,
+        "unit": "ms",
+        "workload_summary": "sync_v1_local_only_pure_size_1000"
+      },
+      {
+        "name": "planner_high_conflict_pure_1000",
+        "network_request_count": null,
+        "p50": 1.0285,
+        "p95": 1.0415,
+        "peak_rss_bytes": 38592512,
+        "unit": "ms",
+        "workload_summary": "sync_v1_high_conflict_pure_size_1000"
+      },
+      {
+        "name": "planner_long_path_envelope_1000",
+        "network_request_count": null,
+        "p50": 0.47350000000000003,
+        "p95": 0.495,
+        "peak_rss_bytes": 38592512,
+        "unit": "ms",
+        "workload_summary": "sync_v1_long_path_envelope_size_1000"
+      },
+      {
+        "name": "sqlite_probe_wal_fts_backup",
+        "network_request_count": null,
+        "p50": 90.14359300000001,
+        "p95": 95.3020915,
+        "peak_rss_bytes": 38592512,
+        "unit": "ms",
+        "workload_summary": "bundled_sqlite_wal_fk_fts5_backup_reopen"
+      },
+      {
+        "name": "markdown_fixture_set_parse",
+        "network_request_count": null,
+        "p50": 0.295651,
+        "p95": 0.30282950000000003,
+        "peak_rss_bytes": 38592512,
+        "unit": "ms",
+        "workload_summary": "fixtures/markdown count=11"
+      },
+      {
+        "name": "native_smoke_cold_start_wait_ms",
+        "network_request_count": null,
+        "p50": 221.0,
+        "p95": 249.0,
+        "peak_rss_bytes": null,
+        "unit": "ms",
+        "workload_summary": "am_start_W_com.lomo.nativesmoke/.NativeSmokeActivity"
+      }
+    ],
+    "policy": "Relative host/device baselines only; arm64 device evidence remains a stage-2 hard gate before first production ownership switch.",
+    "required_device": "API 26+ attached device or host for relative metrics",
+    "sample_count": 21,
+    "status": "established"
+  },
+  "schema_version": 1
+}

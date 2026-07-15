@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "fixture": "lomo-basic.md",
+  "filename_stem": "2024-06-01",
+  "byte_length": 153,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "2024-06-01_09:00:00_0",
+      "content": "Morning #life/note\n\nFirst Lomo memo of the day.",
+      "tags": [
+        "life/note"
+      ],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 4
+    },
+    {
+      "id": "2024-06-01_09:15:30_0",
+      "content": "Second memo with a [link](https://example.com) and image ![shot](media/img/a.jpg)",
+      "tags": [],
+      "attachments": [
+        "media/img/a.jpg"
+      ],
+      "start_line": 5,
+      "end_line": 7
+    }
+  ]
+}

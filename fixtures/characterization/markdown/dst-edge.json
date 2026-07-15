@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "fixture": "dst-edge.md",
+  "filename_stem": "2024-03-10",
+  "byte_length": 157,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "2024-03-10_01:30:00_0",
+      "content": "Memo near spring-forward ambiguous hour (locale-dependent interpretation).",
+      "tags": [],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 2
+    },
+    {
+      "id": "2024-03-10_02:30:00_0",
+      "content": "Memo in the skipped/repeated DST window depending on zone.",
+      "tags": [],
+      "attachments": [],
+      "start_line": 3,
+      "end_line": 5
+    }
+  ]
+}

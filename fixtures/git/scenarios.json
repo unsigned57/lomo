@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "description": "Git workspace scenarios materialized by the corpus generator (no large histories committed).",
+  "scenarios": [
+    {
+      "id": "ordinary",
+      "kind": "ordinary",
+      "seed_files": ["memo/2024-01-02.md"],
+      "notes": "Clean single-commit history with Lomo layout."
+    },
+    {
+      "id": "shallow",
+      "kind": "shallow",
+      "seed_files": ["memo/2024-01-02.md", "memo/2024-01-03.md"],
+      "notes": "Shallow clone descriptor: depth=1 expected when materializing."
+    },
+    {
+      "id": "diverged",
+      "kind": "diverged",
+      "seed_files": ["memo/2024-01-02.md"],
+      "notes": "Local and remote diverge on the same path."
+    },
+    {
+      "id": "conflict",
+      "kind": "conflict",
+      "seed_files": ["memo/2024-01-02.md"],
+      "notes": "Rebase/merge conflict marker scenario for durable conflict intake."
+    },
+    {
+      "id": "dirty",
+      "kind": "dirty",
+      "seed_files": ["memo/2024-01-02.md"],
+      "notes": "Uncommitted local edits present in the worktree."
+    }
+  ]
+}

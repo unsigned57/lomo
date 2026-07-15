@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "description": "Markdown fixture inventory for P0-07. Semantic parse counters come from rust/feasibility markdown probe contracts.",
+  "fixtures": [
+    {
+      "path": "markdown/bom-newline.md",
+      "byte_length": 87,
+      "sha256": "f935aba618a272768ce7ae037336f9319e7e1de2b9cfedd0093d8d75fb12ff64",
+      "utf8": true
+    },
+    {
+      "path": "markdown/cjk-emoji.md",
+      "byte_length": 125,
+      "sha256": "6b04c9ca531728adc2f12428482cc9cfeddf5b00c93764e860f4449f320c1710",
+      "utf8": true
+    },
+    {
+      "path": "markdown/dst-edge.md",
+      "byte_length": 157,
+      "sha256": "d6a08447e2bb74c405b06ff943984427a4b8758c4c78233435b019a3d3aeaf54",
+      "utf8": true
+    },
+    {
+      "path": "markdown/duplicate-timestamps.md",
+      "byte_length": 124,
+      "sha256": "b5c3bd2900d5582c75906c291604bef142b92b8d50be930ca0e953de3678816a",
+      "utf8": true
+    },
+    {
+      "path": "markdown/empty.md",
+      "byte_length": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "utf8": true
+    },
+    {
+      "path": "markdown/gfm-extensions.md",
+      "byte_length": 303,
+      "sha256": "d63dae4ad72aaf5016da2a5c99829136340f608315a5e82c73434dc0281f7d1a",
+      "utf8": true
+    },
+    {
+      "path": "markdown/invalid-utf8.bin",
+      "byte_length": 39,
+      "sha256": "51df3a893aa3f9ee5514bb17e7edc5915a3e9de8094ea0009adbb1358a50a9d6",
+      "utf8": false,
+      "parse": "invalid_utf8"
+    },
+    {
+      "path": "markdown/lomo-basic.md",
+      "byte_length": 153,
+      "sha256": "2c30eb37e479af4929f6f42be3d63094d5a6f3f9af16564bc9fc090e6a11e827",
+      "utf8": true
+    },
+    {
+      "path": "markdown/long-line.md",
+      "byte_length": 656,
+      "sha256": "c1ccec1d95e79d17c33c37ed1ad28064043047189e795a173dc7408837a902f3",
+      "utf8": true
+    },
+    {
+      "path": "markdown/plain.md",
+      "byte_length": 180,
+      "sha256": "e2576f5271d68eb015f10bd29c88bf1090f59264a17eb42716f7c54b461a5555",
+      "utf8": true
+    },
+    {
+      "path": "markdown/thino-basic.md",
+      "byte_length": 88,
+      "sha256": "0dc57b4ec81e324a36ca4071a49a54f4d694d999ceb02ff9fdeddb783b0f3bb5",
+      "utf8": true
+    }
+  ],
+  "contracts": {
+    "offset_events": "pulldown-cmark into_offset_iter (markdown_probe_contract)",
+    "invalid_utf8": "fail closed MarkdownProbeError::InvalidUtf8",
+    "bytes_stable_read_only": "bytes_stable_after_parse requires unchanged source bytes",
+    "gfm_features": [
+      "tables",
+      "tasklists",
+      "strikethrough"
+    ],
+    "ui_render_ir": "deferred to stage 2; stage-0 only UI-neutral counters"
+  }
+}

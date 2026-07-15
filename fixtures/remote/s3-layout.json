@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "backend": "s3",
+  "description": "Existing Lomo S3 remote layout contract (paths only; no credentials).",
+  "bucket_relative_roots": [
+    "lomo/memo/",
+    "lomo/media/",
+    "lomo/voice/",
+    "lomo/.index/"
+  ],
+  "sample_objects": [
+    {
+      "key": "lomo/memo/2024-01-02.md",
+      "etag": "\"deadbeefcafebabe\"",
+      "size_bytes": 128,
+      "storage_class": "STANDARD"
+    },
+    {
+      "key": "lomo/media/img/a.jpg",
+      "etag": "\"0123456789abcdef\"",
+      "size_bytes": 4096,
+      "storage_class": "STANDARD"
+    }
+  ],
+  "path_rules": {
+    "forbid_absolute": true,
+    "forbid_parent_segments": true,
+    "prefix_must_start_with": "lomo/"
+  }
+}

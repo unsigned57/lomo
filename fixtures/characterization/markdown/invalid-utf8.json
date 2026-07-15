@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "fixture": "invalid-utf8.bin",
+  "filename_stem": "2024-06-09",
+  "byte_length": 39,
+  "outcome": "error",
+  "error_class": "utf8_decode",
+  "memos": []
+}

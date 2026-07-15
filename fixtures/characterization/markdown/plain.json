@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "fixture": "plain.md",
+  "filename_stem": "plain-note",
+  "byte_length": 180,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "plain-note_00:00:00_0",
+      "content": "# Plain Markdown fallback\n\nNo Lomo time headers. Tags #plain and emoji 🚀 should still be discoverable.\n\n- [ ] task item\n- [x] done item\n\n| col | value |\n| --- | --- |\n| a | 1 |",
+      "tags": [
+        "plain"
+      ],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 10
+    }
+  ]
+}

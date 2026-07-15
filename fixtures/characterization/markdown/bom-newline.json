@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "fixture": "bom-newline.md",
+  "filename_stem": "2024-06-04",
+  "byte_length": 87,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "2024-06-04_10:00:00_0",
+      "content": "BOM-prefixed Lomo memo",
+      "tags": [],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 2
+    },
+    {
+      "id": "2024-06-04_10:00:01_0",
+      "content": "Second block after CRLF endings.",
+      "tags": [],
+      "attachments": [],
+      "start_line": 3,
+      "end_line": 5
+    }
+  ]
+}

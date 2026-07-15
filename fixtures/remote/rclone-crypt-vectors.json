@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "description": "rclone crypt compatibility golden vectors for filename/directory/data modes. Secrets are test-only and not production credentials.",
+  "password": "fixture-test-password",
+  "password2": "fixture-test-salt",
+  "filename_encryption": "standard",
+  "directory_name_encryption": true,
+  "filename_encoding": "base64",
+  "vectors": [
+    {
+      "id": "plain-memo-name",
+      "plaintext_path": "lomo/memo/2024-01-02.md",
+      "mode": "filename",
+      "notes": "Placeholder vector identity for stage-0 corpus wiring; P0-08 must replace ciphertext with verified rclone outputs."
+    },
+    {
+      "id": "plain-dir-name",
+      "plaintext_path": "lomo/media",
+      "mode": "directory",
+      "notes": "Directory name encryption vector slot."
+    },
+    {
+      "id": "plain-data-block",
+      "plaintext_utf8": "hello-lomo-fixture",
+      "mode": "data",
+      "notes": "Data encryption vector slot for stream body."
+    }
+  ]
+}

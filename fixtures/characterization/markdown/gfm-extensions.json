@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "fixture": "gfm-extensions.md",
+  "filename_stem": "2024-06-08",
+  "byte_length": 303,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "2024-06-08_14:00:00_0",
+      "content": "## Heading\n\nParagraph with **bold**, *italic*, `code`, and ~~strike~~.\n\n> blockquote\n\n```rust\nfn main() {}\n```\n\n- [ ] unchecked\n- [x] checked\n\n| h1 | h2 |\n| --- | --- |\n| 1 | 2 |\n\nWiki-style [[Note Title]] and highlight ==glow== and raw <span>html</span>.\n\nAudio: ![voice](media/voice/a.m4a)",
+      "tags": [],
+      "attachments": [
+        "media/voice/a.m4a"
+      ],
+      "start_line": 0,
+      "end_line": 21
+    }
+  ]
+}

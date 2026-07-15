@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "fixture": "duplicate-timestamps.md",
+  "filename_stem": "2024-06-06",
+  "byte_length": 124,
+  "outcome": "ok",
+  "error_class": null,
+  "memos": [
+    {
+      "id": "2024-06-06_12:00:00_0",
+      "content": "First of two identical timestamps.",
+      "tags": [],
+      "attachments": [],
+      "start_line": 0,
+      "end_line": 2
+    },
+    {
+      "id": "2024-06-06_12:00:00_1",
+      "content": "Second of two identical timestamps — identity must use ordinal.",
+      "tags": [],
+      "attachments": [],
+      "start_line": 3,
+      "end_line": 5
+    }
+  ]
+}
