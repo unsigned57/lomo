@@ -32,6 +32,7 @@ repositories:
 
 dependencies:
   - //domain: exported
+  - //rust-bindings
   - bom: aws.sdk.kotlin:bom:1.6.73
   - androidx.core:core-ktx:1.18.0
   - aws.sdk.kotlin:s3

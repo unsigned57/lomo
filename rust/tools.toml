@@ -1,0 +1,10 @@
+[quality]
+cargo-deny = "0.19.9"
+cargo-nextest = "0.9.138"
+cargo-llvm-cov = "0.8.7"
+cargo-machete = "0.9.2"
+cargo-ndk = "4.1.2"
+
+[diagnostics]
+cargo-bloat = "0.12.1"
+cargo-llvm-lines = "0.4.46"

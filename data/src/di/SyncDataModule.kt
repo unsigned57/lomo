@@ -101,8 +101,11 @@ import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.sync.GitSyncWorkPolicyPlanner
+import com.lomo.data.sync.RustSyncEnvelopePlanner
+import com.lomo.data.sync.RustSyncPlannerClient
 import com.lomo.data.sync.WebDavSyncWorkPolicyPlanner
 import com.lomo.data.sync.S3SyncWorkPolicyPlanner
+import com.lomo.data.sync.UniFfiRustSyncEnvelopePlanner
 import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.DefaultWebDavEndpointResolver
 import com.lomo.data.webdav.WebDavClientFactory
@@ -141,6 +144,8 @@ import org.koin.dsl.bind
 
 val syncDataModule = module {
     singleOf(::SyncHttpClientProvider)
+    single<RustSyncEnvelopePlanner> { UniFfiRustSyncEnvelopePlanner }
+    singleOf(::RustSyncPlannerClient)
 
     // Planners
     single { WebDavSyncPlanner() }

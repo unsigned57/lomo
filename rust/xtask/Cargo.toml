@@ -1,0 +1,18 @@
+[package]
+name = "lomo-xtask"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+lomo-feasibility = { path = "../feasibility" }
+serde_json.workspace = true
+sha2.workspace = true
+uniffi_bindgen.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,59 @@
+[package]
+name = "lomo-feasibility"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[bin]]
+name = "lomo-feasibility"
+path = "src/main.rs"
+
+[[test]]
+name = "report_contract"
+path = "tests/report_contract.rs"
+
+[[test]]
+name = "corpus_contract"
+path = "tests/corpus_contract.rs"
+
+[[test]]
+name = "redaction_contract"
+path = "tests/redaction_contract.rs"
+
+[[test]]
+name = "generate_contract"
+path = "tests/generate_contract.rs"
+
+[[test]]
+name = "sqlite_probe_contract"
+path = "tests/sqlite_probe_contract.rs"
+
+[[test]]
+name = "markdown_probe_contract"
+path = "tests/markdown_probe_contract.rs"
+
+[[test]]
+name = "http_probe_contract"
+path = "tests/http_probe_contract.rs"
+
+[[test]]
+name = "git_probe_contract"
+path = "tests/git_probe_contract.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+rusqlite.workspace = true
+pulldown-cmark.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+git2.workspace = true
+
+[lints]
+workspace = true

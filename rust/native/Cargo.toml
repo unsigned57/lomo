@@ -1,0 +1,23 @@
+[package]
+name = "lomo-native"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Tooling-only UniFFI surface for stage-0 FFI/lifecycle probes. Production APK builds
+# must leave this disabled; native-smoke may enable it explicitly.
+feasibility-probe = []
+
+[dependencies]
+lomo-sync-core = { path = "../sync-core" }
+uniffi.workspace = true
+
+[lints]
+workspace = true

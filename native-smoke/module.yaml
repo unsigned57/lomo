@@ -1,0 +1,19 @@
+product: android/app
+
+settings:
+  android:
+    namespace: com.lomo.nativesmoke
+    applicationId: com.lomo.nativesmoke
+    minSdk: 26
+    compileSdk: 37
+    targetSdk: 37
+  jvm:
+    release: 25
+    jdk:
+      version: 26
+      selectionMode: javaHome
+  kotlin:
+    allWarningsAsErrors: true
+
+dependencies:
+  - //rust-bindings

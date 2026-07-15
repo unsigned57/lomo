@@ -1,0 +1,81 @@
+[workspace]
+resolver = "3"
+members = ["architecture-tests", "feasibility", "native", "sync-core", "xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.96"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+anyhow = "=1.0.103"
+camino = "=1.2.4"
+serde = { version = "=1.0.228", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+thiserror = "=2.0.18"
+# Approved non-pure-Rust exception for stage-0 SQLite feasibility (bundled only).
+rusqlite = { version = "=0.40.1", default-features = false, features = ["bundled", "backup"] }
+pulldown-cmark = { version = "=0.13.4", default-features = false }
+# Network feasibility: Rustls only (no native TLS). Used by tooling probes, not production.
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking"] }
+rustls = { version = "=0.23.37", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls-pki-types = "=1.14.0"
+rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+# Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl).
+git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }
+uniffi = "=0.32.0"
+uniffi_bindgen = "=0.32.0"
+
+[workspace.lints.rust]
+warnings = "deny"
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"
+allow_attributes_without_reason = "deny"
+assertions_on_result_states = "deny"
+clone_on_ref_ptr = "deny"
+cognitive_complexity = "deny"
+dbg_macro = "deny"
+drop_non_drop = "deny"
+enum_glob_use = "deny"
+excessive_nesting = "deny"
+fn_params_excessive_bools = "deny"
+let_underscore_must_use = "deny"
+let_underscore_untyped = "deny"
+map_err_ignore = "deny"
+mem_forget = "deny"
+module_inception = "deny"
+mutex_integer = "deny"
+panic_in_result_fn = "deny"
+rc_buffer = "deny"
+rc_mutex = "deny"
+struct_excessive_bools = "deny"
+tests_outside_test_module = "deny"
+todo = "deny"
+too_many_arguments = "deny"
+too_many_lines = "deny"
+type_complexity = "deny"
+unimplemented = "deny"
+unused_result_ok = "deny"
+verbose_file_reads = "deny"
+wildcard_imports = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# PR / CI native verification profile. Keeps release optimizations that matter for
+# load/ELF contracts while avoiding fat-LTO wall-clock cost. Shipping APKs still
+# use the fat `release` profile via `just android release` / local `just ci`.
+[profile.release-ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16

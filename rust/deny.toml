@@ -1,0 +1,30 @@
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "deny"
+# Transitive dual versions forced by git2's older openssl-probe pin and (if present)
+# platform-specific crates pulled by TLS stacks. Prefer skip over graph forks.
+skip = [
+    { name = "openssl-probe", version = "0.1" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    # Root certificate bundles pulled by reqwest's rustls platform verifier.
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

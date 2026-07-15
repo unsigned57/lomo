@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "core::result::Result::ok", reason = "Do not erase Result errors; propagate them or model the intentional result boundary." },
+]

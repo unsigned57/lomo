@@ -1,0 +1,15 @@
+[package]
+name = "lomo-architecture-tests"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "architecture"
+path = "tests/architecture.rs"
+
+[lints]
+workspace = true

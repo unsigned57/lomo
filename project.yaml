@@ -2,5 +2,7 @@ modules:
   - app
   - data
   - domain
+  - native-smoke
   - quality/detekt-rules
+  - rust-bindings
   - ui-components
