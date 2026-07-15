@@ -127,3 +127,7 @@ task.md
 /.antigravitycli
 /GEMINI.md
 /docs/release_notes_format_guide.md
+
+# Local migration planning notes (not repository product truth; use ARCHITECTURE/fixtures)
+/ROADMAP.MD
+/plan.md
