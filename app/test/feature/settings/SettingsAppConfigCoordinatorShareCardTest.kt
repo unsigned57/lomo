@@ -1,4 +1,5 @@
 package com.lomo.app.feature.settings
+import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
 
 /**
  * Behavior Contract:
@@ -41,7 +42,7 @@ import kotlinx.coroutines.test.runTest
 class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val workspaceStateResolver = FakeWorkspaceStateResolver()
-    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver)
+    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver, FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
 
     private class FakeWorkspaceStateResolver : WorkspaceStateResolver {
         override suspend fun rebuildFromCurrentWorkspace() {}
@@ -69,3 +70,4 @@ class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
         }
     }
 }
+

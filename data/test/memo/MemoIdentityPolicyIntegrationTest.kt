@@ -1,114 +1,85 @@
-/*
- * Behavior Contract:
- * - Unit under test: MemoIdentityPolicyIntegrationTest
- * - Owning layer: data
- * - Priority tier: P0
- *
- * Scenarios:
- * - Happy: standard happy path for MemoIdentityPolicyIntegrationTest.
- * - Boundary: boundary and edge cases for MemoIdentityPolicyIntegrationTest.
- * - Failure: failure and error scenarios for MemoIdentityPolicyIntegrationTest.
- * - Must-not-happen: invariants are never violated for MemoIdentityPolicyIntegrationTest.
- *
- * - Behavior focus: test behavioral outcomes of MemoIdentityPolicyIntegrationTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
- */
-
 package com.lomo.data.memo
 
-/**
+/*
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
+ * - Unit under test: MemoIdentityPolicy + MemoSavePlanFactory integration.
+ * - Owning layer: data
+ * - Priority tier: P0
+ * - Capability: save-plan positional identity stays stable for first and collision ordinals.
+ *
+ * Scenarios:
+ * - Given empty existing file, when save plan is built, then ordinal 0 identity is used.
+ * - Given existing same-time blocks, when save plan is built, then ordinal advances.
+ *
+ * Observable outcomes: memo id and timestamp offset.
+ * TDD proof: fails if save plan reintroduces content-hash identity.
+ * Excludes: Rust document parse / file I/O.
+ 
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 
-
-
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.repository.MemoSavePlanFactory
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
 import com.lomo.domain.usecase.MemoIdentityPolicy
+import io.kotest.matchers.shouldBe
 import java.time.LocalDateTime
 import java.time.ZoneId
-import com.lomo.data.testing.DataFunSpec
-import io.kotest.matchers.shouldBe
 
 class MemoIdentityPolicyIntegrationTest : DataFunSpec() {
     init {
-        test("save plan and parser share same identity for first occurrence") { `save plan and parser share same identity for first occurrence`() }
+        test("save plan uses ordinal zero identity for first occurrence") {
+            val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
+            val savePlan =
+                factory.create(
+                    content = "Buy milk",
+                    timestamp = timestamp,
+                    filenameFormat = "yyyy_MM_dd",
+                    timestampFormat = "HH:mm",
+                    existingFileContent = "",
+                    precomputedSameTimestampCount = 0,
+                )
 
-        test("save plan and parser share same identity for collision occurrence") { `save plan and parser share same identity for collision occurrence`() }
+            savePlan.memo.id shouldBe memoIdentityPolicy.buildId("2026_02_01", "10:00", 0)
+            savePlan.memo.timestamp shouldBe
+                memoIdentityPolicy.applyTimestampOffset(timestamp, occurrenceIndex = 0)
+        }
+
+        test("save plan advances ordinal for collision occurrence") {
+            val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
+            val fileContent =
+                """
+                - 10:00 Duplicate
+                - 10:00 Duplicate
+                """.trimIndent()
+
+            val savePlanSecond =
+                factory.create(
+                    content = "Duplicate",
+                    timestamp = timestamp,
+                    filenameFormat = "yyyy_MM_dd",
+                    timestampFormat = "HH:mm",
+                    existingFileContent = fileContent,
+                    precomputedSameTimestampCount = 1,
+                )
+
+            savePlanSecond.memo.id shouldBe memoIdentityPolicy.buildId("2026_02_01", "10:00", 1)
+            savePlanSecond.memo.timestamp shouldBe
+                memoIdentityPolicy.applyTimestampOffset(timestamp, occurrenceIndex = 1)
+        }
     }
 
-
-    private val textProcessor = MemoTextProcessor()
     private val memoIdentityPolicy = MemoIdentityPolicy()
-    private val parser = MarkdownParser(textProcessor, memoIdentityPolicy)
-    private val factory = MemoSavePlanFactory(parser, textProcessor, memoIdentityPolicy)
-
-    private fun `save plan and parser share same identity for first occurrence`() {
-        val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
-        val savePlan =
-            factory.create(
-                content = "Buy milk",
-                timestamp = timestamp,
-                filenameFormat = "yyyy_MM_dd",
-                timestampFormat = "HH:mm",
-                existingFileContent = "",
-                precomputedSameTimestampCount = 0,
-            )
-
-        val parsed =
-            parser
-                .parseContent(
-                    content = savePlan.rawContent,
-                    filename = savePlan.dateKey,
-                    fallbackTimestampMillis = timestamp,
-                ).single()
-
-        parsed.id shouldBe savePlan.memo.id
-        parsed.timestamp shouldBe savePlan.memo.timestamp
-    }
-
-    private fun `save plan and parser share same identity for collision occurrence`() {
-        val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
-        val fileContent =
-            """
-            - 10:00 Duplicate
-            - 10:00 Duplicate
-            """.trimIndent()
-        val parsedSecond =
-            parser.parseContent(
-                content = fileContent,
-                filename = "2026_02_01",
-                fallbackTimestampMillis = timestamp,
-            )[1]
-
-        val savePlanSecond =
-            factory.create(
-                content = "Duplicate",
-                timestamp = timestamp,
-                filenameFormat = "yyyy_MM_dd",
-                timestampFormat = "HH:mm",
-                existingFileContent = fileContent,
-                precomputedSameTimestampCount = 1,
-            )
-
-        savePlanSecond.memo.id shouldBe parsedSecond.id
-        savePlanSecond.memo.timestamp shouldBe parsedSecond.timestamp
-    }
+    private val factory = MemoSavePlanFactory(fakeMarkdownWorkspaceContentProjector(), memoIdentityPolicy)
 
     private fun dateTimeMillis(
         year: Int,

@@ -7,19 +7,19 @@ import java.security.MessageDigest
 internal object ReminderRequestCodePolicy {
     fun alarmRequestCode(
         memoId: String,
-        tokenRaw: String,
-    ): Int = stableInt(ALARM_NAMESPACE, memoId, tokenRaw)
+        reminderId: String,
+    ): Int = stableInt(ALARM_NAMESPACE, memoId, reminderId)
 
     fun notificationId(
         memoId: String,
-        tokenRaw: String,
-    ): Int = stableInt(NOTIFICATION_NAMESPACE, memoId, tokenRaw)
+        reminderId: String,
+    ): Int = stableInt(NOTIFICATION_NAMESPACE, memoId, reminderId)
 
     fun actionRequestCode(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
         action: String,
-    ): Int = stableInt(ACTION_NAMESPACE, memoId, tokenRaw, action)
+    ): Int = stableInt(ACTION_NAMESPACE, memoId, reminderId, action)
 
     private fun stableInt(
         namespace: String,

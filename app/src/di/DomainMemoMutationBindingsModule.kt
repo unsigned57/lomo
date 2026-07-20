@@ -15,8 +15,8 @@ val domainMemoMutationModule = module {
     single { SetMemoPinnedUseCase(get()) }
     single { SyncAndRebuildUseCase(get(), get(), get()) }
     single { RefreshMemosUseCase(get()) }
-    single { ToggleMemoCheckboxUseCase(get(), get()) }
+    single { ToggleMemoCheckboxUseCase(workspaceRepository = get(), memoMutationRepository = get()) }
     single { UpdateMemoContentUseCase(get(), get(), get(), get()) }
-    single { CreateMemoUseCase(get(), get(), get()) }
+    single { CreateMemoUseCase(get(), get(), get(), get(), get()) }
     single { RecordingSessionUseCase(get()) }
 }

@@ -3,37 +3,31 @@ package com.lomo.data.repository
 /*
  * Behavior Contract:
  * - Unit under test: TestMemoWorkspaceStore (test helper, not production code).
- * - Behavior focus: provides the canonical workspace owner to repository test fixtures.
- * - Observable outcomes: tests can construct repository collaborators without reintroducing raw markdown helpers.
- * - TDD proof: Compilation failure after MemoWorkspaceStore became the required markdown workspace boundary.
- * - Excludes: storage backend behavior, parser behavior, and Room persistence.
+ * - Behavior focus: provides the canonical workspace owner + projector wiring for repository tests.
+ * - Observable outcomes: tests construct repository collaborators without deleted MarkdownParser.
+ * - TDD proof: Compilation failure after MemoWorkspaceStore became the Rust workspace boundary.
+ * - Excludes: storage backend behavior, production Markdown semantics, and Room persistence.
  */
 
+import com.lomo.data.engine.WorkspaceMarkdownOwner
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.util.MemoTextProcessor
-import com.lomo.domain.usecase.MemoIdentityPolicy
+import com.lomo.data.testing.fakes.FakeWorkspaceMarkdownOwner
+import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 
 internal fun testMemoWorkspaceStore(
     markdownStorageDataSource: MarkdownStorageDataSource,
     localFileStateDao: LocalFileStateDao = InMemoryTestWorkspaceLocalFileStateDao(),
-    textProcessor: MemoTextProcessor = MemoTextProcessor(),
-    memoIdentityPolicy: MemoIdentityPolicy = MemoIdentityPolicy(),
-    parser: MarkdownParser = MarkdownParser(textProcessor, memoIdentityPolicy),
+    workspaceOwner: WorkspaceMarkdownOwner = FakeWorkspaceMarkdownOwner(),
 ): MemoWorkspaceStore =
     MemoWorkspaceStore(
-        reader =
-            testMemoWorkspaceReader(
-                markdownStorageDataSource = markdownStorageDataSource,
-                localFileStateDao = localFileStateDao,
-            ),
         writer =
             testMemoWorkspaceShardWriter(
                 markdownStorageDataSource = markdownStorageDataSource,
                 localFileStateDao = localFileStateDao,
             ),
-        parser = parser,
+        workspaceOwner = workspaceOwner,
     )
 
 internal fun testMemoWorkspaceReader(
@@ -50,20 +44,11 @@ internal fun testMemoWorkspaceReader(
     )
 
 internal fun testMemoWorkspaceProjector(
-    markdownStorageDataSource: MarkdownStorageDataSource,
-    localFileStateDao: LocalFileStateDao = InMemoryTestWorkspaceLocalFileStateDao(),
-    textProcessor: MemoTextProcessor = MemoTextProcessor(),
-    memoIdentityPolicy: MemoIdentityPolicy = MemoIdentityPolicy(),
-    parser: MarkdownParser = MarkdownParser(textProcessor, memoIdentityPolicy),
-): MemoWorkspaceProjector =
-    MemoWorkspaceProjector(
-        reader =
-            testMemoWorkspaceReader(
-                markdownStorageDataSource = markdownStorageDataSource,
-                localFileStateDao = localFileStateDao,
-            ),
-        parser = parser,
-    )
+    workspaceOwner: WorkspaceMarkdownOwner = FakeWorkspaceMarkdownOwner(),
+): MemoWorkspaceProjector = MemoWorkspaceProjector(workspaceOwner = workspaceOwner)
+
+internal fun testContentProjector(): MarkdownWorkspaceContentProjector =
+    fakeMarkdownWorkspaceContentProjector()
 
 private fun testMemoWorkspaceShardWriter(
     markdownStorageDataSource: MarkdownStorageDataSource,

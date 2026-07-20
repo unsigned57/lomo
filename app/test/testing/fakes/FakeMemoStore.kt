@@ -15,7 +15,6 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoStatisticsCalculator
 import com.lomo.domain.model.MemoTagCount
-import com.lomo.domain.usecase.MemoContentAnalyzer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -568,7 +567,15 @@ data class RestoredRevisionRequest(
     }
 
     private fun Memo.queryAnalysis(): MemoContentAnalysis =
-        MemoContentAnalyzer.analyze(content)
+        MemoContentAnalysis(
+            hasTodo = content.contains("[ ]") || content.contains("[x]", ignoreCase = true),
+            hasAttachment = imageUrls.isNotEmpty(),
+            hasUrl =
+                content.contains("http://", ignoreCase = true) ||
+                    content.contains("https://", ignoreCase = true),
+            tags = tags,
+            imageUrls = imageUrls,
+        )
 
     private fun currentTagCounts(): List<MemoTagCount> =
         activeMemos.value

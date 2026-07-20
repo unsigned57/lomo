@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
@@ -43,6 +45,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Room persistence, file rewrite behavior, DI component creation, and Android process lifecycle dispatch.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemoBackgroundOwnershipTest : DataFunSpec() {
@@ -69,6 +82,7 @@ class MemoBackgroundOwnershipTest : DataFunSpec() {
                         refreshEngine = refreshEngine,
                         mutationHandler = mutationHandler,
                         outboxScope = backgroundScope,
+                        writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                         startOutboxCoordinator = true,
                     )
 
@@ -117,6 +131,7 @@ private fun savePlan(memoId: String): MemoSavePlan {
         timestamp = memo.timestamp,
         rawContent = memo.rawContent,
         memo = memo,
+        contentAnalysis = com.lomo.domain.model.MemoContentAnalysis.None,
     )
 }
 

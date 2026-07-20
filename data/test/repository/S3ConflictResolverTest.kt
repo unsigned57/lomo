@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.PendingSyncConflictDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.dao.PendingSyncReviewDao
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -1864,7 +1865,7 @@ class S3ConflictResolverTest : DataFunSpec() {
                 transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
-        fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         support = S3SyncRepositorySupport(
                 runtime = runtime,
                 credentialRepository = testS3CredentialRepository(),
@@ -1882,6 +1883,7 @@ class S3ConflictResolverTest : DataFunSpec() {
             pendingConflictStore = pendingStore,
             transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
             lifecycleRunner = testRemoteSyncLifecycleRunner(),
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
         )
     }
 
@@ -1912,7 +1914,7 @@ class S3ConflictResolverTest : DataFunSpec() {
                 transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
-        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         val support = S3SyncRepositorySupport(
                 runtime = runtime,
                 credentialRepository = testS3CredentialRepository(),
@@ -1930,6 +1932,7 @@ class S3ConflictResolverTest : DataFunSpec() {
             pendingReviewStore = pendingStore,
             transferWorkspace = S3SyncTransferWorkspace.systemTemp(),
             lifecycleRunner = lifecycleRunner,
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
         )
     }
 
@@ -2143,6 +2146,7 @@ class S3ConflictResolverTest : DataFunSpec() {
             encodingSupport = S3SyncEncodingSupport(),
             safTreeAccess = UnsupportedS3SafTreeAccess,
             mode = materializationFileVaultRoot(root),
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
         )
 
     private fun numberedLines(prefix: String): String =

@@ -81,8 +81,8 @@ class TagFilterViewModel(
                     MemoCollectionCapabilities.Editable(
                         deleteMemo = deleteMemoUseCase::invoke,
                         updateMemo = updateMemoContentUseCase::invoke,
-                        toggleTodo = { memo, lineIndex, checked ->
-                            toggleMemoCheckboxUseCase(memo = memo, lineIndex = lineIndex, checked = checked)
+                        toggleTodo = { memo, actionSpan ->
+                            toggleMemoCheckboxUseCase(memo = memo, actionSpan = actionSpan)
                         },
                         saveImage = saveImageUseCase::saveWithCacheSyncStatus,
                     ),
@@ -120,10 +120,9 @@ class TagFilterViewModel(
 
         fun toggleTodo(
             memo: Memo,
-            lineIndex: Int,
-            checked: Boolean,
+            actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
         ) {
-            actionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
+            actionStateHolder.actions.toggleTodo(memo, actionSpan)
         }
 
         fun saveImage(

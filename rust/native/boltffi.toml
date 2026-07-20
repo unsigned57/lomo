@@ -1,0 +1,47 @@
+# Repository-owned BoltFFI packaging identity. lomo-xtask is the only public caller.
+[package]
+# Cargo package name (hyphen). Library artifact stem is lomo_native; Android .so stem is
+# overridden via targets.android.kotlin.library_name = "lomo_native_jni".
+name = "lomo-native"
+
+[targets.apple]
+enabled = false
+
+[targets.wasm]
+enabled = false
+
+[targets.java]
+enabled = false
+
+[targets.csharp]
+enabled = false
+
+[targets.python]
+enabled = false
+
+[targets.dart]
+enabled = false
+
+[targets.android]
+enabled = true
+min_sdk = 26
+ndk_version = "29.0.14206865"
+architectures = ["arm64", "armv7", "x86", "x86_64"]
+
+[targets.android.kotlin]
+package = "com.lomo.nativebridge"
+# library_name controls System.loadLibrary / final .so stem before Android lib prefix.
+library_name = "lomo_native_jni"
+module_name = "LomoNativeBridge"
+desktop_loader = "none"
+api_style = "top_level"
+factory_style = "companion_methods"
+# Temporary output only; xtask canonicalizes and publishes to native-bindings/src.
+output = "../target/boltffi-tmp/kotlin"
+
+[targets.android.pack]
+# Temporary output only; xtask publishes into app/jniLibs and native-smoke/jniLibs.
+output = "../target/boltffi-tmp/jniLibs"
+
+[targets.android.header]
+output = "../target/boltffi-tmp/include"

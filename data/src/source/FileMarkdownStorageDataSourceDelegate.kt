@@ -1,6 +1,7 @@
 package com.lomo.data.source
 
 import android.net.Uri
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.emitAll
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.flow
 
 class FileMarkdownStorageDataSourceDelegate(
     private val backendResolver: FileStorageBackendResolver,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) : MarkdownStorageDataSource {
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
             backendResolver.markdownBackend()?.listMetadataIn(directory) ?: emptyList()
@@ -54,15 +56,18 @@ class FileMarkdownStorageDataSourceDelegate(
             content: String,
             append: Boolean,
             uri: Uri?,
-        ): String? =
-            requireMarkdownBackend("saveFileIn($filename)")
+        ): String? {
+            writeAuthority.requireWritable()
+            return requireMarkdownBackend("saveFileIn($filename)")
                 .saveFileIn(directory, filename, content, append, uri)
+        }
 
         override suspend fun deleteFileIn(
             directory: MemoDirectoryType,
             filename: String,
             uri: Uri?,
         ) {
+            writeAuthority.requireWritable()
             requireMarkdownBackend("deleteFileIn($filename)").deleteFileIn(directory, filename, uri)
         }
 

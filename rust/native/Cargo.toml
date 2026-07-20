@@ -7,17 +7,20 @@ license.workspace = true
 publish = false
 
 [lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-# Tooling-only UniFFI surface for stage-0 FFI/lifecycle probes. Production APK builds
-# must leave this disabled; native-smoke may enable it explicitly.
-feasibility-probe = []
+# staticlib feeds BoltFFI Android JNI glue; rlib keeps host facade tests linked.
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+boltffi.workspace = true
+lomo-core = { path = "../core" }
+lomo-workspace = { path = "../workspace" }
 lomo-sync-core = { path = "../sync-core" }
-uniffi.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+sha2.workspace = true
+lomo-workspace = { path = "../workspace" }
 
 [lints]
 workspace = true

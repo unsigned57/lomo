@@ -1,9 +1,9 @@
 package com.lomo.app.util
 
-import com.lomo.ui.component.markdown.MarkdownSemanticInline
-import com.lomo.ui.component.markdown.MarkdownSemanticTableCell
+import com.lomo.domain.model.markdown.MarkdownRenderInline
+import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 
-internal fun MarkdownSemanticTableCell.toStyledShareText(): StyledShareText = inlines.toStyledShareText("[Image]")
+internal fun MarkdownRenderTableCell.toStyledShareText(): StyledShareText = inlines.toStyledShareText("[Image]")
 
 internal data class StyledShareText(
     val text: String,
@@ -77,7 +77,7 @@ internal class StyledShareTextState(
     }
 }
 
-internal fun List<MarkdownSemanticInline>.toStyledShareText(imagePlaceholder: String): StyledShareText {
+internal fun List<MarkdownRenderInline>.toStyledShareText(imagePlaceholder: String): StyledShareText {
     val state = StyledShareTextState(imagePlaceholder)
     forEach { inline ->
         inline.appendShareText(state)
@@ -85,42 +85,45 @@ internal fun List<MarkdownSemanticInline>.toStyledShareText(imagePlaceholder: St
     return state.toStyledShareText()
 }
 
-private fun MarkdownSemanticInline.appendShareText(
+private fun MarkdownRenderInline.appendShareText(
     state: StyledShareTextState,
 ) {
     when (this) {
-        is MarkdownSemanticInline.Text -> state.appendText(plainText)
-        is MarkdownSemanticInline.Code -> {
+        is MarkdownRenderInline.Text -> state.appendText(text)
+        is MarkdownRenderInline.Code -> {
             val start = state.output.length
-            state.appendText(plainText)
+            state.appendText(text)
             state.styles += ShareInlineStyleRange(start, state.output.length, ShareInlineStyleKind.InlineCode)
         }
-        is MarkdownSemanticInline.Strong ->
+        is MarkdownRenderInline.Strong ->
             appendStyledChildren(state, ShareInlineStyleKind.Bold, inlines)
-        is MarkdownSemanticInline.Emphasis ->
+        is MarkdownRenderInline.Emphasis ->
             appendStyledChildren(state, ShareInlineStyleKind.Italic, inlines)
-        is MarkdownSemanticInline.Strikethrough ->
+        is MarkdownRenderInline.Strikethrough ->
             appendStyledChildren(state, ShareInlineStyleKind.Strikethrough, inlines)
-        is MarkdownSemanticInline.Link ->
+        is MarkdownRenderInline.Link ->
             appendStyledChildren(state, ShareInlineStyleKind.Link, inlines)
-        is MarkdownSemanticInline.Highlight ->
+        is MarkdownRenderInline.Highlight ->
             appendStyledChildren(state, ShareInlineStyleKind.Highlight, inlines)
-        is MarkdownSemanticInline.Image -> state.appendImagePlaceholder()
-        MarkdownSemanticInline.SoftBreak,
-        MarkdownSemanticInline.HardBreak,
+        is MarkdownRenderInline.Image -> state.appendImagePlaceholder()
+        is MarkdownRenderInline.SoftBreak,
+        is MarkdownRenderInline.HardBreak,
         -> state.appendLineBreak()
-        is MarkdownSemanticInline.HtmlInline -> {
-            if (!state.consumeHtml(plainText)) {
-                state.appendText(plainText)
+        is MarkdownRenderInline.HtmlInline -> {
+            if (!state.consumeHtml(literal)) {
+                state.appendText(literal)
             }
         }
+        is MarkdownRenderInline.Tag -> state.appendText("#$name")
+        is MarkdownRenderInline.Reminder -> state.appendText(token)
+        is MarkdownRenderInline.WikiReference -> inlines.forEach { it.appendShareText(state) }
     }
 }
 
 private fun appendStyledChildren(
     state: StyledShareTextState,
     kind: ShareInlineStyleKind,
-    inlines: List<MarkdownSemanticInline>,
+    inlines: List<MarkdownRenderInline>,
 ) {
     val start = state.output.length
     inlines.forEach { inline ->

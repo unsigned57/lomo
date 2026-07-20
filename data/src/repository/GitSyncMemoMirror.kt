@@ -9,12 +9,14 @@ import java.nio.charset.StandardCharsets
 class GitSyncMemoMirror
 constructor(
         private val runtime: GitSyncRepositoryContext,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun mirrorMemoToRepo(
             repoDir: File,
             layout: SyncDirectoryLayout,
         ) {
             if (layout.allSameDirectory) return
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val memoFiles =
                     runtime.markdownStorageDataSource
@@ -42,6 +44,7 @@ constructor(
             layout: SyncDirectoryLayout,
         ) {
             if (layout.allSameDirectory) return
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val memoSubDir = File(repoDir, layout.memoFolder)
                 if (!memoSubDir.exists()) return@withContext

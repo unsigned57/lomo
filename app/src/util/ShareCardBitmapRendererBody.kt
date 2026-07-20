@@ -1,42 +1,62 @@
 package com.lomo.app.util
 
 import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 
-internal fun preprocessShareCardContent(
-    content: String,
-    hasImages: Boolean,
-): PreprocessedShareCardContent {
-    if (!hasImages) {
-        return PreprocessedShareCardContent(
-            contentForProcessing = content,
-            totalImageSlots = 0,
-            hasImages = false,
-        )
-    }
-
-    var nextImageIndex = 0
-
-    fun nextMarker(): String = "\n$IMAGE_MARKER_PREFIX${nextImageIndex++}$IMAGE_MARKER_SUFFIX\n"
-
-    val withWikiImageMarkers = WIKI_IMAGE_REGEX.replace(content) { nextMarker() }
-    val contentForProcessing =
-        MD_IMAGE_REGEX.replace(withWikiImageMarkers) { match ->
-            val path = match.groupValues[MD_IMAGE_PATH_GROUP_INDEX]
-            if (path.isAudioPath()) {
-                match.value
-            } else {
-                nextMarker()
+/**
+ * Counts non-audio image slots from the owner render IR (same parse as body lines).
+ * Does not re-parse Markdown image syntax in Kotlin.
+ */
+internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
+    var count = 0
+    fun walkInlines(inlines: List<MarkdownRenderInline>) {
+        inlines.forEach { inline ->
+            when (inline) {
+                is MarkdownRenderInline.Image -> {
+                    if (!MediaFileExtensions.hasAudioExtension(inline.destination)) {
+                        count++
+                    }
+                }
+                is MarkdownRenderInline.Link -> walkInlines(inline.inlines)
+                is MarkdownRenderInline.Strong -> walkInlines(inline.inlines)
+                is MarkdownRenderInline.Emphasis -> walkInlines(inline.inlines)
+                is MarkdownRenderInline.Strikethrough -> walkInlines(inline.inlines)
+                is MarkdownRenderInline.Highlight -> walkInlines(inline.inlines)
+                is MarkdownRenderInline.WikiReference -> walkInlines(inline.inlines)
+                else -> Unit
             }
         }
-
-    return PreprocessedShareCardContent(
-        contentForProcessing = contentForProcessing,
-        totalImageSlots = nextImageIndex,
-        hasImages = true,
-    )
+    }
+    fun walkBlocks(blocks: List<com.lomo.domain.model.markdown.MarkdownRenderBlock>) {
+        blocks.forEach { block ->
+            when (block) {
+                is com.lomo.domain.model.markdown.MarkdownRenderBlock.Paragraph -> walkInlines(block.inlines)
+                is com.lomo.domain.model.markdown.MarkdownRenderBlock.Heading -> walkInlines(block.inlines)
+                is com.lomo.domain.model.markdown.MarkdownRenderBlock.BlockQuote -> walkBlocks(block.blocks)
+                is com.lomo.domain.model.markdown.MarkdownRenderBlock.ListBlock ->
+                    block.items.forEach { item -> walkBlocks(item.blocks) }
+                is com.lomo.domain.model.markdown.MarkdownRenderBlock.Table -> {
+                    (block.header + block.rows.flatten()).forEach { cell -> walkInlines(cell.inlines) }
+                }
+                else -> Unit
+            }
+        }
+    }
+    walkBlocks(document.blocks)
+    // Prefer IR image nodes; fall back to attachment destinations when blocks omit media
+    // (transport projection without nested image nodes).
+    if (count > 0) return count
+    return document.attachmentDestinations.count { path ->
+        path.isNotEmpty() && !MediaFileExtensions.hasAudioExtension(path)
+    }
 }
 
+/**
+ * Legacy line classifier used only for already-tokenized presentation lines (image markers from
+ * IR projection). Not a Markdown semantic authority.
+ */
 internal fun buildShareBodyLines(
     bodyText: String,
     imagePlaceholder: String,
@@ -125,8 +145,6 @@ private fun replaceInlineImageMarkers(
     } else {
         text
     }
-
-private fun String.isAudioPath(): Boolean = MediaFileExtensions.hasAudioExtension(this)
 
 private fun String.isBulletShareLine(): Boolean =
     startsWith(UNCHECKED_TODO_PREFIX) ||

@@ -1,5 +1,7 @@
 package com.lomo.app.feature.trash
 
+import com.lomo.app.testing.fakes.testMemoUiMapper
+
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
@@ -64,7 +66,7 @@ class TrashViewModelTest : AppFunSpec() {
     private val repository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
-    private val memoUiMapper: MemoUiMapper = MemoUiMapper()
+    private val memoUiMapper: MemoUiMapper = testMemoUiMapper()
 
     init {
         extension(MainDispatcherExtension(testDispatcher))

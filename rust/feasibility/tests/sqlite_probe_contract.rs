@@ -13,6 +13,12 @@
 //! Excludes: Android load of `liblomo_native.so`, Room, production schema ownership.
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "feasibility contract harness fails closed with panics on missing probe facts"
+)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 

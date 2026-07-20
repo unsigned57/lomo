@@ -1,5 +1,8 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.fakes.testMemoUiMapper
+import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
+
 import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
@@ -347,12 +350,12 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                             com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                         ),
                 ),
-            memoUiMapper = MemoUiMapper(),
+            memoUiMapper = testMemoUiMapper(),
             imageMapProvider = imageMapProvider,
             mainMemoMutationCoordinator =
                 MainMemoMutationCoordinator(
                     deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
-                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository), ValidateMemoContentUseCase()),
+                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(), com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
                     appWidgetRepository = appWidgetRepository,
                 ),
             workspaceCoordinator =
@@ -368,6 +371,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
+                    engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
                 ),
             startupCoordinator =
                 MainStartupCoordinator(
@@ -499,7 +503,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     class FakeSwitchRootStorageUseCase(
         private val rootLocationFlow: MutableStateFlow<StorageLocation?>
-    ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver()) {
+    ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver(), FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository()) {
         var rebuildWorkspaceCallback: (suspend () -> Unit)? = null
         var updateRootLocationCallback: (suspend (StorageLocation) -> Unit)? = null
 
@@ -519,3 +523,4 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
         }
     }
 }
+

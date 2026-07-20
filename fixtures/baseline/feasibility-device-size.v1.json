@@ -1,10 +1,10 @@
 {
   "description": "Linked feasibility-device .so sizes after live candidate_link_markers. Proves constructor retention volume only — not full smart-HTTP/push/rebase inside the SO.",
   "liblomo_feasibility_device_so_bytes": {
-    "arm64-v8a": 11763688,
-    "armeabi-v7a": 8338772,
-    "x86": 11014476,
-    "x86_64": 13344968
+    "arm64-v8a": 11722688,
+    "armeabi-v7a": 8313076,
+    "x86": 10964588,
+    "x86_64": 13302728
   },
   "not_production": true,
   "schema_version": 1,

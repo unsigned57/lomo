@@ -1,7 +1,8 @@
 package com.lomo.ui.component.card
 
-import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
-import com.lomo.ui.component.markdown.stripReminderTokens
+import com.lomo.domain.model.markdown.MarkdownRenderBlock
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownRenderInline
 
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
@@ -12,54 +13,62 @@ fun shouldShowMemoCardExpand(content: String): Boolean =
     content.length > EXPAND_CHAR_THRESHOLD ||
         content.lineSequence().count() > EXPAND_LINE_THRESHOLD
 
-fun buildMemoCardCollapsedSummary(
-    content: String,
-    tags: Iterable<String> = emptyList(),
-): String {
-    if (content.isBlank()) return ""
-
+/** Builds the collapsed preview only from Rust-issued render facts. */
+fun buildMemoCardCollapsedSummary(document: MarkdownRenderDocument): String {
     val lines = mutableListOf<String>()
     var charCount = 0
-    val lineIterator = content.lineSequence().iterator()
 
-    while (
-        lineIterator.hasNext() &&
-        lines.size < COLLAPSED_SUMMARY_MAX_LINES &&
-        charCount < COLLAPSED_SUMMARY_MAX_CHARS
-    ) {
-        val line = sanitizeCollapsedSummaryLine(lineIterator.next(), tags)
-        val remaining = COLLAPSED_SUMMARY_MAX_CHARS - charCount
-        val clipped = if (line.length > remaining) line.take(remaining).trimEnd() else line
-
-        if (clipped.isNotBlank()) {
-            lines.add(clipped)
-            charCount += clipped.length
+    document.blocks
+        .asSequence()
+        .flatMap { block -> block.summaryLines().asSequence() }
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .takeWhile { lines.size < COLLAPSED_SUMMARY_MAX_LINES && charCount < COLLAPSED_SUMMARY_MAX_CHARS }
+        .forEach { line ->
+            val remaining = COLLAPSED_SUMMARY_MAX_CHARS - charCount
+            val clipped = if (line.length > remaining) line.take(remaining).trimEnd() else line
+            if (clipped.isNotBlank()) {
+                lines += clipped
+                charCount += clipped.length
+            }
         }
-    }
 
     return lines.joinToString(separator = "\n")
 }
 
-private fun sanitizeCollapsedSummaryLine(
-    rawLine: String,
-    tags: Iterable<String>,
-): String {
-    val cleanText = MarkdownKnownTagFilter
-        .stripInlineTags(
-            input =
-                rawLine
-                    .replace(MARKDOWN_IMAGE_PATTERN, "")
-                    .replace(MARKDOWN_LINK_PATTERN, "$1")
-                    .replace(MARKDOWN_INLINE_CODE_PATTERN, "$1")
-                    .replace(MARKDOWN_BLOCK_PREFIX_PATTERN, "")
-                    .replace(MARKDOWN_TASK_PREFIX_PATTERN, ""),
-            tags = tags,
-        )
-    return stripReminderTokens(cleanText).trim()
-}
+private fun MarkdownRenderBlock.summaryLines(): List<String> =
+    when (this) {
+        is MarkdownRenderBlock.Paragraph -> listOf(inlines.summaryText())
+        is MarkdownRenderBlock.Heading -> listOf(inlines.summaryText())
+        is MarkdownRenderBlock.BlockQuote -> blocks.flatMap(MarkdownRenderBlock::summaryLines)
+        is MarkdownRenderBlock.ListBlock -> items.flatMap { item -> item.blocks.flatMap(MarkdownRenderBlock::summaryLines) }
+        is MarkdownRenderBlock.CodeBlock -> literal.lineSequence().toList()
+        is MarkdownRenderBlock.ThematicBreak -> emptyList()
+        is MarkdownRenderBlock.Table ->
+            (listOf(header) + rows).map { row -> row.joinToString(" | ") { cell -> cell.inlines.summaryText() } }
+        is MarkdownRenderBlock.HtmlBlock -> listOf(literal)
+    }
 
-private val MARKDOWN_IMAGE_PATTERN = Regex("""!\[[^\]]*]\([^)]+\)""")
-private val MARKDOWN_LINK_PATTERN = Regex("""\[([^\]]+)]\([^)]+\)""")
-private val MARKDOWN_INLINE_CODE_PATTERN = Regex("""`([^`]+)`""")
-private val MARKDOWN_BLOCK_PREFIX_PATTERN = Regex("""^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)""")
-private val MARKDOWN_TASK_PREFIX_PATTERN = Regex("""^\s*\[[ xX]\]\s+""")
+private fun List<MarkdownRenderInline>.summaryText(): String =
+    buildString {
+        this@summaryText.forEach { inline ->
+            when (inline) {
+                is MarkdownRenderInline.Text -> append(inline.text)
+                is MarkdownRenderInline.Strong -> append(inline.inlines.summaryText())
+                is MarkdownRenderInline.Emphasis -> append(inline.inlines.summaryText())
+                is MarkdownRenderInline.Strikethrough -> append(inline.inlines.summaryText())
+                is MarkdownRenderInline.Highlight -> append(inline.inlines.summaryText())
+                is MarkdownRenderInline.Code -> append(inline.text)
+                is MarkdownRenderInline.Link -> append(inline.inlines.summaryText())
+                is MarkdownRenderInline.Image,
+                is MarkdownRenderInline.Tag,
+                is MarkdownRenderInline.Reminder,
+                -> Unit
+                is MarkdownRenderInline.WikiReference -> append(inline.inlines.summaryText().ifBlank { inline.target })
+                is MarkdownRenderInline.SoftBreak,
+                is MarkdownRenderInline.HardBreak,
+                -> append('\n')
+                is MarkdownRenderInline.HtmlInline -> append(inline.literal)
+            }
+        }
+    }

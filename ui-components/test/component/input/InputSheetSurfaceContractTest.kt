@@ -9,6 +9,8 @@ import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import java.io.File
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import kotlinx.collections.immutable.persistentListOf
 
 /*
@@ -35,6 +37,17 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - Compose rendering, focus timing, lifecycle effects, Android permission result behavior.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
     private val uiSourceRoot = resolveModuleRoot("ui-components").resolve("src")
@@ -46,7 +59,7 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                     surface =
                         InputEditorSurfaceState(
                             inputValue = TextFieldValue("hello"),
-                            previewContent = "preview",
+                            previewState = MarkdownRenderState.Ready(emptyPreviewDocument()),
                             availableTags = persistentListOf("work"),
                             hints = persistentListOf("hint"),
                             toolbarOrder = persistentListOf(InputToolbarActionId("primary")),
@@ -55,7 +68,7 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                 )
 
             state.surface.inputValue.text shouldBe "hello"
-            state.surface.previewContent shouldBe "preview"
+            state.surface.previewState shouldBe MarkdownRenderState.Ready(emptyPreviewDocument())
             state.surface.availableTags shouldContainExactly listOf("work")
             state.surface.hints shouldContainExactly listOf("hint")
             state.surface.toolbarOrder shouldContainExactly listOf(InputToolbarActionId("primary"))
@@ -159,3 +172,12 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
         }
     }
 }
+
+private fun emptyPreviewDocument() =
+    MarkdownRenderDocument(
+        sourceByteLength = 0uL,
+        plainText = "preview",
+        tagNames = emptyList(),
+        attachmentDestinations = emptyList(),
+        blocks = emptyList(),
+    )

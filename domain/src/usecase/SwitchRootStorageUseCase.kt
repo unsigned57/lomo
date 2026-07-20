@@ -2,19 +2,109 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.EngineReadinessRepository
+import com.lomo.domain.repository.WorkspaceCandidateValidator
 import com.lomo.domain.repository.WorkspaceStateResolver
+import com.lomo.domain.repository.WriteFreezeRepository
 
-open class SwitchRootStorageUseCase
-(
-        private val directorySettingsRepository: DirectorySettingsRepository,
-        private val workspaceStateResolver: WorkspaceStateResolver,
-    ) {
-        open suspend fun updateRootLocation(location: StorageLocation) {
-            directorySettingsRepository.applyRootLocation(location)
-            rebuildCurrentWorkspace()
+/**
+ * Switches the workspace root with prepare → validate → persist → activate → rebuild ordering.
+ *
+ * Candidate validation runs before any durable selection change. Writes freeze for the whole
+ * critical section so concurrent mutations cannot observe a half-switched workspace. The engine is
+ * activated under freeze after selection persistence so only one engine is authoritative. Soft
+ * Recovery and hard open failure both restore the previous selection and previous engine when a
+ * previous selection existed; freeze is always released.
+ */
+open class SwitchRootStorageUseCase(
+    private val directorySettingsRepository: DirectorySettingsRepository,
+    private val workspaceStateResolver: WorkspaceStateResolver,
+    private val writeFreezeRepository: WriteFreezeRepository,
+    private val engineReadinessRepository: EngineReadinessRepository,
+    private val workspaceCandidateValidator: WorkspaceCandidateValidator =
+        WorkspaceCandidateValidator { location ->
+            require(location.raw.isNotBlank()) { "Candidate workspace location must be non-blank" }
+        },
+) {
+    open suspend fun updateRootLocation(location: StorageLocation) {
+        // Prepare + validate before mutating durable selection.
+        workspaceCandidateValidator.validate(location)
+        val previousSelection = directorySettingsRepository.currentRootLocation()
+        check(writeFreezeRepository.begin()) {
+            "Another workspace switch is already in progress"
         }
-
-        open suspend fun rebuildCurrentWorkspace() {
-            workspaceStateResolver.rebuildFromCurrentWorkspace()
+        try {
+            directorySettingsRepository.applyRootLocation(location)
+            val activated =
+                runCatching {
+                    engineReadinessRepository.activateWorkspace(location)
+                    rebuildCurrentWorkspace()
+                }
+            if (activated.isFailure) {
+                val originalFailure = checkNotNull(activated.exceptionOrNull())
+                try {
+                    restorePreviousAuthority(previousSelection)
+                } catch (restoreFailure: Exception) {
+                    val structured =
+                        restoreFailure as? WorkspaceAuthorityRestoreException
+                            ?: WorkspaceAuthorityRestoreException(
+                                message =
+                                    "Failed to restore previous workspace authority after switch failure: " +
+                                        (restoreFailure.message ?: restoreFailure.javaClass.simpleName),
+                                cause = restoreFailure,
+                            )
+                    structured.addSuppressed(originalFailure)
+                    throw structured
+                }
+                throw originalFailure
+            }
+        } finally {
+            writeFreezeRepository.end()
         }
     }
+
+    open suspend fun rebuildCurrentWorkspace() {
+        workspaceStateResolver.rebuildFromCurrentWorkspace()
+    }
+
+    private suspend fun restorePreviousAuthority(previousSelection: StorageLocation?) {
+        if (previousSelection == null) {
+            // No prior selection: clear the candidate engine so Awaiting remains authoritative.
+            // Clear failure is itself a recovery-worthy authority loss and must surface.
+            try {
+                engineReadinessRepository.clearWorkspace()
+            } catch (clearFailure: Exception) {
+                throw WorkspaceAuthorityRestoreException(
+                    message =
+                        "Failed to clear candidate workspace after switch failure: " +
+                            (clearFailure.message ?: clearFailure.javaClass.simpleName),
+                    cause = clearFailure,
+                )
+            }
+            return
+        }
+        // Restore previous selection + engine. Failure is structured so UI can route Recovery.
+        try {
+            directorySettingsRepository.applyRootLocation(previousSelection)
+            engineReadinessRepository.activateWorkspace(previousSelection)
+        } catch (restoreFailure: Exception) {
+            throw WorkspaceAuthorityRestoreException(
+                message =
+                    "Failed to restore previous workspace authority after switch failure: " +
+                        (restoreFailure.message ?: restoreFailure.javaClass.simpleName),
+                cause = restoreFailure,
+            )
+        }
+    }
+}
+
+/**
+ * Structured failure when switch abort cannot re-establish previous workspace authority.
+ *
+ * The original activate/rebuild failure is attached as a suppressed exception by the caller so
+ * diagnostics keep both facts and UI can surface Recovery instead of a silent half-switch.
+ */
+class WorkspaceAuthorityRestoreException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)

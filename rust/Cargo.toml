@@ -1,6 +1,16 @@
 [workspace]
 resolver = "3"
-members = ["architecture-tests", "feasibility", "feasibility-device", "native", "sync-core", "xtask"]
+members = [
+    "architecture-tests",
+    "boltffi-facade",
+    "core",
+    "feasibility",
+    "feasibility-device",
+    "native",
+    "sync-core",
+    "workspace",
+    "xtask",
+]
 
 [workspace.package]
 edition = "2024"
@@ -24,8 +34,15 @@ rustls-pki-types = "=1.14.0"
 rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 # Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl).
 git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }
-uniffi = "=0.32.0"
-uniffi_bindgen = "=0.32.0"
+# Production depends on the repository-owned `boltffi` facade (macros expand to
+# `::boltffi::__private`). The facade pins official `boltffi_core` with default
+# features disabled so unused url/uuid codecs stay out of the Android .so.
+# Latest formal tag v0.27.5 lacks the JVM use-after-close guard
+# (2de4597034e0e66dcdfd34191abbe9ae7de7b31e); replace the rev with the first
+# formal tag that contains that commit once published.
+boltffi = { path = "boltffi-facade" }
+boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2de4597034e0e66dcdfd34191abbe9ae7de7b31e", default-features = false }
+tempfile = "=3.27.0"
 
 [workspace.lints.rust]
 warnings = "deny"
@@ -44,6 +61,7 @@ dbg_macro = "deny"
 drop_non_drop = "deny"
 enum_glob_use = "deny"
 excessive_nesting = "deny"
+expect_used = "deny"
 fn_params_excessive_bools = "deny"
 let_underscore_must_use = "deny"
 let_underscore_untyped = "deny"
@@ -62,6 +80,7 @@ too_many_lines = "deny"
 type_complexity = "deny"
 unimplemented = "deny"
 unused_result_ok = "deny"
+unwrap_used = "deny"
 verbose_file_reads = "deny"
 wildcard_imports = "deny"
 
@@ -72,9 +91,17 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# Shipping Android JNI profile for `lomo-native` staticlib packaging. Size-first
+# (`opt-level = "z"`) while keeping fat LTO/codegen-units=1. xtask additionally
+# injects `-C force-unwind-tables=no`, `-C panic=immediate-abort`, and
+# `-Z build-std=std,panic_abort` so std backtrace/gimli never enter the final .so.
+[profile.release-android]
+inherits = "release"
+opt-level = "z"
+
 # PR / CI native verification profile. Keeps release optimizations that matter for
 # load/ELF contracts while avoiding fat-LTO wall-clock cost. Shipping APKs still
-# use the fat `release` profile via `just android release` / local `just ci`.
+# use `release-android` via `just android release` / local `just ci` native pack.
 [profile.release-ci]
 inherits = "release"
 lto = "thin"

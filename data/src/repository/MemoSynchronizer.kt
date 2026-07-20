@@ -25,21 +25,30 @@ class MemoSynchronizer internal constructor(
     private val refreshEngine: MemoRefreshEngine,
     private val mutationHandler: MemoMutationHandler,
     private val outboxScope: CoroutineScope,
+    private val writeAuthority: WorkspaceWriteAuthority,
     startOutboxCoordinator: Boolean,
 ) {
-        constructor(
+        internal constructor(
             refreshEngine: MemoRefreshEngine,
             mutationHandler: MemoMutationHandler,
             outboxScope: CoroutineScope,
+            writeAuthority: WorkspaceWriteAuthority,
         ) : this(
             refreshEngine = refreshEngine,
             mutationHandler = mutationHandler,
             outboxScope = outboxScope,
+            writeAuthority = writeAuthority,
             startOutboxCoordinator = true,
         )
 
         private val mutex = Mutex()
-        private val outboxCoordinator = MemoOutboxDrainCoordinator(mutationHandler, mutex, outboxScope)
+        private val outboxCoordinator =
+            MemoOutboxDrainCoordinator(
+                mutationHandler = mutationHandler,
+                mutex = mutex,
+                flushScope = outboxScope,
+                writeAuthority = writeAuthority,
+            )
         val outboxDrainCompleted: SharedFlow<Unit> = outboxCoordinator.outboxDrainCompleted
 
         // Sync state for UI observation - helps prevent writes during active sync
@@ -170,6 +179,7 @@ private class MemoOutboxDrainCoordinator(
     private val mutationHandler: MemoMutationHandler,
     private val mutex: Mutex,
     private val flushScope: CoroutineScope,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) {
     private val outboxDrainSignal = Channel<Unit>(Channel.CONFLATED)
     private val _outboxDrainCompleted =
@@ -180,8 +190,16 @@ private class MemoOutboxDrainCoordinator(
     val outboxDrainCompleted: SharedFlow<Unit> = _outboxDrainCompleted.asSharedFlow()
 
     fun start() {
+        // Re-request drain whenever authority becomes writable so process-start Opening/Recovery
+        // and switch freeze defer flushes until Ready + !freeze, then resume automatically.
         flushScope.launch {
-            requestOutboxDrain()
+            writeAuthority.isWritableFlow().collect { writable ->
+                if (writable) {
+                    outboxDrainSignal.trySend(Unit)
+                }
+            }
+        }
+        flushScope.launch {
             for (signal in outboxDrainSignal) {
                 if (signal != Unit) continue
                 runNonFatalCatching {
@@ -197,14 +215,27 @@ private class MemoOutboxDrainCoordinator(
     }
 
     suspend fun drainOutboxLocked() {
+        // Fail closed: never claim or flush while engine is non-Ready or freeze is active.
+        if (!writeAuthority.isWritable()) {
+            Timber.w("Skip memo outbox drain because engine is not writable")
+            return
+        }
         var shouldContinue = true
         while (shouldContinue) {
+            if (!writeAuthority.isWritable()) {
+                Timber.w("Stop memo outbox drain because engine became non-writable")
+                return
+            }
             val item = mutationHandler.nextMemoFileOutbox() ?: break
             shouldContinue = processOutboxItem(item)
         }
     }
 
     fun requestOutboxDrain() {
+        if (!writeAuthority.isWritable()) {
+            Timber.d("Defer memo outbox drain until Ready and unfrozen")
+            return
+        }
         outboxDrainSignal.trySend(Unit)
     }
 

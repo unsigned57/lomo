@@ -4,6 +4,14 @@
 //! ELF-verify a `.so` that actually links rusqlite/pulldown-cmark/reqwest/git2 via
 //! live call paths (not Cargo dependency edges alone).
 
+// Tooling-only C ABI retention entry (see `lomo_feasibility_device_run`). Not product FFI.
+// `#[unsafe(no_mangle)]` on the volume-evidence entry requires an explicit crate allow while
+// stage-0 four-ABI SO packaging still uses a linked C symbol rather than a BoltFFI probe.
+#![allow(
+    unsafe_code,
+    reason = "tooling-only no_mangle C retention for feasibility-device SO volume evidence"
+)]
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lomo_feasibility::{
@@ -13,7 +21,7 @@ use lomo_feasibility::{
 use thiserror::Error;
 
 /// Errors from the device feasibility probe bundle.
-#[derive(Debug, Error, uniffi::Error)]
+#[derive(Debug, Error)]
 pub enum FeasibilityDeviceError {
     #[error("sqlite probe failed: {detail}")]
     Sqlite { detail: String },
@@ -21,8 +29,8 @@ pub enum FeasibilityDeviceError {
     Io { detail: String },
 }
 
-/// Result summary returned across `UniFFI` for smoke observability.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+/// Result summary for host tests and SO string retention.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeasibilityDeviceReport {
     pub sqlite_ok: bool,
     pub markdown_events: u64,
@@ -37,7 +45,6 @@ pub struct FeasibilityDeviceReport {
 /// # Errors
 ///
 /// Returns [`FeasibilityDeviceError`] when a probe fails.
-#[uniffi::export]
 pub fn run_feasibility_device_bundle() -> Result<FeasibilityDeviceReport, FeasibilityDeviceError> {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -79,4 +86,14 @@ pub fn run_feasibility_device_bundle() -> Result<FeasibilityDeviceReport, Feasib
     })
 }
 
-uniffi::setup_scaffolding!();
+/// C ABI retention entry so four-ABI `cdylib` packaging cannot strip the live probe graph.
+///
+/// Tooling-only: this is not a product FFI. The `no_mangle` attribute is required so LTO cannot
+/// drop the live SQLite/Markdown/git2/reqwest call graph from the volume evidence `.so`.
+#[unsafe(no_mangle)]
+pub extern "C" fn lomo_feasibility_device_run() -> i32 {
+    match run_feasibility_device_bundle() {
+        Ok(_) => 0,
+        Err(_) => 1,
+    }
+}

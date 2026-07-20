@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 import com.lomo.data.local.dao.PendingSyncReviewDao
 import com.lomo.data.local.entity.PendingSyncReviewEntity
 import com.lomo.data.s3.LomoS3Client
@@ -363,6 +365,7 @@ private fun reviewFileBridgeScope(root: File): S3SyncFileBridgeScope =
         encodingSupport = S3SyncEncodingSupport(),
         safTreeAccess = UnsupportedS3SafTreeAccess,
         mode = reviewFileVaultRoot(root),
+        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
     )
 
 private class PendingReviewStoreProbeS3Client(

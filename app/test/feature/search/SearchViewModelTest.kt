@@ -1,5 +1,9 @@
 package com.lomo.app.feature.search
 
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+
+import com.lomo.app.testing.fakes.testMemoUiMapper
+
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingData
 import kotlinx.coroutines.flow.collectLatest
@@ -92,10 +96,7 @@ class SearchViewModelTest : AppFunSpec() {
         resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
         deleteMemoUseCase = deleteMemoUseCase
     )
-    private val toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(
-        repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
-        validator = ValidateMemoContentUseCase()
-    )
+    private val toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository)
 
     private val saveImageUseCase = com.lomo.domain.usecase.FakeSaveImageUseCase(mediaRepository)
 
@@ -462,7 +463,7 @@ class SearchViewModelTest : AppFunSpec() {
                 memoRepository.setActiveMemos(listOf(memo))
                 val viewModel = createViewModel()
 
-                viewModel.toggleTodo(memo, 0, true)
+                viewModel.toggleTodo(memo, com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe null
@@ -478,7 +479,7 @@ class SearchViewModelTest : AppFunSpec() {
                 memoRepository.updateMemoFailure = IllegalStateException("database lock")
                 val viewModel = createViewModel()
 
-                viewModel.toggleTodo(memo, 0, true)
+                viewModel.toggleTodo(memo, com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "Failed to update todo: database lock"
@@ -498,7 +499,7 @@ class SearchViewModelTest : AppFunSpec() {
                 ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
-            projectionMapper = MemoCollectionProjectionMapper(MemoUiMapper()),
+            projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper()),
             searchMemosPageUseCase = SearchMemosPageUseCase(com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository)),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,

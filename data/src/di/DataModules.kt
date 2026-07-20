@@ -9,6 +9,7 @@ val dataModules: List<Module> = listOf(
     databaseInitializationModule,
     databaseListModule,
     databaseModule,
+    engineModule,
     imageLocationCacheModule,
     mediaShareModule,
     memoRepositoryModule,

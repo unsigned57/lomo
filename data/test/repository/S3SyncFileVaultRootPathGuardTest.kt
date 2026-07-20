@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.matchers.shouldBe
@@ -96,6 +98,7 @@ class S3SyncFileVaultRootPathGuardTest : DataFunSpec() {
                         encodingSupport = S3SyncEncodingSupport(),
                         safTreeAccess = com.lomo.data.testing.fakes.FakeS3SafTreeAccess(),
                         mode = mode,
+                        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                     )
                 val unsafePaths =
                     listOf(

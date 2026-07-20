@@ -35,6 +35,7 @@ constructor(
         private val statusTester: WebDavSyncStatusTester,
         private val stateHolder: WebDavSyncStateHolder,
         private val pendingConflictStore: PendingSyncConflictStore,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) : WebDavSyncOperationRepository {
         private val syncExecutionGate =
             SyncExecutionGate<WebDavSyncResult>(
@@ -42,6 +43,9 @@ constructor(
             )
         override suspend fun sync(): WebDavSyncResult =
             withSyncGuard(inProgressMessage = "WebDAV sync already in progress") {
+                if (!writeAuthority.isWritable()) {
+                    return@withSyncGuard WebDavSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+                }
                 restorePendingConflictIfPresent()?.let { pending ->
                     return@withSyncGuard pending
                 }

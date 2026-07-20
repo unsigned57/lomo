@@ -37,6 +37,7 @@ package com.lomo.data.git
 
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.domain.model.GitSyncResult
 import io.mockk.MockKAnnotations
 import io.mockk.every
@@ -84,12 +85,13 @@ class GitSyncEngineCollaborationTest : DataFunSpec() {
         every { dataStore.gitAuthorEmail } returns flowOf("lomo@test.local")
 
         credentialStrategy = gitCredentialStrategy("dummy-token")
-        primitives = spyk(GitRepositoryPrimitives())
+        primitives = spyk(GitRepositoryPrimitives(AlwaysWritableWorkspaceWriteAuthority))
         engine =
             GitSyncEngine(
                 dataStore = dataStore,
                 credentialStrategy = credentialStrategy,
                 primitives = primitives,
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
         queryCoordinator =
             GitSyncQueryTestCoordinator(

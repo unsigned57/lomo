@@ -3,13 +3,12 @@ package com.lomo.app.feature.main
 import android.net.Uri
 import androidx.collection.LruCache
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
-import com.lomo.domain.usecase.ParseRemindersUseCase
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
 import com.lomo.ui.component.card.shouldShowMemoCardExpand
-import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
-import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -22,6 +21,8 @@ import java.util.LinkedHashMap
 
 class MemoUiMapper(
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
+    private val markdownReminderRepository: MarkdownReminderRepository,
 ) {
         private val backgroundDispatcher = dispatcherProvider.default
 
@@ -34,23 +35,11 @@ class MemoUiMapper(
             rootPath: String?,
             imagePath: String?,
             imageMap: Map<String, Uri>,
-            prioritizedMemoIds: Set<String> = emptySet(),
         ): List<MemoUiModel> =
             withContext(backgroundDispatcher) {
                 if (memos.isEmpty()) {
                     return@withContext emptyList()
                 }
-
-                val prioritizedIds =
-                    if (prioritizedMemoIds.isNotEmpty()) {
-                        prioritizedMemoIds
-                    } else {
-                        memos
-                            .asSequence()
-                            .take(DEFAULT_PRIORITY_WINDOW_SIZE)
-                            .map { it.id }
-                            .toSet()
-                    }
 
                 val currentMemoIds = memos.asSequence().map(Memo::id).toSet()
                 cacheMutex.withLock {
@@ -72,7 +61,6 @@ class MemoUiMapper(
                                             rootPath = rootPath,
                                             imagePath = imagePath,
                                             imageMap = imageMap,
-                                            precomputeMarkdown = memo.id in prioritizedIds,
                                         )
                                 }
                             }.awaitAll()
@@ -89,7 +77,6 @@ class MemoUiMapper(
                                 rootPath = rootPath,
                                 imagePath = imagePath,
                                 imageMap = imageMap,
-                                precomputeMarkdown = memo.id in prioritizedIds,
                             )
                     }
                     results
@@ -101,27 +88,16 @@ class MemoUiMapper(
             rootPath: String?,
             imagePath: String?,
             imageMap: Map<String, Uri>,
-            precomputeMarkdown: Boolean = true,
-            existingRenderPlan: ModernMarkdownRenderPlan? = null,
-            existingProcessedContent: String? = null,
         ): MemoUiModel {
             val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
-            val processedContent = buildProcessedContent(displayContent, rootPath, imagePath, imageMap)
-            val canReuseExistingRenderPlan =
-                existingRenderPlan != null &&
-                    existingProcessedContent != null &&
-                    existingProcessedContent == processedContent
-            val renderPlan =
-                when {
-                    canReuseExistingRenderPlan -> existingRenderPlan
-                    precomputeMarkdown ->
-                        createModernMarkdownRenderPlan(
-                            content = processedContent,
-                            knownTagsToStrip = memo.tags,
-                        )
-
-                    else -> null
-                }
+            val processedContent = displayContent
+            val renderDocument =
+                imageContentResolver.resolveRenderDocumentImages(
+                    document = markdownWorkspaceRepository.renderMarkdown(displayContent),
+                    rootPath = rootPath,
+                    imagePath = imagePath,
+                    imageMap = imageMap,
+                )
             val imageUrls =
                 imageContentResolver.resolveProjectedImageUrls(
                     imageUrls = memo.imageUrls,
@@ -130,14 +106,14 @@ class MemoUiMapper(
                     imageMap = imageMap,
                 )
             val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
-            val collapsedSummary = buildMemoCardCollapsedSummary(displayContent, memo.tags)
+            val collapsedSummary = buildMemoCardCollapsedSummary(renderDocument)
 
-            val reminders = ParseRemindersUseCase()(memo.content).toImmutableList()
+            val reminders = markdownReminderRepository.remindersForMemo(memo.id).toImmutableList()
 
             return MemoUiModel(
                 memo = memo,
                 processedContent = processedContent,
-                precomputedRenderPlan = renderPlan,
+                renderDocument = renderDocument,
                 tags = memo.tags.toImmutableList(),
                 imageUrls = imageUrls,
                 shouldShowExpand = shouldShowExpand,
@@ -146,25 +122,11 @@ class MemoUiMapper(
             )
         }
 
-        private fun buildProcessedContent(
-            content: String,
-            rootPath: String?,
-            imagePath: String?,
-            imageMap: Map<String, Uri>,
-        ): String =
-            imageContentResolver.buildProcessedContent(
-                content = content,
-                rootPath = rootPath,
-                imagePath = imagePath,
-                imageMap = imageMap,
-            )
-
         private suspend fun mapToCachedUiModel(
             memo: Memo,
             rootPath: String?,
             imagePath: String?,
             imageMap: Map<String, Uri>,
-            precomputeMarkdown: Boolean,
         ): MemoUiModel {
             val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
             val cacheKey =
@@ -179,7 +141,7 @@ class MemoUiMapper(
                         ),
                 )
             val cached = cacheMutex.withLock { cachedModels[memo.id] }
-            if (cached?.key == cacheKey && (!precomputeMarkdown || cached.model.precomputedRenderPlan != null)) {
+            if (cached?.key == cacheKey) {
                 return cached.model
             }
 
@@ -189,9 +151,6 @@ class MemoUiMapper(
                     rootPath = rootPath,
                     imagePath = imagePath,
                     imageMap = imageMap,
-                    precomputeMarkdown = precomputeMarkdown,
-                    existingRenderPlan = cached?.model?.precomputedRenderPlan,
-                    existingProcessedContent = cached?.model?.processedContent,
                 )
             cacheMutex.withLock {
                 cachedModels.put(
@@ -206,7 +165,6 @@ class MemoUiMapper(
         }
 
         private companion object {
-            private const val DEFAULT_PRIORITY_WINDOW_SIZE = 20
             private const val INITIAL_PARALLEL_PRECOMPUTE_COUNT = 6
             private const val DEFAULT_CACHE_SIZE = 256
         }

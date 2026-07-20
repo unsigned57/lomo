@@ -20,11 +20,8 @@ class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderSchedul
 
     override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
 
-    override suspend fun syncForMemo(
-        memoId: String,
-        content: String,
-    ) {
-        syncForMemoCalls += memoId to content
+    override suspend fun syncForMemo(memoId: String) {
+        syncForMemoCalls += memoId to ""
     }
 
     override suspend fun cancelForMemo(memoId: String) {
@@ -37,16 +34,16 @@ class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderSchedul
 
     override suspend fun snooze(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     ) = Unit
 
     override suspend fun markDone(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     ) = Unit
 
     override suspend fun recordFired(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     ) = Unit
 }

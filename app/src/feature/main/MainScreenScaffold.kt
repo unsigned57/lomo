@@ -48,7 +48,7 @@ internal fun MainScreenScaffoldContent(
     enterAnimationRegistry: EnterAnimationRegistry,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
@@ -62,8 +62,11 @@ internal fun MainScreenScaffoldContent(
     isMemoFilterSheetVisible: Boolean,
     memoListFilterController: com.lomo.app.feature.common.MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
+    onRetryEngine: () -> Unit,
 ) {
-    val isFabVisible = rememberMainScreenFabVisibility(scrollBehavior)
+    val isFabVisible =
+        rememberMainScreenFabVisibility(scrollBehavior) &&
+            uiState is MainViewModel.MainScreenState.Ready
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -111,6 +114,7 @@ internal fun MainScreenScaffoldContent(
             onShowMemoMenu = onShowMemoMenu,
             onReminderClick = onReminderClick,
             onSettings = actions.onSettings,
+            onRetryEngine = onRetryEngine,
             isFilterActive = isFilterActive,
         )
     }
@@ -182,7 +186,7 @@ private fun MainScreenScaffoldBody(
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
@@ -194,6 +198,7 @@ private fun MainScreenScaffoldBody(
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    onRetryEngine: () -> Unit,
     isFilterActive: Boolean,
 ) {
     Box(
@@ -224,6 +229,7 @@ private fun MainScreenScaffoldBody(
             onShowMemoMenu = onShowMemoMenu,
             onReminderClick = onReminderClick,
             onSettings = onSettings,
+            onRetryEngine = onRetryEngine,
             isFilterActive = isFilterActive,
         )
     }

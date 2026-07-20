@@ -22,8 +22,8 @@ val storageDataSourceModule = module {
 
     single { FileStorageBackendResolver(androidContext(), get()) }
     single { FileWorkspaceConfigSourceDelegate(androidContext(), get(), get()) }
-    single { FileMarkdownStorageDataSourceDelegate(get()) }
-    single { FileMediaStorageDataSourceDelegate(androidContext(), get()) }
+    single { FileMarkdownStorageDataSourceDelegate(get(), get()) }
+    single { FileMediaStorageDataSourceDelegate(androidContext(), get(), get()) }
 
     // FileDataSourceImpl binds multiple interfaces
     single { FileDataSourceImpl(get(), get(), get()) } binds arrayOf(

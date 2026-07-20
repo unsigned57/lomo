@@ -188,7 +188,8 @@ class WebDavConflictResolverTest : DataFunSpec() {
                 fileBridge = fileBridge,
                 pendingConflictStore = InMemoryPendingSyncConflictStore(),
                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
-            )
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+        )
     }
 
     private fun `resolveConflicts KEEP_LOCAL uploads local content to remote`() =
@@ -348,7 +349,14 @@ class WebDavConflictResolverTest : DataFunSpec() {
                     remote = numberedLines(prefix = "remote"),
                 )
             val pendingStore = InMemoryPendingSyncConflictStore()
-            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore, testRemoteSyncLifecycleRunner())
+            val resolver = WebDavConflictResolver(
+                runtime,
+                support,
+                fileBridge,
+                pendingStore,
+                testRemoteSyncLifecycleRunner(),
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+            )
             every { fileBridge.isMemoPath(path, any()) } returns true
             every { fileBridge.extractMemoFilename(path, any()) } returns "2026_03_25.md"
             val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.MERGE_TEXT))
@@ -424,7 +432,14 @@ class WebDavConflictResolverTest : DataFunSpec() {
             val skippedPath = "lomo/memo/2026_03_25.md"
             val pendingStore = InMemoryPendingSyncConflictStore()
             every { fileBridge.contentTypeForPath(keptPath, any()) } returns "text/plain"
-            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore, testRemoteSyncLifecycleRunner())
+            val resolver = WebDavConflictResolver(
+                runtime,
+                support,
+                fileBridge,
+                pendingStore,
+                testRemoteSyncLifecycleRunner(),
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+            )
             val result =
                 resolver.resolveConflicts(
                     resolution =
@@ -523,7 +538,8 @@ class WebDavConflictResolverTest : DataFunSpec() {
                     fileBridge = fileBridge,
                     pendingReviewStore = pendingStore,
                     lifecycleRunner = testRemoteSyncLifecycleRunner(),
-                )
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+        )
             val resolution = SyncReviewResolution(perItemChoices = mapOf(path to SyncReviewResolutionChoice.KEEP_INCOMING))
 
             val result = resolver.resolveReview(resolution, review)

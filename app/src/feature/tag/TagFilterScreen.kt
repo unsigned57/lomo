@@ -254,7 +254,7 @@ private fun TagFilterScreenContent(
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onNavigateToTag: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {

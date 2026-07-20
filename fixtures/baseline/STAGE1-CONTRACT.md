@@ -1,14 +1,17 @@
 # Stage-1 Rust application-kernel behavior contract
 
-> Status: **locked; implementation not started**
+> Status: **locked; implementation in progress; FFI transport rebased to BoltFFI/JNI**
 >
 > This document fixes the behavior and evidence required to close stage 1. It is not evidence that
-> any scenario is implemented. Actual RED/GREEN commands and results must be added alongside the
-> implementation that produces them.
+> any scenario is implemented. Actual RED/GREEN commands and results are recorded in
+> `STAGE1-EVIDENCE.md` alongside the implementation that produces them.
+> Existing UniFFI RED/GREEN entries remain historical implementation evidence, but they are
+> superseded for the FFI exit gate and cannot prove the approved BoltFFI transport.
 
 ## Behavior Contract
 
-- **Unit under test:** Rust application kernel, its UniFFI facade, and the Android platform adapter.
+- **Unit under test:** Rust application kernel, its target BoltFFI/JNI facade, generated-binding
+  boundary, and Android platform adapter.
 - **Owning layer:** future `lomo-core`; `lomo-native` is the FFI edge and Kotlin `data` is the Android
   execution edge.
 - **Priority tier:** P0.
@@ -27,6 +30,10 @@
 5. Kotlin executes Android capabilities but cannot construct Rust revisions, advance jobs, or
    interpret opaque identifiers.
 6. Unknown schema, corrupt journal, invalid path/capability, and inconsistent result fail closed.
+7. A generated BoltFFI object is never used or closed outside the `data` lifecycle lease; close
+   waits for in-flight readers, rejects new readers, and releases the native handle exactly once.
+8. A foreign callback only enqueues a bounded invalidation. It never holds an engine lock, calls
+   back into FFI, carries a full collection, or becomes an alternate source of state truth.
 
 ## Scenarios
 
@@ -62,6 +69,10 @@
   state/job snapshots instead of merging an incomplete delta.
 - Given a slow, re-entrant, failed, or closed foreign listener, when the actor commits another job
   transition, then the writer remains live and no state lock is held during the callback.
+- Given an in-flight state or job call, when shutdown races with that call, then the lifecycle lease
+  lets the call finish before one close and no generated object is accessed after close begins.
+- Given callback pressure exceeds the bounded queue, when the adapter drains invalidations, then it
+  coalesces to a required resnapshot without blocking Rust or re-entering FFI from the callback.
 
 ### Cancellation and deadlines
 
@@ -103,6 +114,8 @@
 - SAF document metadata/content digest and absence of duplicate create/replace/move/delete effects.
 - Main-app readiness route and the reachability of every user/background write command.
 - Generated production APK symbol/feature surface and dependency direction.
+- Deterministically normalized generated Kotlin with no `@Suppress`, warnings-as-errors success,
+  and stable module/package/library identity.
 
 ## Public contract fixed for stage 1
 
@@ -122,12 +135,16 @@ stage 1.
 
 ## TDD proof
 
-- **Current evidence:** pending; no stage-1 production implementation or RED/GREEN claim exists.
+- **Current evidence:** in progress; see `STAGE1-EVIDENCE.md`. Only entries with an observed GREEN
+  result are implemented claims; all remaining exit evidence is still pending.
 - Every implementation workstream must record the narrowest command, the observed RED
   assertion/error, why it proves the capability is absent, and the subsequent GREEN result.
 - A first-run GREEN test is insufficient and must be strengthened before production changes.
 - Existing stage-0 `FeasibilityProbe` tests are feasibility evidence only and cannot be cited as
   stage-1 engine GREEN evidence.
+- Existing stage-1 UniFFI facade/adapter GREEN entries prove core behavior exercised through the old
+  transport only. The BoltFFI migration needs its own exact-surface RED, generated-code, lifecycle,
+  callback, packaging, size, and performance GREEN entries.
 
 ## Excludes
 
@@ -141,9 +158,23 @@ stage 1.
 
 - Narrow Rust/Kotlin/architecture tests with recorded RED/GREEN proof.
 - `just preflight`, `just check`, and `just ci` all green.
-- Complete engine/SAF kill-and-recovery smoke on a fixed API 26 x86_64 AVD and on an arm64 device.
+- Complete engine/SAF kill-and-recovery smoke via `just device-smoke` on an attached device with
+  **API ≥ 26** and a packaged ABI (`arm64-v8a` or `x86_64`). On this project line the hard device
+  gate is **API ≥ 26 arm64 real device** (current evidence: API 36 arm64). A fixed API 26 x86_64
+  AVD matrix is **not** required for stage-1 close or stage-2 entry when no such AVD exists; it is
+  an optional `pending_env` / non-claim and must never be marked GREEN without a real run. Product
+  `minSdk` / NDK API **26** and four-ABI build/ELF validation remain mandatory and are separate from
+  the device-smoke matrix.
 - Four-ABI release build, ELF/API validation, and proof that production packaging excludes tooling
   conformance symbols.
 - Per-ABI native and compressed universal-APK deltas relative to the immutable stage-0 baseline.
+- Exact target identities: generated module `native-bindings`, package `com.lomo.nativebridge`, and
+  the only packaged Lomo library `liblomo_native_jni.so`.
+- Generated Kotlin canonicalization is deterministic, contains no `@Suppress`, and compiles with
+  warnings as errors; the lifecycle lease and callback non-reentry scenarios are GREEN.
+- Relative to the same-environment UniFFI migration baseline, warm generation/packaging p50 and
+  `state()`/planner p95 improve by at least 30%, callback p95 does not regress, and total four-ABI
+  native bytes do not increase.
 - Deletion of `FeasibilityProbe` and its protocol without deletion of the tooling-only deterministic
-  SAF `DocumentsProvider`.
+  SAF `DocumentsProvider`; deletion also covers UniFFI, JNA, `libjnidispatch.so`, old generated
+  identities, and every dual-transport or compatibility path.

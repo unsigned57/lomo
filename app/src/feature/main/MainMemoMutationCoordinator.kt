@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 
@@ -18,13 +19,10 @@ class MainMemoMutationCoordinator(
 
         suspend fun toggleCheckboxLineAndUpdate(
             memo: Memo,
-            lineIndex: Int,
-            checked: Boolean,
-        ): String? {
-            val updatedContent = toggleMemoCheckboxUseCase(memo, lineIndex, checked)
-            if (updatedContent != null) {
-                appWidgetRepository.updateAllWidgets()
-            }
+            actionSpan: MarkdownSourceSpan,
+        ): String {
+            val updatedContent = toggleMemoCheckboxUseCase(memo, actionSpan)
+            appWidgetRepository.updateAllWidgets()
             return updatedContent
         }
     }

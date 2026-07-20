@@ -44,7 +44,6 @@ import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncResult
@@ -117,8 +116,6 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
 
-    @MockK(relaxed = true)
-    private lateinit var markdownParser: MarkdownParser
 
     @MockK(relaxed = true)
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
@@ -157,7 +154,6 @@ class GitSyncStatusExecutorTest : DataFunSpec() {
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
                 gitSyncQueryCoordinator = gitSyncQueryCoordinator,
-                markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
         support = GitSyncRepositorySupport(

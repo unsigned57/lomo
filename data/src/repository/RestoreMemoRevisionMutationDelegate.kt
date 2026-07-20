@@ -18,6 +18,7 @@ internal class RestoreMemoRevisionMutationDelegate(
             restoreMemoRevisionWithOutbox(
                 daoBundle = runtime.daoBundle,
                 command = command,
+                contentProjector = runtime.textProcessor,
             )
         }
 }

@@ -225,7 +225,6 @@ fun InputSheet(
         sessionState = sessionState,
         presentationState = presentationState,
         inputValue = inputValue,
-        previewContent = surface.previewContent,
         hintText = hintText,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,

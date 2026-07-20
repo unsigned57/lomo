@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 /**
  * Behavior Contract:
  * Capability: Kotest Migration
@@ -196,6 +198,7 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                             ),
                         stateHolder = stateHolder,
                         pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                     ),
                 conflictRepository =
                     WebDavSyncConflictRepositoryImpl(
@@ -206,7 +209,8 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                                 fileBridge = fileBridge,
                                 pendingConflictStore = InMemoryPendingSyncConflictStore(),
                                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
-                            ),
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+        ),
                     ),
                 reviewRepository =
                     WebDavSyncReviewRepositoryImpl(
@@ -217,7 +221,8 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                                 fileBridge = fileBridge,
                                 pendingReviewStore = InMemoryPendingSyncReviewStore(),
                                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
-                            ),
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+        ),
                     ),
                 stateRepository = WebDavSyncStateRepositoryImpl(stateHolder),
             )

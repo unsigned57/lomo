@@ -64,7 +64,6 @@ internal const val MAX_TITLE_LINES = 1
 internal const val MIN_RENDER_DIMENSION_PX = 1
 internal const val NO_IMAGE_INDEX = -1
 internal const val IMAGE_MARKER_INDEX_GROUP = 1
-internal const val MD_IMAGE_PATH_GROUP_INDEX = 2
 
 internal const val BLANK_LAYOUT_TEXT = " "
 internal const val TAG_JOIN_SEPARATOR = "  \u00B7  "
@@ -82,14 +81,6 @@ internal const val DEFAULT_SHARE_CARD_SIGNATURE = "Lomo"
 internal const val IMAGE_MARKER_PREFIX = "\uFFFCIMG"
 internal const val IMAGE_MARKER_SUFFIX = "\uFFFC"
 internal val IMAGE_MARKER_PATTERN = Regex("""\uFFFCIMG(\d+)\uFFFC""")
-internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
-internal val MD_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
-
-internal data class PreprocessedShareCardContent(
-    val contentForProcessing: String,
-    val totalImageSlots: Int,
-    val hasImages: Boolean,
-)
 
 internal data class ShareCardRenderInput(
     val displayTags: List<String>,

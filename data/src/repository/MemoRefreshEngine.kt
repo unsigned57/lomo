@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
-class MemoRefreshEngine
+class MemoRefreshEngine internal constructor
 (
         private val workspaceReader: MemoWorkspaceReader,
         private val localFileStateDao: LocalFileStateDao,

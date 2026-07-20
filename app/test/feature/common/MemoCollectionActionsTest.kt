@@ -50,7 +50,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = {},
-                    toggleTodo = { _, _, _ -> null }
+                    toggleTodo = { _, _ -> "updated" }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -202,7 +202,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         MemoUiModel(
                             memo = it,
                             processedContent = "Hello",
-                            precomputedRenderPlan = null,
+                            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
                             tags = kotlinx.collections.immutable.persistentListOf()
                         )
                     }
@@ -229,7 +229,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
                     deleteMemo = {},
-                    toggleTodo = { _, _, _ -> null }
+                    toggleTodo = { _, _ -> "updated" }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
@@ -241,7 +241,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         MemoUiModel(
                             memo = it,
                             processedContent = "Hello",
-                            precomputedRenderPlan = null,
+                            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
                             tags = kotlinx.collections.immutable.persistentListOf()
                         )
                     }

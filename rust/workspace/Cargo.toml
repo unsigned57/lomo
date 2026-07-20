@@ -1,0 +1,64 @@
+[package]
+name = "lomo-workspace"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "types_contract"
+path = "tests/types_contract.rs"
+
+[[test]]
+name = "header_contract"
+path = "tests/header_contract.rs"
+
+[[test]]
+name = "analysis_contract"
+path = "tests/analysis_contract.rs"
+
+[[test]]
+name = "document_model_contract"
+path = "tests/document_model_contract.rs"
+
+[dependencies]
+lomo-core = { path = "../core" }
+pulldown-cmark.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "render_document_contract"
+path = "tests/render_document_contract.rs"
+
+[[test]]
+name = "patch_contract"
+path = "tests/patch_contract.rs"
+
+
+[[test]]
+name = "workspace_jobs_contract"
+path = "tests/workspace_jobs_contract.rs"
+
+[[test]]
+name = "document_facts_contract"
+path = "tests/document_facts_contract.rs"
+
+[[example]]
+name = "workspace_scale_benchmark"
+path = "examples/workspace_scale_benchmark.rs"
+
+[[example]]
+name = "workspace_property_fuzz"
+path = "examples/workspace_property_fuzz.rs"

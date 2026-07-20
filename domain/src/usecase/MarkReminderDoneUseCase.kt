@@ -7,8 +7,8 @@ class MarkReminderDoneUseCase(
 ) {
     suspend operator fun invoke(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     ) {
-        reminderCoordinator.markDone(memoId, tokenRaw)
+        reminderCoordinator.markDone(memoId, reminderId)
     }
 }

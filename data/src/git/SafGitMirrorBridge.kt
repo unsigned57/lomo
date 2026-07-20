@@ -3,6 +3,7 @@ package com.lomo.data.git
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.util.sanitizePathForLog
 
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import java.security.MessageDigest
 
 class SafGitMirrorBridge(
     private val context: Context,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) {
         suspend fun mirrorDirectoryFor(rootUriString: String): File =
             withContext(Dispatchers.IO) {
@@ -51,6 +53,7 @@ class SafGitMirrorBridge(
             rootUriString: String,
             mirrorDir: File,
         ) {
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val root = resolveRootDocument(rootUriString)
                 ensureDirectoryExists(mirrorDir)

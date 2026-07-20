@@ -30,6 +30,17 @@
  *
  * Excludes:
  * - Room SQL generation/runtime integration and randomness distribution quality.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 package com.lomo.data.local.dao
 
@@ -40,6 +51,7 @@ import com.lomo.data.local.projection.ActiveMemoProjection
 import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoContentAnalysis
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.Flow
@@ -246,6 +258,7 @@ private fun memoProjection(id: String): ActiveMemoProjection =
             rawContent = "- 10:00 content-$id",
             dateKey = "2026_04_27",
         ),
+        MemoContentAnalysis.None,
     )
 
 private data class RowIdPageCall(

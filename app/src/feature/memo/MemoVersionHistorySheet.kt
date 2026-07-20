@@ -45,7 +45,7 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderer
-import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
@@ -207,8 +207,7 @@ private fun MemoVersionHistoryBody(
                 items(versions, key = { version -> version.revision.revisionId }) { version ->
                     VersionTimelineItem(
                         version = version.revision,
-                        processedContent = version.processedContent,
-                        precomputedRenderPlan = version.precomputedRenderPlan,
+                        renderDocument = version.renderDocument,
                         formattedTime = formatCommitTime(version.revision.createdAt),
                         isRestoreInProgress = isRestoreInProgress,
                         restoringRevisionId = restoringRevisionId,
@@ -264,8 +263,7 @@ private fun MemoVersionHistoryPlaceholder(
 @Composable
 private fun VersionTimelineItem(
     version: MemoRevision,
-    processedContent: String,
-    precomputedRenderPlan: ModernMarkdownRenderPlan,
+    renderDocument: MarkdownRenderDocument,
     formattedTime: String,
     isRestoreInProgress: Boolean,
     restoringRevisionId: String?,
@@ -321,8 +319,7 @@ private fun VersionTimelineItem(
                 }
             }
             VersionContentPreview(
-                content = processedContent,
-                precomputedRenderPlan = precomputedRenderPlan,
+                renderDocument = renderDocument,
             )
         }
     }
@@ -373,18 +370,16 @@ private fun VersionTimelineItem(
 
 @Composable
 private fun VersionContentPreview(
-    content: String,
-    precomputedRenderPlan: ModernMarkdownRenderPlan,
+    renderDocument: MarkdownRenderDocument,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         MarkdownRenderer(
-            content = content,
+            document = renderDocument,
             modifier = Modifier.fillMaxWidth(),
             maxVisibleBlocks = VERSION_PREVIEW_MAX_VISIBLE_BLOCKS,
-            precomputedRenderPlan = precomputedRenderPlan,
             mediaPresentationResolver = MemoMarkdownMediaPresentationResolver,
             mediaContent = { presentation -> MemoMarkdownMediaContent(presentation) },
         )

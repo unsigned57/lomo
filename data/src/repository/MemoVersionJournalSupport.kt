@@ -1,13 +1,13 @@
 package com.lomo.data.repository
 
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 
 internal suspend fun captureRevisionAssets(
     memoState: MemoVersionMemoState,
-    memoTextProcessor: MemoTextProcessor,
+    memoTextProcessor: MarkdownWorkspaceContentProjector,
     workspaceMediaAccess: WorkspaceMediaAccess,
 ): List<ResolvedMemoRevisionAsset> =
     memoTextProcessor
@@ -28,7 +28,7 @@ internal suspend fun captureRevisionAssets(
 
 internal fun MemoVersionRevisionRecord.toMemo(
     rawContent: String,
-    memoTextProcessor: MemoTextProcessor,
+    memoTextProcessor: MarkdownWorkspaceContentProjector,
 ): Memo {
     val resolvedBody = resolveMemoRevisionBody(rawContent, memoContent, memoTimestamp, dateKey)
     return Memo(

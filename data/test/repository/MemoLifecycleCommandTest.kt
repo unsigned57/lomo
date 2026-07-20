@@ -1,4 +1,5 @@
 package com.lomo.data.repository
+import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -44,6 +45,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Room schema migration, version blob persistence, app/UI callers, and remote transport upload.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class MemoLifecycleCommandTest : DataFunSpec() {
     init {
@@ -170,7 +182,7 @@ class MemoLifecycleCommandTest : DataFunSpec() {
                 .toOutboxEntity()
                 .copy(id = 42L, retryCount = 1, claimToken = "previous-process")
 
-        val rebuilt = persistedRow.toLifecycleCommand()
+        val rebuilt = persistedRow.toLifecycleCommand(fakeMarkdownWorkspaceContentProjector())
 
         persistedRow.operationId shouldBe original.metadata.operationId.value
         persistedRow.idempotencyKey shouldBe original.metadata.idempotencyKey.value

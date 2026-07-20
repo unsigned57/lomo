@@ -233,28 +233,25 @@ class DailyReviewViewModel(
 
         fun toggleTodo(
             memo: Memo,
-            lineIndex: Int,
-            checked: Boolean,
+            actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
         ) {
             viewModelScope.launch {
                 runCatching {
-                    toggleMemoCheckboxUseCase(memo, lineIndex, checked)
+                    toggleMemoCheckboxUseCase(memo, actionSpan)
                 }.onSuccess { newContent ->
                     // The review list is a frozen random-walk snapshot, so mirror the persisted
                     // toggle into rawMemos optimistically (same pattern as updateMemo/deleteMemo).
-                    if (newContent != null) {
-                        rawMemos.value =
-                            rawMemos.value?.map { current ->
-                                if (current.id == memo.id) {
-                                    current.copy(
-                                        content = newContent,
-                                        rawContent = newContent,
-                                    )
-                                } else {
-                                    current
-                                }
+                    rawMemos.value =
+                        rawMemos.value?.map { current ->
+                            if (current.id == memo.id) {
+                                current.copy(
+                                    content = newContent,
+                                    rawContent = newContent,
+                                )
+                            } else {
+                                current
                             }
-                    }
+                        }
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable

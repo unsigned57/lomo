@@ -1,5 +1,8 @@
 package com.lomo.data.repository
 
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 /**
  * Behavior Contract:
  * Capability: Kotest Migration
@@ -25,7 +28,6 @@ import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
@@ -99,8 +101,6 @@ class GitSyncOperationRepositoryImplTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
 
-    @MockK(relaxed = true)
-    private lateinit var markdownParser: MarkdownParser
 
     @MockK(relaxed = true)
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
@@ -127,6 +127,7 @@ class GitSyncOperationRepositoryImplTest : DataFunSpec() {
                 refreshEngine = refreshEngine,
                 mutationHandler = mutationHandler,
                 outboxScope = immediateTestBackgroundScope(),
+                writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                 startOutboxCoordinator = false,
             )
         runtime =
@@ -139,7 +140,6 @@ class GitSyncOperationRepositoryImplTest : DataFunSpec() {
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
                 gitSyncQueryCoordinator = gitSyncQueryCoordinator,
-                markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
 
@@ -149,6 +149,7 @@ class GitSyncOperationRepositoryImplTest : DataFunSpec() {
                 initAndSyncExecutor = initAndSyncExecutor,
                 statusExecutor = statusExecutor,
                 maintenanceExecutor = maintenanceExecutor,
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
     }
 

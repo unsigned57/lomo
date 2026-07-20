@@ -6,19 +6,12 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 internal fun buildMemoUiImageDependencySignature(
-    content: String,
     imageMap: Map<String, Uri>,
-): String {
-    if (!containsInlineMediaMarkup(content) || imageMap.isEmpty()) {
-        return ""
-    }
-    return collectReferencedImageUrls(content)
-        .flatMap(::buildImageMapCandidates)
-        .distinct()
-        .mapNotNull { key -> imageMap[key]?.let { uri -> "$key=$uri" } }
+): String =
+    imageMap
+        .map { (key, uri) -> "$key=$uri" }
         .sorted()
         .joinToString(separator = "\n")
-}
 
 internal fun buildMemoListImageDependencySignature(
     memos: List<Memo>,
@@ -27,8 +20,8 @@ internal fun buildMemoListImageDependencySignature(
     memos
         .asSequence()
         .map { memo ->
-            buildMemoUiImageDependencySignature(
-                content = memo.content,
+            buildImageMapDependencySignatureForPaths(
+                imagePaths = memo.imageUrls.toSet(),
                 imageMap = imageMap,
             )
         }.filter(String::isNotBlank)
@@ -82,21 +75,4 @@ internal fun buildImageMapCandidates(imageUrl: String): List<String> {
     }
 
     return candidates.toList()
-}
-
-private fun collectReferencedImageUrls(content: String): List<String> {
-    val referencedUrls = LinkedHashSet<String>()
-    WIKI_IMAGE_REGEX.findAll(content).forEach { match ->
-        val url = match.groupValues[1].substringBefore(WIKI_IMAGE_ALT_SEPARATOR).trim()
-        if (url.isNotBlank()) {
-            referencedUrls += url
-        }
-    }
-    MARKDOWN_IMAGE_REGEX.findAll(content).forEach { match ->
-        val url = match.groupValues[2].trim()
-        if (url.isNotBlank()) {
-            referencedUrls += url
-        }
-    }
-    return referencedUrls.toList()
 }

@@ -1,10 +1,14 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.ShareAttachmentExtractionResult
+import com.lomo.domain.model.markdown.toMemoContentAnalysis
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
-class ExtractShareAttachmentsUseCase {
+class ExtractShareAttachmentsUseCase(
+    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
+) {
     operator fun invoke(content: String): ShareAttachmentExtractionResult {
-        val analysis = MemoContentAnalyzer.analyze(content)
+        val analysis = markdownWorkspaceRepository.renderMarkdown(content).toMemoContentAnalysis()
         val localAttachmentPaths =
             (analysis.imageUrls + analysis.audioUrls)
                 .filter(::isLocalAttachmentPath)

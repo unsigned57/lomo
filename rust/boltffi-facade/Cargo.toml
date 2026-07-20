@@ -1,0 +1,18 @@
+[package]
+name = "boltffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Thin repository-owned facade over official boltffi_core.
+# Official package `boltffi` re-enables boltffi_core default features (url/uuid).
+# Macros expand to `::boltffi::__private`, so production must depend on a crate
+# literally named `boltffi` that keeps codec features off.
+
+[dependencies]
+boltffi_core = { workspace = true }
+
+[lints]
+workspace = true

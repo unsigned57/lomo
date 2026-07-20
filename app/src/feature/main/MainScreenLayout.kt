@@ -106,6 +106,7 @@ internal fun MainScreenNavigationRender(
         onScrollToTop = onScrollToTop,
         onSidebarTagReorder = onSidebarTagReorder,
         onReminderClick = onReminderClick,
+        onRetryEngine = viewModel::retryEngineOpen,
     )
 }
 
@@ -128,7 +129,7 @@ internal fun MainScreenRenderHost(
     enterAnimationRegistry: EnterAnimationRegistry,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
@@ -142,6 +143,7 @@ internal fun MainScreenRenderHost(
     onScrollToTop: () -> Unit,
     onSidebarTagReorder: (List<String>) -> Unit,
     onReminderClick: (String, String) -> Unit,
+    onRetryEngine: () -> Unit,
 ) {
     MainScreenDrawerLayout(
         isExpanded = isExpanded,
@@ -182,6 +184,7 @@ internal fun MainScreenRenderHost(
             memoListFilterController = memoListFilterController,
             onDismissMemoFilterSheet = onDismissMemoFilterSheet,
             onReminderClick = onReminderClick,
+            onRetryEngine = onRetryEngine,
         )
     }
 }
@@ -256,7 +259,7 @@ internal fun MainScreenAnimatedBody(
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,
@@ -268,6 +271,7 @@ internal fun MainScreenAnimatedBody(
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
     onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
+    onRetryEngine: () -> Unit,
     isFilterActive: Boolean,
 ) {
     AnimatedContent(
@@ -290,6 +294,19 @@ internal fun MainScreenAnimatedBody(
 
             is MainViewModel.MainScreenState.InitialImporting -> {
                 MainInitialImportingState(modifier = Modifier.fillMaxSize())
+            }
+
+            is MainViewModel.MainScreenState.OpeningEngine -> {
+                MainInitialImportingState(modifier = Modifier.fillMaxSize())
+            }
+
+            is MainViewModel.MainScreenState.ReadOnlyRecovery -> {
+                EngineReadOnlyRecoveryScreen(
+                    code = state.code,
+                    diagnostic = state.diagnostic,
+                    onRetry = onRetryEngine,
+                    onReselectWorkspace = onSettings,
+                )
             }
 
             is MainViewModel.MainScreenState.Ready -> {
@@ -339,7 +356,7 @@ private fun MainReadyContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     dateFormat: String,
     timeFormat: String,
     onMemoDoubleClick: (Memo) -> Unit,

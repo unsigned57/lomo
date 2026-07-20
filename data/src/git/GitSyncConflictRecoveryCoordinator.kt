@@ -1,5 +1,6 @@
 package com.lomo.data.git
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
@@ -20,13 +21,15 @@ constructor(
         private val dataStore: LomoDataStore,
         private val credentialStrategy: GitCredentialStrategy,
         private val primitives: GitRepositoryPrimitives,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         data class ForcePushOutcome(
             val result: GitSyncResult,
             val syncedAtMs: Long?,
         )
-        suspend fun resetRepository(rootDir: File): GitSyncResult =
-            withContext(Dispatchers.IO) {
+        suspend fun resetRepository(rootDir: File): GitSyncResult {
+            writeAuthority.requireWritable()
+            return withContext(Dispatchers.IO) {
                 runNonFatalCatching {
                     val gitDir = File(rootDir, ".git")
                     if (gitDir.exists()) {
@@ -38,11 +41,13 @@ constructor(
                     GitSyncResult.Error("Reset failed: ${error.message}", error)
                 }
             }
+        }
         suspend fun resetLocalBranchToRemote(
             rootDir: File,
             remoteUrl: String,
-        ): GitSyncResult =
-            withContext(Dispatchers.IO) {
+        ): GitSyncResult {
+            writeAuthority.requireWritable()
+            return withContext(Dispatchers.IO) {
                 val credentials =
                     try {
                         credentialStrategy.credentialProviders()
@@ -92,12 +97,14 @@ constructor(
                     )
                 }
             }
+        }
         suspend fun forcePushLocalToRemote(
             rootDir: File,
             remoteUrl: String,
             onPushingState: () -> Unit,
-        ): ForcePushOutcome =
-            withContext(Dispatchers.IO) {
+        ): ForcePushOutcome {
+            writeAuthority.requireWritable()
+            return withContext(Dispatchers.IO) {
                 val credentials =
                     try {
                         credentialStrategy.credentialProviders()
@@ -152,13 +159,15 @@ constructor(
                     )
                 }
             }
+        }
         suspend fun applyConflictResolution(
             rootDir: File,
             remoteUrl: String,
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
-        ): GitSyncResult =
-            withContext(Dispatchers.IO) {
+        ): GitSyncResult {
+            writeAuthority.requireWritable()
+            return withContext(Dispatchers.IO) {
                 val credentials =
                     try {
                         credentialStrategy.credentialProviders()
@@ -205,6 +214,7 @@ constructor(
                     GitSyncResult.Error("Failed to apply conflict resolution: ${error.message}", error)
                 }
             }
+        }
         private fun resolveFileContents(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,

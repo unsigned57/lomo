@@ -12,7 +12,7 @@ import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.model.StorageFilenameFormats
@@ -105,7 +105,7 @@ interface MemoOutboxMutationOperations {
 /**
  * Handles active memo mutations (save/update). Trash lifecycle is delegated to [MemoTrashMutationHandler].
  */
-class MemoMutationHandler private constructor(
+internal class MemoMutationHandler private constructor(
     runtime: MemoMutationRuntime,
     storageFormatProvider: MemoStorageFormatProvider,
 ) : MemoSaveMutationOperations by SaveMemoMutationDelegate(runtime, storageFormatProvider),
@@ -122,7 +122,7 @@ class MemoMutationHandler private constructor(
         workspaceStore: MemoWorkspaceStore,
         workspaceMediaAccess: WorkspaceMediaAccess,
         savePlanFactory: MemoSavePlanFactory,
-        textProcessor: MemoTextProcessor,
+        textProcessor: MarkdownWorkspaceContentProjector,
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
@@ -168,7 +168,7 @@ internal class MemoMutationRuntime(
     val workspaceStore: MemoWorkspaceStore,
     val workspaceMediaAccess: WorkspaceMediaAccess,
     val savePlanFactory: MemoSavePlanFactory,
-    val textProcessor: MemoTextProcessor,
+    val textProcessor: MarkdownWorkspaceContentProjector,
     val trashMutationHandler: MemoTrashMutationHandler,
     val memoIdentityPolicy: MemoIdentityPolicy,
     val memoVersionJournal: MemoVersionJournal,

@@ -5,8 +5,9 @@ set -euo pipefail
 # Capability: prove xtask is the only public Rust/Kotlin/native/Android quality orchestrator.
 # Scenarios:
 # - Given public commands, when Justfile and hooks are inspected, then they call only lomo-xtask.
-# - Given native inputs, when configuration is inspected, then Rust 1.96, NDK 29, JNA 5.18.1,
-#   four Android ABIs, and ignored generated outputs are fixed at the owning boundary.
+# - Given native inputs, when configuration is inspected, then Rust 1.96, NDK 29, BoltFFI JNI
+#   library identity, four Android ABIs, and ignored generated outputs are fixed at the owning
+#   boundary.
 # - Given old workflow tails, when the repository is inspected, then none remain.
 # Observable outcomes: missing canonical wiring or retained legacy orchestration fails this script.
 # TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained.
@@ -55,16 +56,15 @@ require_text rust/Cargo.toml 'pedantic = "deny"'
 require_text rust/Cargo.toml '[profile.release-ci]'
 require_text rust/rust-toolchain.toml 'channel = "1.96"'
 require_text rust/xtask/src/workspace.rs '29.0.14206865'
-require_text rust/xtask/src/workspace.rs 'JNA_VERSION: &str = "5.18.1"'
-require_text rust/xtask/src/native.rs 'liblomo_native.so'
+require_text rust/xtask/src/native.rs 'liblomo_native_jni.so'
 require_text rust/xtask/src/native.rs 'Abi::ALL'
 require_text rust/xtask/src/native.rs 'ReleaseCi'
 require_text rust/xtask/src/android.rs 'assets/dexopt/baseline.prof'
 require_text rust/xtask/src/android.rs 'env:LOMO_APK_STORE_PASSWORD'
 require_text rust/xtask/src/quality.rs 'pub fn preflight'
-require_text rust-bindings/module.yaml 'namespace: com.lomo.rust'
-require_text rust-bindings/module.yaml 'allWarningsAsErrors: true'
-require_text .gitignore '/rust-bindings/src/'
+require_text native-bindings/module.yaml 'namespace: com.lomo.nativebridge'
+require_text native-bindings/module.yaml 'allWarningsAsErrors: true'
+require_text .gitignore '/native-bindings/src/'
 require_text .gitignore '/app/jniLibs/'
 require_text .githooks/pre-commit 'preflight'
 require_text .githooks/pre-push 'just check'
@@ -82,7 +82,8 @@ for legacy in \
   quality/scripts/generate_rust_sync_android_libs.sh \
   quality/scripts/check_rust_sync_apk_packaging.sh \
   quality/scripts/ai_local_maintenance_check.sh \
-  quality/scripts/verified_batch_commit.sh; do
+  quality/scripts/verified_batch_commit.sh \
+  rust-bindings; do
   reject_path "$legacy"
 done
 

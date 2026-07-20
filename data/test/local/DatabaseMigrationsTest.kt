@@ -744,12 +744,9 @@ class DatabaseMigrationsTest : DataFunSpec() {
     }
 
     private fun `migration 57 to 58 adds and backfills active memo content flags`() {
-        val updateSql =
-            """
-            UPDATE `Lomo`
-            SET `hasTodo` = ?, `hasAttachment` = ?, `hasUrl` = ?
-            WHERE `id` = ?
-            """.trimIndent()
+        // Post-cutover: migration adds flag columns + indexes and invalidates local file state so
+        // the next Ready workspace refresh repopulates projections from owner scan facts.
+        // It must not re-parse memo body text in Kotlin.
         val db =
             RecordingSQLiteConnection(
                 queryHandler = { sql, _ ->
@@ -757,20 +754,6 @@ class DatabaseMigrationsTest : DataFunSpec() {
                         sql.contains("sqlite_master") -> mockCursor(true)
                         sql.contains("PRAGMA table_info(`$MEMO_TABLE`)") ->
                             mockColumnsCursor(setOf("id", COLUMN_CONTENT))
-
-                        sql.contains("SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_HAS_TODO`") ->
-                            mockMemoContentFlagCursor(
-                                rows =
-                                    listOf(
-                                        MemoContentFlagRow(id = "todo", content = "  -\t[x] indented task"),
-                                        MemoContentFlagRow(id = "audio", content = "[voice](voice_001.m4a)"),
-                                        MemoContentFlagRow(id = "wiki", content = "![[diagram.png]]"),
-                                        MemoContentFlagRow(id = "geo", content = "geo:31.2304,121.4737"),
-                                        MemoContentFlagRow(id = "mailto", content = "mailto:hello@example.com"),
-                                        MemoContentFlagRow(id = "email", content = "hello@example.com"),
-                                    ),
-                            )
-
                         else -> SQLiteQueryResult.EMPTY
                     }
                 },
@@ -787,12 +770,7 @@ class DatabaseMigrationsTest : DataFunSpec() {
         verify {
             db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `hasUrl` INTEGER NOT NULL DEFAULT 0")
         }
-        db.assertExecutedSqlWithArgs(updateSql, listOf(true, false, false, "todo"))
-        db.assertExecutedSqlWithArgs(updateSql, listOf(false, true, false, "audio"))
-        db.assertExecutedSqlWithArgs(updateSql, listOf(false, true, false, "wiki"))
-        listOf("geo", "mailto", "email").forEach { memoId ->
-            db.assertExecutedSqlWithArgs(updateSql, listOf(false, false, true, memoId))
-        }
+        db.assertExecutedSql("DELETE FROM `local_file_state`")
     }
 
     private fun `migration 58 to 59 clears unscoped sync state and recreates generation scoped tables`() {

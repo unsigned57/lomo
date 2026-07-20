@@ -16,4 +16,4 @@ settings:
     allWarningsAsErrors: true
 
 dependencies:
-  - //rust-bindings
+  - //native-bindings

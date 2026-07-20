@@ -3,7 +3,6 @@ package com.lomo.data.local
 import androidx.sqlite.SQLiteConnection
 import com.lomo.data.local.entity.StoredMemoRecovery
 import com.lomo.data.util.SearchTokenizer
-import com.lomo.domain.usecase.MemoContentAnalyzer
 
 private const val MEMO_ID_COLUMN_INDEX = 0
 private const val MEMO_TIMESTAMP_COLUMN_INDEX = 1
@@ -152,59 +151,10 @@ internal fun backfillMemoContentFlagColumns(db: SQLiteConnection) {
     }
     ensureMemoContentFlagColumns(db)
 
-    val pendingFlagUpdates = mutableListOf<MemoContentFlagUpdate>()
-    db.query(
-        """
-        SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_HAS_TODO`, `$COLUMN_HAS_ATTACHMENT`, `$COLUMN_HAS_URL`
-        FROM `$MEMO_TABLE`
-        """.trimIndent(),
-    ).use { cursor ->
-        val idIndex = cursor.getColumnIndex("id")
-        val contentIndex = cursor.getColumnIndex(COLUMN_CONTENT)
-        val hasTodoIndex = cursor.getColumnIndex(COLUMN_HAS_TODO)
-        val hasAttachmentIndex = cursor.getColumnIndex(COLUMN_HAS_ATTACHMENT)
-        val hasUrlIndex = cursor.getColumnIndex(COLUMN_HAS_URL)
-        while (cursor.moveToNext()) {
-            val memoId =
-                requireNotNull(cursor.getString(idIndex)) {
-                    "Legacy memo id missing during content flag backfill"
-                }
-            val content =
-                requireNotNull(cursor.getString(contentIndex)) {
-                    "Legacy memo content missing during content flag backfill"
-                }
-            val analysis = MemoContentAnalyzer.analyze(content)
-            if (
-                cursor.getInt(hasTodoIndex).toBoolean() != analysis.hasTodo ||
-                cursor.getInt(hasAttachmentIndex).toBoolean() != analysis.hasAttachment ||
-                cursor.getInt(hasUrlIndex).toBoolean() != analysis.hasUrl
-            ) {
-                pendingFlagUpdates +=
-                    MemoContentFlagUpdate(
-                        id = memoId,
-                        hasTodo = analysis.hasTodo,
-                        hasAttachment = analysis.hasAttachment,
-                        hasUrl = analysis.hasUrl,
-                    )
-            }
-        }
-    }
-    if (pendingFlagUpdates.isNotEmpty()) {
-        db.usePreparedBatch(
-            sql =
-                """
-                UPDATE `$MEMO_TABLE`
-                SET `$COLUMN_HAS_TODO` = ?, `$COLUMN_HAS_ATTACHMENT` = ?, `$COLUMN_HAS_URL` = ?
-                WHERE `id` = ?
-                """.trimIndent(),
-            items = pendingFlagUpdates,
-        ) { statement, update ->
-            statement.bindBoolean(MEMO_FLAG_BIND_HAS_TODO, update.hasTodo)
-            statement.bindBoolean(MEMO_FLAG_BIND_HAS_ATTACHMENT, update.hasAttachment)
-            statement.bindBoolean(MEMO_FLAG_BIND_HAS_URL, update.hasUrl)
-            statement.bindText(MEMO_FLAG_BIND_ID, update.id)
-            statement.step()
-        }
+    // Content semantics are workspace-owned. Invalidate file snapshots so the first Ready refresh
+    // repopulates these projections from Rust scan/render facts instead of reparsing legacy rows.
+    if (db.tableExists(LOCAL_FILE_STATE_TABLE)) {
+        db.execSQL("DELETE FROM `$LOCAL_FILE_STATE_TABLE`")
     }
 }
 
@@ -304,25 +254,12 @@ internal fun backfillMemoStatisticsProjectionColumns(db: SQLiteConnection) {
     }
 }
 
-private data class MemoContentFlagUpdate(
-    val id: String,
-    val hasTodo: Boolean,
-    val hasAttachment: Boolean,
-    val hasUrl: Boolean,
-)
-
 private data class MemoStatisticsProjectionUpdate(
     val id: String,
     val wordCount: Int,
     val characterCount: Int,
 )
 
-private const val MEMO_FLAG_BIND_HAS_TODO = 1
-private const val MEMO_FLAG_BIND_HAS_ATTACHMENT = 2
-private const val MEMO_FLAG_BIND_HAS_URL = 3
-private const val MEMO_FLAG_BIND_ID = 4
 private const val MEMO_STATISTICS_BIND_WORD_COUNT = 1
 private const val MEMO_STATISTICS_BIND_CHARACTER_COUNT = 2
 private const val MEMO_STATISTICS_BIND_ID = 3
-
-private fun Int.toBoolean(): Boolean = this != 0

@@ -4,6 +4,8 @@ import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.projection.ActiveMemoProjection
 import com.lomo.data.local.projection.MemoProjectionProjector
+import com.lomo.data.local.projection.toAttachmentContentAnalysis
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.MemoRevisionLifecycleState
 
 internal suspend fun persistMemoWithOutbox(
@@ -28,7 +30,10 @@ internal suspend fun moveMemoToTrashWithOutbox(
     daoBundle.runInTransaction {
         daoBundle.memoWriteDao.deleteMemoById(sourceMemo.id)
         daoBundle.memoTagDao.deleteTagRefsByMemoId(sourceMemo.id)
-        val trashProjection = MemoProjectionProjector.projectTrash(sourceMemo.copy(isDeleted = true))
+        val trashed = sourceMemo.copy(isDeleted = true)
+        // Content is unchanged; reuse memo attachment/tag facts — no second render.
+        val trashProjection =
+            MemoProjectionProjector.projectTrash(trashed, trashed.toAttachmentContentAnalysis())
         daoBundle.memoTrashDao.insertTrashMemo(trashProjection.entity)
         daoBundle.memoImageDao.replaceImageRefsForTrashMemo(trashProjection)
         outboxId = daoBundle.memoOutboxDao.insertMemoFileOutbox(buildDeleteOutbox(command))
@@ -39,13 +44,18 @@ internal suspend fun moveMemoToTrashWithOutbox(
 internal suspend fun restoreMemoFromTrashWithOutbox(
     daoBundle: MemoMutationDaoBundle,
     command: MemoLifecycleCommand,
+    contentProjector: MarkdownWorkspaceContentProjector,
 ): Long {
     val sourceMemo = command.sourceMemo
     var outboxId = 0L
     daoBundle.runInTransaction {
+        // Active query flags (hasTodo/hasUrl) are not stored on trash rows; one owner analyze of
+        // the restored free body projects them for Room without a second pass on the same call.
+        val active = sourceMemo.copy(isDeleted = false)
+        val analysis = contentProjector.analyze(active.content)
         persistMainMemoProjection(
             daoBundle,
-            MemoProjectionProjector.projectActive(sourceMemo.copy(isDeleted = false)),
+            MemoProjectionProjector.projectActive(active, analysis),
         )
         daoBundle.memoTrashDao.deleteTrashMemoById(sourceMemo.id)
         outboxId = daoBundle.memoOutboxDao.insertMemoFileOutbox(buildRestoreOutbox(command))
@@ -67,6 +77,7 @@ internal suspend fun enqueuePermanentDeleteWithOutbox(
 internal suspend fun restoreMemoRevisionWithOutbox(
     daoBundle: MemoMutationDaoBundle,
     command: MemoLifecycleCommand,
+    contentProjector: MarkdownWorkspaceContentProjector,
 ): Long {
     val target = requireNotNull(command.revisionRestoreTarget) {
         "Revision restore DB transaction requires target revision: ${command.metadata.operationId.value}"
@@ -75,14 +86,18 @@ internal suspend fun restoreMemoRevisionWithOutbox(
     daoBundle.runInTransaction {
         when (target.lifecycleState) {
             MemoRevisionLifecycleState.ACTIVE -> {
-                val projection = MemoProjectionProjector.projectActive(target.memo.copy(isDeleted = false))
+                val active = target.memo.copy(isDeleted = false)
+                val analysis = contentProjector.analyze(active.content)
+                val projection = MemoProjectionProjector.projectActive(active, analysis)
                 persistMainMemoProjection(daoBundle, projection)
                 daoBundle.memoTrashDao.deleteTrashMemoById(target.memo.id)
             }
             MemoRevisionLifecycleState.TRASHED -> {
                 daoBundle.memoWriteDao.deleteMemoById(target.memo.id)
                 daoBundle.memoTagDao.deleteTagRefsByMemoId(target.memo.id)
-                val projection = MemoProjectionProjector.projectTrash(target.memo.copy(isDeleted = true))
+                val trashed = target.memo.copy(isDeleted = true)
+                val projection =
+                    MemoProjectionProjector.projectTrash(trashed, trashed.toAttachmentContentAnalysis())
                 daoBundle.memoTrashDao.insertTrashMemo(projection.entity)
                 daoBundle.memoImageDao.replaceImageRefsForTrashMemo(projection)
             }

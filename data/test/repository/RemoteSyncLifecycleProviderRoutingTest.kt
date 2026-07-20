@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import android.content.Context
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitMediaSyncSummary
@@ -10,7 +11,6 @@ import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
@@ -369,7 +369,7 @@ private fun createS3Executor(
             transactionRunner = NoOpS3SyncTransactionRunner,
         )
     val encodingSupport = S3SyncEncodingSupport()
-    val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+    val fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
     return S3SyncExecutor(
         runtime = runtime,
         support = S3SyncRepositorySupport(
@@ -449,7 +449,6 @@ private fun createGitExecutor(
                 mockk<GitSyncQueryTestCoordinator>().also { coordinator ->
                     every { coordinator.getStatus(rootDir) } returns status
                 },
-            markdownParser = mockk<MarkdownParser>(),
             markdownStorageDataSource = mockk<MarkdownStorageDataSource>(),
         )
     val memoMirror = mockk<GitSyncMemoMirror>()
@@ -464,6 +463,7 @@ private fun createGitExecutor(
             ),
         memoMirror = memoMirror,
         lifecycleRunner = lifecycleRunner,
+        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
     )
 }
 

@@ -31,11 +31,12 @@ just android release
 xtask performs the following as one graph:
 
 1. validates baseline profile sources and signing configuration;
-2. builds `lomo-native` for all four ABIs with NDK 29/API 26 and the release profile;
-3. verifies the JNA AAR checksum and generates `com.lomo.rust` bindings;
+2. builds `lomo-native` for all four ABIs with NDK 29/API 26 and the release-android profile;
+3. generates BoltFFI Kotlin/JNI into `native-bindings` / `com.lomo.nativebridge` and packages
+   only `liblomo_native_jni.so` per ABI;
 4. builds the Kotlin Toolchain release APK;
-5. verifies both native libraries for every ABI, desktop JNA exclusion, ELF architecture and
-   dependencies, and embedded baseline profile assets;
+5. verifies the single native library for every ABI, absence of JNA/`libjnidispatch`/old
+   `liblomo_native.so`, ELF architecture and dependencies, and embedded baseline profile assets;
 6. signs with `apksigner` using environment-backed passwords and verifies the signature.
 
 The final artifact is `.kotlin/toolchain-build/android-release/lomo-release.apk`.
@@ -46,8 +47,8 @@ artifact. It must not grow a second native, Kotlin, signing, or APK validation i
 ## Resource Review
 
 `just ci` includes string-resource key parity. `just android release` additionally validates all
-native ABIs, ELF metadata, JNA resource exclusion, baseline profile assets, signing, and the final
-APK signature.
+native ABIs, ELF metadata, BoltFFI-only packaging (`liblomo_native_jni.so`), baseline profile
+assets, signing, and the final APK signature.
 
 The parity check compares `string`, `plurals`, and `string-array` keys between:
 

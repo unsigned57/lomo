@@ -22,7 +22,7 @@ fun MemoCardEntry(
     modifier: Modifier = Modifier,
     onMemoClick: ((Memo) -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
-    onTodoClick: ((Int, Boolean) -> Unit)? = null,
+    onTodoClick: ((com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)? = null,
     onImageClick: (String) -> Unit = {},
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit = {},
     isExpanded: Boolean? = null,
@@ -35,7 +35,7 @@ fun MemoCardEntry(
     MemoCard(
         content = memo.content,
         processedContent = uiModel.processedContent,
-        precomputedRenderPlan = uiModel.precomputedRenderPlan,
+        renderDocument = uiModel.renderDocument,
         timestamp = memo.timestamp,
         dateFormat = dateFormat,
         timeFormat = timeFormat,

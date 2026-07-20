@@ -150,7 +150,9 @@ pub fn rust_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
 pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
     tools::ensure_quality(workspace)?;
     native::generate_bindings(workspace)?;
-    native::verify_native_tree(workspace, &native::Abi::ALL)?;
+    // android_ci consumes whatever is currently packaged; treat as shipping-class so size
+    // honesty fails closed if Dev unstripped artifacts remain in app/jniLibs.
+    native::verify_native_tree(workspace, &native::Abi::ALL, NativeProfile::Release)?;
     kotlin_gate(
         workspace,
         KotlinGateOptions {
@@ -185,9 +187,28 @@ fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
     ]);
     run(&mut clippy)?;
     rust_tests(workspace)?;
+    workspace_property_fuzz(workspace)?;
     let mut machete = repository_command(workspace, workspace.tool_bin().join("cargo-machete"));
     machete.current_dir(&workspace.rust).arg(".");
     run(&mut machete)
+}
+
+fn workspace_property_fuzz(workspace: &Workspace) -> Result<()> {
+    let mut fuzz = cargo(workspace);
+    fuzz.args([
+        "run",
+        "--locked",
+        "-p",
+        "lomo-workspace",
+        "--example",
+        "workspace_property_fuzz",
+        "--",
+        "--seed",
+        "20260720",
+        "--cases",
+        "10000",
+    ]);
+    run(&mut fuzz)
 }
 
 fn rust_full_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
@@ -398,6 +419,7 @@ fn changed_paths(workspace: &Workspace, source: ChangeSource) -> Result<BTreeSet
 fn is_rust_path(path: &str) -> bool {
     path == "Justfile"
         || path.starts_with("rust/")
+        || path.starts_with("native-bindings/")
         || path.starts_with("rust-bindings/")
         || path.starts_with("native-smoke/")
 }
@@ -427,6 +449,7 @@ fn is_native_path(path: &str) -> bool {
         || path.starts_with("rust/xtask/src/android.rs")
         || path.starts_with("rust/xtask/src/tools.rs")
         || path.starts_with("native-smoke/")
+        || path.starts_with("native-bindings/")
         || path.starts_with("rust-bindings/")
 }
 

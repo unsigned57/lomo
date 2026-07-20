@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import java.io.File
@@ -118,7 +118,7 @@ internal suspend fun appendRestoredRevision(
     restoredRevision: MemoVersionRevisionRecord,
     rawContent: String,
     store: MemoVersionStore,
-    memoTextProcessor: MemoTextProcessor,
+    memoTextProcessor: MarkdownWorkspaceContentProjector,
     runInTransaction: suspend (suspend () -> Unit) -> Unit,
     loadSnapshotSettings: suspend () -> MemoSnapshotRetentionSettings,
     now: () -> Long,

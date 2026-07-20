@@ -1,4 +1,5 @@
 package com.lomo.data.git
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
@@ -15,7 +16,9 @@ import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.treewalk.TreeWalk
 import timber.log.Timber
 import java.io.File
-class GitRepositoryPrimitives {
+class GitRepositoryPrimitives(
+    private val writeAuthority: WorkspaceWriteAuthority,
+) {
         fun cleanStaleLockFiles(rootDir: File) {
             val lockFile = File(rootDir, ".git/index.lock")
             if (lockFile.exists()) {
@@ -51,6 +54,7 @@ class GitRepositoryPrimitives {
             }
         }
         fun ensureGitignore(rootDir: File) {
+            writeAuthority.requireWritable()
             val gitignore = File(rootDir, ".gitignore")
             if (!gitignore.exists()) {
                 gitignore.writeText(

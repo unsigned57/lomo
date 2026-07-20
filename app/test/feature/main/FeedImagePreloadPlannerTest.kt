@@ -37,6 +37,17 @@ import kotlinx.collections.immutable.toImmutableList
  *
  * Excludes:
  * - Coil request execution, bitmap decoding, LazyColumn frame timing, and memo height-change animation.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class FeedImagePreloadPlannerTest : AppFunSpec() {
     init {
@@ -252,7 +263,7 @@ class FeedImagePreloadPlannerTest : AppFunSpec() {
                     dateKey = "2026_04_02",
                 ),
             processedContent = id,
-            precomputedRenderPlan = null,
+            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = persistentListOf(),
             imageUrls = persistentListOf(*imageUrls),
         )

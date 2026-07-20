@@ -11,10 +11,6 @@ settings:
     targetSdk: 37
     versionCode: 46
     versionName: 1.6.2
-    resourcePackaging:
-      excludes:
-        - /com/sun/jna/**/libjnidispatch.*
-        - /com/sun/jna/**/jnidispatch.*
   jvm:
     release: 25
     jdk:

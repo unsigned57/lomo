@@ -6,7 +6,7 @@ import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import org.koin.dsl.module
 
 val domainShareModule = module {
-    single { PrepareShareCardContentUseCase() }
-    single { ExtractShareAttachmentsUseCase() }
+    single { PrepareShareCardContentUseCase(get()) }
+    single { ExtractShareAttachmentsUseCase(get()) }
     single { PersistShareImageUseCase(get()) }
 }

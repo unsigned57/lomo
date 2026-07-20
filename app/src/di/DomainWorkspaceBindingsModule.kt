@@ -15,7 +15,15 @@ import org.koin.dsl.module
 val domainWorkspaceModule = module {
     single { BackupSyncConflictFilesUseCase(get()) }
     single { InitializeWorkspaceUseCase(get(), get()) }
-    single { SwitchRootStorageUseCase(get(), get()) }
+    single {
+        SwitchRootStorageUseCase(
+            directorySettingsRepository = get(),
+            workspaceStateResolver = get(),
+            writeFreezeRepository = get(),
+            engineReadinessRepository = get(),
+            workspaceCandidateValidator = get(),
+        )
+    }
     single { ExportAllNotesArchiveUseCase(get()) }
     single { ImportAllNotesArchiveUseCase(get(), get()) }
     single { ExportEncryptedSettingsUseCase(get()) }

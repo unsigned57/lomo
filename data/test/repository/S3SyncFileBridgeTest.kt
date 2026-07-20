@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -155,7 +156,7 @@ class S3SyncFileBridgeTest : DataFunSpec() {
                 performanceTuner = DisabledSyncPerformanceTuner,
                 transactionRunner = NoOpS3SyncTransactionRunner,
             )
-        bridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport())
+        bridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport(), AlwaysWritableWorkspaceWriteAuthority)
     }
 
     private fun `localFiles recursively collects content files under inferred vault root`() =
@@ -374,6 +375,7 @@ class S3SyncFileBridgeTest : DataFunSpec() {
                     encodingSupport = S3SyncEncodingSupport(),
                     safTreeAccess = safTreeAccess,
                     mode = mode,
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                 )
 
             val files = scope.localFiles(syncDirectoryLayoutForTest)

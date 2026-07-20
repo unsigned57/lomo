@@ -694,7 +694,8 @@ private fun VersionHistoryOverlay(
     onLoadMore: () -> Unit,
     onRestore: (Memo, MemoRevision) -> Unit,
 ) {
-    val mapper = remember { MemoVersionHistoryUiMapper() }
+    val markdownWorkspaceRepository = org.koin.compose.koinInject<com.lomo.domain.repository.MarkdownWorkspaceRepository>()
+    val mapper = remember(markdownWorkspaceRepository) { MemoVersionHistoryUiMapper(markdownWorkspaceRepository) }
     when (state) {
         is MainVersionHistoryState.Loading -> {
             com.lomo.app.feature.memo.MemoVersionHistorySheet(

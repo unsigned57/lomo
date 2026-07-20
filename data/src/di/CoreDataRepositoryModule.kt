@@ -17,6 +17,7 @@ import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.repository.DirectorySettingsRepositoryImpl
 import com.lomo.data.repository.PreferencesRepositoryImpl
 import com.lomo.data.repository.DateTimePreferencesRepositoryImpl
@@ -107,6 +108,10 @@ val coreDataRepositoryModule = module {
 
     singleOf(::AppPreferencesSnapshotRepositoryImpl) bind AppPreferencesSnapshotRepository::class
     single { com.lomo.data.repository.CustomFontStoreImpl(androidContext()) } bind CustomFontStore::class
+
+    single { com.lomo.data.repository.ProcessWriteFreezeRepository() } bind
+        com.lomo.domain.repository.WriteFreezeRepository::class
+    singleOf(::WorkspaceWriteAuthority)
 
     single {
         WorkspaceTransitionRepositoryImpl(

@@ -2,6 +2,7 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
+import com.lomo.data.repository.WorkspaceWriteAuthority
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,9 +12,11 @@ import java.io.IOException
 class FileMediaStorageDataSourceDelegate(
     private val context: Context,
     private val backendResolver: FileStorageBackendResolver,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) : MediaStorageDataSource {
         override suspend fun saveImage(uri: Uri): String =
             withContext(Dispatchers.IO) {
+                writeAuthority.requireWritable()
                 ImageMagicByteValidator.requireSupportedImage(context.contentResolver, uri)
                 val resolvedRoot =
                     backendResolver.resolvedMediaRoot(StorageRootType.IMAGE)
@@ -30,13 +33,18 @@ class FileMediaStorageDataSourceDelegate(
             resolvedImageBackend()?.getImageLocation(filename)
 
         override suspend fun deleteImage(filename: String) {
+            writeAuthority.requireWritable()
             resolvedImageBackend()?.deleteImage(filename)
         }
 
-        override suspend fun createVoiceFile(filename: String): Uri =
-            (backendResolver.voiceBackend() ?: throw IOException("No storage configured")).createVoiceFile(filename)
+        override suspend fun createVoiceFile(filename: String): Uri {
+            writeAuthority.requireWritable()
+            return (backendResolver.voiceBackend() ?: throw IOException("No storage configured"))
+                .createVoiceFile(filename)
+        }
 
         override suspend fun deleteVoiceFile(filename: String) {
+            writeAuthority.requireWritable()
             backendResolver.voiceBackend()?.deleteVoiceFile(filename)
         }
 

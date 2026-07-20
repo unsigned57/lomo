@@ -1,4 +1,5 @@
 package com.lomo.app.feature.settings
+import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
@@ -25,13 +26,13 @@ import kotlinx.coroutines.test.runTest
  * - Capability: coordinates settings UI commands into repository-backed state updates.
  *
  * - Scenarios:
- *   - Given initial state, directory display states remain Loading until values are emitted.
- *   - Given emitted location display names, directory display states are resolved.
- *   - Given root directory updates, switch-root use case is delegated to and updates repository/state.
- *   - Given image/voice/sync inbox directory updates, correct repository storage locations are applied.
- *   - Given preference toggle updates (double-tap, free-text copy), each updates its own repository state and never touches the other.
- *   - Given date/time/theme/haptic/foreground auto-input preference updates, correct repository
- *     settings are applied.
+ *   - Given initial state, when directory display Flows are observed before emission, then they stay Loading.
+ *   - Given emitted location display names, when display Flows collect, then directory states resolve.
+ *   - Given root directory updates, when the coordinator applies them, then switch-root is delegated.
+ *   - Given image/voice/sync inbox directory updates, when applied, then repository storage locations update.
+ *   - Given preference toggle updates, when applied, then each updates only its own repository state.
+ *   - Given date/time/theme/haptic/foreground auto-input preference updates, when applied, then the
+ *     correct repository settings change.
  *
  * - Observable outcomes:
  *   - Directory display state Flow emissions.
@@ -43,11 +44,22 @@ import kotlinx.coroutines.test.runTest
  *     assertion could not compile.
  *
  * - Excludes: Datastore file serialization, Android system settings integration.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class SettingsAppConfigCoordinatorTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val workspaceStateResolver = FakeWorkspaceStateResolver()
-    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver)
+    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver, FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
 
     private class FakeWorkspaceStateResolver : WorkspaceStateResolver {
         var rebuildCallCount = 0
@@ -323,3 +335,4 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
         }
     }
 }
+

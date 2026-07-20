@@ -16,12 +16,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
-import com.lomo.ui.component.markdown.MarkdownRendererWithTextSelectionRegistrar
+import com.lomo.ui.component.markdown.MarkdownIrRenderer
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionScope
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentListOf
 
 @Composable
 internal fun MemoCardBodyContent(
@@ -33,12 +32,10 @@ internal fun MemoCardBodyContent(
     onDoubleClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
     processedContent: String,
-    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
-    tags: ImmutableList<String>,
+    renderDocument: MarkdownRenderDocument,
     isExpanded: Boolean,
     isCollapsedPreview: Boolean,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
@@ -61,10 +58,8 @@ internal fun MemoCardBodyContent(
                     onDoubleClick = onDoubleClick,
                     onLongClick = onLongClick,
                     processedContent = processedContent,
-                    precomputedRenderPlan = precomputedRenderPlan,
-                    tags = tags,
+                    renderDocument = renderDocument,
                     onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     mediaPresentationResolver = mediaPresentationResolver,
                     mediaContent = mediaContent,
@@ -94,10 +89,8 @@ internal fun MemoCardBodyContent(
                     onDoubleClick = onDoubleClick,
                     onLongClick = onLongClick,
                     processedContent = processedContent,
-                    precomputedRenderPlan = precomputedRenderPlan,
-                    tags = tags,
+                    renderDocument = renderDocument,
                     onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     mediaPresentationResolver = mediaPresentationResolver,
                     mediaContent = mediaContent,
@@ -126,10 +119,8 @@ private fun MemoCardBodyStateContent(
     onDoubleClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
     processedContent: String,
-    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
-    tags: ImmutableList<String>,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
+    renderDocument: MarkdownRenderDocument,
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     selectionRegistrar: MemoTextSelectionRegistrar?,
@@ -138,9 +129,7 @@ private fun MemoCardBodyStateContent(
     when (visualState) {
         MemoCardBodyVisualState.Expanded -> {
             MemoCardMarkdownContent(
-                processedContent = processedContent,
-                precomputedRenderPlan = precomputedRenderPlan,
-                tags = tags,
+                renderDocument = renderDocument,
                 isCollapsedPreview = false,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTapFeedback = onTapFeedback,
@@ -148,7 +137,6 @@ private fun MemoCardBodyStateContent(
                 onDoubleClick = onDoubleClick,
                 onLongClick = onLongClick,
                 onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 mediaPresentationResolver = mediaPresentationResolver,
                 mediaContent = mediaContent,
@@ -173,9 +161,7 @@ private fun MemoCardBodyStateContent(
         MemoCardBodyVisualState.CollapsedMarkdownPreview -> {
             MemoCardCollapsedBody {
                 MemoCardMarkdownContent(
-                    processedContent = processedContent,
-                    precomputedRenderPlan = precomputedRenderPlan,
-                    tags = tags,
+                    renderDocument = renderDocument,
                     isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
                     allowFreeTextCopy = allowFreeTextCopy,
                     onTapFeedback = onTapFeedback,
@@ -183,7 +169,6 @@ private fun MemoCardBodyStateContent(
                     onDoubleClick = onDoubleClick,
                     onLongClick = onLongClick,
                     onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     mediaPresentationResolver = mediaPresentationResolver,
                     mediaContent = mediaContent,
@@ -210,30 +195,24 @@ private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
 
 @Composable
 private fun MemoCardMarkdownContent(
-    processedContent: String,
-    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
-    tags: ImmutableList<String>,
+    renderDocument: MarkdownRenderDocument,
     isCollapsedPreview: Boolean,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     selectionRegistrar: MemoTextSelectionRegistrar?,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
-    MarkdownRendererWithTextSelectionRegistrar(
-        content = processedContent,
-        precomputedRenderPlan = precomputedRenderPlan,
-        knownTagsToStrip = if (precomputedRenderPlan == null) tags else persistentListOf(),
+    MarkdownIrRenderer(
+        document = renderDocument,
         modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
         maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
-        onTodoClick = onTodoClick,
-        todoOverrides = todoOverrides,
+        onTaskClick = onTodoClick,
         onImageClick = onImageClick,
         mediaPresentationResolver = mediaPresentationResolver,
         enableTextSelection = allowFreeTextCopy,

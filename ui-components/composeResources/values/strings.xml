@@ -65,6 +65,7 @@
     <string name="input_mode_edit">Edit</string>
     <string name="input_mode_preview">Preview</string>
     <string name="input_preview_empty">Nothing to preview yet</string>
+    <string name="input_preview_failed">Preview unavailable</string>
     <string name="cd_send">Send</string>
     <string name="recording_in_progress">Recording in progress</string>
     <string name="cd_cancel_recording">Cancel recording</string>

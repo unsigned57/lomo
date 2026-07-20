@@ -1,4 +1,5 @@
 package com.lomo.data.repository
+
 import androidx.core.net.toUri
 import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.entity.ImageLocationCacheEntity
@@ -16,105 +17,131 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
+
+/**
+ * Production media edge. Mutating image/voice workspace paths fail closed unless the Rust engine is
+ * Ready and no workspace-switch freeze is active. Read/refresh paths stay available so recovery UI
+ * can still observe cached locations.
+ */
 class MediaRepositoryImpl
 constructor(
-        private val workspaceConfigSource: WorkspaceConfigSource,
-        private val mediaStorageDataSource: MediaStorageDataSource,
-        private val s3LocalChangeRecorder: S3LocalChangeRecorder,
-        private val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
-        private val imageLocationCacheDao: ImageLocationCacheDao,
-    ) : MediaRepository {
-        private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
-        override suspend fun importImage(source: StorageLocation): StorageLocation {
-            val filename = mediaStorageDataSource.saveImage(source.raw.toUri())
-            s3LocalChangeRecorder.recordImageUpsert(filename)
-            webDavLocalChangeRecorder.recordImageUpsert(filename)
-            mediaStorageDataSource.getImageLocation(filename)?.let { location ->
-                imageLocationMap.update { currentMap ->
-                    currentMap + (MediaEntryId(filename) to StorageLocation(location))
-                }
+    private val workspaceConfigSource: WorkspaceConfigSource,
+    private val mediaStorageDataSource: MediaStorageDataSource,
+    private val s3LocalChangeRecorder: S3LocalChangeRecorder,
+    private val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
+    private val imageLocationCacheDao: ImageLocationCacheDao,
+    private val writeAuthority: WorkspaceWriteAuthority,
+) : MediaRepository {
+    private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
+
+    override suspend fun importImage(source: StorageLocation): StorageLocation {
+        requireWritableEngine()
+        val filename = mediaStorageDataSource.saveImage(source.raw.toUri())
+        s3LocalChangeRecorder.recordImageUpsert(filename)
+        webDavLocalChangeRecorder.recordImageUpsert(filename)
+        mediaStorageDataSource.getImageLocation(filename)?.let { location ->
+            imageLocationMap.update { currentMap ->
+                currentMap + (MediaEntryId(filename) to StorageLocation(location))
             }
-            return StorageLocation(filename)
         }
-        override suspend fun removeImage(entryId: MediaEntryId) {
-            mediaStorageDataSource.deleteImage(entryId.raw)
-            s3LocalChangeRecorder.recordImageDelete(entryId.raw)
-            webDavLocalChangeRecorder.recordImageDelete(entryId.raw)
-            imageLocationMap.update { currentMap -> currentMap - entryId }
-        }
-        override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
-        override suspend fun refreshImageLocations() {
-            if (workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first() == null) {
-                imageLocationCacheDao.clearAll()
-                imageLocationMap.value = emptyMap()
-                return
-            }
-            imageLocationMap.value =
-                imageLocationCacheDao.readAll().associate { entry ->
-                    MediaEntryId(entry.name) to StorageLocation(entry.uri)
-                }
-            val refreshedEntries = mediaStorageDataSource.listImageFiles()
-            imageLocationMap.value =
-                refreshedEntries.associate { (name, uri) ->
-                    MediaEntryId(name) to StorageLocation(uri)
-                }
+        return StorageLocation(filename)
+    }
+
+    override suspend fun removeImage(entryId: MediaEntryId) {
+        requireWritableEngine()
+        mediaStorageDataSource.deleteImage(entryId.raw)
+        s3LocalChangeRecorder.recordImageDelete(entryId.raw)
+        webDavLocalChangeRecorder.recordImageDelete(entryId.raw)
+        imageLocationMap.update { currentMap -> currentMap - entryId }
+    }
+
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
+
+    override suspend fun refreshImageLocations() {
+        if (workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first() == null) {
             imageLocationCacheDao.clearAll()
-            if (refreshedEntries.isNotEmpty()) {
-                imageLocationCacheDao.upsertAll(
-                    refreshedEntries.map { (name, uri) ->
-                        ImageLocationCacheEntity(
-                            name = name,
-                            uri = uri,
-                        )
-                    },
-                )
-            }
+            imageLocationMap.value = emptyMap()
+            return
         }
-        override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
-            when (category) {
-                MediaCategory.IMAGE -> {
-                    createDefaultWorkspace(
-                        folderName = IMAGE_DIRECTORY_NAME,
-                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
+        imageLocationMap.value =
+            imageLocationCacheDao.readAll().associate { entry ->
+                MediaEntryId(entry.name) to StorageLocation(entry.uri)
+            }
+        val refreshedEntries = mediaStorageDataSource.listImageFiles()
+        imageLocationMap.value =
+            refreshedEntries.associate { (name, uri) ->
+                MediaEntryId(name) to StorageLocation(uri)
+            }
+        imageLocationCacheDao.clearAll()
+        if (refreshedEntries.isNotEmpty()) {
+            imageLocationCacheDao.upsertAll(
+                refreshedEntries.map { (name, uri) ->
+                    ImageLocationCacheEntity(
+                        name = name,
+                        uri = uri,
                     )
-                }
-                MediaCategory.VOICE -> {
-                    createDefaultWorkspace(
-                        folderName = VOICE_DIRECTORY_NAME,
-                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
-                    )
-                }
-            }
-        override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation {
-            val target = StorageLocation(mediaStorageDataSource.createVoiceFile(entryId.raw).toString())
-            s3LocalChangeRecorder.recordVoiceUpsert(entryId.raw)
-            webDavLocalChangeRecorder.recordVoiceUpsert(entryId.raw)
-            return target
-        }
-        override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
-            mediaStorageDataSource.deleteVoiceFile(entryId.raw)
-            s3LocalChangeRecorder.recordVoiceDelete(entryId.raw)
-            webDavLocalChangeRecorder.recordVoiceDelete(entryId.raw)
-        }
-        private suspend fun createDefaultWorkspace(
-            folderName: String,
-            setRoot: suspend (String) -> Unit,
-        ): StorageLocation? =
-            runNonFatalCatching {
-                val uri = workspaceConfigSource.createDirectory(folderName)
-                setRoot(uri)
-                StorageLocation(uri)
-            }.getOrElse { error ->
-                Timber.tag(TAG).w(
-                    error,
-                    "Failed to create default media workspace: folder=%s",
-                    folderName,
-                )
-                null
-            }
-        companion object {
-            private const val TAG = "MediaRepositoryImpl"
-            private const val IMAGE_DIRECTORY_NAME = "images"
-            private const val VOICE_DIRECTORY_NAME = "voice"
+                },
+            )
         }
     }
+
+    override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
+        when (category) {
+            MediaCategory.IMAGE -> {
+                requireWritableEngine()
+                createDefaultWorkspace(
+                    folderName = IMAGE_DIRECTORY_NAME,
+                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
+                )
+            }
+            MediaCategory.VOICE -> {
+                requireWritableEngine()
+                createDefaultWorkspace(
+                    folderName = VOICE_DIRECTORY_NAME,
+                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
+                )
+            }
+        }
+
+    override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation {
+        requireWritableEngine()
+        val target = StorageLocation(mediaStorageDataSource.createVoiceFile(entryId.raw).toString())
+        s3LocalChangeRecorder.recordVoiceUpsert(entryId.raw)
+        webDavLocalChangeRecorder.recordVoiceUpsert(entryId.raw)
+        return target
+    }
+
+    override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
+        requireWritableEngine()
+        mediaStorageDataSource.deleteVoiceFile(entryId.raw)
+        s3LocalChangeRecorder.recordVoiceDelete(entryId.raw)
+        webDavLocalChangeRecorder.recordVoiceDelete(entryId.raw)
+    }
+
+    private fun requireWritableEngine() {
+        writeAuthority.requireWritable()
+    }
+
+    private suspend fun createDefaultWorkspace(
+        folderName: String,
+        setRoot: suspend (String) -> Unit,
+    ): StorageLocation? =
+        runNonFatalCatching {
+            val uri = workspaceConfigSource.createDirectory(folderName)
+            setRoot(uri)
+            StorageLocation(uri)
+        }.getOrElse { error ->
+            Timber.tag(TAG).w(
+                error,
+                "Failed to create default media workspace: folder=%s",
+                folderName,
+            )
+            null
+        }
+
+    companion object {
+        private const val TAG = "MediaRepositoryImpl"
+        private const val IMAGE_DIRECTORY_NAME = "images"
+        private const val VOICE_DIRECTORY_NAME = "voice"
+    }
+}

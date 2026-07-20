@@ -19,6 +19,7 @@ package com.lomo.data.repository
 
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -181,7 +182,7 @@ class S3SyncActionApplierTest : DataFunSpec() {
                 transactionRunner = NoOpS3SyncTransactionRunner,
             )
         encodingSupport = S3SyncEncodingSupport()
-        fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         applier =
             S3SyncActionApplier(
                 runtime = runtime,

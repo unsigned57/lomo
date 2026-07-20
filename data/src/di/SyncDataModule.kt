@@ -105,7 +105,7 @@ import com.lomo.data.sync.RustSyncEnvelopePlanner
 import com.lomo.data.sync.RustSyncPlannerClient
 import com.lomo.data.sync.WebDavSyncWorkPolicyPlanner
 import com.lomo.data.sync.S3SyncWorkPolicyPlanner
-import com.lomo.data.sync.UniFfiRustSyncEnvelopePlanner
+import com.lomo.data.sync.BoltFfiRustSyncEnvelopePlanner
 import com.lomo.data.webdav.OkHttpWebDavClientFactory
 import com.lomo.data.webdav.DefaultWebDavEndpointResolver
 import com.lomo.data.webdav.WebDavClientFactory
@@ -144,7 +144,7 @@ import org.koin.dsl.bind
 
 val syncDataModule = module {
     singleOf(::SyncHttpClientProvider)
-    single<RustSyncEnvelopePlanner> { UniFfiRustSyncEnvelopePlanner }
+    single<RustSyncEnvelopePlanner> { BoltFfiRustSyncEnvelopePlanner }
     singleOf(::RustSyncPlannerClient)
 
     // Planners
@@ -170,7 +170,7 @@ val syncDataModule = module {
     singleOf(::GitSyncQueryTestCoordinator)
     singleOf(::GitMediaSyncFingerprintIndex)
     singleOf(::GitMediaSyncBridge)
-    single { SafGitMirrorBridge(androidContext()) }
+    single { SafGitMirrorBridge(androidContext(), get()) }
     single {
         GitSyncRepositoryContext(
             context = androidContext(),
@@ -181,7 +181,6 @@ val syncDataModule = module {
             safGitMirrorBridge = get(),
             gitMediaSyncBridge = get(),
             gitSyncQueryCoordinator = get(),
-            markdownParser = get(),
             markdownStorageDataSource = get(),
         )
     }
@@ -236,6 +235,7 @@ val syncDataModule = module {
             scheduledWorkEnqueuer = get(),
             stateHolder = get(),
             pendingConflictStore = get(),
+            writeAuthority = get(),
         )
     } bind S3SyncWorkExecutor::class
     singleOf(::S3SyncStateHolder)
@@ -243,7 +243,7 @@ val syncDataModule = module {
     singleOf(::S3SyncRepositorySupport)
     singleOf(::S3SyncEncodingSupport)
     singleOf(::S3RemoteObjectKeyPolicy)
-    single { S3SyncFileBridge(get(), get(), get()) }
+    single { S3SyncFileBridge(get(), get(), get(), get()) }
     singleOf(::S3SyncActionApplier)
     singleOf(::S3SyncExecutor)
     singleOf(::S3SyncStatusTester)
@@ -284,7 +284,7 @@ val syncDataModule = module {
     singleOf(::WebDavSyncReviewRepositoryImpl)
     singleOf(::WebDavSyncStateRepositoryImpl)
     single { WebDavCredentialStore(androidContext()) }
-    single { LocalMediaSyncStore(androidContext(), get()) }
+    single { LocalMediaSyncStore(androidContext(), get(), get()) }
 
     // Performance tuner
     single { AndroidSyncPerformanceTuner(androidContext()) } bind SyncPerformanceTuner::class

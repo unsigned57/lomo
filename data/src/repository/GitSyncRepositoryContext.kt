@@ -7,7 +7,6 @@ import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 
 
@@ -25,6 +24,5 @@ class GitSyncRepositoryContext(
     val safGitMirrorBridge: SafGitMirrorBridge,
     val gitMediaSyncBridge: GitMediaSyncBridge,
     val gitSyncQueryCoordinator: GitSyncQueryTestCoordinator,
-    val markdownParser: MarkdownParser,
     val markdownStorageDataSource: MarkdownStorageDataSource,
 )

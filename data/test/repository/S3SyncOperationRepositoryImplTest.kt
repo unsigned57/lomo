@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 import com.lomo.data.sync.SyncExistingWorkPolicy
 import com.lomo.data.sync.SyncScheduledWork
 import com.lomo.data.sync.SyncWorkBackoffPolicy
@@ -122,6 +124,7 @@ class S3SyncOperationRepositoryImplTest : DataFunSpec() {
                 scheduledWorkEnqueuer = scheduledWorkEnqueuer,
                 pendingConflictStore = pendingConflictStore,
                 stateHolder = stateHolder,
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
     }
 

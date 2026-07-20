@@ -184,6 +184,8 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
                                 id = "memo-main",
                                 date = "2024_01_20",
                                 content = "main ![a](a.png) ![a again](a.png) ![aaa](aaa.png)",
+                                // Scan already projected attachment destinations (JSON codec).
+                                imageUrls = """["a.png","aaa.png"]""",
                             ),
                         ),
                     trashMemos =
@@ -192,6 +194,7 @@ class MemoRefreshDbApplierTest : DataFunSpec() {
                                 id = "memo-trash",
                                 date = "2024_01_20",
                                 content = "trash ![image](trash.png)",
+                                imageUrls = """["trash.png"]""",
                             ),
                         ),
                     metadataToUpdate = emptyList(),

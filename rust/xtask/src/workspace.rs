@@ -6,8 +6,6 @@ use anyhow::{Context, Result};
 
 pub const ANDROID_API: u32 = 26;
 pub const NDK_VERSION: &str = "29.0.14206865";
-pub const JNA_VERSION: &str = "5.18.1";
-pub const JNA_SHA256: &str = "7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0";
 
 #[derive(Clone, Debug)]
 pub struct Workspace {
@@ -93,7 +91,7 @@ impl Workspace {
     }
 
     pub fn generated_bindings(&self) -> PathBuf {
-        self.root.join("rust-bindings/src")
+        self.root.join("native-bindings/src")
     }
 
     pub fn jni_libs(&self) -> PathBuf {

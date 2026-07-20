@@ -3,7 +3,6 @@ package com.lomo.data.di
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransactionAndSuspendedMemoFtsTriggers
 import com.lomo.data.local.withDriverTransaction
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.repository.AsyncMemoVersionRecorder
 import com.lomo.data.repository.MemoMutationDaoBundle
 import com.lomo.data.repository.RoomMemoVersionStore
@@ -31,7 +30,7 @@ import com.lomo.data.repository.MemoMutationRepositoryImpl
 import com.lomo.data.repository.MemoTrashRepositoryImpl
 import com.lomo.data.repository.MemoSearchRepositoryImpl
 import com.lomo.data.repository.MemoStatisticsRepositoryImpl
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.repository.MainListQueryRepository
 import com.lomo.domain.repository.MemoListQueryRepository
 import com.lomo.domain.repository.MemoMutationRepository
@@ -49,8 +48,7 @@ import org.koin.dsl.bind
 import org.koin.dsl.binds
 
 val memoRepositoryModule = module {
-    singleOf(::MemoTextProcessor)
-    singleOf(::MarkdownParser)
+    singleOf(::MarkdownWorkspaceContentProjector)
     singleOf(::MemoSavePlanFactory)
 
     // Memo version / journal
@@ -138,6 +136,7 @@ val memoRepositoryModule = module {
             refreshEngine = get(),
             mutationHandler = get(),
             outboxScope = get(named("ApplicationScope")),
+            writeAuthority = get(),
         )
     }
     single<WorkspaceStateResolver> { RefreshingWorkspaceStateResolver(get(), get(), get()) }
@@ -148,9 +147,9 @@ val memoRepositoryModule = module {
         MemoListQueryRepository::class,
         MainListQueryRepository::class
     )
-    single { MemoMutationRepositoryImpl(get(), get(), get(), get()) }
+    single { MemoMutationRepositoryImpl(get(), get(), get(), get(), get()) }
         .bind(MemoMutationRepository::class)
-    singleOf(::MemoTrashRepositoryImpl) bind MemoTrashRepository::class
+    single { MemoTrashRepositoryImpl(get(), get(), get()) } bind MemoTrashRepository::class
     singleOf(::MemoSearchRepositoryImpl) bind MemoSearchRepository::class
     singleOf(::MemoStatisticsRepositoryImpl) bind MemoStatisticsRepository::class
 }

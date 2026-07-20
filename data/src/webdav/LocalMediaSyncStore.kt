@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,7 @@ internal data class LocatedMediaFile(
 class LocalMediaSyncStore(
     private val context: Context,
     private val dataStore: LomoDataStore,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -207,6 +209,7 @@ class LocalMediaSyncStore(
             bytes: ByteArray,
             layout: SyncDirectoryLayout,
         ) {
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val located =
                     requireLocatedMediaFile(
@@ -283,6 +286,7 @@ class LocalMediaSyncStore(
             source: File,
             layout: SyncDirectoryLayout,
         ) {
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val located =
                     requireLocatedMediaFile(
@@ -324,6 +328,7 @@ class LocalMediaSyncStore(
             relativePath: String,
             layout: SyncDirectoryLayout,
         ) {
+            writeAuthority.requireWritable()
             withContext(Dispatchers.IO) {
                 val located =
                     locateMediaFile(

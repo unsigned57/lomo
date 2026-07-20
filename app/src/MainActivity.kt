@@ -484,7 +484,14 @@ private fun DispatchPendingLaunchCommands(
     if (pendingLaunchCommands.isEmpty()) {
         return
     }
-    LaunchedEffect(pendingLaunchCommands) {
+    val engineReadiness by viewModel.engineReadiness.collectAsStateWithLifecycle()
+    // Deep-link/share entry must observe engine readiness, not only Main body UI state.
+    val (workspaceState, _) = entryWorkspaceStateFor(engineReadiness)
+    LaunchedEffect(pendingLaunchCommands, workspaceState) {
+        if (!shouldDispatchPendingLaunchCommands(workspaceState)) {
+            // Keep commands queued while Opening/Recovery own the surface.
+            return@LaunchedEffect
+        }
         pendingLaunchCommands.forEach { command ->
             when (val action = command.action) {
                 is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)

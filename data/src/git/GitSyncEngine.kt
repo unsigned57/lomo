@@ -1,5 +1,6 @@
 package com.lomo.data.git
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
@@ -19,12 +20,19 @@ constructor(
         dataStore: LomoDataStore,
         credentialStrategy: GitCredentialStrategy,
         primitives: GitRepositoryPrimitives,
+        writeAuthority: WorkspaceWriteAuthority,
     ) {
         private val workflow = GitSyncWorkflow(dataStore, credentialStrategy, primitives)
         private val initCoordinator = GitSyncInitCoordinator(workflow)
         private val commitSyncCoordinator = GitSyncCommitSyncCoordinator(workflow, dataStore)
         private val conflictRecoveryCoordinator =
-            GitSyncConflictRecoveryCoordinator(workflow, dataStore, credentialStrategy, primitives)
+            GitSyncConflictRecoveryCoordinator(
+                workflow,
+                dataStore,
+                credentialStrategy,
+                primitives,
+                writeAuthority,
+            )
         private val mutex = Mutex()
         private val _syncState = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
         val syncState: StateFlow<UnifiedSyncState> = _syncState

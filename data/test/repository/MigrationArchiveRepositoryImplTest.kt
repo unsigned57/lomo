@@ -2,6 +2,9 @@ package com.lomo.data.repository
 
 // architectural-boundary-check
 
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+import com.lomo.data.repository.WorkspaceWriteAuthority
+import com.lomo.data.repository.ProcessWriteFreezeRepository
 import android.net.Uri
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.FileMetadataWithId
@@ -106,7 +109,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val output = ByteArrayOutputStream()
 
                 val summary = repository.exportAllNotesArchive(output)
@@ -145,7 +149,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val output = ByteArrayOutputStream()
 
                 val summary = repository.exportAllNotesArchive(output)
@@ -177,7 +182,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -225,6 +231,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                     DefaultWorkspaceMediaAccess(
                         context = mockk(),
                         workspaceConfigSource = configSource,
+                        writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                     )
 
                 val destination = ByteArrayOutputStream()
@@ -252,6 +259,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                             FakeWorkspaceConfigSource(
                                 roots = mapOf(StorageRootType.VOICE to voiceRoot.absolutePath),
                             ),
+                            writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                     )
 
                 shouldThrow<IOException> {
@@ -280,6 +288,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                             FakeWorkspaceConfigSource(
                                 roots = mapOf(StorageRootType.IMAGE to imageRoot.absolutePath),
                             ),
+                            writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                     )
 
                 shouldThrow<IllegalArgumentException> {
@@ -305,6 +314,7 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                             FakeWorkspaceConfigSource(
                                 roots = mapOf(StorageRootType.IMAGE to imageRoot.absolutePath),
                             ),
+                            writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                     )
 
                 shouldThrow<IllegalArgumentException> {
@@ -329,7 +339,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -374,7 +385,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = stagingWorkspaceFactory,
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -430,7 +442,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = settingsStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = stagingWorkspaceFactory,
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -473,7 +486,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                                 maxMarkdownEntryBytes = 512 * 1024,
                             ),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -504,7 +518,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "notes/main/imported.md" to "- 11:00 imported".toByteArray(),
@@ -535,7 +550,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -566,7 +582,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -773,7 +790,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZipWithLocalEntries(
                         "manifest.json" to
@@ -804,7 +822,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -832,7 +851,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -861,7 +881,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -889,7 +910,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -923,7 +945,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = FakeMigrationSettingsStore(),
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val archive =
                     buildZip(
                         "manifest.json" to
@@ -970,7 +993,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val output = ByteArrayOutputStream()
 
                 val exportSummary = exportRepository.exportEncryptedSettings(output, "correct-password")
@@ -990,7 +1014,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val importSummary =
                     importRepository.importEncryptedSettings(
                         input = ByteArrayInputStream(output.toByteArray()),
@@ -1019,7 +1044,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val output = ByteArrayOutputStream()
                 sourceRepository.exportEncryptedSettings(output, "correct-password")
                 val restoreStore =
@@ -1033,7 +1059,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
 
                 shouldThrow<IllegalArgumentException> {
                     restoreRepository.importEncryptedSettings(
@@ -1065,7 +1092,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = sourceStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
                 val output = ByteArrayOutputStream()
                 sourceRepository.exportEncryptedSettings(output, "correct-password")
                 val restoreStore = FakeMigrationSettingsStore()
@@ -1076,7 +1104,8 @@ class MigrationArchiveRepositoryImplTest : DataFunSpec() {
                         settingsStore = restoreStore,
                         importBudgets = testArchiveBudgets(),
                         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-                    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
 
                 shouldThrow<MigrationPasswordException> {
                     restoreRepository.importEncryptedSettings(
@@ -1484,7 +1513,8 @@ private fun migrationRepositoryWithBudgets(
         settingsStore = FakeMigrationSettingsStore(),
         importBudgets = budgets,
         stagingWorkspaceFactory = FileMigrationArchiveStagingWorkspaceFactory(),
-    )
+                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                )
 
 private fun testArchiveBudgets(
     maxCompressedArchiveBytes: Long = 512 * 1024,

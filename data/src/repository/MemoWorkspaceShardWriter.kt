@@ -10,10 +10,22 @@ constructor(
             filename: String,
             blockContent: String,
         ) {
+            val existing =
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.TRASH, filename).orEmpty()
+            val payload =
+                when {
+                    blockContent.isEmpty() -> blockContent
+                    existing.isEmpty() ->
+                        if (blockContent.endsWith("\n")) blockContent else "$blockContent\n"
+                    existing.endsWith("\n") ->
+                        if (blockContent.endsWith("\n")) blockContent else "$blockContent\n"
+                    else ->
+                        if (blockContent.endsWith("\n")) "\n$blockContent" else "\n$blockContent\n"
+                }
             markdownStorageDataSource.saveFileIn(
                 directory = MemoDirectoryType.TRASH,
                 filename = filename,
-                content = blockContent,
+                content = payload,
                 append = true,
             )
             markdownStorageDataSource

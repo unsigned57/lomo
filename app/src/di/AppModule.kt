@@ -75,8 +75,14 @@ val appModule = module {
     single { MainSidebarStateHolder() }
     single { MainStartupCoordinator(get(), get(), get(), get()) }
     single { MainVersionHistoryCoordinator(get(), get()) }
-    single { MainWorkspaceCoordinator(get(), get(), get(), get()) }
-    single { MemoUiMapper(get()) }
+    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get()) }
+    single {
+        MemoUiMapper(
+            dispatcherProvider = get(),
+            markdownWorkspaceRepository = get(),
+            markdownReminderRepository = get(),
+        )
+    }
     single {
         SettingsCoordinatorFactory(
             get(), get(), get(), get(), get(),
@@ -93,6 +99,6 @@ val appModule = module {
 
     // Sharing helpers
     single { ShareCardDisplayFormatter() }
-    single { ShareCardBitmapRenderer(get(), get()) }
+    single { ShareCardBitmapRenderer(get(), get(), get()) }
     single { ShareUtils(get(), get(), get()) }
 }

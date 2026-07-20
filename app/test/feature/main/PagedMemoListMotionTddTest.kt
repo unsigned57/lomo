@@ -58,7 +58,7 @@ class PagedMemoListMotionTddTest : FunSpec({
                 dateKey = "2026_06_21"
             ),
             processedContent = "memo1",
-            precomputedRenderPlan = null,
+            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = persistentListOf(),
             reminders = persistentListOf(),
             imageUrls = persistentListOf(),
@@ -121,7 +121,7 @@ class PagedMemoListMotionTddTest : FunSpec({
                 dateKey = "2026_06_27"
             ),
             processedContent = "body",
-            precomputedRenderPlan = null,
+            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = persistentListOf()
         )
         val visiblePagedMemos = listOf(item1).toImmutableList()
@@ -156,7 +156,7 @@ class PagedMemoListMotionTddTest : FunSpec({
                 dateKey = "2026_06_27"
             ),
             processedContent = "body",
-            precomputedRenderPlan = null,
+            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = persistentListOf()
         )
         val visiblePagedMemos = listOf(item1).toImmutableList()

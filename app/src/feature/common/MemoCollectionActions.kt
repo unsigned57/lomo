@@ -2,6 +2,7 @@ package com.lomo.app.feature.common
 
 import android.net.Uri
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.domain.model.StorageLocation
 import com.lomo.app.feature.main.MemoUiModel
@@ -16,13 +17,13 @@ import kotlinx.coroutines.launch
 sealed interface MemoCollectionCapabilities {
     data class DeletableTodo(
         val deleteMemo: suspend (Memo) -> Unit,
-        val toggleTodo: suspend (Memo, Int, Boolean) -> String?,
+        val toggleTodo: suspend (Memo, MarkdownSourceSpan) -> String,
     ) : MemoCollectionCapabilities
 
     data class Editable(
         val deleteMemo: suspend (Memo) -> Unit,
         val updateMemo: suspend (Memo, String) -> Unit,
-        val toggleTodo: suspend (Memo, Int, Boolean) -> String?,
+        val toggleTodo: suspend (Memo, MarkdownSourceSpan) -> String,
         val saveImage: suspend (StorageLocation) -> SaveImageResult,
     ) : MemoCollectionCapabilities
 
@@ -71,15 +72,12 @@ class MemoCollectionActions internal constructor(
 
     fun toggleTodo(
         memo: Memo,
-        lineIndex: Int,
-        checked: Boolean,
+        actionSpan: MarkdownSourceSpan,
     ) {
         launchMutation(fallbackMessage = "Failed to update todo") {
             val toggleTodo = capabilities.toggleTodo("toggle todo")
-            val newContent = toggleTodo(memo, lineIndex, checked)
-            if (newContent != null) {
-                onMemoContentReplaced?.invoke(memo, newContent)
-            }
+            val newContent = toggleTodo(memo, actionSpan)
+            onMemoContentReplaced?.invoke(memo, newContent)
         }
     }
 
@@ -221,7 +219,9 @@ class MemoCollectionActions internal constructor(
                 is MemoCollectionCapabilities.Trash -> error("Memo collection capability does not support $action")
             }
 
-        private fun MemoCollectionCapabilities.toggleTodo(action: String): suspend (Memo, Int, Boolean) -> String? =
+        private fun MemoCollectionCapabilities.toggleTodo(
+            action: String,
+        ): suspend (Memo, MarkdownSourceSpan) -> String =
             when (this) {
                 is MemoCollectionCapabilities.DeletableTodo -> toggleTodo
                 is MemoCollectionCapabilities.Editable -> toggleTodo

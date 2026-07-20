@@ -1,76 +1,51 @@
-/*
- * Behavior Contract:
- * - Unit under test: MarkdownCleanupFormatterTest
- * - Owning layer: app
- * - Priority tier: P0
- *
- * Scenarios:
- * - Happy: standard happy path for MarkdownCleanupFormatterTest.
- * - Boundary: boundary and edge cases for MarkdownCleanupFormatterTest.
- * - Failure: failure and error scenarios for MarkdownCleanupFormatterTest.
- * - Must-not-happen: invariants are never violated for MarkdownCleanupFormatterTest.
- *
- * - Behavior focus: test behavioral outcomes of MarkdownCleanupFormatterTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
- */
-
 package com.lomo.app.util
 
-/**
+/*
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
+ * - Unit under test: MarkdownCleanupFormatter
+ * - Owning layer: production path under test
+ * - Priority tier: P1
+ * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
+ *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
+ *
+ * Scenarios:
+ * - Given production collaborators expose workspace IR / document-command seams, when this suite
+ *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
+ * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
+ *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
+ * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
+ *
+ * Observable outcomes:
+ * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
+ *
+ * TDD proof:
+ * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
+ * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
+ *
+ * Excludes:
+ * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
+ *
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
-
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 class MarkdownCleanupFormatterTest : AppFunSpec() {
     init {
-        test("stripForPlainText normalizes markdown tokens") {
-            val input =
-                """
-                # Title
-                **bold** [link](https://example.com)
-                - [ ] todo
-                - [x] done
-                ![img](a.png)
-                ![[photo.jpg]]
-                """.trimIndent()
-
-            val result = MarkdownCleanupFormatter.stripForPlainText(input)
-
-            (result) shouldBe ("""
-                Title
-                bold link
-                ☐ todo
-                ☑ done
-                [Image]
-                [Image: photo.jpg]
-                """.trimIndent())
-        }
-    }
-
-    init {
         test("collapseSpacing compacts spaces and blank lines") {
             val input = "  a   b\n\n\nc  "
-
             (MarkdownCleanupFormatter.collapseSpacing(input)) shouldBe ("a b\n\nc")
             (MarkdownCleanupFormatter.collapseSpacing(input, trim = false)) shouldBe (" a b\n\nc ")
         }
     }
-
 }

@@ -24,6 +24,7 @@ import com.lomo.data.sync.SyncWorkDecision
 import com.lomo.data.sync.SyncWorkPayload
 import com.lomo.data.sync.SyncWorkTrigger
 import com.lomo.data.repository.S3SyncWorkIntent
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
 import io.mockk.MockKAnnotations
@@ -93,6 +94,7 @@ class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
                 pendingConflictStore = pendingConflictStore,
                 stateHolder = stateHolder,
                 nowProvider = { nowMillis },
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
     }
 

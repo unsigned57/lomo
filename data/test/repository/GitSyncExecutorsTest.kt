@@ -19,6 +19,7 @@ package com.lomo.data.repository
 
 
 import android.content.Context
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitMediaSyncSummary
@@ -27,7 +28,6 @@ import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.GitSyncResult
@@ -129,8 +129,6 @@ class GitSyncExecutorsTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
 
-    @MockK(relaxed = true)
-    private lateinit var markdownParser: MarkdownParser
 
     @MockK(relaxed = true)
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
@@ -189,7 +187,6 @@ class GitSyncExecutorsTest : DataFunSpec() {
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
                 gitSyncQueryCoordinator = gitSyncQueryCoordinator,
-                markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
         support = GitSyncRepositorySupport(
@@ -203,6 +200,7 @@ class GitSyncExecutorsTest : DataFunSpec() {
                 support = support,
                 memoMirror = memoMirror,
                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
         maintenanceExecutor =
             GitSyncMaintenanceExecutor(

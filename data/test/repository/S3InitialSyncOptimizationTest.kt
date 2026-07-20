@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
@@ -406,7 +407,7 @@ class S3InitialSyncOptimizationTest : DataFunSpec() {
                 performanceTuner = DisabledSyncPerformanceTuner,
                 transactionRunner = NoOpS3SyncTransactionRunner,
             )
-        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         return S3SyncExecutor(
             runtime = runtime,
             support = S3SyncRepositorySupport(

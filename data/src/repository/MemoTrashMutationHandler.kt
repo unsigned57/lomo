@@ -4,12 +4,14 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.projection.MemoProjectionProjector
+import com.lomo.data.local.projection.toAttachmentContentAnalysis
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.Memo
 import timber.log.Timber
 /**
  * Encapsulates memo -> trash lifecycle mutations.
  */
-class MemoTrashMutationHandler
+internal class MemoTrashMutationHandler
 constructor(
         private val workspaceStore: MemoWorkspaceStore,
         private val memoWriteDao: MemoWriteDao,
@@ -17,6 +19,7 @@ constructor(
         private val memoImageDao: MemoImageDao,
         private val memoTrashDao: MemoTrashDao,
         private val memoVersionRecorder: AsyncMemoVersionRecorder,
+        private val contentProjector: MarkdownWorkspaceContentProjector,
     ) {
         suspend fun moveToTrash(memo: Memo) {
             if (!moveToTrashFileOnly(memo)) {
@@ -32,7 +35,10 @@ constructor(
         suspend fun moveToTrashInDb(memo: Memo) {
             memoWriteDao.deleteMemoById(memo.id)
             memoTagDao.deleteTagRefsByMemoId(memo.id)
-            val trashProjection = MemoProjectionProjector.projectTrash(memo.copy(isDeleted = true))
+            val trashed = memo.copy(isDeleted = true)
+            // Unchanged body: project trash rows from memo attachment/tag facts, no re-render.
+            val trashProjection =
+                MemoProjectionProjector.projectTrash(trashed, trashed.toAttachmentContentAnalysis())
             memoTrashDao.insertTrashMemo(trashProjection.entity)
             memoImageDao.replaceImageRefsForTrashMemo(trashProjection)
         }
@@ -61,7 +67,7 @@ constructor(
         }
         suspend fun restoreFromTrashInDb(memo: Memo): Boolean {
             val sourceMemo = memoTrashDao.getTrashMemo(memo.id)?.toDomain()?.copy(isDeleted = false) ?: return false
-            persistRestoredMainMemo(memoWriteDao, memoTagDao, memoImageDao, sourceMemo)
+            persistRestoredMainMemo(memoWriteDao, memoTagDao, memoImageDao, contentProjector, sourceMemo)
             memoTrashDao.deleteTrashMemoById(sourceMemo.id)
             return true
         }
@@ -101,9 +107,11 @@ private suspend fun persistRestoredMainMemo(
     memoWriteDao: MemoWriteDao,
     memoTagDao: MemoTagDao,
     memoImageDao: MemoImageDao,
+    contentProjector: MarkdownWorkspaceContentProjector,
     memo: Memo,
 ) {
-    val projection = MemoProjectionProjector.projectActive(memo)
+    // Trash rows omit hasTodo/hasUrl; one owner analyze restores active query flags.
+    val projection = MemoProjectionProjector.projectActive(memo, contentProjector.analyze(memo.content))
     memoWriteDao.insertMemo(projection.entity)
     memoTagDao.replaceTagRefsForMemo(projection)
     memoImageDao.replaceImageRefsForMemo(projection)

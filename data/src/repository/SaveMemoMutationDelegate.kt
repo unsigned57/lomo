@@ -22,7 +22,11 @@ internal class SaveMemoMutationDelegate(
             val outboxId =
                 persistMemoWithOutbox(
                     daoBundle = runtime.daoBundle,
-                    memoProjection = MemoProjectionProjector.projectActive(savePlan.memo),
+                    memoProjection =
+                        MemoProjectionProjector.projectActive(
+                            savePlan.memo,
+                            savePlan.contentAnalysis,
+                        ),
                     outbox = buildCreateOutbox(savePlan),
                 )
             SaveDbResult(savePlan = savePlan, outboxId = outboxId)

@@ -1,7 +1,9 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.projection.MemoProjectionProjector
+import com.lomo.data.local.projection.withContentAnalysis
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoContentAnalysis
 
 internal class UpdateMemoMutationDelegate(
     private val runtime: MemoMutationRuntime,
@@ -17,13 +19,24 @@ internal class UpdateMemoMutationDelegate(
             when {
                 sourceMemo == null -> null
                 else -> {
-                    val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, sourceMemo, newContent)
+                    val analysis = runtime.textProcessor.analyze(newContent)
+                    val finalUpdatedMemo =
+                        buildUpdatedMemo(
+                            storageFormatProvider = storageFormatProvider,
+                            memo = sourceMemo,
+                            newContent = newContent,
+                            analysis = analysis,
+                        )
                     val outboxId =
                         persistMemoWithOutbox(
                             daoBundle = runtime.daoBundle,
-                            memoProjection = MemoProjectionProjector.projectActive(finalUpdatedMemo),
+                            memoProjection =
+                                MemoProjectionProjector.projectActive(
+                                    finalUpdatedMemo,
+                                    analysis,
+                                ),
                             outbox = buildUpdateOutbox(sourceMemo, newContent),
-                    )
+                        )
                     cleanupAttachmentsRemovedByEdit(runtime, sourceMemo, finalUpdatedMemo)
                     outboxId
                 }
@@ -49,20 +62,19 @@ private suspend fun cleanupAttachmentsRemovedByEdit(
 }
 
 internal suspend fun buildUpdatedMemo(
-    runtime: MemoMutationRuntime,
     storageFormatProvider: MemoStorageFormatProvider,
     memo: Memo,
     newContent: String,
+    analysis: MemoContentAnalysis,
 ): Memo {
     val timeString = storageFormatProvider.formatTime(memo.timestamp)
     val updatedAt = nextUpdatedAt(memo.updatedAt)
-    return memo.copy(
-        content = newContent,
-        updatedAt = updatedAt,
-        rawContent = "- $timeString $newContent",
-        tags = runtime.textProcessor.extractTags(newContent),
-        imageUrls = runtime.textProcessor.extractInlineAttachments(newContent),
-    )
+    return memo
+        .copy(
+            content = newContent,
+            updatedAt = updatedAt,
+            rawContent = "- $timeString $newContent",
+        ).withContentAnalysis(analysis)
 }
 
 internal fun nextUpdatedAt(previousUpdatedAt: Long): Long {

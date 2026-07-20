@@ -19,6 +19,7 @@ package com.lomo.data.git
 
 
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import io.mockk.mockk
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.transport.RefSpec
@@ -69,7 +70,7 @@ class GitRepositoryPrimitivesTest : DataFunSpec() {
     }
 
 
-    private val primitives = GitRepositoryPrimitives()
+    private val primitives = GitRepositoryPrimitives(AlwaysWritableWorkspaceWriteAuthority)
     private val credentials = listOf(UsernamePasswordCredentialsProvider("user", "token"))
     private lateinit var tempRoot: File
 

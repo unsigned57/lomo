@@ -1,5 +1,0 @@
-The ignored Android native dispatcher build outputs are extracted by lomo-xtask from the
-checksum-pinned Java Native Access (JNA) 5.18.1 AAR and used under the Apache License 2.0.
-
-JNA project: https://github.com/java-native-access/jna
-License: https://www.apache.org/licenses/LICENSE-2.0.txt

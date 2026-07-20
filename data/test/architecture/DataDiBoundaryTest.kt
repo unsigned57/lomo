@@ -8,6 +8,8 @@
  * Scenarios:
  * - Given data DI is inspected, when infrastructure bindings are organized, then no catch-all DataModule file exists.
  * - Given sync provider registration is inspected, when data owns concrete sync repositories, then each provider is contributed through Koin multibinding.
+ * - Given readiness and Markdown capabilities are bound, when DI is inspected, then both resolve
+ *   from one concrete ManagedEngineSession singleton rather than opening a second native engine.
  *
  * Observable outcomes:
  * - Architecture assertions over data DI source ownership and multibinding registration.
@@ -17,6 +19,17 @@
  *
  * Excludes:
  * - Koin graph verification internals, Android runtime behavior, and repository sync behavior.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 package com.lomo.data.architecture
 
@@ -54,6 +67,35 @@ class DataDiBoundaryTest : DataFunSpec() {
             }
             withClue("Inbox provider must be contributed by the sync capability module") {
                 content.contains("InboxUnifiedSyncProvider") shouldBe true
+            }
+        }
+
+        test("given engine readiness when DI is inspected then factory-backed binding owns close") {
+            val diRoot = resolveModuleRoot("data").resolve("src/di")
+            val engineModule = diRoot.resolve("EngineModule.kt").readText()
+            withClue("engineModule must bind EngineReadinessRepository") {
+                engineModule.contains("EngineReadinessRepository") shouldBe true
+            }
+            withClue("engineModule must bind one ManagedEngineSession as the Markdown workspace boundary") {
+                engineModule.contains("ManagedEngineSession(") shouldBe true
+                engineModule.contains("single<EngineReadinessRepository> { get<ManagedEngineSession>() }") shouldBe true
+                engineModule.contains("single<MarkdownWorkspaceRepository> { get<ManagedEngineSession>() }") shouldBe true
+            }
+            withClue("engineModule must open through ManagedEngineSession + BoltFfiNativeEngineFactory") {
+                engineModule.contains("ManagedEngineSession") shouldBe true
+                engineModule.contains("BoltFfiNativeEngineFactory") shouldBe true
+            }
+            withClue("engineModule must close native handles on Koin onClose") {
+                engineModule.contains("onClose") shouldBe true
+                engineModule.contains("withOptions") shouldBe true
+            }
+            withClue("engineModule must bind production WorkspaceCandidateValidator probe") {
+                engineModule.contains("WorkspaceCandidateValidator") shouldBe true
+                engineModule.contains("WorkspaceCandidateProbe") shouldBe true
+            }
+            val dataModules = diRoot.resolve("DataModules.kt").readText()
+            withClue("dataModules must include engineModule") {
+                dataModules.contains("engineModule") shouldBe true
             }
         }
     }

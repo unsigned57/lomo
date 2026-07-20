@@ -50,7 +50,7 @@ internal fun MDText(
 
 @Composable
 internal fun MDImage(
-    image: ModernMarkdownImage,
+    image: MarkdownPresentationImage,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     MarkdownImageBlock(
@@ -61,7 +61,7 @@ internal fun MDImage(
 
 @Composable
 internal fun MDImageGallery(
-    images: ImmutableList<ModernMarkdownImage>,
+    images: ImmutableList<MarkdownPresentationImage>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     MarkdownImagePager(

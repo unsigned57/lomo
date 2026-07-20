@@ -12,19 +12,13 @@ private const val INBOX_IMAGE_DIRECTORY = "images"
 private const val INBOX_VOICE_DIRECTORY = "voice"
 private const val INBOX_RECORDING_DIRECTORY = "recording"
 private const val IMPORTED_FILENAME_HASH_LENGTH = 10
-private val IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
-private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
-private val AUDIO_PATTERN =
-    Regex(
-        """(?<!!)\[[^\]]*]\((.+?\.(?:${MediaFileExtensions.AUDIO.joinToString("|")}))\)""",
-        RegexOption.IGNORE_CASE,
-    )
 
 internal fun previewInboxMediaReferences(
     markdown: String,
+    contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ): ImportedInboxContent {
     var rewritten = markdown
-    val attachmentReferences = extractInboxAttachmentReferences(markdown)
+    val attachmentReferences = extractInboxAttachmentReferences(markdown, contentProjector)
     attachmentReferences.forEach { attachment ->
         val destinationFilename = stableImportedInboxFilename(attachment.rewriteKey)
         rewritten =
@@ -43,9 +37,10 @@ internal suspend fun missingInboxMediaReferences(
     context: Context,
     inboxRoot: String,
     markdown: String,
+    contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ): List<String> {
     val missingAttachments = mutableListOf<String>()
-    extractInboxAttachmentReferences(markdown).forEach { attachment ->
+    extractInboxAttachmentReferences(markdown, contentProjector).forEach { attachment ->
         val resolvedAttachment =
             resolveInboxAttachmentSource(
                 context = context,
@@ -64,11 +59,12 @@ internal suspend fun importInboxMediaReferences(
     workspaceMediaAccess: WorkspaceMediaAccess,
     inboxRoot: String,
     markdown: String,
+    contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ): InboxMediaImportResult {
-    val preview = previewInboxMediaReferences(markdown = markdown)
+    val preview = previewInboxMediaReferences(markdown = markdown, contentProjector = contentProjector)
     val resolvedAttachments = mutableListOf<Pair<InboxAttachmentReference, ResolvedInboxAttachmentSource>>()
     val missingAttachments = mutableListOf<String>()
-    extractInboxAttachmentReferences(markdown).forEach { attachment ->
+    extractInboxAttachmentReferences(markdown, contentProjector).forEach { attachment ->
         val resolvedAttachment =
             resolveInboxAttachmentSource(
                 context = context,
@@ -106,37 +102,20 @@ internal suspend fun importInboxMediaReferences(
     )
 }
 
-private fun extractInboxAttachmentReferences(content: String): List<InboxAttachmentReference> {
-    val markdownImages =
-        IMAGE_PATTERN.findAll(content).mapNotNull { match ->
-            match.groupValues.getOrNull(1)?.let { reference ->
-                inboxAttachmentReference(
-                    referenceText = reference,
-                    sourcePath = reference,
-                    category = inboxAttachmentCategory(reference),
-                )
-            }
+private fun extractInboxAttachmentReferences(
+    content: String,
+    contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
+): List<InboxAttachmentReference> =
+    contentProjector
+        .extractInlineAttachments(content)
+        .mapNotNull { destination ->
+            inboxAttachmentReference(
+                referenceText = destination,
+                sourcePath = destination.substringBefore('|'),
+                category = inboxAttachmentCategory(destination.substringBefore('|')),
+            )
         }
-    val wikiImages =
-        WIKI_IMAGE_PATTERN.findAll(content).mapNotNull { match ->
-            match.groupValues.getOrNull(1)?.let { reference ->
-                inboxAttachmentReference(
-                    referenceText = reference,
-                    sourcePath = reference.substringBefore('|'),
-                    category = inboxAttachmentCategory(reference.substringBefore('|')),
-                )
-            }
-        }
-    val audioLinks =
-        AUDIO_PATTERN.findAll(content).mapNotNull { match ->
-            match.groupValues.getOrNull(1)?.let { reference ->
-                inboxAttachmentReference(referenceText = reference, sourcePath = reference, category = VOICE)
-            }
-        }
-    return (markdownImages + wikiImages + audioLinks)
         .distinctBy { it.referenceText to it.category }
-        .toList()
-}
 
 private fun inboxAttachmentReference(
     referenceText: String,

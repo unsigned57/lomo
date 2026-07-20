@@ -4,12 +4,6 @@
 //! streaming, timeout/cancel, certificate rejection, pagination, conditional PUT, multipart
 //! abort, and AWS SigV4-shaped request signing — without a public network or full AWS SDK crate
 //! (volume-constrained; principles: Rustls-only, streaming, explicit errors).
-#![allow(
-    clippy::manual_ok_err,
-    clippy::option_if_let_else,
-    clippy::disallowed_methods,
-    reason = "HTTP header parsing intentionally maps malformed numbers to None without error noise"
-)]
 
 use std::collections::BTreeSet;
 use std::error::Error as _;
@@ -288,8 +282,8 @@ pub fn probe_stream_cancel_drop(fixture: &HttpsFixture) -> Result<usize, HttpPro
     let stream_id = response
         .headers()
         .get("x-lomo-stream-id")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
+        .and_then(optional_header_str)
+        .and_then(optional_parse::<u64>)
         .ok_or_else(|| HttpProbeError::Unexpected {
             detail: "missing X-Lomo-Stream-Id response header".to_owned(),
         })?;
@@ -888,12 +882,44 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
         .map(|index| index + 4)
 }
 
+/// Optional header parse: malformed values are absence, not a probe failure.
+///
+/// Workspace forbids [`Result::ok`] via `clippy::disallowed_methods`. This helper is the
+/// intentional Option boundary for optional HTTP numbers rather than erasing errors at call
+/// sites with a bare `.ok()`.
+#[allow(
+    clippy::manual_ok_err,
+    clippy::option_if_let_else,
+    clippy::result_map_or_into_option,
+    reason = "Result::ok is workspace-disallowed; optional header parse maps Err to None deliberately"
+)]
+fn optional_parse<T: std::str::FromStr>(value: &str) -> Option<T> {
+    match value.trim().parse() {
+        Ok(parsed) => Some(parsed),
+        Err(_) => None,
+    }
+}
+
+/// Optional `HeaderValue` to str: invalid UTF-8 is absence for probe header reads.
+#[allow(
+    clippy::manual_ok_err,
+    clippy::option_if_let_else,
+    clippy::result_map_or_into_option,
+    reason = "Result::ok is workspace-disallowed; invalid header UTF-8 is treated as missing"
+)]
+fn optional_header_str(value: &reqwest::header::HeaderValue) -> Option<&str> {
+    match value.to_str() {
+        Ok(text) => Some(text),
+        Err(_) => None,
+    }
+}
+
 fn content_length_of(headers: &[u8]) -> Option<usize> {
     let text = String::from_utf8_lossy(headers);
     for line in text.lines() {
         let lower = line.to_ascii_lowercase();
         if let Some(value) = lower.strip_prefix("content-length:") {
-            return value.trim().parse::<usize>().ok();
+            return optional_parse(value);
         }
     }
     None
@@ -1030,10 +1056,11 @@ fn webdav_put(path: &str, body: &[u8]) {
 }
 
 fn webdav_get(path: &str) -> Option<Vec<u8>> {
-    WEBDAV_STORE
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(path).cloned())
+    match WEBDAV_STORE.lock() {
+        Ok(guard) => guard.get(path).cloned(),
+        // Poisoned fixture mutex is treated as empty store for probe isolation.
+        Err(_poisoned) => None,
+    }
 }
 
 fn webdav_delete(path: &str) {
@@ -1229,11 +1256,12 @@ fn hex_sha256(bytes: &[u8]) -> String {
 }
 
 fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let bytes = bytes.as_ref();
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        use std::fmt::Write as _;
-        write!(out, "{byte:02x}").expect("write to String cannot fail");
+        out.push(char::from(HEX[usize::from(byte >> 4)]));
+        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     out
 }

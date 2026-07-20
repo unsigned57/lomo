@@ -19,6 +19,7 @@ package com.lomo.data.git
 
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.UnifiedSyncPhase
@@ -140,7 +141,7 @@ class GitSyncWorkflowTest : DataFunSpec() {
             File(repoDir, "memo.md").writeText("seed-updated\n")
 
             val primitives =
-                spyk(GitRepositoryPrimitives()).apply {
+                spyk(GitRepositoryPrimitives(AlwaysWritableWorkspaceWriteAuthority)).apply {
                     every { shouldAmendLastCommit(any(), any()) } returns true
                 }
             val workflow = createWorkflow(token = "token", primitives = primitives)
@@ -225,7 +226,7 @@ class GitSyncWorkflowTest : DataFunSpec() {
 
     private fun createWorkflow(
         token: String?,
-        primitives: GitRepositoryPrimitives = GitRepositoryPrimitives(),
+        primitives: GitRepositoryPrimitives = GitRepositoryPrimitives(AlwaysWritableWorkspaceWriteAuthority),
     ): GitSyncWorkflow {
         val credentialStrategy = gitCredentialStrategy(token)
         return GitSyncWorkflow(dataStore, credentialStrategy, primitives)

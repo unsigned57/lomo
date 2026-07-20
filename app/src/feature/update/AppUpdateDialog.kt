@@ -14,12 +14,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.domain.model.markdown.MarkdownRenderContractException
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 
 @Composable
 fun LomoAppUpdateDialog(
@@ -30,12 +40,34 @@ fun LomoAppUpdateDialog(
 ) {
     dialogState ?: return
 
+    val markdownWorkspaceRepository = koinInject<MarkdownWorkspaceRepository>()
     val haptic = LocalAppHapticFeedback.current
     val updateMessage =
         if (dialogState.version.isBlank()) {
             stringResource(R.string.update_dialog_message)
         } else {
             stringResource(R.string.update_dialog_message_with_version, dialogState.version)
+        }
+    val releaseNotes = dialogState.releaseNotes.takeIf { it.isNotBlank() }
+    val releaseNotesRenderState by
+        produceState<MarkdownRenderState>(
+            initialValue = MarkdownRenderState.Pending,
+            key1 = releaseNotes,
+            key2 = markdownWorkspaceRepository,
+        ) {
+            if (releaseNotes == null) return@produceState
+            value =
+                withContext(Dispatchers.Default) {
+                    try {
+                        MarkdownRenderState.Ready(markdownWorkspaceRepository.renderMarkdown(releaseNotes))
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: MarkdownRenderContractException) {
+                        MarkdownRenderState.Failed(failure.code)
+                    } catch (failure: IllegalStateException) {
+                        MarkdownRenderState.Failed("workspace_not_ready")
+                    }
+                }
         }
 
     AlertDialog(
@@ -44,7 +76,8 @@ fun LomoAppUpdateDialog(
         text = {
             UpdateDialogTextContent(
                 updateMessage = updateMessage,
-                releaseNotes = dialogState.releaseNotes.takeIf { it.isNotBlank() },
+                releaseNotes = releaseNotes,
+                releaseNotesRenderState = releaseNotesRenderState,
             )
         },
         confirmButton = {
@@ -101,6 +134,7 @@ private val AppUpdateDialogState.canDownloadInApp: Boolean
 private fun UpdateDialogTextContent(
     updateMessage: String,
     releaseNotes: String?,
+    releaseNotesRenderState: MarkdownRenderState,
 ) {
     Column(
         modifier =
@@ -122,10 +156,20 @@ private fun UpdateDialogTextContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            MarkdownRenderer(
-                content = releaseNotes,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            when (releaseNotesRenderState) {
+                MarkdownRenderState.Pending -> ExpressiveLoadingIndicator()
+                is MarkdownRenderState.Ready ->
+                    MarkdownRenderer(
+                        document = releaseNotesRenderState.document,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                is MarkdownRenderState.Failed ->
+                    Text(
+                        text = stringResource(R.string.update_dialog_release_notes_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+            }
         }
     }
 }

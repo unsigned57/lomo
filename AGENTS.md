@@ -75,9 +75,46 @@ do not rely on hand-maintained module file inventories.
 Run commands from the repository root. `Justfile` delegates to repository-owned `lomo-xtask`, so
 local and CI orchestration share one graph.
 
+### 5.1 Done means gates are green
+
+A coding turn is **not complete** when only source edits land. Before reporting success, handoff,
+or moving to the next package, the agent must run the gates that cover the changed surface and
+record real command output. “Looks correct” / “tests should pass” is not verification.
+
+Mandatory minimum after production or test code changes:
+
+1. **Targeted RED/GREEN first** while implementing (narrowest failing then passing tests for the
+   package under change).
+2. **Surface gate before claiming the package done**:
+   - Rust production/tests/clippy: `cargo clippy -p <crate> --all-targets --locked -- -D warnings`
+     and the relevant `cargo test -p <crate> … --locked`.
+   - Kotlin production/tests: `./kotlin test --include-module=<module> --include-classes='…'`
+     for the changed specs, or the module suite when the change is broad.
+   - Native/FFI/device: regenerate/pack as required, then `just device-smoke` when engine, lock,
+     packaging, or smoke surface changed and a device/emulator is available.
+3. **Repository iterative gate before push/handoff**: `just check`.
+4. **Full handoff gate before merge / shared-branch delivery**: `just ci`.
+5. **Device when applicable**: `just device-smoke` on attached **API ≥ 26** with a packaged ABI.
+   Stage-1/2 entry hard device gate is API ≥ 26 arm64 when that is the available device line; a
+   fixed API 26 x86_64 AVD is optional `pending_env`/non-claim and must not be marked GREEN without
+   a real run. Product `minSdk`/NDK API 26 remains mandatory.
+
+If a required gate cannot run (no device, missing secret, tool outage), say so explicitly, keep the
+package **open**, and do not mark STAGE evidence GREEN for that gate.
+
+Do **not**:
+
+- claim GREEN from compilation alone when behavior tests exist;
+- skip Clippy when workspace `unsafe_code = "deny"` / pedantic Clippy is the contract;
+- leave `#[allow(unsafe_code)]` or first-party `unsafe` without an explicit architecture exception
+  and a same-change plan to remove it;
+- treat `just preflight` as a substitute for `just check` on handoff.
+
+### 5.2 Command menu
+
 - **Bootstrap**: `just bootstrap`
 - **Lightweight commit hook**: format staged sources + staged meaningful-test contracts only
-- **Path-aware iteration**: `just preflight` (manual; not on every commit)
+- **Path-aware iteration**: `just preflight` (manual; not on every commit; never the final handoff)
 - **Iterative Check**: `just check` (pre-push hook and local iterative validation)
 - **Full Gate**: `just ci` (coverage + fat-LTO release native; PR/merge handoff and local confirmation)
 - **Device Smoke**: `just device-smoke`

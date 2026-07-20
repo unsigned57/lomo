@@ -31,6 +31,7 @@ class S3SyncOperationRepositoryImpl internal constructor(
     private val scheduledWorkEnqueuer: S3ScheduledSyncWorkEnqueuer,
     private val stateHolder: S3SyncStateHolder,
     private val pendingConflictStore: PendingSyncConflictStore,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) : S3SyncOperationRepository,
     S3SyncWorkExecutor {
         private val syncExecutionGate =
@@ -47,6 +48,7 @@ class S3SyncOperationRepositoryImpl internal constructor(
             stateHolder: S3SyncStateHolder,
             pendingConflictStore: PendingSyncConflictStore,
             nowProvider: () -> Long,
+            writeAuthority: WorkspaceWriteAuthority,
         ) : this(
             syncExecutor = syncExecutor,
             statusTester = statusTester,
@@ -54,6 +56,7 @@ class S3SyncOperationRepositoryImpl internal constructor(
             scheduledWorkEnqueuer = scheduledWorkEnqueuer,
             stateHolder = stateHolder,
             pendingConflictStore = pendingConflictStore,
+            writeAuthority = writeAuthority,
         ) {
             this.refreshCoalescer = SyncRefreshCoalescer(nowProvider = nowProvider)
         }
@@ -63,6 +66,9 @@ class S3SyncOperationRepositoryImpl internal constructor(
 
         override suspend fun executeS3Sync(intent: S3SyncWorkIntent): S3SyncResult =
             withSyncGuard(inProgressMessage = "S3 sync already in progress") {
+                if (!writeAuthority.isWritable()) {
+                    return@withSyncGuard S3SyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+                }
                 restorePendingConflictIfPresent()?.let { pending ->
                     return@withSyncGuard pending
                 }
@@ -577,3 +583,5 @@ private fun vaultRootMismatchMessage(): String =
 private const val S3_CONNECTION_TEST_TIMEOUT_MS = 15_000L
 private const val S3_CONNECTION_TEST_SAMPLE_LIMIT = 32
 private const val MILLIS_PER_SECOND = 1_000L
+internal const val WORKSPACE_WRITES_UNAVAILABLE_MESSAGE =
+    "Workspace writes unavailable: engine not Ready or workspace switch is in progress"

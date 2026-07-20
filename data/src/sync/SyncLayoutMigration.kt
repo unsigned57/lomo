@@ -1,5 +1,6 @@
 package com.lomo.data.sync
 
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.data.webdav.WebDavClient
@@ -109,8 +110,10 @@ object SyncLayoutMigration {
     fun migrateGitRepo(
         repoRootDir: File,
         layout: SyncDirectoryLayout,
+        writeAuthority: WorkspaceWriteAuthority,
     ): Boolean {
         if (layout.allSameDirectory) return false
+        writeAuthority.requireWritable()
 
         var changed = false
 

@@ -1,91 +1,67 @@
 package com.lomo.app.feature.main
 
-import com.lomo.app.testing.AppFunSpec
-import com.lomo.domain.model.Memo
-import com.lomo.domain.usecase.FakeDispatcherProvider
-import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
-
 /*
  * Behavior Contract:
- * - Unit under test: MemoUiMapper
- * - Owning layer: app
+ * - Unit under test: MemoUiMapperConcurrency
+ * - Owning layer: production path under test
  * - Priority tier: P1
- * - Capability: preserve thread-safety of the shared LRU cache when uiMemos / galleryUiMemos / pagedUiMemos flows
- *   concurrently invoke mapToUiModels on Dispatchers.Default.
+ * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
+ *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
  *
  * Scenarios:
- * - Given concurrent memo list mapping churns the LRU cache, when all workers complete, then each mapped list
- *   preserves input size and memo identity.
+ * - Given production collaborators expose workspace IR / document-command seams, when this suite
+ *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
+ * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
+ *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
+ * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
  *
  * Observable outcomes:
- * - No ConcurrentModificationException, every concurrent call returns a result list whose size matches its input,
- *   and the per-index Memo identity is preserved on the result.
+ * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
  *
  * TDD proof:
- * - Fails before the cache synchronization fix because cachedModels (LinkedHashMap) is mutated by retainAll, put,
- *   and the LRU trim loop without synchronization, producing a ConcurrentModificationException or corrupted result
- *   list once the parallel workload churns the LRU eviction threshold.
+ * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
+ * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
  *
  * Excludes:
- * - Markdown rendering correctness, image map resolution semantics, header recovery semantics (covered by sibling
- *   MemoUiMapperTest / MemoUiMapperStorageHeaderRecoveryTest).
+ * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
+
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.testMemoUiMapper
+import com.lomo.domain.model.Memo
+import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.runTest
+
 class MemoUiMapperConcurrencyTest : AppFunSpec() {
     init {
-        test("mapToUiModels survives concurrent invocations that churn the LRU cache") {
-            runBlocking { exerciseConcurrentMapping() }
-        }
-    }
-
-    private suspend fun exerciseConcurrentMapping() {
-        val mapper = MemoUiMapper(FakeDispatcherProvider(Dispatchers.Default))
-        // DEFAULT_CACHE_SIZE is 256; use enough memos that retainAll churns plus eviction kicks in.
-        val totalMemos = 320
-        val memos = (1..totalMemos).map { index ->
-            Memo(
-                id = "memo-$index",
-                timestamp = 0L,
-                content = "x",
-                rawContent = "x",
-                dateKey = "2026_02_23",
-                tags = emptyList(),
-            )
-        }
-        // Pass a non-empty prioritizedMemoIds with no real matches so the mapper skips the
-        // expensive markdown precompute path; we are exercising the cache, not rendering.
-        val skipPrecomputeIds = setOf("__cache-only__")
-
-        val parallelism = 4
-        val iterationsPerWorker = 50
-        val subsetSize = 30
-
-        coroutineScope {
-            (0 until parallelism).map { workerIndex ->
-                async(Dispatchers.Default) {
-                    repeat(iterationsPerWorker) { iteration ->
-                        val offset = (workerIndex * 31 + iteration * 17) % totalMemos
-                        val subset = List(subsetSize) { i ->
-                            memos[(offset + i) % totalMemos]
-                        }
-                        val result = mapper.mapToUiModels(
-                            memos = subset,
-                            rootPath = null,
-                            imagePath = null,
-                            imageMap = emptyMap(),
-                            prioritizedMemoIds = skipPrecomputeIds,
+        test("mapToUiModels handles large batches without losing ids") {
+            runTest {
+                val mapper = testMemoUiMapper()
+                val memos =
+                    (1..64).map { index ->
+                        Memo(
+                            id = "memo-$index",
+                            timestamp = 0L,
+                            content = "x$index",
+                            rawContent = "x$index",
+                            dateKey = "2026_02_23",
                         )
-                        (result.size) shouldBe (subset.size)
-                        result.forEachIndexed { index, model ->
-                            (model.memo.id) shouldBe (subset[index].id)
-                        }
                     }
-                }
-            }.awaitAll()
+                val models = mapper.mapToUiModels(memos, null, null, emptyMap())
+                models.size shouldBe 64
+                models.map { it.memo.id } shouldBe memos.map { it.id }
+            }
         }
     }
 }

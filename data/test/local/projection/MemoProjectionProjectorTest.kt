@@ -5,6 +5,7 @@ import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoContentAnalysis
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.shouldBe
 
@@ -37,6 +38,17 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Room SQL execution, file I/O, UI markdown rendering, and remote sync.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class MemoProjectionProjectorTest : DataFunSpec() {
     init {
@@ -54,7 +66,17 @@ class MemoProjectionProjectorTest : DataFunSpec() {
                     imageUrls = listOf("stale.png"),
                 )
 
-            val projection = MemoProjectionProjector.projectActive(memo)
+            // Post-cutover: projector persists owner analysis facts, not a second content re-parse.
+            val analysis =
+                MemoContentAnalysis(
+                    hasTodo = false,
+                    hasAttachment = true,
+                    hasUrl = false,
+                    tags = listOf("work"),
+                    imageUrls = listOf("images/a.png", "camera.jpg"),
+                    audioUrls = listOf("voice_001.m4a"),
+                )
+            val projection = MemoProjectionProjector.projectActive(memo, analysis)
 
             assertSoftly(projection) {
                 entity.tags shouldBe """["work"]"""
@@ -88,7 +110,16 @@ class MemoProjectionProjectorTest : DataFunSpec() {
                     imageUrls = emptyList(),
                 )
 
-            val projection = MemoProjectionProjector.projectActive(memo)
+            val analysis =
+                MemoContentAnalysis(
+                    hasTodo = true,
+                    hasAttachment = true,
+                    hasUrl = true,
+                    tags = emptyList(),
+                    imageUrls = listOf("diagram.png"),
+                    audioUrls = listOf("voice_001.m4a"),
+                )
+            val projection = MemoProjectionProjector.projectActive(memo, analysis)
 
             assertSoftly(projection.entity) {
                 hasTodo shouldBe true
@@ -105,7 +136,16 @@ class MemoProjectionProjectorTest : DataFunSpec() {
                     imageUrls = listOf("stale.png"),
                 ).copy(isDeleted = true)
 
-            val projection = MemoProjectionProjector.projectTrash(memo)
+            val analysis =
+                MemoContentAnalysis(
+                    hasTodo = false,
+                    hasAttachment = true,
+                    hasUrl = false,
+                    tags = listOf("trash"),
+                    imageUrls = listOf("kept.png"),
+                    audioUrls = listOf("kept.m4a"),
+                )
+            val projection = MemoProjectionProjector.projectTrash(memo, analysis)
 
             assertSoftly(projection) {
                 entity.tags shouldBe """["trash"]"""

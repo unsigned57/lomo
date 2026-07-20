@@ -58,7 +58,7 @@ fun MemoCardList(
     listState: LazyListState? = null,
     freeTextCopyEnabled: Boolean = false,
     onImageClick: (ImageViewerRequest) -> Unit = {},
-    onTodoClick: ((Memo, Int, Boolean) -> Unit)? = null,
+    onTodoClick: ((Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
@@ -184,7 +184,7 @@ private fun MemoCardListItem(
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
-    onTodoClick: ((Memo, Int, Boolean) -> Unit)?,
+    onTodoClick: ((Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)?,
     onTagClick: (String) -> Unit,
     exitPhase: LomoListExitPhase?,
     onExitSettled: () -> Unit,
@@ -205,13 +205,13 @@ private fun MemoCardListItem(
                 )
             }
         }
-    val stableTodoClick: ((Int, Boolean) -> Unit)? =
+    val stableTodoClick: ((com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit)? =
         remember(uiModel.memo, onTodoClick) {
             if (onTodoClick == null) {
                 null
             } else {
-                { lineIndex: Int, checked: Boolean ->
-                    onTodoClick.invoke(uiModel.memo, lineIndex, checked)
+                { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
+                    onTodoClick.invoke(uiModel.memo, actionSpan)
                 }
             }
         }

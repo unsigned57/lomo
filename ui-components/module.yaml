@@ -36,7 +36,6 @@ dependencies:
   - io.coil-kt.coil3:coil-compose:3.4.0
   - io.coil-kt.coil3:coil-network-okhttp:3.4.0
   - org.jetbrains.kotlinx:kotlinx-collections-immutable:0.4.0
-  - com.mikepenz:multiplatform-markdown-renderer-android:0.40.2: exported
   - sh.calvin.reorderable:reorderable:3.1.0
   - androidx.compose.ui:ui-tooling:1.12.0-alpha02: runtime-only
   - androidx.compose.ui:ui-test-manifest:1.12.0-alpha02: runtime-only

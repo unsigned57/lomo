@@ -11,12 +11,21 @@ enum class Recurrence(val code: String) {
     companion object {
         fun fromCode(code: String): Recurrence =
             when (code) {
+                "" -> NONE
                 "d" -> DAILY
                 "w" -> WEEKLY
-                else -> NONE
+                else -> throw IllegalArgumentException("Unsupported reminder recurrence code: $code")
             }
     }
 }
+
+data class ReminderReference(
+    val opaqueId: String,
+    val revision: String,
+    val memoIdentity: String,
+    val sourceSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
+    val tokenFingerprint: String,
+)
 
 data class ReminderMarker(
     val dueAt: LocalDateTime,
@@ -25,8 +34,8 @@ data class ReminderMarker(
     val done: Boolean,
     val intervalMinutes: Int = 10,
     val recurrence: Recurrence = Recurrence.NONE,
-    val tokenRange: IntRange,
-    val raw: String,
+    val reference: ReminderReference,
+    val token: String,
 ) {
     val isExhausted: Boolean
         get() = done || firedCount >= repeatCount

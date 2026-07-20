@@ -1,22 +1,22 @@
 package com.lomo.app.util
 
 import com.lomo.domain.model.MediaFileExtensions
-import com.lomo.ui.component.markdown.MarkdownSemanticBlock
-import com.lomo.ui.component.markdown.MarkdownSemanticInline
-import com.lomo.ui.component.markdown.MarkdownSemanticListItem
-import com.lomo.ui.component.markdown.parseMarkdownSemanticDocument
+import com.lomo.domain.model.markdown.MarkdownRenderBlock
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownRenderInline
+import com.lomo.domain.model.markdown.MarkdownRenderListItem
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 
 internal fun buildMarkdownShareBodyLines(
-    bodyText: String,
+    document: MarkdownRenderDocument,
     imagePlaceholder: String,
     audioPlaceholder: String = "[Audio]",
 ): List<ShareBodyLine> {
-    if (bodyText.isBlank()) {
+    if (document.plainText.isBlank() && document.blocks.isEmpty()) {
         return listOf(defaultMarkdownParagraphLine())
     }
 
-    val document = parseMarkdownSemanticDocument(bodyText)
+    val imageIndex = intArrayOf(0)
     val lines =
         document.blocks
             .flatMap { block ->
@@ -24,6 +24,7 @@ internal fun buildMarkdownShareBodyLines(
                     imagePlaceholder = imagePlaceholder,
                     audioPlaceholder = audioPlaceholder,
                     quoteDepth = 0,
+                    nextImageIndex = { imageIndex[0]++ },
                 )
             }.take(MAX_SHARE_BODY_LINES)
 
@@ -42,54 +43,58 @@ internal fun shareBodyLinesTextLengthWithoutMarkers(lines: List<ShareBodyLine>):
 private fun defaultMarkdownParagraphLine(): ShareBodyLine =
     ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)
 
-private fun MarkdownSemanticBlock.toShareBodyLines(
+private fun MarkdownRenderBlock.toShareBodyLines(
     imagePlaceholder: String,
     audioPlaceholder: String,
     quoteDepth: Int,
+    nextImageIndex: () -> Int,
 ): List<ShareBodyLine> =
     when (this) {
-        is MarkdownSemanticBlock.Heading ->
+        is MarkdownRenderBlock.Heading ->
             listOf(
                 ShareBodyLine(
                     text = inlines.toStyledShareText(imagePlaceholder).text.normalizeCjkMixedSpacingForDisplay(),
                     type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Heading,
-                    headingLevel = level,
+                    headingLevel = level.toInt(),
                     inlineStyles = inlines.toStyledShareText(imagePlaceholder).styles,
                 ),
             )
-        is MarkdownSemanticBlock.Paragraph ->
+        is MarkdownRenderBlock.Paragraph ->
             paragraphToShareBodyLines(
                 inlines = inlines,
                 imagePlaceholder = imagePlaceholder,
                 audioPlaceholder = audioPlaceholder,
                 quoteDepth = quoteDepth,
+                nextImageIndex = nextImageIndex,
             )
-        is MarkdownSemanticBlock.BlockQuote ->
+        is MarkdownRenderBlock.BlockQuote ->
             blocks.flatMap { block ->
                 block.toShareBodyLines(
                     imagePlaceholder = imagePlaceholder,
                     audioPlaceholder = audioPlaceholder,
                     quoteDepth = quoteDepth + 1,
+                    nextImageIndex = nextImageIndex,
                 )
             }.map { line -> line.withQuoteMarker() }
-        is MarkdownSemanticBlock.ListBlock ->
+        is MarkdownRenderBlock.ListBlock ->
             items.flatMapIndexed { index, item ->
                 item.toShareBodyLines(
                     marker = resolveListMarker(index),
                     imagePlaceholder = imagePlaceholder,
                     audioPlaceholder = audioPlaceholder,
                     quoteDepth = quoteDepth,
+                    nextImageIndex = nextImageIndex,
                 )
             }
-        is MarkdownSemanticBlock.CodeBlock ->
+        is MarkdownRenderBlock.CodeBlock ->
             literal
                 .lineSequence()
                 .filter { it.isNotBlank() }
                 .map { line -> ShareBodyLine(line, ShareBodyLineType.Code) }
                 .toList()
-        is MarkdownSemanticBlock.Table -> toShareBodyTableLines()
-        is MarkdownSemanticBlock.ThematicBreak -> emptyList()
-        is MarkdownSemanticBlock.HtmlBlock -> {
+        is MarkdownRenderBlock.Table -> toShareBodyTableLines()
+        is MarkdownRenderBlock.ThematicBreak -> emptyList()
+        is MarkdownRenderBlock.HtmlBlock -> {
             val styledText = literal.toStyledShareTextFromHtmlFragment(imagePlaceholder)
             val text = styledText.text.trim()
             if (text.isBlank()) {
@@ -106,20 +111,21 @@ private fun MarkdownSemanticBlock.toShareBodyLines(
         }
     }
 
-private fun MarkdownSemanticBlock.ListBlock.resolveListMarker(index: Int): String =
+private fun MarkdownRenderBlock.ListBlock.resolveListMarker(index: Int): String =
     if (ordered) {
-        "${startNumber + index}. "
+        "${startNumber + index.toULong()}. "
     } else {
         BULLET_PREFIX
     }
 
-private fun MarkdownSemanticListItem.toShareBodyLines(
+private fun MarkdownRenderListItem.toShareBodyLines(
     marker: String,
     imagePlaceholder: String,
     audioPlaceholder: String,
     quoteDepth: Int,
+    nextImageIndex: () -> Int,
 ): List<ShareBodyLine> {
-    val itemText = blocks.joinToString(separator = " ") { it.plainText }.trim()
+    val itemText = blocks.joinToString(separator = " ") { it.toPlainText() }.trim()
     val resolvedMarker =
         when (checked) {
             true -> CHECKED_TODO_PREFIX
@@ -138,6 +144,7 @@ private fun MarkdownSemanticListItem.toShareBodyLines(
                 imagePlaceholder = imagePlaceholder,
                 audioPlaceholder = audioPlaceholder,
                 quoteDepth = quoteDepth,
+                nextImageIndex = nextImageIndex,
             )
         }
 
@@ -161,52 +168,53 @@ private fun MarkdownSemanticListItem.toShareBodyLines(
 }
 
 private fun paragraphToShareBodyLines(
-    inlines: List<MarkdownSemanticInline>,
+    inlines: List<MarkdownRenderInline>,
     imagePlaceholder: String,
     audioPlaceholder: String,
     quoteDepth: Int,
+    nextImageIndex: () -> Int,
 ): List<ShareBodyLine> {
     val singleInline = inlines.singleOrNull()
-    if (singleInline is MarkdownSemanticInline.Image) {
-        return listOf(singleInline.toImageOrAudioLine(audioPlaceholder))
+    if (singleInline is MarkdownRenderInline.Image) {
+        return listOf(singleInline.toImageOrAudioLine(audioPlaceholder, nextImageIndex))
+    }
+
+    // Mixed paragraph: emit standalone image lines for IR Image nodes, then residual text.
+    val imageOnly =
+        inlines.filterIsInstance<MarkdownRenderInline.Image>().map { image ->
+            image.toImageOrAudioLine(audioPlaceholder, nextImageIndex)
+        }
+    if (imageOnly.isNotEmpty() && inlines.all { it is MarkdownRenderInline.Image }) {
+        return imageOnly
     }
 
     val styledText = inlines.toStyledShareText(imagePlaceholder)
-    val markerLine = styledText.text.trim().takeIf { it.isNotEmpty() }?.toImageMarkerLineOrNull()
-    if (markerLine != null) return listOf(markerLine)
-
     val text = IMAGE_MARKER_PATTERN.replace(styledText.text, imagePlaceholder).trim()
-    if (text.isBlank()) return emptyList()
+    if (text.isBlank()) {
+        return imageOnly.ifEmpty { emptyList() }
+    }
 
-    return listOf(
-        ShareBodyLine(
-            text = text.normalizeCjkMixedSpacingForDisplay(),
-            type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
-            inlineStyles = styledText.styles,
-        ),
-    )
+    return imageOnly +
+        listOf(
+            ShareBodyLine(
+                text = text.normalizeCjkMixedSpacingForDisplay(),
+                type = if (quoteDepth > 0) ShareBodyLineType.Quote else ShareBodyLineType.Paragraph,
+                inlineStyles = styledText.styles,
+            ),
+        )
 }
 
-private fun MarkdownSemanticInline.Image.toImageOrAudioLine(audioPlaceholder: String): ShareBodyLine =
+private fun MarkdownRenderInline.Image.toImageOrAudioLine(
+    audioPlaceholder: String,
+    nextImageIndex: () -> Int,
+): ShareBodyLine =
     if (MediaFileExtensions.hasAudioExtension(destination)) {
         ShareBodyLine(audioPlaceholder, ShareBodyLineType.Paragraph)
     } else {
-        ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = NO_IMAGE_INDEX)
+        ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = nextImageIndex())
     }
 
-private fun String.toImageMarkerLineOrNull(): ShareBodyLine? {
-    val match = IMAGE_MARKER_PATTERN.find(this) ?: return null
-    if (match.value != this) return null
-    val imageIndex =
-        match
-            .groupValues
-            .getOrNull(IMAGE_MARKER_INDEX_GROUP)
-            ?.toIntOrNull()
-            ?: NO_IMAGE_INDEX
-    return ShareBodyLine(text = this, type = ShareBodyLineType.Image, imageIndex = imageIndex)
-}
-
-private fun MarkdownSemanticBlock.Table.toShareBodyTableLines(): List<ShareBodyLine> =
+private fun MarkdownRenderBlock.Table.toShareBodyTableLines(): List<ShareBodyLine> =
     (listOf(header) + rows)
         .filter { row -> row.isNotEmpty() }
         .map { row ->
@@ -215,3 +223,37 @@ private fun MarkdownSemanticBlock.Table.toShareBodyTableLines(): List<ShareBodyL
                 type = ShareBodyLineType.Table,
             )
         }
+
+private fun MarkdownRenderBlock.toPlainText(): String =
+    when (this) {
+        is MarkdownRenderBlock.Paragraph -> inlines.toPlainText()
+        is MarkdownRenderBlock.Heading -> inlines.toPlainText()
+        is MarkdownRenderBlock.BlockQuote -> blocks.joinToString(" ") { it.toPlainText() }
+        is MarkdownRenderBlock.ListBlock -> items.joinToString(" ") { item -> item.blocks.joinToString(" ") { it.toPlainText() } }
+        is MarkdownRenderBlock.CodeBlock -> literal
+        is MarkdownRenderBlock.ThematicBreak -> ""
+        is MarkdownRenderBlock.Table ->
+            (listOf(header) + rows).joinToString(" ") { row -> row.joinToString(" ") { it.inlines.toPlainText() } }
+        is MarkdownRenderBlock.HtmlBlock -> literal
+    }
+
+private fun List<MarkdownRenderInline>.toPlainText(): String =
+    joinToString(separator = "") { inline ->
+        when (inline) {
+            is MarkdownRenderInline.Text -> inline.text
+            is MarkdownRenderInline.Strong -> inline.inlines.toPlainText()
+            is MarkdownRenderInline.Emphasis -> inline.inlines.toPlainText()
+            is MarkdownRenderInline.Strikethrough -> inline.inlines.toPlainText()
+            is MarkdownRenderInline.Highlight -> inline.inlines.toPlainText()
+            is MarkdownRenderInline.Code -> inline.text
+            is MarkdownRenderInline.Link -> inline.inlines.toPlainText()
+            is MarkdownRenderInline.Image -> inline.altText
+            is MarkdownRenderInline.Tag -> "#${inline.name}"
+            is MarkdownRenderInline.Reminder -> inline.token
+            is MarkdownRenderInline.WikiReference -> inline.inlines.toPlainText().ifBlank { inline.target }
+            is MarkdownRenderInline.SoftBreak,
+            is MarkdownRenderInline.HardBreak,
+            -> "\n"
+            is MarkdownRenderInline.HtmlInline -> inline.literal
+        }
+    }

@@ -31,6 +31,8 @@ import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.StorageRootType
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
@@ -45,7 +47,6 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
@@ -100,6 +101,11 @@ class MediaRepositoryImplTest : DataFunSpec() {
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
                 webDavLocalChangeRecorder = webDavLocalChangeRecorder,
                 imageLocationCacheDao = imageLocationCacheDao,
+                writeAuthority =
+                    WorkspaceWriteAuthority(
+                        engineReadinessRepository = FakeEngineReadinessRepository(),
+                        writeFreezeRepository = ProcessWriteFreezeRepository(),
+                    ),
             )
     }
 

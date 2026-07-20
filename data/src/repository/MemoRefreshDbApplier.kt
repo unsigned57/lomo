@@ -13,6 +13,7 @@ import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.projection.ActiveMemoProjection
 import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.data.local.projection.TrashMemoProjection
+import com.lomo.data.local.projection.toStoredContentAnalysis
 import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.model.MemoRevisionLifecycleState
 
@@ -58,16 +59,18 @@ class MemoRefreshDbApplier(
         previousStates: Map<String, RefreshMemoState>,
         origin: MemoRevisionOrigin,
     ) {
+        // Entities already carry scan-projected analysis (tags/attachments/hasTodo/hasUrl).
+        // Rebuild Room projections from those facts — never re-render body text here.
         val deduplicatedMainMemos = deduplicateMemos(parseResult.mainMemos)
         val mainProjections =
             deduplicatedMainMemos.map { entity ->
-                MemoProjectionProjector.projectActive(entity.toDomain())
+                MemoProjectionProjector.projectActive(entity.toDomain(), entity.toStoredContentAnalysis())
             }
         val projectedMainMemos = mainProjections.map { projection -> projection.entity }
         val filteredTrashMemos = filterTrashMemos(parseResult.trashMemos, projectedMainMemos)
         val trashProjections =
             filteredTrashMemos.map { entity ->
-                MemoProjectionProjector.projectTrash(entity.toDomain())
+                MemoProjectionProjector.projectTrash(entity.toDomain(), entity.toStoredContentAnalysis())
             }
         val projectedTrashMemos = trashProjections.map { projection -> projection.entity }
         val mainIds = projectedMainMemos.map { it.id }.toSet()

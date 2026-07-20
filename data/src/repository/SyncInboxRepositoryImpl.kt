@@ -37,12 +37,15 @@ class SyncInboxRepositoryImpl(
     private val workspaceMediaAccess: WorkspaceMediaAccess,
     private val memoSynchronizer: MemoSynchronizer,
     private val pendingReviewStore: PendingSyncReviewStore,
+    private val writeAuthority: WorkspaceWriteAuthority,
+    private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ) : SyncInboxRepository {
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
     private val pendingReviewRestorer =
         SyncInboxPendingReviewRestorer(
             context = context,
             markdownStorageDataSource = markdownStorageDataSource,
+            contentProjector = contentProjector,
         )
 
     override fun syncState(): Flow<UnifiedSyncState> = state
@@ -67,6 +70,9 @@ class SyncInboxRepositoryImpl(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,
     ): UnifiedSyncResult {
+        if (!writeAuthority.isWritable()) {
+            return workspaceWritesUnavailableResult()
+        }
         state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
         val inboxRoot =
             workspaceConfigSource
@@ -136,6 +142,9 @@ class SyncInboxRepositoryImpl(
                 provider = SyncBackendType.INBOX,
                 message = "Sync inbox is disabled",
             )
+        }
+        if (!writeAuthority.isWritable()) {
+            return workspaceWritesUnavailableResult()
         }
 
         val inboxRoot = workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX).first()
@@ -266,6 +275,16 @@ class SyncInboxRepositoryImpl(
         return result
     }
 
+    private fun workspaceWritesUnavailableResult(): UnifiedSyncResult {
+        val error =
+            UnifiedSyncError(
+                provider = SyncBackendType.INBOX,
+                message = WORKSPACE_WRITES_UNAVAILABLE_MESSAGE,
+            )
+        state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+        return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+    }
+
     private fun notConfiguredResult(): UnifiedSyncResult.NotConfigured {
         val error =
             UnifiedSyncError(
@@ -297,12 +316,14 @@ class SyncInboxRepositoryImpl(
         val imported =
             previewInboxMediaReferences(
                 markdown = markdown,
+                contentProjector = contentProjector,
             )
         val missingAttachments =
             missingInboxMediaReferences(
                 context = context,
                 inboxRoot = inboxRoot,
                 markdown = markdown,
+                contentProjector = contentProjector,
             )
         val targetFilename = relativePath.substringAfterLast('/')
         val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
@@ -415,6 +436,7 @@ class SyncInboxRepositoryImpl(
                 workspaceMediaAccess = workspaceMediaAccess,
                 inboxRoot = inboxRoot,
                 markdown = originalMarkdown,
+                contentProjector = contentProjector,
             )
         val imported =
             when (importResult) {

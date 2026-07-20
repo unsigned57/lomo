@@ -440,6 +440,7 @@
     <string name="update_dialog_message_with_version">Lomo 有新版本（%1$s）可用。</string>
     <string name="update_dialog_release_notes">更新内容</string>
     <string name="update_dialog_release_notes_empty">该版本未提供更新说明。</string>
+    <string name="update_dialog_release_notes_failed">无法渲染更新说明。</string>
     <string name="action_download">去下载</string>
     <string name="action_open_download_page">打开下载页</string>
     <string name="action_github_download">GitHub</string>
@@ -725,5 +726,11 @@
     <string name="recording_saved_notification_title">录音已保存</string>
     <string name="recording_saved_notification_text">点击编辑</string>
     <string name="recording_saved_notification_action">编辑</string>
+
+    <string name="engine_recovery_title">工作区为只读</string>
+    <string name="engine_recovery_body">Rust 引擎无法以可写方式打开此工作区。请查看诊断、重试或另选工作区。不存在回退到旧 Kotlin 核心继续写入的路径。</string>
+    <string name="engine_recovery_code_label">代码：%1$s</string>
+    <string name="engine_recovery_retry">重试</string>
+    <string name="engine_recovery_reselect">选择工作区</string>
 
 </resources>

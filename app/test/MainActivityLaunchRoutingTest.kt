@@ -330,6 +330,61 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
 
             rawActionResolverMethods.shouldBeEmpty()
         }
+
+        test("entry flow routes engine read-only recovery before writable surfaces") {
+            val command = PendingLaunchCommand(
+                id = 48L,
+                action = PendingLaunchAction.OpenMemo("memo-recovery"),
+            )
+
+            val state =
+                resolvePendingLaunchCommandEntryFlowState(
+                    command = command,
+                    readiness =
+                        EntryFlowReadiness(
+                            appLock = EntryAppLockState.Unlocked,
+                            workspace = EntryWorkspaceState.ReadOnlyRecovery,
+                            configuredCapabilities = setOf(EntryCapability.RootWorkspace),
+                            recoveryCode = "journal_corrupt",
+                            recoveryDiagnostic = "checksum mismatch",
+                        ),
+                )
+
+            state shouldBe
+                EntryFlowState.EngineReadOnlyRecovery(
+                    request = EntryFlowRequest.PendingCommand(command),
+                    code = "journal_corrupt",
+                    diagnostic = "checksum mismatch",
+                )
+        }
+
+        test("entryWorkspaceStateFor maps domain readiness into entry workspace lane") {
+            entryWorkspaceStateFor(com.lomo.domain.model.EngineReadiness.AwaitingWorkspaceSelection)
+                .first shouldBe EntryWorkspaceState.Resolving
+            entryWorkspaceStateFor(com.lomo.domain.model.EngineReadiness.Opening)
+                .first shouldBe EntryWorkspaceState.Preparing
+            entryWorkspaceStateFor(
+                com.lomo.domain.model.EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 2uL),
+            ).first shouldBe EntryWorkspaceState.Ready
+            val recovery =
+                entryWorkspaceStateFor(
+                    com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
+                        category = com.lomo.domain.model.EngineReadiness.FailureCategory.CORRUPTION,
+                        code = "journal_corrupt",
+                        retryDisposition = com.lomo.domain.model.EngineReadiness.RetryDisposition.NEVER,
+                        diagnostic = "checksum mismatch",
+                    ),
+                )
+            recovery.first shouldBe EntryWorkspaceState.ReadOnlyRecovery
+            recovery.second shouldBe ("journal_corrupt" to "checksum mismatch")
+        }
+
+        test("shouldDispatchPendingLaunchCommands only allows Ready entry lane") {
+            shouldDispatchPendingLaunchCommands(EntryWorkspaceState.Ready) shouldBe true
+            shouldDispatchPendingLaunchCommands(EntryWorkspaceState.Resolving) shouldBe false
+            shouldDispatchPendingLaunchCommands(EntryWorkspaceState.Preparing) shouldBe false
+            shouldDispatchPendingLaunchCommands(EntryWorkspaceState.ReadOnlyRecovery) shouldBe false
+        }
     }
 }
 

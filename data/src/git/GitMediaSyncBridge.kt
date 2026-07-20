@@ -1,4 +1,5 @@
 package com.lomo.data.git
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.MediaSyncCategory
@@ -13,12 +14,14 @@ constructor(
         private val stateStore: GitMediaSyncStateStore,
         private val planner: GitMediaSyncPlanner,
         private val fingerprintIndex: GitMediaSyncFingerprintIndex,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun reconcile(
             repoRootDir: File,
             layout: SyncDirectoryLayout,
-        ): GitMediaSyncSummary =
-            withContext(Dispatchers.IO) {
+        ): GitMediaSyncSummary {
+            writeAuthority.requireWritable()
+            return withContext(Dispatchers.IO) {
                 val categories = localMediaSyncStore.configuredCategories()
                 if (categories.isEmpty()) {
                     return@withContext GitMediaSyncSummary()
@@ -49,6 +52,7 @@ constructor(
                 )
                 summary
             }
+        }
         private suspend fun applyActions(
             repoRootDir: File,
             layout: SyncDirectoryLayout,

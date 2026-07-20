@@ -4,5 +4,5 @@ modules:
   - domain
   - native-smoke
   - quality/detekt-rules
-  - rust-bindings
+  - native-bindings
   - ui-components

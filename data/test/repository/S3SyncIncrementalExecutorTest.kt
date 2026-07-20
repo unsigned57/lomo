@@ -24,6 +24,7 @@ import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.data.repository.S3SyncWorkIntent
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.domain.model.SyncBackendType
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -1907,7 +1908,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
-        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         return S3SyncExecutor(
             runtime = runtime,
             support = S3SyncRepositorySupport(
@@ -1980,7 +1981,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
             ),
                     encodingSupport = encodingSupport,
-                    fileBridge = S3SyncFileBridge(runtime, encodingSupport),
+                    fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority),
                     protocolStateStore = protocolStateStore,
                     localChangeJournalStore = journalStore,
                     remoteIndexStore = remoteIndexStore,
@@ -2004,6 +2005,7 @@ class S3SyncIncrementalExecutorTest : DataFunSpec() {
                 },
             stateHolder = stateHolder,
             pendingConflictStore = InMemoryPendingSyncConflictStore(),
+            writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
         )
     }
 

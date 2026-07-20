@@ -27,7 +27,7 @@ private data class ParsedRefreshBatch<T>(
     val datesToReplace: Set<String>,
 )
 
-class MemoRefreshParserWorker(
+internal class MemoRefreshParserWorker(
     private val workspaceProjector: MemoWorkspaceProjector,
     private val dao: MemoDao,
     private val fileParseBatchSize: Int = defaultFileParseBatchSize(),

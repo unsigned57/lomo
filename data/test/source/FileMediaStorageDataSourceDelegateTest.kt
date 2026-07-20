@@ -25,6 +25,17 @@
  * Excludes:
  * - direct backend file I/O, full SAF traversal, Android permission handling, and image signature
  *   validation internals.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 
 package com.lomo.data.source
@@ -32,7 +43,10 @@ package com.lomo.data.source
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import com.lomo.data.repository.ProcessWriteFreezeRepository
+import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
@@ -94,7 +108,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                     vfs = WorkspaceVfs.Direct(tempDir.toFile()),
                     configuredUriMarker = null,
                 )
-            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver)
+            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()))
 
             val filename = delegate.saveImage(sourceUri)
 
@@ -111,7 +125,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                     vfs = WorkspaceVfs.Saf(rootUri),
                     configuredUriMarker = "content://tree/images",
                 )
-            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver)
+            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()))
 
             val filename = delegate.saveImage(sourceUri)
 
@@ -128,7 +142,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                     vfs = WorkspaceVfs.Direct(tempDir.toFile()),
                     configuredUriMarker = null,
                 )
-            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver)
+            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()))
 
             val files = delegate.listImageFiles()
 
@@ -144,7 +158,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                     vfs = WorkspaceVfs.Direct(tempDir.toFile()),
                     configuredUriMarker = null,
                 )
-            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver)
+            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()))
 
             val location = delegate.getImageLocation("cover.jpg")
 
@@ -159,7 +173,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                     vfs = WorkspaceVfs.Direct(tempDir.toFile()),
                     configuredUriMarker = null,
                 )
-            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver)
+            val delegate = FileMediaStorageDataSourceDelegate(context, backendResolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()))
 
             delegate.deleteImage("cover.jpg")
 

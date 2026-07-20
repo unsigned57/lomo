@@ -177,15 +177,30 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
     if sorted.is_empty() {
         return 0.0;
     }
-    let idx = ((sorted.len() as f64 - 1.0) * q).round() as usize;
-    sorted[idx.min(sorted.len() - 1)]
+    let last = sorted.len().saturating_sub(1);
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "percentile index is bounded to sorted.len()-1 for host metrics"
+    )]
+    let idx = {
+        let scaled = (last as f64) * q;
+        scaled.round() as usize
+    };
+    sorted[idx.min(last)]
 }
 
 fn read_peak_rss_bytes() -> Option<u64> {
-    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let Ok(status) = fs::read_to_string("/proc/self/status") else {
+        return None;
+    };
     for line in status.lines() {
         if let Some(rest) = line.strip_prefix("VmHWM:") {
-            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            let token = rest.split_whitespace().next()?;
+            let Ok(kb) = token.parse::<u64>() else {
+                return None;
+            };
             return Some(kb.saturating_mul(1024));
         }
     }

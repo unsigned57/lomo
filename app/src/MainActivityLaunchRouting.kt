@@ -51,6 +51,7 @@ internal enum class EntryWorkspaceState {
     Resolving,
     Preparing,
     Ready,
+    ReadOnlyRecovery,
 }
 
 internal enum class ActivityInstanceState {
@@ -62,6 +63,8 @@ internal data class EntryFlowReadiness(
     val appLock: EntryAppLockState,
     val configuredCapabilities: Set<EntryCapability>,
     val workspace: EntryWorkspaceState = EntryWorkspaceState.Ready,
+    val recoveryCode: String? = null,
+    val recoveryDiagnostic: String? = null,
 )
 
 internal sealed interface EntryFlowState {
@@ -80,6 +83,12 @@ internal sealed interface EntryFlowState {
 
     data class WaitingForWorkspaceReadiness(
         val request: EntryFlowRequest,
+    ) : EntryFlowState
+
+    data class EngineReadOnlyRecovery(
+        val request: EntryFlowRequest,
+        val code: String,
+        val diagnostic: String,
     ) : EntryFlowState
 
     data class MissingRequiredCapability(
@@ -119,6 +128,13 @@ private fun resolveUnlockedEntryFlowState(
     val requiredCapabilities = requiredEntryCapabilities(request.action)
     val missingCapabilities = requiredCapabilities - readiness.configuredCapabilities
     return when {
+        readiness.workspace == EntryWorkspaceState.ReadOnlyRecovery ->
+            EntryFlowState.EngineReadOnlyRecovery(
+                request = request,
+                code = readiness.recoveryCode ?: "engine_readonly",
+                diagnostic = readiness.recoveryDiagnostic ?: "Engine is read-only",
+            )
+
         EntryCapability.RootWorkspace in missingCapabilities ->
             EntryFlowState.NeedsWorkspaceSetup(
                 request = request,
@@ -166,3 +182,31 @@ internal fun requiredEntryCapabilities(action: PendingLaunchAction?): Set<EntryC
                 EntryCapability.ImageWorkspace,
             )
     }
+
+/**
+ * Maps domain engine readiness into the entry-flow workspace lane.
+ * Recovery is ordered ahead of writable surfaces by [resolveUnlockedEntryFlowState].
+ */
+internal fun entryWorkspaceStateFor(
+    readiness: com.lomo.domain.model.EngineReadiness,
+): Pair<EntryWorkspaceState, Pair<String, String>?> =
+    when (readiness) {
+        com.lomo.domain.model.EngineReadiness.AwaitingWorkspaceSelection ->
+            EntryWorkspaceState.Resolving to null
+        com.lomo.domain.model.EngineReadiness.Opening ->
+            EntryWorkspaceState.Preparing to null
+        is com.lomo.domain.model.EngineReadiness.Ready ->
+            EntryWorkspaceState.Ready to null
+        is com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery ->
+            EntryWorkspaceState.ReadOnlyRecovery to (readiness.code to readiness.diagnostic)
+        com.lomo.domain.model.EngineReadiness.ShuttingDown ->
+            EntryWorkspaceState.Preparing to null
+    }
+
+/**
+ * Deep-link / share command dispatch is writable-surface work. Only Ready may apply pending entry
+ * commands; Recovery/Opening keep commands queued so entry does not mutate under a frozen engine.
+ */
+internal fun shouldDispatchPendingLaunchCommands(workspace: EntryWorkspaceState): Boolean =
+    workspace == EntryWorkspaceState.Ready
+

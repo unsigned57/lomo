@@ -50,7 +50,7 @@ private data class MemoPagedListDisplayConfig(
 )
 
 private data class MemoPagedListActions(
-    val onTodoClick: (Memo, Int, Boolean) -> Unit,
+    val onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     val onReminderDone: (String, String) -> Unit,
     val onMemoDoubleClick: (Memo) -> Unit,
     val onTagClick: (String) -> Unit,
@@ -72,7 +72,7 @@ internal fun MemoListContent(
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (String, String) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -163,7 +163,7 @@ private fun MemoPagedListColumn(
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     enterAnimationRegistry: EnterAnimationRegistry,
     listState: LazyListState,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (String, String) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -443,7 +443,7 @@ private fun PagedMemoLazyColumn(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (String, String) -> Unit,
     onMemoDoubleClick: (Memo) -> Unit,
     onTagClick: (String) -> Unit,

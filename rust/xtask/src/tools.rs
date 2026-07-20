@@ -13,6 +13,14 @@ struct Tool {
     version: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BoltffiPin {
+    package: String,
+    binary: String,
+    git: String,
+    rev: String,
+}
+
 pub fn bootstrap(workspace: &Workspace) -> Result<()> {
     bootstrap_rust(workspace)?;
     install_ndk(workspace)?;
@@ -23,16 +31,17 @@ pub fn bootstrap(workspace: &Workspace) -> Result<()> {
 pub fn bootstrap_rust(workspace: &Workspace) -> Result<()> {
     workspace.prepare_directories()?;
     install_rust_components(workspace)?;
-    for tool in tool_manifest(workspace)? {
+    for tool in quality_and_diagnostic_tools(workspace)? {
         install_tool(workspace, &tool)?;
     }
+    install_boltffi(workspace)?;
     eprintln!("xtask: Rust tool bootstrap complete");
     Ok(())
 }
 
 pub fn ensure_quality(workspace: &Workspace) -> Result<()> {
     ensure_rust_version(workspace)?;
-    let tools = tool_manifest(workspace)?;
+    let tools = quality_and_diagnostic_tools(workspace)?;
     for package in [
         "cargo-deny",
         "cargo-nextest",
@@ -51,7 +60,7 @@ pub fn ensure_quality(workspace: &Workspace) -> Result<()> {
 
 pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
     ensure_rust_version(workspace)?;
-    let tools = tool_manifest(workspace)?;
+    let tools = quality_and_diagnostic_tools(workspace)?;
     for package in ["cargo-bloat", "cargo-llvm-lines"] {
         let tool = tools
             .iter()
@@ -60,6 +69,135 @@ pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
         ensure_tool(workspace, tool)?;
     }
     Ok(())
+}
+
+pub fn ensure_boltffi(workspace: &Workspace) -> Result<()> {
+    ensure_rust_version(workspace)?;
+    let pin = boltffi_pin(workspace)?;
+    let binary = workspace.tool_bin().join(&pin.binary);
+    if !binary.is_file() {
+        install_boltffi(workspace)?;
+    }
+    let binary = workspace.tool_bin().join(&pin.binary);
+    if !binary.is_file() {
+        bail!(
+            "{} is not installed at {}; run `just bootstrap`",
+            pin.binary,
+            binary.display()
+        );
+    }
+    // Identity sidecar written at install time for exact-rev verification.
+    let identity = boltffi_identity_path(workspace);
+    let expected = format!(
+        "package={}\nbinary={}\ngit={}\nrev={}\n",
+        pin.package, pin.binary, pin.git, pin.rev
+    );
+    if !identity.is_file() {
+        bail!(
+            "BoltFFI identity sidecar missing at {}; run `just bootstrap`",
+            identity.display()
+        );
+    }
+    let actual = fs::read_to_string(&identity)
+        .with_context(|| format!("failed to read {}", identity.display()))?;
+    if actual != expected {
+        bail!(
+            "BoltFFI pin mismatch at {}:\nexpected:\n{expected}\nfound:\n{actual}\nrun `just bootstrap`",
+            identity.display()
+        );
+    }
+    Ok(())
+}
+
+pub fn boltffi_binary(workspace: &Workspace) -> Result<PathBuf> {
+    ensure_boltffi(workspace)?;
+    let pin = boltffi_pin(workspace)?;
+    Ok(workspace.tool_bin().join(pin.binary))
+}
+
+fn install_boltffi(workspace: &Workspace) -> Result<()> {
+    let pin = boltffi_pin(workspace)?;
+    let mut command = repository_command(workspace, "cargo");
+    command.args([
+        "+1.96",
+        "install",
+        "--locked",
+        "--root",
+        workspace.tool_root.to_string_lossy().as_ref(),
+        "--git",
+        &pin.git,
+        "--rev",
+        &pin.rev,
+        &pin.package,
+    ]);
+    run(&mut command)?;
+    let binary = workspace.tool_bin().join(&pin.binary);
+    if !binary.is_file() {
+        bail!(
+            "installed {} but binary {} is missing",
+            pin.package,
+            binary.display()
+        );
+    }
+    let identity = boltffi_identity_path(workspace);
+    if let Some(parent) = identity.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(
+        &identity,
+        format!(
+            "package={}\nbinary={}\ngit={}\nrev={}\n",
+            pin.package, pin.binary, pin.git, pin.rev
+        ),
+    )
+    .with_context(|| format!("failed to write {}", identity.display()))?;
+    Ok(())
+}
+
+fn boltffi_identity_path(workspace: &Workspace) -> PathBuf {
+    workspace.tool_root.join("share/lomo/boltffi-identity.txt")
+}
+
+fn boltffi_pin(workspace: &Workspace) -> Result<BoltffiPin> {
+    let path = workspace.rust.join("tools.toml");
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut in_section = false;
+    let mut package = None;
+    let mut binary = None;
+    let mut git = None;
+    let mut rev = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_section = line == "[ffi.boltffi_cli]";
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"').to_owned();
+        match key {
+            "package" => package = Some(value),
+            "binary" => binary = Some(value),
+            "git" => git = Some(value),
+            "rev" => rev = Some(value),
+            _ => {}
+        }
+    }
+    Ok(BoltffiPin {
+        package: package.context("ffi.boltffi_cli.package missing from rust/tools.toml")?,
+        binary: binary.context("ffi.boltffi_cli.binary missing from rust/tools.toml")?,
+        git: git.context("ffi.boltffi_cli.git missing from rust/tools.toml")?,
+        rev: rev.context("ffi.boltffi_cli.rev missing from rust/tools.toml")?,
+    })
 }
 
 fn install_rust_components(workspace: &Workspace) -> Result<()> {
@@ -210,14 +348,22 @@ fn sdkmanager(workspace: &Workspace) -> Result<PathBuf> {
     bail!("sdkmanager is required to install NDK {NDK_VERSION}")
 }
 
-fn tool_manifest(workspace: &Workspace) -> Result<Vec<Tool>> {
+fn quality_and_diagnostic_tools(workspace: &Workspace) -> Result<Vec<Tool>> {
     let path = workspace.rust.join("tools.toml");
     let text =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut tools = Vec::new();
+    let mut in_simple_section = false;
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('[') || line.starts_with('#') {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            in_simple_section = matches!(line, "[quality]" | "[diagnostics]");
+            continue;
+        }
+        if !in_simple_section {
             continue;
         }
         let (package, version) = line
@@ -229,7 +375,7 @@ fn tool_manifest(workspace: &Workspace) -> Result<Vec<Tool>> {
         });
     }
     if tools.is_empty() {
-        bail!("rust/tools.toml contains no tools");
+        bail!("rust/tools.toml contains no quality/diagnostics tools");
     }
     Ok(tools)
 }

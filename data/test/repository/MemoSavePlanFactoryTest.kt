@@ -1,7 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.data.parser.MarkdownParser
-import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.usecase.MemoIdentityPolicy
@@ -9,6 +7,9 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
+import com.lomo.data.testing.fakes.FakeWorkspaceMarkdownOwner
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -57,7 +58,7 @@ class MemoSavePlanFactoryTest : DataFunSpec() {
 
         test("create uses precomputed same-time count to derive positional id and timestamp offset") { `create uses precomputed same-time count to derive positional id and timestamp offset`() }
 
-        test("create scans existing file to offset duplicate timestamps and position the id") { `create scans existing file to offset duplicate timestamps and position the id`() }
+        test("create requires precomputed count when existing file content is non-blank") { `create requires precomputed count when existing file content is non-blank`() }
 
         test("create keeps base timestamp and ordinal zero when existing file is blank") { `create keeps base timestamp and ordinal zero when existing file is blank`() }
 
@@ -67,8 +68,7 @@ class MemoSavePlanFactoryTest : DataFunSpec() {
     }
 
 
-    private lateinit var parser: MarkdownParser
-    private lateinit var textProcessor: MemoTextProcessor
+    private lateinit var textProcessor: MarkdownWorkspaceContentProjector
     private lateinit var memoIdentityPolicy: MemoIdentityPolicy
     private lateinit var factory: MemoSavePlanFactory
 
@@ -80,17 +80,24 @@ class MemoSavePlanFactoryTest : DataFunSpec() {
             .toEpochMilli()
 
     private fun setUp() {
-        textProcessor = MemoTextProcessor()
+        textProcessor = fakeMarkdownWorkspaceContentProjector()
         memoIdentityPolicy = MemoIdentityPolicy()
-        parser = MarkdownParser(textProcessor, memoIdentityPolicy)
-        factory = MemoSavePlanFactory(parser, textProcessor, memoIdentityPolicy)
+        factory = MemoSavePlanFactory(textProcessor, memoIdentityPolicy)
+    }
+
+    private fun resolveTimestamp(dateKey: String, timeString: String, fallback: Long): Long {
+        val zoneId = java.time.ZoneId.systemDefault()
+        val localDate = com.lomo.domain.model.StorageFilenameFormats.parseOrNull(dateKey)
+            ?: java.time.Instant.ofEpochMilli(fallback).atZone(zoneId).toLocalDate()
+        val localTime = requireNotNull(com.lomo.domain.model.StorageTimestampFormats.parseOrNull(timeString))
+        return java.time.LocalDateTime.of(localDate, localTime).atZone(zoneId).toInstant().toEpochMilli()
     }
 
     private fun `create uses precomputed same-time count to derive positional id and timestamp offset`() {
         val content = "Review #release ![cover](img.png)"
         val dateKey = expectedDateKey()
         val timeString = expectedTimeString()
-        val baseTimestamp = parser.resolveTimestamp(dateKey, timeString, timestamp)
+        val baseTimestamp = resolveTimestamp(dateKey, timeString, timestamp)
 
         val plan =
             factory.create(
@@ -111,37 +118,34 @@ class MemoSavePlanFactoryTest : DataFunSpec() {
         plan.memo.imageUrls shouldBe listOf("img.png")
     }
 
-    private fun `create scans existing file to offset duplicate timestamps and position the id`() {
+    private fun `create requires precomputed count when existing file content is non-blank`() {
         val content = "Repeated #tag ![a](a.png)"
-        val dateKey = expectedDateKey()
-        val timeString = expectedTimeString()
-        val baseTimestamp = parser.resolveTimestamp(dateKey, timeString, timestamp)
         val existingFileContent =
             """
-            - $timeString $content
-            - $timeString Other memo
-            - $timeString $content
+            - 09:15:30 first
+            - 09:15:30 second
             """.trimIndent()
 
-        val plan =
-            factory.create(
-                content = content,
-                timestamp = timestamp,
-                filenameFormat = StorageFilenameFormats.DEFAULT_PATTERN,
-                timestampFormat = StorageTimestampFormats.DEFAULT_PATTERN,
-                existingFileContent = existingFileContent,
-            )
+        val error =
+            runCatching {
+                factory.create(
+                    content = content,
+                    timestamp = timestamp,
+                    filenameFormat = StorageFilenameFormats.DEFAULT_PATTERN,
+                    timestampFormat = StorageTimestampFormats.DEFAULT_PATTERN,
+                    existingFileContent = existingFileContent,
+                )
+            }.exceptionOrNull()
 
-        plan.timestamp shouldBe baseTimestamp + 3
-        plan.memo.id shouldBe expectedId(dateKey, timeString, ordinal = 3)
-        (plan.memo.rawContent.startsWith("- $timeString ")).shouldBeTrue()
+        (error is IllegalStateException).shouldBeTrue()
+        error!!.message!!.contains("precomputedSameTimestampCount").shouldBeTrue()
     }
 
     private fun `create keeps base timestamp and ordinal zero when existing file is blank`() {
         val content = "Fresh memo"
         val dateKey = expectedDateKey()
         val timeString = expectedTimeString()
-        val baseTimestamp = parser.resolveTimestamp(dateKey, timeString, timestamp)
+        val baseTimestamp = resolveTimestamp(dateKey, timeString, timestamp)
 
         val plan =
             factory.create(

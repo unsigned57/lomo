@@ -19,13 +19,13 @@ package com.lomo.data.repository
 
 
 import android.content.Context
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncResult
 import io.mockk.MockKAnnotations
@@ -89,8 +89,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
 
-    @MockK(relaxed = true)
-    private lateinit var markdownParser: MarkdownParser
 
     @MockK(relaxed = true)
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
@@ -114,7 +112,6 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
                 gitSyncQueryCoordinator = gitSyncQueryCoordinator,
-                markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
             )
         val support = GitSyncRepositorySupport(
@@ -122,7 +119,7 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                 credentialRepository = credentialRepository,
                 securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
             )
-        val memoMirror = GitSyncMemoMirror(runtime)
+        val memoMirror = GitSyncMemoMirror(runtime, AlwaysWritableWorkspaceWriteAuthority)
         repository =
             GitSyncRepositoryImpl(
                 configurationRepository = GitSyncConfigurationRepositoryImpl(dataStore),
@@ -140,6 +137,7 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                                 support = support,
                                 memoMirror = memoMirror,
                                 lifecycleRunner = testRemoteSyncLifecycleRunner(),
+                                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                             ),
                         statusExecutor =
                             GitSyncStatusExecutor(
@@ -152,12 +150,14 @@ class GitSyncRepositoryImplTest : DataFunSpec() {
                                 support = support,
                                 memoMirror = memoMirror,
                             ),
+                        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                     ),
                 conflictRepository =
                     GitSyncConflictRepositoryImpl(
                         runtime = runtime,
                         support = support,
                         memoMirror = memoMirror,
+                        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
                     ),
                 stateRepository = GitSyncStateRepositoryImpl(gitSyncEngine),
             )

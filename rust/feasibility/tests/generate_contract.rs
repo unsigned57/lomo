@@ -15,6 +15,12 @@
 //! Excludes: production DI, real remote providers, full 20 GiB materialization on disk.
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "feasibility contract harness fails closed with panics on missing probe facts"
+)]
 mod tests {
     use std::fs;
     use std::path::PathBuf;

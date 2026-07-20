@@ -17,19 +17,19 @@ class ReminderActionReceiver : BroadcastReceiver(), KoinComponent {
         intent: Intent,
     ) {
         val memoId = intent.getStringExtra(ReminderIntents.EXTRA_MEMO_ID) ?: return
-        val tokenRaw = intent.getStringExtra(ReminderIntents.EXTRA_TOKEN_RAW) ?: return
+        val reminderId = intent.getStringExtra(ReminderIntents.EXTRA_REMINDER_ID) ?: return
         val action = intent.action ?: return
-        val notificationId = ReminderRequestCodePolicy.notificationId(memoId, tokenRaw)
+        val notificationId = ReminderRequestCodePolicy.notificationId(memoId, reminderId)
         val pendingResult = goAsync()
 
         asyncRunner.launch(pendingResult) {
             when (action) {
                 ReminderIntents.ACTION_SNOOZE -> {
-                    reminderCoordinator.snooze(memoId, tokenRaw)
+                    reminderCoordinator.snooze(memoId, reminderId)
                     reminderNotifier.cancel(notificationId)
                 }
                 ReminderIntents.ACTION_DONE -> {
-                    reminderCoordinator.markDone(memoId, tokenRaw)
+                    reminderCoordinator.markDone(memoId, reminderId)
                     reminderNotifier.cancel(notificationId)
                 }
                 else -> Unit

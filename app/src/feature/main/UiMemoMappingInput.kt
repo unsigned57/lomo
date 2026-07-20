@@ -17,15 +17,13 @@ internal data class UiMemoMappingInput(
     val imageDirectory: String?,
     val imageMap: Map<String, Uri>,
     val imageDependencySignature: String,
-    val prioritizedMemoIds: Set<String>,
 )
 
 internal fun UiMemoMappingInput.hasSameUiDependencies(other: UiMemoMappingInput): Boolean =
     memos == other.memos &&
         rootDirectory == other.rootDirectory &&
         imageDirectory == other.imageDirectory &&
-        imageDependencySignature == other.imageDependencySignature &&
-        prioritizedMemoIds == other.prioritizedMemoIds
+        imageDependencySignature == other.imageDependencySignature
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal fun Flow<List<Memo>>.mapToUiModels(
@@ -35,7 +33,6 @@ internal fun Flow<List<Memo>>.mapToUiModels(
     memoUiMapper: MemoUiMapper,
     transformMemos: (List<Memo>) -> List<Memo> = { it },
     dependencyMemos: (List<Memo>) -> List<Memo> = { it },
-    prioritizedMemoIds: (List<Memo>) -> Set<String> = { emptySet() },
 ): Flow<List<MemoUiModel>> =
     combine(this, rootDirectory, imageDirectory, imageMap) { memos, rootDir, imageDir, currentImageMap ->
         val mappedMemos = transformMemos(memos)
@@ -45,7 +42,6 @@ internal fun Flow<List<Memo>>.mapToUiModels(
             imageDirectory = imageDir,
             imageMap = currentImageMap,
             imageDependencySignature = buildMemoListImageDependencySignature(dependencyMemos(memos), currentImageMap),
-            prioritizedMemoIds = prioritizedMemoIds(mappedMemos),
         )
     }.distinctUntilChanged(UiMemoMappingInput::hasSameUiDependencies)
         .mapLatest { input ->
@@ -54,7 +50,6 @@ internal fun Flow<List<Memo>>.mapToUiModels(
                 rootPath = input.rootDirectory,
                 imagePath = input.imageDirectory,
                 imageMap = input.imageMap,
-                prioritizedMemoIds = input.prioritizedMemoIds,
             )
         }
 
@@ -66,7 +61,6 @@ internal fun Flow<List<Memo>>.mapToUiModelState(
     scope: CoroutineScope,
     transformMemos: (List<Memo>) -> List<Memo> = { it },
     dependencyMemos: (List<Memo>) -> List<Memo> = { it },
-    prioritizedMemoIds: (List<Memo>) -> Set<String> = { emptySet() },
 ): StateFlow<List<MemoUiModel>> =
     mapToUiModels(
         rootDirectory = rootDirectory,
@@ -75,5 +69,4 @@ internal fun Flow<List<Memo>>.mapToUiModelState(
         memoUiMapper = memoUiMapper,
         transformMemos = transformMemos,
         dependencyMemos = dependencyMemos,
-        prioritizedMemoIds = prioritizedMemoIds,
     ).stateIn(scope, appWhileSubscribed(), emptyList())

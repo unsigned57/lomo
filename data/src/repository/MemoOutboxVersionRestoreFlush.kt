@@ -45,7 +45,7 @@ private suspend fun restoreRevisionWorkspace(
                         directory = MemoDirectoryType.MAIN,
                         filename = command.filename,
                         currentMemo = command.sourceMemo.copy(isDeleted = false),
-                        replacementRawContent = target.rawContent,
+                        replacementMemo = target.memo,
                         intent =
                             if (command.targetAlreadyReplacedSource(sourceDirectory)) {
                                 MemoWorkspaceBlockUpsertIntent.ReplaceExistingMemo
@@ -69,7 +69,7 @@ private suspend fun restoreRevisionWorkspace(
                         directory = MemoDirectoryType.TRASH,
                         filename = command.filename,
                         currentMemo = command.sourceMemo.copy(isDeleted = true),
-                        replacementRawContent = target.rawContent,
+                        replacementMemo = target.memo,
                         intent =
                             if (command.targetAlreadyReplacedSource(sourceDirectory)) {
                                 MemoWorkspaceBlockUpsertIntent.ReplaceExistingMemo

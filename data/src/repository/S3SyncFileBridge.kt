@@ -17,13 +17,15 @@ constructor(
         private val runtime: S3SyncRepositoryContext,
         private val encodingSupport: S3SyncEncodingSupport,
         private val safTreeAccess: S3SafTreeAccess,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         internal constructor(
             runtime: S3SyncRepositoryContext,
             encodingSupport: S3SyncEncodingSupport,
-        ) : this(runtime, encodingSupport, UnsupportedS3SafTreeAccess)
+            writeAuthority: WorkspaceWriteAuthority,
+        ) : this(runtime, encodingSupport, UnsupportedS3SafTreeAccess, writeAuthority)
         internal fun modeAware(mode: S3LocalSyncMode): S3SyncFileBridgeScope =
-            S3SyncFileBridgeScope(runtime, encodingSupport, safTreeAccess, mode)
+            S3SyncFileBridgeScope(runtime, encodingSupport, safTreeAccess, mode, writeAuthority)
         suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalS3File> =
             modeAware(resolveLocalSyncMode(runtime)).localFiles(layout)
         suspend fun remoteFiles(
@@ -129,6 +131,7 @@ internal class S3SyncFileBridgeScope(
     private val encodingSupport: S3SyncEncodingSupport,
     internal val safTreeAccess: S3SafTreeAccess,
     internal val mode: S3LocalSyncMode,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) {
     suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalS3File> =
         when (mode) {
@@ -302,6 +305,7 @@ internal class S3SyncFileBridgeScope(
         bytes: ByteArray,
         layout: SyncDirectoryLayout,
     ) {
+        writeAuthority.requireWritable()
         when (mode) {
             is S3LocalSyncMode.VaultRoot ->
                 writeVaultRootBytes(
@@ -318,6 +322,7 @@ internal class S3SyncFileBridgeScope(
         source: File,
         layout: SyncDirectoryLayout,
     ) {
+        writeAuthority.requireWritable()
         when (mode) {
             is S3LocalSyncMode.VaultRoot ->
                 importVaultRootFile(
@@ -340,6 +345,7 @@ internal class S3SyncFileBridgeScope(
         path: String,
         layout: SyncDirectoryLayout,
     ) {
+        writeAuthority.requireWritable()
         when (mode) {
             is S3LocalSyncMode.VaultRoot ->
                 deleteVaultRootFile(

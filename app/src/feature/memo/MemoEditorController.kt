@@ -21,9 +21,11 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
-import com.lomo.app.feature.main.MemoUiImageContentResolver
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.markdown.MarkdownRenderContractException
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.input.InputEditorActionBadge
 import com.lomo.ui.component.input.InputEditorCapabilities
 import com.lomo.ui.component.input.InputEditorCommand
@@ -35,7 +37,9 @@ import com.lomo.ui.component.input.InputSheetCallbacks
 import com.lomo.ui.component.input.InputSheetState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 import java.io.File
 
 enum class MemoEditorMode {
@@ -286,6 +290,8 @@ fun MemoEditorSheetHost(
     if (!controller.isVisible) return
 
     val session = surface.session
+    val markdownWorkspaceRepository = koinInject<MarkdownWorkspaceRepository>()
+    val imageContentResolver = remember { com.lomo.app.feature.main.MemoUiImageContentResolver() }
     var showBackfillDialog by remember { mutableStateOf(false) }
     var showReminderDialog by remember { mutableStateOf(false) }
     val onReminderRequested = rememberReminderInsertGate(onReady = { showReminderDialog = true })
@@ -297,23 +303,40 @@ fun MemoEditorSheetHost(
             onImageDirectoryMissing = session.onImageDirectoryMissing,
             onCameraCaptureError = session.onCameraCaptureError,
         )
-    var previewContent by remember { mutableStateOf(controller.inputValue.text) }
-    LaunchedEffect(controller.inputValue.text, session.rootPath, session.imageDirectory, session.imageMap) {
-        previewContent =
+    var previewState by remember { mutableStateOf<MarkdownRenderState>(MarkdownRenderState.Pending) }
+    LaunchedEffect(
+        controller.inputValue.text,
+        markdownWorkspaceRepository,
+        session.rootPath,
+        session.imageDirectory,
+        session.imageMap,
+    ) {
+        previewState = MarkdownRenderState.Pending
+        previewState =
             withContext(Dispatchers.Default) {
-                buildMemoEditorPreviewContent(
-                    content = controller.inputValue.text,
-                    rootPath = session.rootPath,
-                    imagePath = session.imageDirectory,
-                    imageMap = session.imageMap,
-                )
+                try {
+                    MarkdownRenderState.Ready(
+                        imageContentResolver.resolveRenderDocumentImages(
+                            document = markdownWorkspaceRepository.renderMarkdown(controller.inputValue.text),
+                            rootPath = session.rootPath,
+                            imagePath = session.imageDirectory,
+                            imageMap = session.imageMap,
+                        ),
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: MarkdownRenderContractException) {
+                    MarkdownRenderState.Failed(failure.code)
+                } catch (failure: IllegalStateException) {
+                    MarkdownRenderState.Failed("workspace_not_ready")
+                }
             }
     }
     val sheetState =
         buildMemoEditorSheetState(
             controller = controller,
             surface = surface,
-            previewContent = previewContent,
+            previewState = previewState,
         )
     val editorCommandHandler =
         InputEditorCommandHandler { command ->
@@ -379,14 +402,14 @@ fun MemoEditorSheetHost(
 private fun buildMemoEditorSheetState(
     controller: MemoEditorController,
     surface: MemoEditorSurface,
-    previewContent: String,
+    previewState: MarkdownRenderState,
 ): InputSheetState {
     val session = surface.session
     return InputSheetState(
         surface =
             InputEditorSurfaceState(
                 inputValue = controller.inputValue,
-                previewContent = previewContent,
+                previewState = previewState,
                 focusRequestToken = controller.focusRequestToken,
                 isExpanded = controller.mode == MemoEditorMode.Expanded,
                 displayMode = controller.displayMode,
@@ -550,20 +573,6 @@ private fun rememberMemoEditorMediaActions(
         },
     )
 }
-
-internal fun buildMemoEditorPreviewContent(
-    content: String,
-    rootPath: String?,
-    imagePath: String?,
-    imageMap: Map<String, Uri>,
-    resolver: MemoUiImageContentResolver = MemoUiImageContentResolver(),
-): String =
-    resolver.buildProcessedContent(
-        content = content,
-        rootPath = rootPath,
-        imagePath = imagePath,
-        imageMap = imageMap,
-    )
 
 private fun showImageDirectoryMissingToast(
     context: android.content.Context,

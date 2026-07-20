@@ -83,7 +83,7 @@ internal fun resolveMarkdownImageSharedElementKey(
 
 @Composable
 internal fun MarkdownImageBlock(
-    image: ModernMarkdownImage,
+    image: MarkdownPresentationImage,
     onImageClick: ((String) -> Unit)? = null,
     sharedElementKey: String? =
         resolveMarkdownImageSharedElementKey(
@@ -159,7 +159,7 @@ internal fun MarkdownImageBlock(
             MarkdownImagePresentation.Success -> {
                 Image(
                     painter = successPainter ?: painter,
-                    contentDescription = image.title ?: defaultContentDescription,
+                    contentDescription = image.description ?: defaultContentDescription,
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -169,7 +169,7 @@ internal fun MarkdownImageBlock(
                 retainedSuccessPainter?.let { retainedPainter ->
                     Image(
                         painter = retainedPainter,
-                        contentDescription = image.title ?: defaultContentDescription,
+                        contentDescription = image.description ?: defaultContentDescription,
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -189,7 +189,7 @@ internal fun MarkdownImageBlock(
 
 @Composable
 internal fun MarkdownImagePager(
-    images: ImmutableList<ModernMarkdownImage>,
+    images: ImmutableList<MarkdownPresentationImage>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     if (images.isEmpty()) return

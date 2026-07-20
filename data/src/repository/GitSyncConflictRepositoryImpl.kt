@@ -13,11 +13,15 @@ constructor(
         private val runtime: GitSyncRepositoryContext,
         private val support: GitSyncRepositorySupport,
         private val memoMirror: GitSyncMemoMirror,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) : GitSyncConflictRepository {
         override suspend fun resolveConflicts(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
         ): GitSyncResult {
+            if (!writeAuthority.isWritable()) {
+                return GitSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
             val remoteUrl = runtime.dataStore.gitRemoteUrl.first()
             if (remoteUrl.isNullOrBlank()) {
                 return GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)

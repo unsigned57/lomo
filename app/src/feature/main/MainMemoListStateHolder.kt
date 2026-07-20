@@ -75,7 +75,6 @@ internal class MainMemoListStateHolder(
                 imageDirectory = imageDir,
                 imageMap = currentImageMap,
                 imageDependencySignature = currentImageMap.toPagingImageDependencySignature(),
-                prioritizedMemoIds = emptySet(),
             )
         }.distinctUntilChanged { old, new ->
             old.hasSameUiDependencies(new)

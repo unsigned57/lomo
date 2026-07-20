@@ -50,6 +50,7 @@ internal class TrashMemoMutationDelegate(
                 restoreMemoFromTrashWithOutbox(
                     daoBundle = runtime.daoBundle,
                     command = command,
+                    contentProjector = runtime.textProcessor,
                 )
             runtime.memoVersionRecorder.enqueueLocalRevision(
                 memo = command.versionMemo,

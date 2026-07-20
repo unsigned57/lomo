@@ -247,7 +247,7 @@ private fun DailyReviewScreenContent(
     padding: PaddingValues,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onLoadMore: () -> Unit,
     onPageChanged: (Int) -> Unit,
@@ -313,7 +313,7 @@ private fun DailyReviewPager(
     freeTextCopyEnabled: Boolean,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onRequestMore: () -> Unit,
     onPageChanged: (Int) -> Unit,
@@ -381,7 +381,7 @@ private fun DailyReviewPagerPage(
     freeTextCopyEnabled: Boolean,
     onShowMenu: (MemoMenuSelection) -> Unit,
     onOpenEditor: (Memo) -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -425,8 +425,8 @@ private fun DailyReviewPagerPage(
                         onMemoEdit = onOpenEditor,
                         onShowMenu = onShowMenu,
                         onImageClick = onMemoImageClick,
-                        onTodoClick = { lineIndex, checked ->
-                            onTodoClick(memo.memo, lineIndex, checked)
+                        onTodoClick = { actionSpan ->
+                            onTodoClick(memo.memo, actionSpan)
                         },
                     )
 

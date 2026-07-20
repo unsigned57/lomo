@@ -23,6 +23,7 @@ constructor(
         private val initAndSyncExecutor: GitSyncInitAndSyncExecutor,
         private val statusExecutor: GitSyncStatusExecutor,
         private val maintenanceExecutor: GitSyncMaintenanceExecutor,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) : GitSyncOperationRepository {
         private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val syncGuard = SyncExecutionGate<GitSyncResult>()
@@ -42,20 +43,44 @@ constructor(
                     }
             }
         }
-        override suspend fun initOrClone(): GitSyncResult = initAndSyncExecutor.initOrClone()
+        override suspend fun initOrClone(): GitSyncResult =
+            withWritableGuard {
+                initAndSyncExecutor.initOrClone()
+            }
         override suspend fun sync(): GitSyncResult =
             withSyncGuard(inProgressMessage = "Sync already in progress") {
+                if (!writeAuthority.isWritable()) {
+                    return@withSyncGuard GitSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+                }
                 initAndSyncExecutor.sync()
             }
         override suspend fun getStatus(): GitSyncStatus = statusExecutor.getStatus()
         override suspend fun testConnection(): GitSyncResult = statusExecutor.testConnection()
-        override suspend fun resetRepository(): GitSyncResult = maintenanceExecutor.resetRepository()
-        override suspend fun resetLocalBranchToRemote(): GitSyncResult = maintenanceExecutor.resetLocalBranchToRemote()
-        override suspend fun forcePushLocalToRemote(): GitSyncResult = maintenanceExecutor.forcePushLocalToRemote()
+        override suspend fun resetRepository(): GitSyncResult =
+            withWritableGuard {
+                maintenanceExecutor.resetRepository()
+            }
+        override suspend fun resetLocalBranchToRemote(): GitSyncResult =
+            withWritableGuard {
+                maintenanceExecutor.resetLocalBranchToRemote()
+            }
+        override suspend fun forcePushLocalToRemote(): GitSyncResult =
+            withWritableGuard {
+                maintenanceExecutor.forcePushLocalToRemote()
+            }
         private suspend fun commitLocal(): GitSyncResult =
             withSyncGuard(inProgressMessage = "Sync in progress") {
+                if (!writeAuthority.isWritable()) {
+                    return@withSyncGuard GitSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+                }
                 initAndSyncExecutor.commitLocal()
             }
+        private suspend fun withWritableGuard(block: suspend () -> GitSyncResult): GitSyncResult {
+            if (!writeAuthority.isWritable()) {
+                return GitSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
+            return block()
+        }
         private suspend fun withSyncGuard(
             inProgressMessage: String,
             block: suspend () -> GitSyncResult,
@@ -71,6 +96,7 @@ class GitSyncInitAndSyncExecutor
         private val support: GitSyncRepositorySupport,
         private val memoMirror: GitSyncMemoMirror,
         private val lifecycleRunner: RemoteSyncLifecycleRunner,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun initOrClone(): GitSyncResult =
             runGitLifecycle {
@@ -408,7 +434,7 @@ class GitSyncInitAndSyncExecutor
             target: GitSyncTarget,
             context: GitSyncReadyContext,
         ): GitSyncResult {
-            if (SyncLayoutMigration.migrateGitRepo(target.repoDir, context.layout)) {
+            if (SyncLayoutMigration.migrateGitRepo(target.repoDir, context.layout, writeAuthority)) {
                 support.runGitIo { runtime.gitSyncEngine.commitLocal(target.repoDir) }
             }
             mirrorRepoTargetBeforeGit(target, context.layout)

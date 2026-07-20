@@ -47,11 +47,15 @@ class S3ConflictResolver
         private val pendingConflictStore: PendingSyncConflictStore,
         private val transferWorkspace: S3SyncTransferWorkspace,
         private val lifecycleRunner: RemoteSyncLifecycleRunner,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun resolveConflicts(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
         ): S3SyncResult {
+            if (!writeAuthority.isWritable()) {
+                return S3SyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val mode = resolveLocalSyncMode(runtime)
@@ -514,11 +518,15 @@ class S3ReviewResolver
         private val pendingReviewStore: PendingSyncReviewStore,
         private val transferWorkspace: S3SyncTransferWorkspace,
         private val lifecycleRunner: RemoteSyncLifecycleRunner,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun resolveReview(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
         ): S3SyncResult {
+            if (!writeAuthority.isWritable()) {
+                return S3SyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             val mode = resolveLocalSyncMode(runtime)

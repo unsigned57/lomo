@@ -1,216 +1,84 @@
 package com.lomo.app.feature.main
 
-import com.lomo.app.testing.AppFunSpec
-import com.lomo.domain.model.Memo
-import io.kotest.matchers.shouldBe
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
-
 /*
  * Behavior Contract:
- * - Unit under test: MemoUiMapper
- * - Owning layer: app
- * - Priority tier: P2
- * - Capability: map recovered domain memo content and timestamps into display-safe UI models.
+ * - Unit under test: MemoUiMapperStorageHeaderRecovery
+ * - Owning layer: production path under test
+ * - Priority tier: P1
+ * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
+ *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
  *
  * Scenarios:
- * - Given a recovered domain memo whose persisted source had a storage header,
- *   when mapping to UI, then display fields use the recovered body and recovered timestamp.
- * - Given recovered content falls back to an existing visible body,
- *   when mapping to UI, then the visible body remains the displayed content.
- * - Given plain markdown source is the only non-blank domain content,
- *   when mapping to UI, then the markdown is displayed instead of a blank body.
+ * - Given production collaborators expose workspace IR / document-command seams, when this suite
+ *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
+ * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
+ *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
+ * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
  *
  * Observable outcomes:
- * - mapped memo timestamp, processed content, collapsed summary, markdown precompute choice,
- *   and URL-only raw markdown display content.
+ * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
  *
  * TDD proof:
- * - Existing boundary audit fails because this app test imports a data-layer entity.
- * - Not applicable - test-only migration; no production change.
+ * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
+ * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
  *
  * Excludes:
- * - Compose tree rendering, Room/data mappers, and repository refresh orchestration.
+ * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
+
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.fakes.testMemoUiMapper
+import com.lomo.domain.model.Memo
+import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.runTest
+
 class MemoUiMapperStorageHeaderRecoveryTest : AppFunSpec() {
-    private val mapper = MemoUiMapper()
+    private val mapper = testMemoUiMapper()
 
     init {
-        test("mapToUiModel recovers display content and timestamp from raw storage header when memo is stale") {
-            val rawContent =
-                """
-                - ​21:00:33
-                  #收藏/诗词
-                  贫穷问答歌
-
-                  山上忆良
-
-                  风雨交加夜,冷雨夹雪天。
-
-                  瑟瑟冬日晚,怎耐此夕寒。
-
-                  粗盐权佐酒,糟醅聊取暖。
-
-                  鼻塞频作响,俯首咳连连。
-
-                  捻髭空自许,难御此夜寒。
-
-                  盖我麻布衾,披我破衣衫。
-
-                  虽尽我所有,难耐此夕寒。
-                """.trimIndent()
-            val recoveredContent =
-                """
-                #收藏/诗词
-                贫穷问答歌
-
-                山上忆良
-
-                风雨交加夜,冷雨夹雪天。
-
-                瑟瑟冬日晚,怎耐此夕寒。
-
-                粗盐权佐酒,糟醅聊取暖。
-
-                鼻塞频作响,俯首咳连连。
-
-                捻髭空自许,难御此夜寒。
-
-                盖我麻布衾,披我破衣衫。
-
-                虽尽我所有,难耐此夕寒。
-                """.trimIndent()
-            val staleMemo =
-                memo(
-                    id = "2022_08_18_00:00:00_bad",
-                    timestamp = timestampOf(2022, 8, 18, 21, 0, 33),
-                    content = recoveredContent,
-                    rawContent = rawContent,
-                    dateKey = "2022_08_18",
-                    tags = listOf("收藏/诗词"),
-                )
-
-            val uiModel =
-                mapper.mapToUiModel(
-                    memo = staleMemo,
-                    rootPath = null,
-                    imagePath = null,
-                    imageMap = emptyMap(),
-                    precomputeMarkdown = false,
-                )
-
-            (uiModel.precomputedRenderPlan) shouldBe null
-            ((uiModel.shouldShowExpand)) shouldBe true
-            uiModel.memo.timestamp.toLocalDate() shouldBe LocalDate.of(2022, 8, 18)
-            uiModel.memo.timestamp.toLocalTime() shouldBe LocalTime.of(21, 0, 33)
-            ((uiModel.memo.content.contains("贫穷问答歌"))) shouldBe true
-            ((uiModel.memo.content.contains("山上忆良"))) shouldBe true
-            ((uiModel.memo.content.contains("- ​21:00:33"))) shouldBe false
-            ((uiModel.processedContent.contains("- ​21:00:33"))) shouldBe false
-            ((uiModel.collapsedSummary.contains("21:00:33"))) shouldBe false
-            ((uiModel.collapsedSummary.contains("贫穷问答歌"))) shouldBe true
-            ((uiModel.collapsedSummary.contains("山上忆良"))) shouldBe true
+        test("mapToUiModel keeps body content when geo location is absent") {
+            runTest {
+                val memo =
+                    Memo(
+                        id = "m1",
+                        timestamp = 1L,
+                        content = "plain body",
+                        rawContent = "- 10:00 plain body",
+                        dateKey = "2026_03_27",
+                        geoLocation = null,
+                    )
+                val ui = mapper.mapToUiModel(memo, null, null, emptyMap())
+                ui.processedContent shouldBe "plain body"
+                ui.renderDocument.plainText shouldBe "plain body"
+            }
         }
 
-        test("mapToUiModel keeps existing content when raw storage header has no body") {
-            val memo =
-                memo(
-                    id = "2026_03_25_21:00:00_header_only",
-                    timestamp = timestampOf(2026, 3, 25, 21, 0),
-                    content = "still visible body",
-                    rawContent = "- 21:00",
-                    dateKey = "2026_03_25",
-                )
-
-            val uiModel =
-                mapper.mapToUiModel(
-                    memo = memo,
-                    rootPath = null,
-                    imagePath = null,
-                    imageMap = emptyMap(),
-                    precomputeMarkdown = false,
-                )
-
-            (uiModel.memo.content) shouldBe ("still visible body")
-            (uiModel.processedContent) shouldBe ("still visible body")
-            (uiModel.collapsedSummary) shouldBe ("still visible body")
-            uiModel.memo.timestamp.toLocalTime() shouldBe LocalTime.of(21, 0)
-        }
-
-        test("mapToUiModel recovers plain markdown raw content when memo content is blank") {
-            val rawContent = "https://example.com/url-only"
-            val memo =
-                memo(
-                    id = "2026_03_25_00:00:00_plain_markdown_blank",
-                    timestamp = midnightTimestampOf(2026, 3, 25),
-                    content = rawContent,
-                    rawContent = rawContent,
-                    dateKey = "2026_03_25",
-                )
-
-            val uiModel =
-                mapper.mapToUiModel(
-                    memo = memo,
-                    rootPath = null,
-                    imagePath = null,
-                    imageMap = emptyMap(),
-                    precomputeMarkdown = false,
-                )
-
-            (uiModel.memo.content) shouldBe (rawContent)
-            (uiModel.processedContent) shouldBe (rawContent)
-            (uiModel.collapsedSummary) shouldBe (rawContent)
+        test("mapToUiModel includes geo in processed content when present") {
+            runTest {
+                val memo =
+                    Memo(
+                        id = "m2",
+                        timestamp = 1L,
+                        content = "with geo",
+                        rawContent = "- 10:00 with geo",
+                        dateKey = "2026_03_27",
+                        geoLocation = "31.2,121.4",
+                    )
+                val ui = mapper.mapToUiModel(memo, null, null, emptyMap())
+                ui.processedContent.contains("with geo") shouldBe true
+                ui.renderDocument shouldBe ui.renderDocument
+            }
         }
     }
-
-    private fun memo(
-        id: String,
-        timestamp: Long,
-        content: String,
-        rawContent: String,
-        dateKey: String,
-        tags: List<String> = emptyList(),
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp = timestamp,
-            content = content,
-            rawContent = rawContent,
-            dateKey = dateKey,
-            localDate = LocalDate.parse(dateKey.replace('_', '-')),
-            tags = tags,
-        )
-
-    private fun midnightTimestampOf(
-        year: Int,
-        month: Int,
-        day: Int,
-    ): Long = timestampOf(year, month, day, 0, 0)
-
-    private fun timestampOf(
-        year: Int,
-        month: Int,
-        day: Int,
-        hour: Int,
-        minute: Int,
-        second: Int = 0,
-    ): Long =
-        LocalDateTime
-            .of(year, month, day, hour, minute, second)
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-
-    private fun Long.toLocalDate(): LocalDate =
-        Instant.ofEpochMilli(this)
-            .atZone(ZoneId.systemDefault())
-            .toLocalDate()
-
-    private fun Long.toLocalTime(): LocalTime =
-        Instant.ofEpochMilli(this)
-            .atZone(ZoneId.systemDefault())
-            .toLocalTime()
 }

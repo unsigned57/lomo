@@ -60,6 +60,7 @@
     <string name="input_mode_edit">编辑</string>
     <string name="input_mode_preview">预览</string>
     <string name="input_preview_empty">还没有可预览的内容</string>
+    <string name="input_preview_failed">预览暂不可用</string>
     <string name="cd_send">发送</string>
     <string name="recording_in_progress">正在录音</string>
     <string name="cd_cancel_recording">取消录音</string>

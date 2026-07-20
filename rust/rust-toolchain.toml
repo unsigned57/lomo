@@ -1,7 +1,7 @@
 [toolchain]
 channel = "1.96"
 profile = "minimal"
-components = ["rustfmt", "clippy", "llvm-tools-preview"]
+components = ["rustfmt", "clippy", "llvm-tools-preview", "rust-src"]
 targets = [
     "aarch64-linux-android",
     "armv7-linux-androideabi",

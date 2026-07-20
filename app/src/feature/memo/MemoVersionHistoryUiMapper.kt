@@ -4,16 +4,17 @@ import android.net.Uri
 import com.lomo.app.feature.main.MemoUiImageContentResolver
 import com.lomo.app.feature.main.buildMemoUiImageDependencySignature
 import com.lomo.domain.model.MemoRevision
-import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
-import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
 internal data class MemoVersionHistoryUiModel(
     val revision: MemoRevision,
     val processedContent: String,
-    val precomputedRenderPlan: ModernMarkdownRenderPlan,
+    val renderDocument: MarkdownRenderDocument,
 )
 
 internal class MemoVersionHistoryUiMapper(
+    private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
     private val imageContentResolver: MemoUiImageContentResolver = MemoUiImageContentResolver(),
 ) {
     private val cachedModels = linkedMapOf<String, CachedMemoVersionHistoryUiModel>()
@@ -36,7 +37,6 @@ internal class MemoVersionHistoryUiMapper(
                     imagePath = imagePath,
                     imageDependencySignature =
                         buildMemoUiImageDependencySignature(
-                            content = displayContent,
                             imageMap = imageMap,
                         ),
                 )
@@ -44,9 +44,10 @@ internal class MemoVersionHistoryUiMapper(
             if (cachedModel?.key == cacheKey) {
                 cachedModel.model
             } else {
-                val processedContent =
-                    imageContentResolver.buildProcessedContent(
-                        content = displayContent,
+                val processedContent = displayContent
+                val renderDocument =
+                    imageContentResolver.resolveRenderDocumentImages(
+                        document = markdownWorkspaceRepository.renderMarkdown(displayContent),
                         rootPath = rootPath,
                         imagePath = imagePath,
                         imageMap = imageMap,
@@ -54,11 +55,7 @@ internal class MemoVersionHistoryUiMapper(
                 MemoVersionHistoryUiModel(
                     revision = revision,
                     processedContent = processedContent,
-                    precomputedRenderPlan =
-                        createModernMarkdownRenderPlan(
-                            content = processedContent,
-                            knownTagsToStrip = emptyList<String>(),
-                        ),
+                    renderDocument = renderDocument,
                 ).also { model ->
                     cachedModels[revision.revisionId] =
                         CachedMemoVersionHistoryUiModel(

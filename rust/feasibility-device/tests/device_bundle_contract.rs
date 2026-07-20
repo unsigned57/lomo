@@ -11,6 +11,12 @@
 //! Excludes: full HTTP/Git network fixtures, production packaging.
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "contract/harness tests fail closed with panics on missing facts"
+)]
 mod tests {
     use lomo_feasibility::{MARKER_GIT2, MARKER_REQWEST_RUSTLS, MARKER_SQLITE};
     use lomo_feasibility_device::run_feasibility_device_bundle;

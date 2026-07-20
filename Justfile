@@ -1,6 +1,8 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-xtask := "CARGO_TARGET_DIR=rust/target/xtask-host cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
+# Repository-local cargo home + absolute target dir so nested boltffi/cargo never inherits a
+# relative CARGO_TARGET_DIR into rust/native/rust/target (multi-GB accidental trees).
+xtask := "CARGO_HOME=\"$PWD/.cache/cargo-home\" CARGO_TARGET_DIR=\"$PWD/rust/target/xtask-host\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
 
 # Show the canonical Lomo command surface.
 default:

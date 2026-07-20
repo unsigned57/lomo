@@ -29,7 +29,7 @@ import io.kotest.matchers.shouldNotBe
  * - Observable outcomes: 64-character lowercase hex string; same input → same hash; different input → different hash.
  * - TDD proof: Fails before the fix because String.hashCode() produces a short hex of variable length and is
  *   not guaranteed to be consistent across JVM restarts.
- * - Excludes: MemoTextProcessor logic and file-system side effects.
+ * - Excludes: file-system side effects.
  */
 class MemoContentHashPolicyTest : DataFunSpec() {
     init {

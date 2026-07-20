@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxIdentityPolicy
 import com.lomo.data.local.entity.MemoFileOutboxOp
@@ -176,6 +178,7 @@ class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
             refreshEngine = refreshEngine,
             mutationHandler = mutationHandler,
             outboxScope = immediateTestBackgroundScope(),
+            writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
             startOutboxCoordinator = false,
         )
 

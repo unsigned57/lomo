@@ -16,12 +16,13 @@ val reminderModule = module {
         AlarmManagerReminderScheduler(
             context = androidContext(),
             memoQueryRepository = get(),
+            markdownReminderRepository = get(),
         )
     } bind MemoMutationReminderScheduler::class
     single {
         AlarmManagerReminderCoordinator(
             scheduler = get(),
-            memoQueryRepository = get(),
+            markdownReminderRepository = get(),
             memoMutationRepository = get(),
         )
     } bind ReminderCoordinator::class

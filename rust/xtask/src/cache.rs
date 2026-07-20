@@ -37,12 +37,17 @@ fn audit(workspace: &Workspace) -> Result<()> {
         ".android-sdk",
         "build/reports",
         "rust/target",
+        // Accidental nested targets when relative CARGO_TARGET_DIR leaked into boltffi pack.
+        "rust/native/rust",
+        "rust/native/target",
         "app/jniLibs",
-        "rust-bindings/src",
+        "native-bindings/src",
     ] {
         let path = workspace.root.join(relative);
         if path.exists() {
             eprintln!("{relative}: {} bytes", directory_size(&path)?);
+        } else {
+            eprintln!("{relative}: absent");
         }
     }
     Ok(())
@@ -54,8 +59,10 @@ fn clean(workspace: &Workspace) -> Result<()> {
         "build/reports",
         "build/jacoco",
         "rust/target",
+        "rust/native/rust",
+        "rust/native/target",
         "app/jniLibs",
-        "rust-bindings/src",
+        "native-bindings/src",
         ".cache/native",
     ] {
         let path = workspace.root.join(relative);

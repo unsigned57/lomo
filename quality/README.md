@@ -17,7 +17,7 @@ xtask; they are not public quality orchestrators.
 | Generate four-ABI release native outputs and bindings | `just native` |
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
-| Real API 26 x86_64 native load/planner smoke | `just device-smoke` |
+| Real API ≥ 26 device native load/engine smoke (arm64 or x86_64) | `just device-smoke` |
 | Check or update dependencies | `just deps check`, `just deps update` |
 | Planner/size/LLVM diagnostics | `just perf` |
 | Audit or clean generated state | `just cache audit`, `just cache clean` |
@@ -35,7 +35,7 @@ configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PA
 | `just test` | Cargo nextest + doc tests; Kotlin host tests | static analysis, coverage, native/APK validation |
 | `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
-| `just device-smoke` | Builds a minimal smoke APK, installs it on an attached API 26 x86_64 device, loads JNA/Rust, calls the existing sync v1 planner | the rest of the quality gate |
+| `just device-smoke` | Builds a minimal smoke APK, installs it on an attached API ≥ 26 device with a packaged ABI (`arm64-v8a` or `x86_64`), loads `liblomo_native_jni.so`, and exercises the formal engine/planner smoke surface. Stage-1 hard gate on this line is arm64 API ≥ 26; API 26 AVD is optional non-claim | the rest of the quality gate |
 
 ### Format corpora
 
@@ -63,6 +63,23 @@ Use `just preflight` while iterating when you want a path-aware subset without w
 `just check`. Splitting a branch into several commits should only multiply the lightweight
 pre-commit surface, not N full quality gates.
 
+### Agent / AI completion rule
+
+Agents and automated editors must treat quality gates as part of the implementation, not a later
+optional step:
+
+| Change class | Must run before claiming done |
+| --- | --- |
+| Single Rust crate behavior | `cargo clippy -p <crate> --all-targets --locked -- -D warnings` + targeted `cargo test -p <crate> … --locked` |
+| Single Kotlin module behavior | targeted `./kotlin test --include-module=<module> --include-classes='…'` (or module suite) |
+| Native / engine / packaging | package surface above + `just device-smoke` when a device is available |
+| Anything leaving the working tree for push/review | `just check` |
+| Merge / shared-branch handoff | `just ci` (+ device-smoke when stage evidence requires it) |
+
+`just preflight` is only for manual mid-iteration speed. It does **not** close a package, a PR, or
+STAGE evidence. If a gate cannot run, leave the work open and record the blocker; do not invent
+GREEN.
+
 ### GitHub Actions PR surface
 
 - Path filter decides which of Rust host, four-ABI native, Android/Kotlin, and API 26 smoke must run.
@@ -75,16 +92,30 @@ pre-commit surface, not N full quality gates.
 
 ## Pinned Build Facts
 
-- Rust: `1.96`, Edition 2024, components `rustfmt`, `clippy`, `llvm-tools-preview`.
+Current production native transport is BoltFFI/JNI. Historical UniFFI/JNA numbers remain
+immutable in `fixtures/baseline/ffi-transport-baseline.v1.json` and
+`fixtures/baseline/size-baseline.v1.json`. Host size gates and arm64 `just device-smoke` are GREEN
+per [BOLTFFI-MIGRATION-PLAN.md](../BOLTFFI-MIGRATION-PLAN.md) and
+`fixtures/baseline/STAGE1-EVIDENCE.md`; UniFFI is not restored for any open residual product work.
+
+- Rust: `1.96`, Edition 2024, components `rustfmt`, `clippy`, `llvm-tools-preview`, `rust-src`.
 - Android NDK: `29.0.14206865`; native API/minSdk: `26`.
 - Android ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`.
-- Native facade: `lomo-native`; packaged library: `liblomo_native.so`.
-- UniFFI Kotlin package: `com.lomo.rust`.
-- JNA: `5.18.1`, acquired as a checksum-verified AAR.
+- Native facade: `lomo-native` (`staticlib` + `rlib`); packaged library: `liblomo_native_jni.so`.
+- Generated Kotlin module/package/owner: `native-bindings` / `com.lomo.nativebridge` /
+  `LomoNativeBridge.kt`.
+- BoltFFI CLI: exact pin in `rust/tools.toml` (`boltffi_cli` / `boltffi`); runtime uses the
+  repository-owned `rust/boltffi-facade` over exact-pinned `boltffi_core` with default features
+  disabled.
+- Shipping Android pack profile: `release-android` (`opt-level = "z"`, fat LTO) plus pack-path
+  `immediate-abort` + `build-std` size policy owned by xtask.
 - Cargo tools: exact versions in `rust/tools.toml`, installed under `.cache/cargo-tools`.
 
+`lomo-xtask` is the only public orchestrator. No floating branch, automatic mutation, production
+dual stack, compatibility alias, or UniFFI fallback is permitted.
+
 `rust/Cargo.lock`, `rust/tools.toml`, `rust/rust-toolchain.toml`, and source/configuration files are
-versioned facts. `rust-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs` are ignored outputs
+versioned facts. `native-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs` are ignored outputs
 regenerated by xtask. A clean checkout is therefore the expected build input.
 
 ## Rust Governance
@@ -94,10 +125,11 @@ The workspace denies warnings, unsafe code, unused must-use values, Clippy `all`
 advisories, unknown registries/git sources, and multiple dependency versions. `cargo machete`
 blocks unused direct dependencies.
 
-Release native builds use `opt-level=3`, fat LTO, one codegen unit, aborting panics, and stripping.
-Iterative checks use the development profile. Rust coverage excludes `lomo-xtask` and
-`lomo-architecture-tests`; the threshold is fixed in `rust/xtask/src/quality.rs` after measuring a
-green run and must only increase.
+Release native Android packaging uses profile `release-android` (`opt-level = "z"`, fat LTO, one
+codegen unit, stripped). The pack path additionally rebuilds std with `panic=immediate-abort` so
+backtrace/gimli weight never ships. Host iterative checks use the development profile. Rust
+coverage excludes `lomo-xtask` and `lomo-architecture-tests`; the threshold is fixed in
+`rust/xtask/src/quality.rs` after measuring a green run and must only increase.
 
 See [AI Rust Test Style](testing/ai-rust-test-style.md) before writing or editing Rust tests.
 
@@ -118,7 +150,7 @@ gradient script.
 ## Generated State
 
 Repository-owned generated state lives under `.cache`, `.gradle/kotlin-toolchain`, `.kotlin`,
-`.kotlin-cli`, `rust/target`, `rust-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs`.
+`.kotlin-cli`, `rust/target`, `native-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs`.
 Use `just cache audit` before cleanup and `just cache clean` to remove only the allowlisted
 recreatable outputs.
 
@@ -129,6 +161,6 @@ packaging exception.
 
 ## Failure Triage
 
-Read the first failing command. Tool/version/NDK/JNA/generated-output failures are boundary errors
+Read the first failing command. Tool/version/NDK/BoltFFI/generated-output failures are boundary errors
 and should be fixed at xtask or its pinned inputs. Do not add a fallback, compatibility recipe,
 tracked generated artifact, or second workflow path.

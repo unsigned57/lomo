@@ -50,7 +50,7 @@ internal fun SearchScreenContent(
     padding: PaddingValues,
     onOpenEditor: (Memo) -> Unit,
     onShowMenu: (MemoMenuSelection) -> Unit,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
     val resultListContentPadding = searchResultListContentPadding(padding)
     val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()

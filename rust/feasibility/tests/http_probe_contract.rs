@@ -12,6 +12,12 @@
 //! Excludes: full AWS SDK crate (volume-constrained; `SigV4` shape proven), Docker, real accounts.
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "feasibility contract harness fails closed with panics on missing probe facts"
+)]
 mod tests {
     use lomo_feasibility::{HttpsFixture, reset_http_probe_state, run_http_wire_matrix};
 

@@ -56,7 +56,9 @@ import com.lomo.ui.generated.resources.*
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.WithDraggableScrollbar
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderer
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
@@ -70,7 +72,6 @@ import kotlinx.coroutines.delay
 internal fun InputEditorPanel(
     presentationState: InputSheetPresentationState,
     inputValue: TextFieldValue,
-    previewContent: String?,
     hintText: String,
     availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
@@ -150,7 +151,7 @@ internal fun InputEditorPanel(
             isExpanded = isExpanded,
             chromeState = chromeState,
             inputValue = inputValue,
-            previewContent = previewContent,
+            previewState = surface.previewState,
             hintText = hintText,
             focusRequester = focusRequester,
             onTextChange = onTextChange,
@@ -187,7 +188,7 @@ private fun ColumnScope.InputEditorBodyContent(
     isExpanded: Boolean,
     chromeState: InputEditorChromeState,
     inputValue: TextFieldValue,
-    previewContent: String?,
+    previewState: MarkdownRenderState,
     hintText: String,
     focusRequester: FocusRequester,
     onTextChange: (TextFieldValue) -> Unit,
@@ -224,7 +225,8 @@ private fun ColumnScope.InputEditorBodyContent(
         )
         if (chromeState.showsPreviewContent) {
             InputEditorPreviewContent(
-                content = resolveInputEditorPreviewContent(inputValue.text, previewContent),
+                inputText = inputValue.text,
+                renderState = previewState,
                 modifier =
                     Modifier
                         .fillMaxSize()
@@ -470,7 +472,8 @@ private fun InputEditorDisplayModePill(
 
 @Composable
 private fun InputEditorPreviewContent(
-    content: String,
+    inputText: String,
+    renderState: MarkdownRenderState,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
@@ -479,50 +482,80 @@ private fun InputEditorPreviewContent(
         shape = InputSheetTokens.PreviewShape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        if (content.isBlank()) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = InputSheetTokens.PreviewHorizontalPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = stringResource(Res.string.input_preview_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            WithDraggableScrollbar(
-                state = scrollState,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scrollState)
-                            .padding(
-                                horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
-                                vertical = InputSheetTokens.EditorContainerPaddingVertical,
-                            ),
-                ) {
-                    MarkdownRenderer(
-                        content = content,
-                        modifier = Modifier.fillMaxWidth(),
-                        enableTextSelection = true,
-                    )
+        when (val presentation = resolveInputEditorPreviewPresentation(inputText, renderState)) {
+            InputEditorPreviewPresentation.Blank ->
+                InputEditorPreviewStatus(stringResource(Res.string.input_preview_empty))
+            InputEditorPreviewPresentation.Pending ->
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    ExpressiveLoadingIndicator()
                 }
-            }
+            InputEditorPreviewPresentation.Failed ->
+                InputEditorPreviewStatus(stringResource(Res.string.input_preview_failed))
+            is InputEditorPreviewPresentation.Ready ->
+                WithDraggableScrollbar(
+                    state = scrollState,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                                .padding(
+                                    horizontal = InputSheetTokens.EditorContainerPaddingHorizontal,
+                                    vertical = InputSheetTokens.EditorContainerPaddingVertical,
+                                ),
+                    ) {
+                        MarkdownRenderer(
+                            document = presentation.document,
+                            modifier = Modifier.fillMaxWidth(),
+                            enableTextSelection = true,
+                        )
+                    }
+                }
         }
     }
 }
 
-internal fun resolveInputEditorPreviewContent(
+@Composable
+private fun InputEditorPreviewStatus(text: String) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = InputSheetTokens.PreviewHorizontalPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+internal sealed interface InputEditorPreviewPresentation {
+    data object Blank : InputEditorPreviewPresentation
+    data object Pending : InputEditorPreviewPresentation
+    data object Failed : InputEditorPreviewPresentation
+    data class Ready(
+        val document: com.lomo.domain.model.markdown.MarkdownRenderDocument,
+    ) : InputEditorPreviewPresentation
+}
+
+internal fun resolveInputEditorPreviewPresentation(
     inputText: String,
-    previewContent: String?,
-): String = previewContent ?: inputText
+    renderState: MarkdownRenderState,
+): InputEditorPreviewPresentation =
+    if (inputText.isBlank()) {
+        InputEditorPreviewPresentation.Blank
+    } else {
+        when (renderState) {
+            MarkdownRenderState.Pending -> InputEditorPreviewPresentation.Pending
+            is MarkdownRenderState.Ready -> InputEditorPreviewPresentation.Ready(renderState.document)
+            is MarkdownRenderState.Failed -> InputEditorPreviewPresentation.Failed
+        }
+    }
 
 
 @Composable

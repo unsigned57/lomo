@@ -61,7 +61,7 @@ import kotlinx.coroutines.test.runTest
 class ShareViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
     private val shareService = FakeLanShareService()
-    private val extractShareAttachmentsUseCase = ExtractShareAttachmentsUseCase()
+    private val extractShareAttachmentsUseCase = ExtractShareAttachmentsUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository())
     private val shareErrorPolicy = ShareErrorPolicy()
 
     init {

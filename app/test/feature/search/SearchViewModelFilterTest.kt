@@ -1,5 +1,9 @@
 package com.lomo.app.feature.search
 
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+
+import com.lomo.app.testing.fakes.testMemoUiMapper
+
 /*
  * Behavior Contract:
  * - Unit under test: SearchViewModel filter wiring.
@@ -74,7 +78,8 @@ class SearchViewModelFilterTest : AppFunSpec() {
         resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
         deleteMemoUseCase = deleteMemoUseCase
     )
-    private val saveImageUseCase: SaveImageUseCase = mockk()
+    private val saveImageUseCase: SaveImageUseCase =
+        com.lomo.domain.usecase.FakeSaveImageUseCase(com.lomo.app.testing.fakes.FakeMediaRepository())
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -87,9 +92,10 @@ class SearchViewModelFilterTest : AppFunSpec() {
         }
 
         test("default searchFilter is inactive") {
-            runTest {
+            // Main dispatcher is owned by MainDispatcherExtension; use the same dispatcher as
+            // createViewModel so ViewModel init does not touch an unset Main.
+            runTest(testDispatcher) {
                 val viewModel = createViewModel()
-
                 viewModel.searchFilter.value.isActive shouldBe false
             }
         }
@@ -181,12 +187,12 @@ class SearchViewModelFilterTest : AppFunSpec() {
                 ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = emptyImageMapProvider(),
-            projectionMapper = MemoCollectionProjectionMapper(MemoUiMapper()),
+            projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper()),
             searchMemosPageUseCase = SearchMemosPageUseCase(com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository)),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
-            toggleMemoCheckboxUseCase = mockk(),
+            toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
         )
 
     private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =

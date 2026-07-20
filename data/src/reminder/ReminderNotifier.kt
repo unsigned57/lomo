@@ -38,14 +38,15 @@ class ReminderNotifier(
             mainActivityIntent: Intent,
         ) {
             ensureChannel()
-            val notificationId = ReminderRequestCodePolicy.notificationId(memoId, marker.raw)
+            val reminderId = marker.reference.opaqueId
+            val notificationId = ReminderRequestCodePolicy.notificationId(memoId, reminderId)
 
             val openIntent =
                 mainActivityIntent.apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     action = ReminderIntents.ACTION_OPEN
                     putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
-                    putExtra(ReminderIntents.EXTRA_TOKEN_RAW, marker.raw)
+                    putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
                 }
             val openPending =
                 PendingIntent.getActivity(
@@ -55,8 +56,8 @@ class ReminderNotifier(
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
-            val snoozePending = actionBroadcast(ReminderIntents.ACTION_SNOOZE, memoId, marker.raw)
-            val donePending = actionBroadcast(ReminderIntents.ACTION_DONE, memoId, marker.raw)
+            val snoozePending = actionBroadcast(ReminderIntents.ACTION_SNOOZE, memoId, reminderId)
+            val donePending = actionBroadcast(ReminderIntents.ACTION_DONE, memoId, reminderId)
 
             val contentBody =
                 memoTitle.ifBlank { resources.getString(resources.reminderNotificationDefaultBody) }
@@ -85,17 +86,17 @@ class ReminderNotifier(
         private fun actionBroadcast(
             action: String,
             memoId: String,
-            tokenRaw: String,
+            reminderId: String,
         ): PendingIntent {
             val intent =
                 Intent(context, ReminderActionReceiver::class.java).apply {
                     this.action = action
                     putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
-                    putExtra(ReminderIntents.EXTRA_TOKEN_RAW, tokenRaw)
+                    putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
                 }
             return PendingIntent.getBroadcast(
                 context,
-                ReminderRequestCodePolicy.actionRequestCode(memoId, tokenRaw, action),
+                ReminderRequestCodePolicy.actionRequestCode(memoId, reminderId, action),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )

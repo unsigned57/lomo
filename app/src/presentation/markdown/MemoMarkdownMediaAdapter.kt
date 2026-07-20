@@ -13,7 +13,7 @@ val MemoMarkdownMediaPresentationResolver: MarkdownMediaPresentationResolver = {
     if (MediaFileExtensions.hasAudioExtension(image.destination)) {
         MarkdownMediaPresentation(
             source = image.destination,
-            description = image.title,
+            description = image.description,
             kind = MEMO_MARKDOWN_AUDIO_KIND,
         )
     } else {

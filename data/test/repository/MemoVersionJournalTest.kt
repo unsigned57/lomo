@@ -18,7 +18,6 @@ package com.lomo.data.repository
 
 
 
-import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionCursor
@@ -34,6 +33,9 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector
+import com.lomo.data.testing.fakes.FakeWorkspaceMarkdownOwner
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -106,12 +108,12 @@ class MemoVersionJournalTest : DataFunSpec() {
     private lateinit var store: InMemoryMemoVersionStore
     private lateinit var blobRoot: File
     private lateinit var journal: MemoVersionJournal
-    private lateinit var textProcessor: MemoTextProcessor
+    private lateinit var textProcessor: MarkdownWorkspaceContentProjector
 
     private fun setUp() {
         workspaceMediaAccess = JournalWorkspaceMediaAccess()
         store = InMemoryMemoVersionStore()
-        textProcessor = MemoTextProcessor()
+        textProcessor = fakeMarkdownWorkspaceContentProjector()
         blobRoot = Files.createTempDirectory("memo-version-blobs").toFile()
         journal =
             MemoVersionJournal(
@@ -262,7 +264,7 @@ class MemoVersionJournalTest : DataFunSpec() {
                 revisionId = originalRevisionId,
             )
             val target = command.revisionRestoreTarget.shouldNotBeNull()
-            val rebuilt = command.toOutboxEntity().toLifecycleCommand()
+            val rebuilt = command.toOutboxEntity().toLifecycleCommand(fakeMarkdownWorkspaceContentProjector())
             val assets = journal.readRevisionRestoreAssets(originalRevisionId)
 
             command.sourceMemo shouldBe targetAfter
@@ -1107,7 +1109,7 @@ private fun memo(
         content = content,
         rawContent = rawContent,
         dateKey = "2026_03_27",
-        imageUrls = MemoTextProcessor().extractImages(content),
+        imageUrls = fakeMarkdownWorkspaceContentProjector().extractInlineAttachments(content),
     )
 
 private open class JournalWorkspaceMediaAccess : WorkspaceMediaAccess {

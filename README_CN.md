@@ -100,7 +100,7 @@ Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很�
 <details>
 <summary>技术栈</summary>
 
-- **语言：** Kotlin + Rust（通过 UniFFI 提供 native 基础设施）
+- **语言：** Kotlin + Rust（生产 native 基础设施为 BoltFFI/JNI；阶段 0 的 UniFFI/JNA 仅作历史证据）
 - **UI：** Jetpack Compose（Material 3）
 - **架构：** MVVM + Clean Architecture（Domain / Data / UI）
 - **依赖注入：** Koin
@@ -131,8 +131,12 @@ just check
 just ci
 ```
 
-`rust-bindings/src` 与 native `.so` 都是可再生、被忽略的构建产物；clean checkout 是标准输入。
+`native-bindings/src` 与 native `.so` 都是可再生、被忽略的构建产物；clean checkout 是标准输入。
 签名 release 使用 `just android release`，必须按 `quality/release.md` 明确提供 keystore 配置。
+
+生产 FFI 身份为 `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`。
+迁移证据与体积门见 [BOLTFFI-MIGRATION-PLAN.md](BOLTFFI-MIGRATION-PLAN.md) 与
+`fixtures/baseline/STAGE1-EVIDENCE.md`。
 
 Android Studio 仍可用于编辑和设备调试，但仓库门禁与 native 生成必须使用上述命令。
 

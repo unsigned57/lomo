@@ -22,7 +22,12 @@ use crate::workspace::{self, Workspace};
 const SAMPLE_COUNT: usize = 21;
 const WARMUP: usize = 3;
 const STABILITY_MAX_REL_DELTA: f64 = 0.10;
-const SCALE_MARKDOWN_SAMPLES: usize = 3;
+/// Full-corpus samples per isolated scale process. Odd count keeps median selection simple.
+/// Raised from 3 so host I/O jitter cannot swing a 3-sample p50 outside the 10% two-round gate.
+const SCALE_MARKDOWN_SAMPLES: usize = 5;
+/// Extra dual-round attempt for scale only when the first consecutive pair fails the 10% gate.
+/// Still requires the same 10% bar — never invents Pass from a single noisy pair.
+const SCALE_STABILITY_ATTEMPTS: usize = 2;
 
 /// Host metrics that must survive the two-round stability gate for `Pass`.
 /// I/O-noisy probes (HTTPS, git bare, device cold start) are optional: exclusion does not
@@ -82,7 +87,7 @@ fn report_native_so_sizes(workspace: &Workspace) -> Result<()> {
             .root
             .join("app/jniLibs")
             .join(abi.android_name())
-            .join("liblomo_native.so");
+            .join(native::NATIVE_LIBRARY);
         let mut command = Command::new(&readelf);
         command.arg(path.as_os_str());
         run(&mut command)?;
@@ -116,19 +121,31 @@ fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
     fs::write(&summary_path, format!("{summary}\n"))
         .with_context(|| format!("failed to write {}", summary_path.display()))?;
 
-    // Keep committed size baseline in sync with measured release packaging.
-    write_committed_size_baseline(workspace, &report)?;
+    // Historical UniFFI `fixtures/baseline/size-baseline.v1.json` is immutable evidence.
+    // Migration measurements write a separate report so `just perf` never rewrites Stage-0 facts.
+    write_migration_size_report(&report, &report_dir)?;
 
     eprintln!("xtask: wrote {}", json_path.display());
     eprintln!("xtask: wrote {}", summary_path.display());
     eprintln!("{summary}");
-    Ok(())
+
+    // Product-pass contract: recipe exit 0 means required host metrics are established.
+    // Inconclusive/Fail must not look like GREEN to stage evidence.
+    match report.conclusion {
+        BaselineConclusion::Pass => Ok(()),
+        BaselineConclusion::Inconclusive => bail!(
+            "feasibility baseline conclusion is Inconclusive (required metrics not product-pass); see {}",
+            summary_path.display()
+        ),
+        BaselineConclusion::Fail => bail!(
+            "feasibility baseline conclusion is Fail; see {}",
+            summary_path.display()
+        ),
+    }
 }
 
-fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV1) -> Result<()> {
-    let path = workspace
-        .root
-        .join("fixtures/baseline/size-baseline.v1.json");
+fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> Result<()> {
+    let path = report_dir.join("boltffi-size-migration.v1.json");
     let mut metrics = Vec::new();
     for metric in &report.metrics {
         metrics.push(serde_json::json!({
@@ -146,24 +163,30 @@ fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV
     }
     let document = serde_json::json!({
         "schema_version": 1,
-        "description": "Exact package/native size baseline plus host/device relative time metrics from `just perf`.",
+        "description": "BoltFFI migration size/time measurements from `just perf`. Does not replace fixtures/baseline/size-baseline.v1.json (Stage-0 UniFFI historical).",
         "measurement_notes": [
-            "liblomo_native.so sizes are from production app/jniLibs packaging (feasibility-probe disabled).",
-            "native-smoke/jniLibs may be larger when built with --features feasibility-probe; smoke size is not the APK gate.",
+            "liblomo_native_jni.so sizes are from production app/jniLibs BoltFFI packaging.",
+            "native-smoke/jniLibs reuses the same formal engine library after FeasibilityProbe deletion.",
             "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
             "Time metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
-            "markdown_scale_100k_memo_parse runs in an isolated lomo-feasibility process; peak_rss_bytes is that process VmHWM.",
-            "Scale metric also records result_count (memo files parsed) and warm_path_p50_ms (single-memo warm path).",
+            "markdown_scale_100k_memo_parse runs the production lomo-workspace owner in an isolated process; peak_rss_bytes is that process VmHWM.",
+            "Scale metric records result_count (files), memo/node counts from owned IR, byte-stable serialize verification, and warm_path_p50_ms.",
             "Other metrics omit peak_rss_bytes unless isolated; xtask /proc/self HWM is not product evidence.",
             "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
+            "Required non-scale host metrics use quiet two-round measurement (no optional HTTPS/git/device cold-start interleaved) so I/O noise cannot exclude product gates.",
+            "markdown_scale_100k_memo_parse is measured in consecutive isolated owner processes after non-scale required rounds, never interleaved with planner/sqlite/fixture or optional I/O.",
+            "Scale uses more full-corpus samples per process and up to one extra dual-round attempt under the same 10% p50 gate (never invents Pass from a noisy pair).",
+            "Optional I/O metrics (HTTPS, git bare, device cold start) stabilize separately and never invent a Pass when required metrics are missing.",
             "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms).",
             "Pass requires every required_metrics entry established: planner trio, sqlite, markdown fixture set, and markdown_scale_100k_memo_parse with peak_rss/result_count/warm_path.",
+            "just perf exits non-zero on Inconclusive/Fail so recipe exit 0 means product-pass of required metrics.",
             "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
-            "Authoritative stage-0 status: STAGE0-STATUS.md (must not drift from this note)."
+            "Authoritative stage-0 status: STAGE0-STATUS.md (must not drift from this note).",
+            "Historical UniFFI/JNA size numbers remain in size-baseline.v1.json and ffi-transport-baseline.v1.json; this file is migration-only."
         ],
         "native": {
-            "liblomo_native_so_bytes": report.sizes.abi_so_bytes,
-            "libjnidispatch_so_bytes": jnidispatch_sizes(workspace)?
+            "liblomo_native_jni_so_bytes": report.sizes.abi_so_bytes,
+            "libjnidispatch_so_bytes": {}
         },
         "apk": {
             "debug_universal_compressed_bytes": report.sizes.apk_compressed_bytes,
@@ -190,27 +213,12 @@ fn write_committed_size_baseline(workspace: &Workspace, report: &BaselineReportV
             "policy": "Relative host/device baselines only; arm64 device evidence remains a stage-2 hard gate before first production ownership switch."
         }
     });
-    let pretty =
-        serde_json::to_string_pretty(&document).context("failed to serialize size baseline")?;
+    let pretty = serde_json::to_string_pretty(&document)
+        .context("failed to serialize boltffi migration size report")?;
     fs::write(&path, format!("{pretty}\n"))
         .with_context(|| format!("failed to write {}", path.display()))?;
     eprintln!("xtask: wrote {}", path.display());
     Ok(())
-}
-
-fn jnidispatch_sizes(workspace: &Workspace) -> Result<BTreeMap<String, u64>> {
-    let mut map = BTreeMap::new();
-    for abi in Abi::ALL {
-        let path = workspace
-            .root
-            .join("app/jniLibs")
-            .join(abi.android_name())
-            .join("libjnidispatch.so");
-        if path.is_file() {
-            map.insert(abi.android_name().to_owned(), fs::metadata(&path)?.len());
-        }
-    }
-    Ok(map)
 }
 
 fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
@@ -222,7 +230,7 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
             .root
             .join("app/jniLibs")
             .join(abi.android_name())
-            .join("liblomo_native.so");
+            .join(native::NATIVE_LIBRARY);
         let metadata = fs::metadata(&path)
             .with_context(|| format!("missing release native library {}", path.display()))?;
         abi_so_bytes.insert(abi.android_name().to_owned(), metadata.len());
@@ -233,10 +241,37 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
         .with_context(|| format!("failed to stat {}", apk_path.display()))?
         .len();
 
-    eprintln!("xtask: measuring host feasibility baselines (two rounds, {SAMPLE_COUNT} samples)");
-    let round1 = measure_all_metrics(workspace)?;
-    let round2 = measure_all_metrics(workspace)?;
-    let (metrics, stability_notes) = stabilize_metrics(&round1, &round2);
+    // Required non-scale product metrics stabilize in quiet rounds first. Optional I/O
+    // probes (HTTPS/git/device cold-start) thrash the host and previously excluded stable
+    // 100k/sqlite measurements when interleaved between required rounds.
+    // Scale is measured in its own consecutive dual-round path so planner/sqlite/fixture
+    // work cannot thrash page cache between the two 100k p50 observations.
+    eprintln!("xtask: measuring required non-scale host baselines (two quiet rounds)");
+    let required_round1 = measure_required_non_scale_metrics(workspace)?;
+    let required_round2 = measure_required_non_scale_metrics(workspace)?;
+    let (mut metrics, mut stability_notes) = stabilize_metrics(&required_round1, &required_round2);
+    stability_notes.push(
+        "required non-scale host metrics measured without optional HTTPS/git/device cold-start interleaving"
+            .to_owned(),
+    );
+
+    eprintln!(
+        "xtask: measuring markdown_scale_100k_memo_parse (consecutive isolated rounds, full_samples={SCALE_MARKDOWN_SAMPLES}, max_attempts={SCALE_STABILITY_ATTEMPTS})"
+    );
+    let (scale_metric, scale_notes) = measure_scale_metric_stable(workspace)?;
+    if let Some(metric) = scale_metric {
+        metrics.push(metric);
+    }
+    stability_notes.extend(scale_notes);
+
+    eprintln!(
+        "xtask: measuring optional I/O baselines (two rounds; exclusion does not invent Pass)"
+    );
+    let optional_round1 = measure_optional_metrics(workspace)?;
+    let optional_round2 = measure_optional_metrics(workspace)?;
+    let (optional_metrics, optional_notes) = stabilize_metrics(&optional_round1, &optional_round2);
+    metrics.extend(optional_metrics);
+    stability_notes.extend(optional_notes);
 
     let device = device_fingerprint();
     let mut notes = vec![
@@ -271,7 +306,7 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
         dependency_features: BTreeMap::from([
             (
                 "lomo-native".to_owned(),
-                "cdylib+uniffi (production: no feasibility-probe)".to_owned(),
+                "staticlib+rlib+BoltFFI JNI (liblomo_native_jni.so)".to_owned(),
             ),
             ("lomo-sync-core".to_owned(), "planner-v1".to_owned()),
             (
@@ -290,18 +325,58 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
     })
 }
 
-fn measure_all_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
+/// Required host metrics other than the 100k scale owner (planner/sqlite/fixture).
+fn measure_required_non_scale_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
     let mut metrics = Vec::new();
     metrics.extend(measure_planner_metrics(workspace)?);
     metrics.push(measure_sqlite_metric(workspace)?);
     metrics.push(measure_markdown_metric(workspace)?);
-    metrics.push(measure_markdown_scale_metric(workspace)?);
+    Ok(metrics)
+}
+
+/// Optional noisy I/O / device probes. Exclusion never invents Pass.
+fn measure_optional_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
+    let mut metrics = Vec::new();
     metrics.push(measure_http_metric()?);
     metrics.push(measure_git_metric(workspace)?);
     if let Some(metric) = measure_device_smoke_cold_start()? {
         metrics.push(metric);
     }
     Ok(metrics)
+}
+
+/// Measure the 100k scale owner in consecutive isolated processes (no other metrics between
+/// rounds). Retries one dual-round pair under the same 10% gate when host noise rejects the first.
+fn measure_scale_metric_stable(
+    workspace: &Workspace,
+) -> Result<(Option<BaselineMetricV1>, Vec<String>)> {
+    let mut notes = Vec::new();
+    notes.push(format!(
+        "markdown_scale_100k_memo_parse measured in consecutive isolated owner processes (full_samples={SCALE_MARKDOWN_SAMPLES}, max_attempts={SCALE_STABILITY_ATTEMPTS})"
+    ));
+    for attempt in 1..=SCALE_STABILITY_ATTEMPTS {
+        let left = measure_markdown_scale_metric(workspace)?;
+        let right = measure_markdown_scale_metric(workspace)?;
+        match stabilize_pair(&left, &right) {
+            Ok(established) => {
+                notes.push(format!(
+                    "markdown_scale_100k_memo_parse established on attempt {attempt}/{SCALE_STABILITY_ATTEMPTS} (p50 {:.3} vs {:.3})",
+                    left.p50, right.p50
+                ));
+                return Ok((Some(established), notes));
+            }
+            Err(reason) => {
+                notes.push(format!(
+                    "markdown_scale_100k_memo_parse attempt {attempt}/{SCALE_STABILITY_ATTEMPTS}: {reason}"
+                ));
+            }
+        }
+    }
+    notes.push(
+        "markdown_scale_100k_memo_parse excluded after consecutive-round stability attempts under 10% p50 gate"
+            .to_owned(),
+    );
+    Ok((None, notes))
 }
 
 fn stabilize_metrics(
@@ -318,19 +393,10 @@ fn stabilize_metrics(
             ));
             continue;
         };
-        let denom = left.p50.max(right.p50).max(f64::EPSILON);
-        let abs_delta = (left.p50 - right.p50).abs();
-        // Relative 10% gate with a 1ms absolute floor so sub-ms microbenchmarks are not
-        // rejected solely by measurement noise (plan: >10% relative blocks establishment).
-        let abs_tol = (denom * STABILITY_MAX_REL_DELTA).max(1.0);
-        if abs_delta > abs_tol {
-            notes.push(format!(
-                "metric {} p50 unstable ({:.3} vs {:.3}, abs={abs_delta:.3}, tol={abs_tol:.3}); excluded",
-                left.name, left.p50, right.p50
-            ));
-            continue;
+        match stabilize_pair(left, right) {
+            Ok(metric) => established.push(metric),
+            Err(reason) => notes.push(reason),
         }
-        established.push(average_metric(left, right));
     }
     if established.is_empty() {
         notes.push(
@@ -346,30 +412,74 @@ fn stabilize_metrics(
     (established, notes)
 }
 
+/// Relative 10% gate with a 1ms absolute floor so sub-ms microbenchmarks are not rejected
+/// solely by measurement noise (plan: >10% relative blocks establishment).
+fn stabilize_pair(
+    left: &BaselineMetricV1,
+    right: &BaselineMetricV1,
+) -> std::result::Result<BaselineMetricV1, String> {
+    let denom = left.p50.max(right.p50).max(f64::EPSILON);
+    let abs_delta = (left.p50 - right.p50).abs();
+    let abs_tol = (denom * STABILITY_MAX_REL_DELTA).max(1.0);
+    if abs_delta > abs_tol {
+        return Err(format!(
+            "metric {} p50 unstable ({:.3} vs {:.3}, abs={abs_delta:.3}, tol={abs_tol:.3}); excluded",
+            left.name, left.p50, right.p50
+        ));
+    }
+    Ok(average_metric(left, right))
+}
+
 fn baseline_conclusion(
     metrics: &[BaselineMetricV1],
     notes: &mut Vec<String>,
 ) -> BaselineConclusion {
-    let established: std::collections::BTreeSet<&str> =
-        metrics.iter().map(|metric| metric.name.as_str()).collect();
+    let established: std::collections::BTreeMap<&str, &BaselineMetricV1> = metrics
+        .iter()
+        .map(|metric| (metric.name.as_str(), metric))
+        .collect();
     let mut missing_required = Vec::new();
     for name in REQUIRED_BASELINE_METRICS {
-        if !established.contains(name) {
+        if !established.contains_key(name) {
             missing_required.push(*name);
         }
     }
-    if missing_required.is_empty() {
-        notes.push(redact_sensitive_text(
-            "conclusion=pass: all required host metrics established (optional I/O metrics may be absent)",
-        ));
-        BaselineConclusion::Pass
-    } else {
+    if !missing_required.is_empty() {
         notes.push(redact_sensitive_text(&format!(
             "conclusion=inconclusive: missing required metrics: {}",
             missing_required.join(", ")
         )));
-        BaselineConclusion::Inconclusive
+        return BaselineConclusion::Inconclusive;
     }
+
+    // Scale product gate: isolated owner must record peak RSS, 100k result cardinality, and warm path.
+    if let Some(scale) = established.get("markdown_scale_100k_memo_parse") {
+        let mut scale_gaps = Vec::new();
+        match scale.peak_rss_bytes {
+            Some(bytes) if bytes > 0 => {}
+            _ => scale_gaps.push("peak_rss_bytes"),
+        }
+        match scale.result_count {
+            Some(100_000) => {}
+            _ => scale_gaps.push("result_count==100000"),
+        }
+        match scale.warm_path_p50_ms {
+            Some(ms) if ms.is_finite() && ms >= 0.0 => {}
+            _ => scale_gaps.push("warm_path_p50_ms"),
+        }
+        if !scale_gaps.is_empty() {
+            notes.push(redact_sensitive_text(&format!(
+                "conclusion=inconclusive: markdown_scale_100k_memo_parse missing product fields: {}",
+                scale_gaps.join(", ")
+            )));
+            return BaselineConclusion::Inconclusive;
+        }
+    }
+
+    notes.push(redact_sensitive_text(
+        "conclusion=pass: all required host metrics established (optional I/O metrics may be absent)",
+    ));
+    BaselineConclusion::Pass
 }
 
 fn average_metric(left: &BaselineMetricV1, right: &BaselineMetricV1) -> BaselineMetricV1 {
@@ -495,18 +605,17 @@ fn measure_markdown_scale_metric(workspace: &Workspace) -> Result<BaselineMetric
     if memo_count != 100_000 {
         bail!("scale corpus must materialize 100000 memos, got {memo_count}");
     }
-    // Isolated process: peak RSS is the bench process only (not xtask HWM).
+    // Isolated production-owner process: peak RSS is the bench process only (not xtask HWM).
     let mut command = cargo(workspace);
     command.args([
         "run",
         "--locked",
         "--release",
         "-p",
-        "lomo-feasibility",
-        "--bin",
-        "lomo-feasibility",
+        "lomo-workspace",
+        "--example",
+        "workspace_scale_benchmark",
         "--",
-        "scale-markdown-bench",
         "--corpus",
     ]);
     command.arg(&output_dir);
@@ -520,9 +629,17 @@ fn measure_markdown_scale_metric(workspace: &Workspace) -> Result<BaselineMetric
     let line = stdout
         .lines()
         .rev()
-        .find(|line| line.starts_with("SCALE_MARKDOWN_BENCH "))
-        .with_context(|| format!("missing SCALE_MARKDOWN_BENCH line in: {stdout}"))?;
+        .find(|line| line.starts_with("WORKSPACE_SCALE_BENCH "))
+        .with_context(|| format!("missing WORKSPACE_SCALE_BENCH line in: {stdout}"))?;
     let fields = parse_scale_bench_line(line)?;
+    if fields.result_count != 100_000 || fields.memo_count != 100_000 || fields.node_count == 0 {
+        bail!(
+            "lomo-workspace scale benchmark returned incomplete counts: files={} memos={} nodes={}",
+            fields.result_count,
+            fields.memo_count,
+            fields.node_count,
+        );
+    }
     Ok(BaselineMetricV1 {
         name: "markdown_scale_100k_memo_parse".to_owned(),
         unit: "ms".to_owned(),
@@ -532,8 +649,12 @@ fn measure_markdown_scale_metric(workspace: &Workspace) -> Result<BaselineMetric
         network_request_count: None,
         samples: Some(u32::try_from(SCALE_MARKDOWN_SAMPLES).unwrap_or(u32::MAX)),
         workload_summary: format!(
-            "isolated scale-markdown-bench memo_files={} full_samples={} warm_samples={} total_events={}",
-            fields.memo_files, fields.full_samples, fields.warm_samples, fields.total_events
+            "isolated lomo-workspace owner memo_files={} memos={} nodes={} full_samples={} warm_samples={} byte_stable=true",
+            fields.memo_files,
+            fields.memo_count,
+            fields.node_count,
+            fields.full_samples,
+            fields.warm_samples,
         ),
         result_count: Some(fields.result_count),
         warm_path_p50_ms: Some(fields.warm_p50_ms),
@@ -545,7 +666,8 @@ struct ScaleBenchFields {
     full_p95_ms: f64,
     warm_p50_ms: f64,
     result_count: u64,
-    total_events: u64,
+    memo_count: u64,
+    node_count: u64,
     peak_rss_bytes: u64,
     full_samples: u32,
     warm_samples: u32,
@@ -570,7 +692,8 @@ fn parse_scale_bench_line(line: &str) -> Result<ScaleBenchFields> {
         full_p95_ms: require("full_p95_ms")?.parse()?,
         warm_p50_ms: require("warm_p50_ms")?.parse()?,
         result_count: require("result_count")?.parse()?,
-        total_events: require("total_events")?.parse()?,
+        memo_count: require("memo_count")?.parse()?,
+        node_count: require("node_count")?.parse()?,
         peak_rss_bytes: require("peak_rss_bytes")?.parse()?,
         full_samples: require("full_samples")?.parse()?,
         warm_samples: require("warm_samples")?.parse()?,

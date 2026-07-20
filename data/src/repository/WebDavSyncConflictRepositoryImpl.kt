@@ -45,11 +45,15 @@ class WebDavConflictResolver
         private val fileBridge: WebDavSyncFileBridge,
         private val pendingConflictStore: PendingSyncConflictStore,
         private val lifecycleRunner: RemoteSyncLifecycleRunner,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun resolveConflicts(
             resolution: SyncConflictResolution,
             conflictSet: SyncConflictSet,
         ): WebDavSyncResult {
+            if (!writeAuthority.isWritable()) {
+                return WebDavSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             return runNonFatalCatching {
@@ -319,11 +323,15 @@ class WebDavReviewResolver
         private val fileBridge: WebDavSyncFileBridge,
         private val pendingReviewStore: PendingSyncReviewStore,
         private val lifecycleRunner: RemoteSyncLifecycleRunner,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) {
         suspend fun resolveReview(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
         ): WebDavSyncResult {
+            if (!writeAuthority.isWritable()) {
+                return WebDavSyncResult.Error(WORKSPACE_WRITES_UNAVAILABLE_MESSAGE)
+            }
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
             return runNonFatalCatching {

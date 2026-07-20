@@ -23,6 +23,7 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
@@ -81,8 +82,8 @@ class MainViewModel(
                 capabilities =
                     MemoCollectionCapabilities.DeletableTodo(
                         deleteMemo = mainMemoMutationCoordinator::deleteMemo,
-                        toggleTodo = { memo, lineIndex, checked ->
-                            mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
+                        toggleTodo = { memo, actionSpan ->
+                            mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, actionSpan)
                         },
                     ),
                 scope = viewModelScope,
@@ -120,6 +121,13 @@ class MainViewModel(
             data object NoDirectory : MainScreenState
 
             data object InitialImporting : MainScreenState
+
+            data object OpeningEngine : MainScreenState
+
+            data class ReadOnlyRecovery(
+                val code: String,
+                val diagnostic: String,
+            ) : MainScreenState
 
             data object Ready : MainScreenState
         }
@@ -188,17 +196,35 @@ class MainViewModel(
                 dispatcherProvider = dispatcherProvider,
             )
 
+        val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
+
         val uiState: StateFlow<MainScreenState> =
-            combine(_hasResolvedInitialRoot, rootDirectory, _isInitialDirectoryImporting) {
+            combine(
+                _hasResolvedInitialRoot,
+                rootDirectory,
+                _isInitialDirectoryImporting,
+                engineReadiness,
+            ) {
                 hasResolvedInitialRoot,
                 directory,
                 isInitialDirectoryImporting,
+                readiness,
                 ->
                 when {
                     !hasResolvedInitialRoot -> MainScreenState.Loading
                     directory == null -> MainScreenState.NoDirectory
+                    readiness is EngineReadiness.ReadOnlyRecovery ->
+                        MainScreenState.ReadOnlyRecovery(
+                            code = readiness.code,
+                            diagnostic = readiness.diagnostic,
+                        )
+                    readiness is EngineReadiness.Opening ||
+                        readiness is EngineReadiness.ShuttingDown ->
+                        MainScreenState.OpeningEngine
                     isInitialDirectoryImporting -> MainScreenState.InitialImporting
-                    else -> MainScreenState.Ready
+                    readiness is EngineReadiness.Ready -> MainScreenState.Ready
+                    // Awaiting with a configured directory: still opening / cold restore in flight.
+                    else -> MainScreenState.OpeningEngine
                 }
             }.stateIn(
                 viewModelScope,
@@ -413,13 +439,13 @@ class MainViewModel(
         }
 
 
-        val markReminderDone: (String, String) -> Unit = { memoId, tokenRaw ->
+        val markReminderDone: (String, String) -> Unit = { memoId, reminderId ->
             viewModelScope.launch(dispatcherProvider.io) {
                 runCatching {
-                    markReminderDoneUseCase(memoId, tokenRaw)
+                    markReminderDoneUseCase(memoId, reminderId)
                 }.onFailure { throwable ->
                     if (throwable is CancellationException) throw throwable
-                    Timber.w(throwable, "Failed to mark reminder done: memoId=$memoId, token=$tokenRaw")
+                    Timber.w(throwable, "Failed to mark reminder done: memoId=$memoId, reminderId=$reminderId")
                 }
             }
         }
@@ -437,8 +463,8 @@ class MainViewModel(
             }
         }
 
-        val updateMemo: (Memo, Int, Boolean) -> Unit = { memo, lineIndex, checked ->
-            collectionActionStateHolder.actions.toggleTodo(memo, lineIndex, checked)
+        val updateMemo: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit = { memo, actionSpan ->
+            collectionActionStateHolder.actions.toggleTodo(memo, actionSpan)
         }
 
         val syncImageCacheNow: () -> Unit = {
@@ -657,6 +683,18 @@ class MainViewModel(
             }
         }
 
+        fun retryEngineOpen() {
+            viewModelScope.launch {
+                val location = _rootDirectory.value ?: return@launch
+                runCatching {
+                    workspaceCoordinator.retryEngineOpen(location)
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Engine reopen failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to reopen workspace")
+                }
+            }
+        }
+
         private fun handleRefreshFailure(
             throwable: Throwable,
             fallbackMessage: String,
@@ -680,7 +718,7 @@ private fun hasAutomaticRefreshCooldownElapsed(lastAutomaticRefreshMark: TimeMar
 data class MemoUiModel(
     val memo: Memo,
     val processedContent: String,
-    val precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
+    val renderDocument: com.lomo.domain.model.markdown.MarkdownRenderDocument,
     val tags: ImmutableList<String>,
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val shouldShowExpand: Boolean = false,

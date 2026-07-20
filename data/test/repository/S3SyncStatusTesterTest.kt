@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -160,7 +161,7 @@ class S3SyncStatusTesterTest : DataFunSpec() {
                     securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
                 ),
                 encodingSupport = S3SyncEncodingSupport(),
-                fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
+                fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport(), AlwaysWritableWorkspaceWriteAuthority),
                 protocolStateStore = DisabledS3SyncProtocolStateStore,
                 localChangeJournalStore = DisabledS3LocalChangeJournalStore,
                 remoteIndexStore = DisabledS3RemoteIndexStore,

@@ -1,5 +1,28 @@
+//! Behavior Contract
+//!
+//! Capability: preserve the provider-neutral sync-v1 planner and its binary envelope contract.
+//!
+//! Scenarios:
+//! - Given valid local/remote/metadata snapshots, when planning runs, then observable actions and
+//!   reasons match the provider-neutral policy.
+//! - Given malformed paths, versions, strings, or counts, when the boundary decodes or plans, then
+//!   a structured protocol error is returned.
+//! - Given shared golden vectors, when encoding/decoding runs, then bytes remain stable.
+//!
+//! Observable outcomes: action lists, pending counts, exact bytes, and protocol error variants.
+//! TDD proof: existing locked behavior tests; this edit only replaces lint-forbidden panic helpers.
+//! Excludes: provider I/O, benchmark timing, and production sync orchestration.
+
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "contract/harness tests fail closed with panics on missing facts"
+)]
 mod tests {
+    use std::fmt::Debug;
+
     use lomo_sync_core::{
         Action, Backend, Direction, LocalSnapshot, MAGIC, MetadataSnapshot, ProtocolError, Reason,
         RemoteAbsenceVerification, RemoteSnapshot, Request, decode_plan, encode_request, plan,
@@ -12,6 +35,19 @@ mod tests {
         include_str!("../../../data/testResources/rust-sync/local-only-s3-request.hex");
     const LOCAL_ONLY_UPLOAD_PLAN_HEX: &str =
         include_str!("../../../data/testResources/rust-sync/local-only-upload-plan.hex");
+
+    trait ResultTestExt<T> {
+        fn test_ok(self, context: &str) -> T;
+    }
+
+    impl<T, E: Debug> ResultTestExt<T> for Result<T, E> {
+        fn test_ok(self, context: &str) -> T {
+            match self {
+                Ok(value) => value,
+                Err(error) => panic!("{context}: {error:?}"),
+            }
+        }
+    }
 
     fn request(backend: Backend) -> Request {
         Request {
@@ -44,7 +80,7 @@ mod tests {
             size: None,
             fingerprint: None,
         });
-        let plan = plan(&request).expect("valid request");
+        let plan = plan(&request).test_ok("valid request");
         assert_eq!(
             plan.actions,
             vec![action("memo.md", Direction::Upload, Reason::LocalOnly)]
@@ -68,7 +104,7 @@ mod tests {
             local_fingerprint: None,
             last_synced_at: 10,
         });
-        let plan = plan(&request).expect("valid request");
+        let plan = plan(&request).test_ok("valid request");
         assert_eq!(
             plan.actions,
             vec![action(
@@ -106,13 +142,13 @@ mod tests {
 
     #[test]
     fn empty_s3_request_matches_shared_golden_vector() {
-        let encoded = encode_request(&request(Backend::S3)).expect("request encodes");
+        let encoded = encode_request(&request(Backend::S3)).test_ok("request encodes");
         assert_eq!(encoded, decode_hex(EMPTY_S3_REQUEST_HEX));
     }
 
     #[test]
     fn shared_upload_plan_decodes_to_provider_neutral_action() {
-        let decoded = decode_plan(&decode_hex(LOCAL_ONLY_UPLOAD_PLAN_HEX)).expect("plan decodes");
+        let decoded = decode_plan(&decode_hex(LOCAL_ONLY_UPLOAD_PLAN_HEX)).test_ok("plan decodes");
         assert_eq!(
             decoded.actions,
             vec![action("memo.md", Direction::Upload, Reason::LocalOnly)]
@@ -153,7 +189,7 @@ mod tests {
             fingerprint: None,
         });
         assert_eq!(
-            encode_request(&request).expect("request encodes"),
+            encode_request(&request).test_ok("request encodes"),
             decode_hex(LOCAL_ONLY_S3_REQUEST_HEX)
         );
     }
@@ -182,9 +218,9 @@ mod tests {
             local_fingerprint: Some("old".into()),
             last_synced_at: 10,
         });
-        let encoded = encode_request(&request).expect("request encodes");
-        let output = plan_envelope(&encoded).expect("request plans");
-        let decoded = decode_plan(&output).expect("plan decodes");
+        let encoded = encode_request(&request).test_ok("request encodes");
+        let output = plan_envelope(&encoded).test_ok("request plans");
+        let decoded = decode_plan(&output).test_ok("plan decodes");
         assert_eq!(
             decoded.actions,
             vec![action("memo.md", Direction::Upload, Reason::LocalOnly)]
@@ -198,8 +234,8 @@ mod tests {
             .as_bytes()
             .chunks_exact(2)
             .map(|pair| {
-                let pair = std::str::from_utf8(pair).expect("hex fixture is ASCII");
-                u8::from_str_radix(pair, 16).expect("hex fixture contains valid bytes")
+                let pair = std::str::from_utf8(pair).test_ok("hex fixture is ASCII");
+                u8::from_str_radix(pair, 16).test_ok("hex fixture contains valid bytes")
             })
             .collect()
     }

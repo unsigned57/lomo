@@ -1,12 +1,4 @@
 //! Hermetic HTTPS smart-HTTP Git fixture backed by `git-http-backend` + vendored `git2`.
-#![allow(
-    clippy::too_many_lines,
-    clippy::manual_ok_err,
-    clippy::option_if_let_else,
-    clippy::map_err_ignore,
-    clippy::disallowed_methods,
-    reason = "smart-HTTP CGI bridge prioritizes explicit control flow over pedantic rewrites"
-)]
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -78,104 +70,23 @@ impl SmartHttpGitFixture {
     pub fn start(root: &Path) -> Result<Self, GitProbeError> {
         let _provider: Result<(), Arc<rustls::crypto::CryptoProvider>> =
             rustls::crypto::aws_lc_rs::default_provider().install_default();
-        if root.exists() {
-            fs::remove_dir_all(root).map_err(io_err)?;
-        }
-        fs::create_dir_all(root).map_err(io_err)?;
         let repo_name = "repo.git".to_owned();
-        let bare = root.join(&repo_name);
-        let mut bare_opts = RepositoryInitOptions::new();
-        bare_opts.bare(true);
-        bare_opts.initial_head("main");
-        Repository::init_opts(&bare, &bare_opts).map_err(git_err)?;
-        // Allow push/fetch over HTTP for the fixture only.
-        Command::new("git")
-            .args([
-                "-C",
-                &bare.to_string_lossy(),
-                "config",
-                "http.receivepack",
-                "true",
-            ])
-            .status()
-            .map_err(io_err)?;
-        Command::new("git")
-            .args([
-                "-C",
-                &bare.to_string_lossy(),
-                "config",
-                "http.uploadpack",
-                "true",
-            ])
-            .status()
-            .map_err(io_err)?;
-
-        let key_pair = KeyPair::generate().map_err(|error| GitProbeError::Io {
-            detail: error.to_string(),
-        })?;
-        let mut params =
-            CertificateParams::new(vec!["localhost".to_owned(), "127.0.0.1".to_owned()]).map_err(
-                |error| GitProbeError::Io {
-                    detail: error.to_string(),
-                },
-            )?;
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, "lomo-git-http");
-        let cert = params
-            .self_signed(&key_pair)
-            .map_err(|error| GitProbeError::Io {
-                detail: error.to_string(),
-            })?;
-        let ca_pem = cert.pem();
-        let server_cert_der = cert.der().to_vec();
-        let cert_der = CertificateDer::from(server_cert_der.clone());
-        let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()));
-        let mut server_config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(vec![cert_der], key_der)
-            .map_err(|error| GitProbeError::Io {
-                detail: error.to_string(),
-            })?;
-        server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        let server_config = Arc::new(server_config);
-
+        init_bare_http_repo(root, &repo_name)?;
+        let (ca_pem, server_cert_der, server_config) = build_fixture_tls_config()?;
         let listener = TcpListener::bind("127.0.0.1:0").map_err(io_err)?;
         let addr = listener.local_addr().map_err(io_err)?;
         listener.set_nonblocking(true).map_err(io_err)?;
         let shutdown = Arc::new(AtomicBool::new(false));
-        let shutdown_thread = Arc::clone(&shutdown);
-        let project_root = root.to_path_buf();
         let username = "token-user".to_owned();
         let password = "token-secret".to_owned();
-        let auth_user = username.clone();
-        let auth_pass = password.clone();
-        let join = thread::spawn(move || {
-            while !shutdown_thread.load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        let config = Arc::clone(&server_config);
-                        let project_root = project_root.clone();
-                        let auth_user = auth_user.clone();
-                        let auth_pass = auth_pass.clone();
-                        let _worker: thread::JoinHandle<()> = thread::spawn(move || {
-                            let handled: Result<(), GitProbeError> = handle_git_http(
-                                stream,
-                                config,
-                                &project_root,
-                                &auth_user,
-                                &auth_pass,
-                            );
-                            drop(handled);
-                        });
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        let join = spawn_git_http_accept_loop(
+            listener,
+            Arc::clone(&shutdown),
+            server_config,
+            root.to_path_buf(),
+            username.clone(),
+            password.clone(),
+        );
 
         Ok(Self {
             addr,
@@ -735,6 +646,87 @@ fn write_commit(
     Ok(())
 }
 
+fn init_bare_http_repo(root: &Path, repo_name: &str) -> Result<(), GitProbeError> {
+    if root.exists() {
+        fs::remove_dir_all(root).map_err(io_err)?;
+    }
+    fs::create_dir_all(root).map_err(io_err)?;
+    let bare = root.join(repo_name);
+    let mut bare_opts = RepositoryInitOptions::new();
+    bare_opts.bare(true);
+    bare_opts.initial_head("main");
+    Repository::init_opts(&bare, &bare_opts).map_err(git_err)?;
+    // Allow push/fetch over HTTP for the fixture only.
+    for (key, value) in [("http.receivepack", "true"), ("http.uploadpack", "true")] {
+        Command::new("git")
+            .args(["-C", &bare.to_string_lossy(), "config", key, value])
+            .status()
+            .map_err(io_err)?;
+    }
+    Ok(())
+}
+
+fn build_fixture_tls_config() -> Result<(String, Vec<u8>, Arc<ServerConfig>), GitProbeError> {
+    let key_pair = KeyPair::generate().map_err(|error| GitProbeError::Io {
+        detail: error.to_string(),
+    })?;
+    let mut params = CertificateParams::new(vec!["localhost".to_owned(), "127.0.0.1".to_owned()])
+        .map_err(|error| GitProbeError::Io {
+        detail: error.to_string(),
+    })?;
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "lomo-git-http");
+    let cert = params
+        .self_signed(&key_pair)
+        .map_err(|error| GitProbeError::Io {
+            detail: error.to_string(),
+        })?;
+    let ca_pem = cert.pem();
+    let server_cert_der = cert.der().to_vec();
+    let cert_der = CertificateDer::from(server_cert_der.clone());
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()));
+    let mut server_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der], key_der)
+        .map_err(|error| GitProbeError::Io {
+            detail: error.to_string(),
+        })?;
+    server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok((ca_pem, server_cert_der, Arc::new(server_config)))
+}
+
+fn spawn_git_http_accept_loop(
+    listener: TcpListener,
+    shutdown: Arc<AtomicBool>,
+    server_config: Arc<ServerConfig>,
+    project_root: PathBuf,
+    username: String,
+    password: String,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while !shutdown.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let config = Arc::clone(&server_config);
+                    let project_root = project_root.clone();
+                    let auth_user = username.clone();
+                    let auth_pass = password.clone();
+                    let _worker: thread::JoinHandle<()> = thread::spawn(move || {
+                        let handled: Result<(), GitProbeError> =
+                            handle_git_http(stream, config, &project_root, &auth_user, &auth_pass);
+                        drop(handled);
+                    });
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(_) => break,
+            }
+        }
+    })
+}
+
 fn handle_git_http(
     stream: TcpStream,
     config: Arc<ServerConfig>,
@@ -752,6 +744,46 @@ fn handle_git_http(
         detail: error.to_string(),
     })?;
     let mut tls = StreamOwned::new(connection, stream);
+    let (headers, body) = read_http_request(&mut tls)?;
+    let first = headers.lines().next().unwrap_or("");
+    let mut parts = first.split_whitespace();
+    let method = parts.next().unwrap_or("GET");
+    let target = parts.next().unwrap_or("/");
+    let (path, query) = match target.split_once('?') {
+        Some((path, query)) => (path, query),
+        None => (target, ""),
+    };
+    if !authorized(&headers, username, password) {
+        let response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"lomo\"\r\nContent-Length: 12\r\nConnection: close\r\n\r\nunauthorized";
+        tls.write_all(response.as_bytes()).map_err(io_err)?;
+        return Ok(());
+    }
+    let backend_request = GitBackendRequest {
+        project_root,
+        username,
+        method,
+        path,
+        query,
+        target,
+        content_type: header_value(&headers, "content-type").unwrap_or(""),
+        body: &body,
+    };
+    let backend_output = run_git_http_backend(&backend_request)?;
+    if backend_output.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&backend_output.stderr);
+        let response = format!(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{stderr}",
+            stderr.len()
+        );
+        tls.write_all(response.as_bytes()).map_err(io_err)?;
+        return Ok(());
+    }
+    write_cgi_http_response(&mut tls, &backend_output.stdout)
+}
+
+fn read_http_request(
+    tls: &mut StreamOwned<ServerConnection, TcpStream>,
+) -> Result<(String, Vec<u8>), GitProbeError> {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 16_384];
     loop {
@@ -785,7 +817,6 @@ fn handle_git_http(
         Vec::new()
     };
     if transfer_chunked {
-        // Read until the chunked stream is fully available, then decode.
         loop {
             if let Ok(decoded) = try_decode_chunked(&body) {
                 body = decoded;
@@ -793,7 +824,7 @@ fn handle_git_http(
             }
             let read = tls.read(&mut chunk).map_err(io_err)?;
             if read == 0 {
-                body = try_decode_chunked(&body).unwrap_or_else(|_| body.clone());
+                body = try_decode_chunked(&body).unwrap_or_else(|_decode| body.clone());
                 break;
             }
             body.extend_from_slice(&chunk[..read]);
@@ -811,59 +842,66 @@ fn handle_git_http(
         }
         body.truncate(content_length);
     }
-    let first = headers.lines().next().unwrap_or("");
-    let mut parts = first.split_whitespace();
-    let method = parts.next().unwrap_or("GET");
-    let target = parts.next().unwrap_or("/");
-    let (path, query) = match target.split_once('?') {
-        Some((path, query)) => (path, query),
-        None => (target, ""),
-    };
-    if !authorized(&headers, username, password) {
-        let response = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"lomo\"\r\nContent-Length: 12\r\nConnection: close\r\n\r\nunauthorized";
-        tls.write_all(response.as_bytes()).map_err(io_err)?;
-        return Ok(());
-    }
+    Ok((headers, body))
+}
 
+struct GitBackendRequest<'a> {
+    project_root: &'a Path,
+    username: &'a str,
+    method: &'a str,
+    path: &'a str,
+    query: &'a str,
+    target: &'a str,
+    content_type: &'a str,
+    body: &'a [u8],
+}
+
+struct GitBackendOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_git_http_backend(
+    request: &GitBackendRequest<'_>,
+) -> Result<GitBackendOutput, GitProbeError> {
     let backend = git_http_backend_path().ok_or_else(|| GitProbeError::Unexpected {
         detail: "git-http-backend not found".to_owned(),
     })?;
-    let content_type = header_value(&headers, "content-type").unwrap_or("");
     let mut command = Command::new(backend);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("GIT_PROJECT_ROOT", project_root)
+        .env("GIT_PROJECT_ROOT", request.project_root)
         .env("GIT_HTTP_EXPORT_ALL", "1")
-        .env("PATH_INFO", path)
-        .env("REQUEST_METHOD", method)
-        .env("QUERY_STRING", query)
-        .env("CONTENT_LENGTH", body.len().to_string())
-        .env("CONTENT_TYPE", content_type)
-        .env("HTTP_CONTENT_TYPE", content_type)
+        .env("PATH_INFO", request.path)
+        .env("REQUEST_METHOD", request.method)
+        .env("QUERY_STRING", request.query)
+        .env("CONTENT_LENGTH", request.body.len().to_string())
+        .env("CONTENT_TYPE", request.content_type)
+        .env("HTTP_CONTENT_TYPE", request.content_type)
         .env("REMOTE_ADDR", "127.0.0.1")
         .env("SERVER_PROTOCOL", "HTTP/1.1")
-        .env("REQUEST_URI", target)
-        .env("REMOTE_USER", username)
+        .env("REQUEST_URI", request.target)
+        .env("REMOTE_USER", request.username)
         .env("GIT_COMMITTER_NAME", "lomo-feasibility")
         .env("GIT_COMMITTER_EMAIL", "probe@lomo.local");
     let mut child = command.spawn().map_err(io_err)?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(&body).map_err(io_err)?;
+        stdin.write_all(request.body).map_err(io_err)?;
     }
     let output = child.wait_with_output().map_err(io_err)?;
-    if output.stdout.is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let response = format!(
-            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{stderr}",
-            stderr.len()
-        );
-        tls.write_all(response.as_bytes()).map_err(io_err)?;
-        return Ok(());
-    }
-    let cgi = output.stdout;
-    let (cgi_headers, cgi_body) = split_cgi(&cgi);
+    Ok(GitBackendOutput {
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
+}
+
+fn write_cgi_http_response(
+    tls: &mut StreamOwned<ServerConnection, TcpStream>,
+    cgi: &[u8],
+) -> Result<(), GitProbeError> {
+    let (cgi_headers, cgi_body) = split_cgi(cgi);
     let status = cgi_status(&cgi_headers).unwrap_or(200);
     let reason = if status == 200 { "OK" } else { "Error" };
     let mut response = format!("HTTP/1.1 {status} {reason}\r\nConnection: close\r\n");
@@ -881,8 +919,7 @@ fn handle_git_http(
     }
     if !has_content_length {
         use std::fmt::Write as _;
-        write!(response, "Content-Length: {}\r\n", cgi_body.len())
-            .expect("write to String cannot fail");
+        write!(response, "Content-Length: {}\r\n", cgi_body.len()).map_err(io_err)?;
     }
     response.push_str("\r\n");
     tls.write_all(response.as_bytes()).map_err(io_err)?;
@@ -933,14 +970,29 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
         .map(|index| index + 4)
 }
 
+/// Optional header parse: malformed values are absence, not a probe failure.
+///
+/// Workspace forbids [`Result::ok`] via `clippy::disallowed_methods`. This helper is the
+/// intentional Option boundary for optional HTTP/CGI numbers rather than erasing errors at
+/// call sites with a bare `.ok()`.
+#[allow(
+    clippy::manual_ok_err,
+    clippy::option_if_let_else,
+    clippy::result_map_or_into_option,
+    reason = "Result::ok is workspace-disallowed; optional header parse maps Err to None deliberately"
+)]
+fn optional_parse<T: std::str::FromStr>(value: &str) -> Option<T> {
+    match value.trim().parse() {
+        Ok(parsed) => Some(parsed),
+        Err(_) => None,
+    }
+}
+
 fn content_length_of(headers: &[u8]) -> Option<usize> {
     let text = String::from_utf8_lossy(headers);
     for line in text.lines() {
         if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-            return match value.trim().parse() {
-                Ok(length) => Some(length),
-                Err(_) => None,
-            };
+            return optional_parse(value);
         }
     }
     None
@@ -954,9 +1006,9 @@ fn try_decode_chunked(input: &[u8]) -> Result<Vec<u8>, ChunkError> {
             return Err(ChunkError::Incomplete);
         };
         let size_line =
-            std::str::from_utf8(&rest[..line_end]).map_err(|_| ChunkError::InvalidUtf8)?;
-        let size =
-            usize::from_str_radix(size_line.trim(), 16).map_err(|_| ChunkError::InvalidSize)?;
+            std::str::from_utf8(&rest[..line_end]).map_err(|_utf8| ChunkError::InvalidUtf8)?;
+        let size = usize::from_str_radix(size_line.trim(), 16)
+            .map_err(|_radix| ChunkError::InvalidSize)?;
         rest = &rest[line_end + 2..];
         if size == 0 {
             return Ok(out);
@@ -1012,10 +1064,7 @@ fn cgi_status(headers: &str) -> Option<u16> {
     for line in headers.lines() {
         if let Some(value) = line.to_ascii_lowercase().strip_prefix("status:") {
             let token = value.split_whitespace().next()?;
-            return match token.parse() {
-                Ok(status) => Some(status),
-                Err(_) => None,
-            };
+            return optional_parse(token);
         }
     }
     None
@@ -1052,7 +1101,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, Base64Error> {
         let Some(index) = TABLE.iter().position(|&item| item == byte) else {
             return Err(Base64Error::InvalidCharacter);
         };
-        values.push(u8::try_from(index).map_err(|_| Base64Error::InvalidCharacter)?);
+        values.push(u8::try_from(index).map_err(|_overflow| Base64Error::InvalidCharacter)?);
     }
     let mut out = Vec::new();
     for chunk in values.chunks(4) {

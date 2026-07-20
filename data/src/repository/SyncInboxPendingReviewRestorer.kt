@@ -9,6 +9,7 @@ import com.lomo.domain.model.SyncReviewSession
 internal class SyncInboxPendingReviewRestorer(
     private val context: Context,
     private val markdownStorageDataSource: MarkdownStorageDataSource,
+    private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ) {
     suspend fun restore(
         inboxRoot: String,
@@ -63,7 +64,11 @@ internal class SyncInboxPendingReviewRestorer(
         inboxContent: String,
         inboxMetadata: InboxMarkdownFileMetadata,
     ): InboxReviewItemRestore {
-        val imported = previewInboxMediaReferences(markdown = inboxContent)
+        val imported =
+            previewInboxMediaReferences(
+                markdown = inboxContent,
+                contentProjector = contentProjector,
+            )
         val incomingBytes = imported.rewrittenMarkdown.toByteArray(Charsets.UTF_8)
         return when {
             !item.incoming.matchesRemote(

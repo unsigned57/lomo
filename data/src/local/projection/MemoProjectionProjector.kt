@@ -7,12 +7,15 @@ import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.entity.encodeStoredMemoStringList
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoContentAnalysis
 import com.lomo.domain.model.MemoStatisticsCalculator
-import com.lomo.domain.usecase.MemoContentAnalyzer
 
 object MemoProjectionProjector {
-    fun projectActive(memo: Memo): ActiveMemoProjection {
-        val contentProjection = memo.content.toContentProjection()
+    fun projectActive(
+        memo: Memo,
+        analysis: MemoContentAnalysis,
+    ): ActiveMemoProjection {
+        val contentProjection = analysis.toContentProjection()
         val statisticsProjection =
             MemoStatisticsCalculator.projectMemo(
                 timestamp = memo.timestamp,
@@ -46,8 +49,11 @@ object MemoProjectionProjector {
         )
     }
 
-    fun projectTrash(memo: Memo): TrashMemoProjection {
-        val contentProjection = memo.content.toContentProjection()
+    fun projectTrash(
+        memo: Memo,
+        analysis: MemoContentAnalysis,
+    ): TrashMemoProjection {
+        val contentProjection = analysis.toContentProjection()
         val entity =
             TrashMemoEntity(
                 id = memo.id,
@@ -65,14 +71,13 @@ object MemoProjectionProjector {
         )
     }
 
-    private fun String.toContentProjection(): MemoContentProjection {
-        val analysis = MemoContentAnalyzer.analyze(this)
+    private fun MemoContentAnalysis.toContentProjection(): MemoContentProjection {
         return MemoContentProjection(
-            hasTodo = analysis.hasTodo,
-            hasAttachment = analysis.hasAttachment,
-            hasUrl = analysis.hasUrl,
-            tags = analysis.tags,
-            attachmentUrls = (analysis.imageUrls + analysis.audioUrls).distinct(),
+            hasTodo = hasTodo,
+            hasAttachment = hasAttachment,
+            hasUrl = hasUrl,
+            tags = tags,
+            attachmentUrls = (imageUrls + audioUrls).distinct(),
         )
     }
 

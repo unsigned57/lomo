@@ -1,4 +1,5 @@
 package com.lomo.data.local.entity
+import com.lomo.domain.model.MemoContentAnalysis
 
 import com.lomo.data.local.projection.MemoProjectionProjector
 import com.lomo.data.testing.DataFunSpec
@@ -28,6 +29,17 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - FTS table writes, Room query execution, stale-content recovery, and UI rendering.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class MemoEntitySerializationTest : DataFunSpec() {
     init {
@@ -64,7 +76,14 @@ class MemoEntitySerializationTest : DataFunSpec() {
                 imageUrls = listOf("stale.png"),
             )
 
-        val entity = MemoProjectionProjector.projectActive(memo).entity
+        val analysis =
+            MemoContentAnalysis(
+                tags = listOf("travel"),
+                imageUrls = listOf("folder,part/image.png"),
+                audioUrls = listOf("voice_001.m4a"),
+                hasAttachment = true,
+            )
+        val entity = MemoProjectionProjector.projectActive(memo, analysis).entity
 
         entity.tags shouldBe """["travel"]"""
         entity.imageUrls shouldBe """["folder,part/image.png","voice_001.m4a"]"""
@@ -125,7 +144,13 @@ class MemoEntitySerializationTest : DataFunSpec() {
                 isDeleted = true,
             )
 
-        val entity = MemoProjectionProjector.projectTrash(memo).entity
+        val analysis =
+            MemoContentAnalysis(
+                tags = listOf("travel"),
+                imageUrls = listOf("folder,part/image.png"),
+                hasAttachment = true,
+            )
+        val entity = MemoProjectionProjector.projectTrash(memo, analysis).entity
         val restored = entity.toDomain()
 
         entity.tags shouldBe """["travel"]"""

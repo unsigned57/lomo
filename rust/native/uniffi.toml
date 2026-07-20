@@ -1,4 +1,0 @@
-[bindings.kotlin]
-package_name = "com.lomo.rust"
-android = true
-kotlin_target_version = "2.3.0"

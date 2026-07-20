@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoPinDao
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.data.testing.fakes.FakeReminderCoordinator
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoQueryRepository
@@ -36,6 +37,17 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - AlarmManager scheduling internals, file/db persistence, outbox drain timing.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class MemoMutationSaveReminderSchedulingTest : FunSpec({
     test("given a reminder memo when saved then it is scheduled with the saved memo id even if the query lookup misses") {
@@ -64,11 +76,17 @@ class MemoMutationSaveReminderSchedulingTest : FunSpec({
                     synchronizer = synchronizer,
                     reminderScheduler = reminderCoordinator,
                     memoQueryRepository = queryRepository,
+                    writeAuthority =
+                        WorkspaceWriteAuthority(
+                            engineReadinessRepository = FakeEngineReadinessRepository(),
+                            writeFreezeRepository = ProcessWriteFreezeRepository(),
+                        ),
                 )
 
             repository.saveMemo(savedMemo.content, savedMemo.timestamp, null)
 
-            reminderCoordinator.syncForMemoCalls shouldContainExactly listOf(savedMemo.id to savedMemo.content)
+            // Post-cutover scheduler contracts on memo identity only; content is resolved by owner.
+            reminderCoordinator.syncForMemoCalls shouldContainExactly listOf(savedMemo.id to "")
         }
     }
 })

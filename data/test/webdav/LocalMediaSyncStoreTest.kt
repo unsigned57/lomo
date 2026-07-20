@@ -19,6 +19,7 @@ package com.lomo.data.webdav
 
 
 import android.content.Context
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.SyncDirectoryLayout
 import io.mockk.every
@@ -80,7 +81,7 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
             File(voiceRoot, "photo.jpg").writeText("ignore")
             configureRoots(imageRoot = imageRoot, voiceRoot = voiceRoot)
 
-            val store = LocalMediaSyncStore(context, dataStore)
+            val store = LocalMediaSyncStore(context, dataStore, AlwaysWritableWorkspaceWriteAuthority)
 
             store.configuredCategories() shouldBe linkedSetOf(MediaSyncCategory.IMAGE, MediaSyncCategory.VOICE)
             val files = store.listFiles(layout)
@@ -92,7 +93,7 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
             val imageRoot = tempFolder.newFolder("images-root")
             val voiceRoot = tempFolder.newFolder("voice-root")
             configureRoots(imageRoot = imageRoot, voiceRoot = voiceRoot)
-            val store = LocalMediaSyncStore(context, dataStore)
+            val store = LocalMediaSyncStore(context, dataStore, AlwaysWritableWorkspaceWriteAuthority)
             val bytes = byteArrayOf(1, 2, 3, 4)
 
             store.writeBytes("lomo/images/photo.PNG", bytes, layout)
@@ -114,7 +115,7 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
     private fun `writeBytes fails closed when no media root is configured for the path`() =
         runTest {
             configureRoots(imageRoot = null, voiceRoot = null)
-            val store = LocalMediaSyncStore(context, dataStore)
+            val store = LocalMediaSyncStore(context, dataStore, AlwaysWritableWorkspaceWriteAuthority)
 
             var thrown: Throwable? = null
             try {

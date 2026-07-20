@@ -13,7 +13,6 @@ name = "lomo_feasibility_device"
 [dependencies]
 lomo-feasibility = { path = "../feasibility" }
 thiserror.workspace = true
-uniffi.workspace = true
 
 [lints]
 workspace = true

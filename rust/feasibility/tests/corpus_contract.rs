@@ -11,6 +11,12 @@
 //! Excludes: large corpus generation, remote fixture bytes, production storage.
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "feasibility contract harness fails closed with panics on missing probe facts"
+)]
 mod tests {
     use lomo_feasibility::{
         CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1,

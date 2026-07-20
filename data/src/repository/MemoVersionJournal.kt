@@ -1,7 +1,7 @@
 package com.lomo.data.repository
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransaction
-import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionPage
@@ -136,7 +136,7 @@ constructor(
         internal val store: MemoVersionStore,
         blobRoot: MemoVersionBlobRoot,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
-        internal val memoTextProcessor: MemoTextProcessor,
+        internal val memoTextProcessor: MarkdownWorkspaceContentProjector,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
         private val now: () -> Long = { System.currentTimeMillis() },
         private val nextCommitId: () -> String = { UUID.randomUUID().toString() },
@@ -156,7 +156,7 @@ constructor(
             store: MemoVersionStore,
             blobRoot: File,
             workspaceMediaAccess: WorkspaceMediaAccess,
-            memoTextProcessor: MemoTextProcessor,
+            memoTextProcessor: MarkdownWorkspaceContentProjector,
             runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
             now: () -> Long = { System.currentTimeMillis() },
             nextCommitId: () -> String = { UUID.randomUUID().toString() },
@@ -187,7 +187,7 @@ constructor(
             store: MemoVersionStore,
             blobRoot: MemoVersionBlobRoot,
             workspaceMediaAccess: WorkspaceMediaAccess,
-            memoTextProcessor: MemoTextProcessor,
+            memoTextProcessor: MarkdownWorkspaceContentProjector,
             database: MemoDatabase,
             memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
         ) : this(

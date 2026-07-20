@@ -47,6 +47,7 @@ interface WorkspaceMediaAccess {
 class DefaultWorkspaceMediaAccess(
     private val context: Context,
     private val workspaceConfigSource: WorkspaceConfigSource,
+    private val writeAuthority: WorkspaceWriteAuthority,
 ) : WorkspaceMediaAccess {
         override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
@@ -85,6 +86,7 @@ class DefaultWorkspaceMediaAccess(
             filename: String,
             source: suspend (OutputStream) -> Unit,
         ) {
+            writeAuthority.requireWritable()
             val safeFilename = requireWorkspaceMediaFilename(filename)
             val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
                 "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
@@ -100,6 +102,7 @@ class DefaultWorkspaceMediaAccess(
             category: WorkspaceMediaCategory,
             filename: String,
         ) {
+            writeAuthority.requireWritable()
             val safeFilename = requireWorkspaceMediaFilename(filename)
             val root = workspaceMediaRoot(workspaceConfigSource, category) ?: return
             if (isContentUriRoot(root)) {

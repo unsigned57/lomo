@@ -34,6 +34,7 @@
 package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
@@ -93,7 +94,8 @@ class GitSyncEngineConflictTest : DataFunSpec() {
             GitSyncEngine(
                 dataStore = dataStore,
                 credentialStrategy = gitCredentialStrategy("dummy-token"),
-                primitives = GitRepositoryPrimitives(),
+                primitives = GitRepositoryPrimitives(AlwaysWritableWorkspaceWriteAuthority),
+                writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
             )
         tempRoot = Files.createTempDirectory("git-sync-engine-conflict").toFile()
     }

@@ -19,6 +19,7 @@ package com.lomo.data.sync
 
 
 import com.lomo.data.webdav.WebDavClient
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.webdav.WebDavRemoteResource
 import io.mockk.every
 import io.mockk.mockk
@@ -170,7 +171,7 @@ class SyncLayoutMigrationTest : DataFunSpec() {
                 allSameDirectory = false,
             )
 
-        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
+        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout, AlwaysWritableWorkspaceWriteAuthority)
 
         (changed).shouldBeTrue()
         (topMemo.exists()).shouldBeFalse()
@@ -194,7 +195,7 @@ class SyncLayoutMigrationTest : DataFunSpec() {
                 allSameDirectory = true,
             )
 
-        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
+        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout, AlwaysWritableWorkspaceWriteAuthority)
 
         (changed).shouldBeFalse()
         (topMemo.exists()).shouldBeTrue()
@@ -214,7 +215,7 @@ class SyncLayoutMigrationTest : DataFunSpec() {
                 allSameDirectory = false,
             )
 
-        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
+        val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout, AlwaysWritableWorkspaceWriteAuthority)
 
         (changed).shouldBeFalse()
         (oldImage.exists()).shouldBeTrue()

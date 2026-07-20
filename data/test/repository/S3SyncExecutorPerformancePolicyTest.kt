@@ -19,6 +19,7 @@ package com.lomo.data.repository
 
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
@@ -170,7 +171,7 @@ class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
                 transactionRunner = NoOpS3SyncTransactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
-        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport, AlwaysWritableWorkspaceWriteAuthority)
         executor =
             S3SyncExecutor(
                 runtime = runtime,

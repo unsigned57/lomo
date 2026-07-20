@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
+
 /*
  * Behavior Contract:
  * - Unit under test: RoomPendingSyncConflictStore
@@ -373,6 +375,7 @@ private fun fileBridgeScope(root: File): S3SyncFileBridgeScope =
         encodingSupport = S3SyncEncodingSupport(),
         safTreeAccess = UnsupportedS3SafTreeAccess,
         mode = fileVaultRoot(root),
+        writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
     )
 
 private class PendingStoreProbeS3Client(

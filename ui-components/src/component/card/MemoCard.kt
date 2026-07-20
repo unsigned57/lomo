@@ -46,7 +46,6 @@ import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.*
-import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.text.MemoParagraphText
@@ -57,9 +56,9 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoSummaryTextStyle
 import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -77,7 +76,7 @@ fun MemoCard(
     modifier: Modifier = Modifier,
     menuButtonModifier: Modifier = Modifier,
     onClick: () -> Unit = {},
-    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan? = null,
+    renderDocument: MarkdownRenderDocument,
     dateFormat: String = "yyyy-MM-dd",
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
@@ -88,11 +87,10 @@ fun MemoCard(
     onDoubleClick: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
-    onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(), // State overlay for checkboxes
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)? = null,
     onImageClick: ((String) -> Unit)? = null,
     shouldShowExpand: Boolean = shouldShowMemoCardExpand(content),
-    collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
+    collapsedSummary: String,
     reminders: ImmutableList<ReminderMarker> = persistentListOf(),
     onReminderClick: (ReminderMarker) -> Unit = {},
     menuContent: (@Composable () -> Unit)? = null,
@@ -161,8 +159,7 @@ fun MemoCard(
             Spacer(modifier = Modifier.height(AppSpacing.Small))
             MemoCardBody(
                 processedContent = processedContent,
-                tags = tags,
-                precomputedRenderPlan = precomputedRenderPlan,
+                renderDocument = renderDocument,
                 shouldShowExpand = shouldShowExpand,
                 isCollapsedPreview = isCollapsedPreview,
                 collapsedPreviewMode = collapsedPreviewMode,
@@ -174,7 +171,6 @@ fun MemoCard(
                 onDoubleClick = quickEditOnDoubleClick,
                 onLongClick = textLongClick,
                 onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 mediaPresentationResolver = mediaPresentationResolver,
                 mediaContent = mediaContent,
@@ -330,8 +326,7 @@ private fun MemoCardHeaderActions(
 @Composable
 private fun MemoCardBody(
     processedContent: String,
-    tags: ImmutableList<String>,
-    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
+    renderDocument: MarkdownRenderDocument,
     shouldShowExpand: Boolean,
     isCollapsedPreview: Boolean,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
@@ -342,8 +337,7 @@ private fun MemoCardBody(
     onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
-    onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: ImmutableMap<Int, Boolean>,
+    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
@@ -370,12 +364,10 @@ private fun MemoCardBody(
             onDoubleClick = onDoubleClick,
             onLongClick = onLongClick,
             processedContent = processedContent,
-            precomputedRenderPlan = precomputedRenderPlan,
-            tags = tags,
+            renderDocument = renderDocument,
             isExpanded = isExpanded,
             isCollapsedPreview = isCollapsedPreview,
             onTodoClick = onTodoClick,
-            todoOverrides = todoOverrides,
             onImageClick = onImageClick,
             mediaPresentationResolver = mediaPresentationResolver,
             mediaContent = mediaContent,

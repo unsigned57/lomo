@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::native::{self, Abi, NativeProfile};
 use crate::util::{find_files, kotlin, output, run, text_output};
-use crate::workspace::Workspace;
+use crate::workspace::{self, Workspace};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AndroidVariant {
@@ -73,12 +73,21 @@ pub fn validate_built_apk(
     let apk = find_apk(&build_dir, release)?;
     let entries = apk_entries(&apk)?;
     for abi in Abi::ALL {
-        for library in ["liblomo_native.so", "libjnidispatch.so"] {
-            let expected = format!("lib/{}/{library}", abi.android_name());
-            if !entries.iter().any(|entry| entry == &expected) {
-                bail!("{} is missing {expected}", apk.display());
+        let expected = format!("lib/{}/{}", abi.android_name(), native::NATIVE_LIBRARY);
+        if !entries.iter().any(|entry| entry == &expected) {
+            bail!("{} is missing {expected}", apk.display());
+        }
+        validate_apk_elf(workspace, &apk, &expected, abi)?;
+        for forbidden in [
+            format!("lib/{}/libjnidispatch.so", abi.android_name()),
+            format!("lib/{}/liblomo_native.so", abi.android_name()),
+        ] {
+            if entries.iter().any(|entry| entry == &forbidden) {
+                bail!(
+                    "{} retains forbidden legacy library {forbidden}",
+                    apk.display()
+                );
             }
-            validate_apk_elf(workspace, &apk, &expected, abi)?;
         }
     }
     if entries.iter().any(|entry| {
@@ -89,6 +98,15 @@ pub fn validate_built_apk(
                 || extension.is_some_and(|value| value.eq_ignore_ascii_case("dylib")))
     }) {
         bail!("{} retains desktop JNA native resources", apk.display());
+    }
+    if entries
+        .iter()
+        .any(|entry| entry.contains("jnidispatch") || entry.contains("com/sun/jna/"))
+    {
+        bail!(
+            "{} still packages JNA classes or jnidispatch assets",
+            apk.display()
+        );
     }
     if release {
         for baseline in [
@@ -129,6 +147,7 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
     if !device_list.lines().any(|line| line.ends_with("\tdevice")) {
         bail!("no ready adb device; start an API 26 x86_64 emulator");
     }
+    require_device_api_and_abi(&adb)?;
 
     let mut clear = Command::new(&adb);
     clear.args(["logcat", "-c"]);
@@ -185,6 +204,35 @@ fn launch_native_smoke(adb: &Path) -> Result<()> {
         "com.lomo.nativesmoke/.NativeSmokeActivity",
     ]);
     run(&mut launch)
+}
+
+/// Stage-1 device smoke requires API >= 26 and an ABI we package (prefer `x86_64` emulator).
+fn require_device_api_and_abi(adb: &Path) -> Result<()> {
+    let api = adb_shell_getprop(adb, "ro.build.version.sdk")?;
+    let api_level: u32 = api
+        .trim()
+        .parse()
+        .with_context(|| format!("device API level is not a number: {api:?}"))?;
+    if api_level < workspace::ANDROID_API {
+        bail!(
+            "device API {api_level} is below required {}",
+            workspace::ANDROID_API
+        );
+    }
+    let abi = adb_shell_getprop(adb, "ro.product.cpu.abi")?;
+    let abi = abi.trim();
+    let supported = matches!(abi, "x86_64" | "arm64-v8a" | "x86" | "armeabi-v7a");
+    if !supported {
+        bail!("device ABI {abi:?} is not a packaged Android ABI");
+    }
+    eprintln!("xtask: device smoke target API {api_level} abi {abi}");
+    Ok(())
+}
+
+fn adb_shell_getprop(adb: &Path, key: &str) -> Result<String> {
+    let mut command = Command::new(adb);
+    command.args(["shell", "getprop", key]);
+    text_output(&mut command).map(|value| value.trim().to_owned())
 }
 
 fn validate_apk_elf(workspace: &Workspace, apk: &Path, entry: &str, abi: Abi) -> Result<()> {

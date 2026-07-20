@@ -425,7 +425,14 @@ private fun buildFallbackImageViewerMemo(imageUrls: List<String>): MemoUiModel? 
                 imageUrls = imageUrls,
             ),
         processedContent = "",
-        precomputedRenderPlan = null,
+        renderDocument =
+            com.lomo.domain.model.markdown.MarkdownRenderDocument(
+                sourceByteLength = 0uL,
+                plainText = "",
+                tagNames = emptyList(),
+                attachmentDestinations = emptyList(),
+                blocks = emptyList(),
+            ),
         tags = persistentListOf(),
         imageUrls = imageUrls.toImmutableList(),
     )

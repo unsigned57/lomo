@@ -35,6 +35,7 @@ import com.lomo.app.MainActivity
 import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoListQueryRepository
 import org.koin.core.component.KoinComponent
@@ -260,7 +261,11 @@ internal fun resolveWidgetMemoItemPresentation(
     )
 }
 
-private fun stripWidgetMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)
+private fun stripWidgetMarkdown(content: String): String {
+    val repository = org.koin.core.context.GlobalContext.getOrNull()?.get<MarkdownWorkspaceRepository>()
+    val plain = repository?.renderMarkdown(content)?.plainText ?: content
+    return MarkdownCleanupFormatter.collapseSpacing(plain)
+}
 
 private const val WIDGET_MEMO_LIMIT = 3
 private const val WIDGET_MEMO_PREVIEW_LENGTH = 100

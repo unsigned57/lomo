@@ -40,10 +40,10 @@ internal class MemoOutboxMutationDelegate(
             if (item.operation == com.lomo.data.local.entity.MemoFileOutboxOp.CLEAR_TRASH_SHARD) {
                 flushClearTrashShard(runtime, item.memoDate)
             } else {
-                val command = item.toLifecycleCommand()
+                val command = item.toLifecycleCommand(runtime.textProcessor)
                 when (command.operation) {
                     MemoLifecycleOperation.CREATE -> flushCreateFromOutbox(runtime, command)
-                    MemoLifecycleOperation.UPDATE -> flushUpdateFromOutbox(runtime, storageFormatProvider, command)
+                    MemoLifecycleOperation.UPDATE -> flushUpdateFromOutbox(runtime, command)
                     MemoLifecycleOperation.DELETE_TO_TRASH -> flushDeleteFromOutbox(runtime, command)
                     MemoLifecycleOperation.RESTORE_FROM_TRASH -> flushRestoreFromOutbox(runtime, command)
                     MemoLifecycleOperation.PERMANENT_DELETE -> flushPermanentDeleteFromOutbox(runtime, command)
@@ -128,7 +128,6 @@ internal suspend fun flushCreateFromOutbox(
 
 internal suspend fun flushUpdateFromOutbox(
     runtime: MemoMutationRuntime,
-    storageFormatProvider: MemoStorageFormatProvider,
     command: MemoLifecycleCommand,
 ): Boolean {
     require(command.operation == MemoLifecycleOperation.UPDATE) {
@@ -142,7 +141,6 @@ internal suspend fun flushUpdateFromOutbox(
             requireNotNull(command.targetContent) {
                 "UPDATE outbox completion requires target content: ${command.metadata.operationId.value}"
             },
-        timestampText = storageFormatProvider.formatTime(command.sourceMemo.timestamp),
     )
     val applied = updated == MemoWorkspaceBlockMutationResult.Applied
     if (applied) {

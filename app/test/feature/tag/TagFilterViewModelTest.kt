@@ -1,5 +1,9 @@
 package com.lomo.app.feature.tag
 
+import com.lomo.app.testing.fakes.storeBackedToggleMemoCheckboxUseCase
+
+import com.lomo.app.testing.fakes.testMemoUiMapper
+
 /*
  * Behavior Contract:
  * - Unit under test: TagFilterViewModel
@@ -85,10 +89,7 @@ class TagFilterViewModelTest : AppFunSpec() {
             deleteMemoUseCase = deleteMemoUseCase,
         )
     private val toggleMemoCheckboxUseCase =
-        ToggleMemoCheckboxUseCase(
-            repository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
-            validator = ValidateMemoContentUseCase(),
-        )
+        storeBackedToggleMemoCheckboxUseCase(memoRepository)
     private val saveImageUseCase = FakeSaveImageUseCase(mediaRepository)
 
     init {
@@ -193,7 +194,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 memoRepository.setActiveMemos(listOf(memo))
                 val viewModel = createViewModel(tagName = "work")
 
-                viewModel.toggleTodo(memo = memo, lineIndex = 0, checked = true)
+                viewModel.toggleTodo(memo = memo, actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
                 advanceUntilIdle()
 
                 val updated = memoRepository.currentActiveMemos().first()
@@ -209,7 +210,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 memoRepository.updateMemoFailure = IllegalStateException("toggle failed")
                 val viewModel = createViewModel(tagName = "work")
 
-                viewModel.toggleTodo(memo = memo, lineIndex = 0, checked = true)
+                viewModel.toggleTodo(memo = memo, actionSpan = com.lomo.domain.model.markdown.MarkdownSourceSpan(0u, 3u))
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "Failed to update todo: toggle failed"
@@ -280,7 +281,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
-            memoUiMapper = MemoUiMapper(),
+            memoUiMapper = testMemoUiMapper(),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,

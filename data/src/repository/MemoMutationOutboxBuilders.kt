@@ -3,9 +3,9 @@ package com.lomo.data.repository
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
 import com.lomo.data.util.MemoLocalDateResolver
+import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageTimestampFormats
-import com.lomo.domain.usecase.MemoContentAnalyzer
 
 internal fun buildUpdateOutbox(
     sourceMemo: Memo,
@@ -60,9 +60,12 @@ internal fun buildClearTrashShardOutbox(dateKey: String): MemoFileOutboxEntity {
     )
 }
 
-internal fun outboxSourceMemo(item: MemoFileOutboxEntity): Memo {
+internal fun outboxSourceMemo(
+    item: MemoFileOutboxEntity,
+    contentProjector: MarkdownWorkspaceContentProjector,
+): Memo {
     val content = item.sourceContent()
-    val contentAnalysis = MemoContentAnalyzer.analyze(content)
+    val contentAnalysis = contentProjector.analyze(content)
     return Memo(
         id = item.memoId,
         timestamp = item.memoTimestamp,
@@ -76,17 +79,19 @@ internal fun outboxSourceMemo(item: MemoFileOutboxEntity): Memo {
     )
 }
 
-internal fun MemoFileOutboxEntity.toLifecycleCommand(): MemoLifecycleCommand =
+internal fun MemoFileOutboxEntity.toLifecycleCommand(
+    contentProjector: MarkdownWorkspaceContentProjector,
+): MemoLifecycleCommand =
     when (operation) {
-        MemoFileOutboxOp.CREATE -> MemoLifecycleCommand.createMemo(outboxSourceMemo(this))
+        MemoFileOutboxOp.CREATE -> MemoLifecycleCommand.createMemo(outboxSourceMemo(this, contentProjector))
         MemoFileOutboxOp.UPDATE ->
             MemoLifecycleCommand.updateMemo(
-                sourceMemo = outboxSourceMemo(this),
+                sourceMemo = outboxSourceMemo(this, contentProjector),
                 targetContent = requireNotNull(newContent) { "UPDATE outbox requires newContent for memo $memoId" },
             )
-        MemoFileOutboxOp.DELETE -> MemoLifecycleCommand.deleteToTrash(outboxSourceMemo(this))
-        MemoFileOutboxOp.RESTORE -> MemoLifecycleCommand.restoreFromTrash(outboxSourceMemo(this))
-        MemoFileOutboxOp.PERMANENT_DELETE -> MemoLifecycleCommand.permanentDelete(outboxSourceMemo(this))
+        MemoFileOutboxOp.DELETE -> MemoLifecycleCommand.deleteToTrash(outboxSourceMemo(this, contentProjector))
+        MemoFileOutboxOp.RESTORE -> MemoLifecycleCommand.restoreFromTrash(outboxSourceMemo(this, contentProjector))
+        MemoFileOutboxOp.PERMANENT_DELETE -> MemoLifecycleCommand.permanentDelete(outboxSourceMemo(this, contentProjector))
         MemoFileOutboxOp.VERSION_RESTORE -> decodeRevisionRestoreOutboxCommand(this)
         MemoFileOutboxOp.CLEAR_TRASH_SHARD ->
             error("CLEAR_TRASH_SHARD is a shard-scoped row with no per-memo lifecycle command: $memoDate")

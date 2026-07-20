@@ -446,6 +446,7 @@
     <string name="update_dialog_message_with_version">A new version of Lomo (%1$s) is available.</string>
     <string name="update_dialog_release_notes">Release notes</string>
     <string name="update_dialog_release_notes_empty">No release notes were provided for this version.</string>
+    <string name="update_dialog_release_notes_failed">Release notes could not be rendered.</string>
     <string name="action_download">Download</string>
     <string name="action_open_download_page">Open download page</string>
     <string name="action_github_download">GitHub</string>
@@ -731,5 +732,11 @@
     <string name="recording_saved_notification_title">Recording saved</string>
     <string name="recording_saved_notification_text">Tap to edit</string>
     <string name="recording_saved_notification_action">Edit</string>
+
+    <string name="engine_recovery_title">Workspace is read-only</string>
+    <string name="engine_recovery_body">The Rust engine could not open this workspace for writing. Review the diagnostic, retry, or choose another workspace. There is no fallback that writes through the old Kotlin core.</string>
+    <string name="engine_recovery_code_label">Code: %1$s</string>
+    <string name="engine_recovery_retry">Retry</string>
+    <string name="engine_recovery_reselect">Choose workspace</string>
 
 </resources>

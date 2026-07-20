@@ -7,5 +7,5 @@ internal fun createMainReminderDoneClickAction(
     onReminderDone: (String, String) -> Unit,
 ): (ReminderMarker) -> Unit =
     { reminder ->
-        onReminderDone(memoId, reminder.raw)
+        onReminderDone(memoId, reminder.reference.opaqueId)
     }

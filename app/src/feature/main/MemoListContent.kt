@@ -190,7 +190,7 @@ private fun applyFeedImagePreloadPlan(
 internal fun MemoListItem(
     uiModel: MemoUiModel,
     bottomSpacing: androidx.compose.ui.unit.Dp,
-    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     onReminderClick: (com.lomo.domain.model.ReminderMarker) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -208,7 +208,9 @@ internal fun MemoListItem(
 ) {
     val stableTodoClick =
         remember(uiModel.memo, onTodoClick) {
-            { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
+            { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
+                onTodoClick(uiModel.memo, actionSpan)
+            }
         }
     val stableImageClick =
         remember(uiModel.imageUrls, onImageClick) {

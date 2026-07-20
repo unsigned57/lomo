@@ -1,0 +1,18 @@
+product:
+  type: lib
+  platforms: [ android ]
+
+settings:
+  android:
+    namespace: com.lomo.nativebridge
+    minSdk: 26
+    compileSdk: 37
+  jvm:
+    release: 25
+    jdk:
+      version: 26
+      selectionMode: javaHome
+  kotlin:
+    allWarningsAsErrors: true
+
+dependencies: []

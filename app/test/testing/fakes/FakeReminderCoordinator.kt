@@ -13,19 +13,28 @@ class FakeReminderCoordinator : ReminderCoordinator {
 
     override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
 
-    override suspend fun syncForMemo(memoId: String, content: String) = Unit
+    override suspend fun syncForMemo(memoId: String) = Unit
 
     override suspend fun cancelForMemo(memoId: String) = Unit
 
     override suspend fun rebuildAll() = Unit
 
-    override suspend fun snooze(memoId: String, tokenRaw: String) = Unit
+    override suspend fun snooze(
+        memoId: String,
+        reminderId: String,
+    ) = Unit
 
-    override suspend fun markDone(memoId: String, tokenRaw: String) {
+    override suspend fun markDone(
+        memoId: String,
+        reminderId: String,
+    ) {
         lastMarkedDoneMemoId = memoId
-        lastMarkedDoneTokenRaw = tokenRaw
+        lastMarkedDoneTokenRaw = reminderId
         markDoneCalledCount++
     }
 
-    override suspend fun recordFired(memoId: String, tokenRaw: String) = Unit
+    override suspend fun recordFired(
+        memoId: String,
+        reminderId: String,
+    ) = Unit
 }

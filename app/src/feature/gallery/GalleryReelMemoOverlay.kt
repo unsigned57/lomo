@@ -57,7 +57,6 @@ private val GALLERY_REEL_PANEL_COMPACT_HORIZONTAL_INSET = 16.dp
 private val GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_HORIZONTAL = 16.dp
 private val GALLERY_REEL_PANEL_COMPACT_PILL_PADDING_VERTICAL = 8.dp
 private val GALLERY_REEL_PANEL_COMPACT_ROW_SPACING = 8.dp
-private val GALLERY_REEL_MARKDOWN_IMAGE_REGEX = Regex("!\\[.*?\\]\\(.*?\\)")
 
 private enum class GalleryReelPanelMode {
     Content,
@@ -69,7 +68,7 @@ fun GalleryReelMemoOverlay(
     memo: MemoUiModel,
     dateFormat: String,
     timeFormat: String,
-    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     modifier: Modifier = Modifier,
     showMemoDetails: Boolean = true,
     imageIndicator: GalleryReelImageIndicatorState? = null,
@@ -96,9 +95,9 @@ private fun rememberGalleryReelPanelMode(
     memo: MemoUiModel,
     showMemoDetails: Boolean,
 ): GalleryReelPanelMode {
-    val rawContent = memo.processedContent.ifBlank { memo.memo.content }
-    return remember(rawContent, memo.tags, showMemoDetails) {
-        if (showMemoDetails && galleryReelHasDisplayContent(rawContent, memo.tags)) {
+    val plainText = memo.renderDocument.plainText
+    return remember(plainText, memo.tags, showMemoDetails) {
+        if (showMemoDetails && galleryReelHasDisplayContent(plainText, memo.tags)) {
             GalleryReelPanelMode.Content
         } else {
             GalleryReelPanelMode.Compact
@@ -107,9 +106,9 @@ private fun rememberGalleryReelPanelMode(
 }
 
 private fun galleryReelHasDisplayContent(
-    rawContent: String,
+    plainText: String,
     tags: List<String>,
-): Boolean = galleryReelTextContent(rawContent).isNotBlank() || tags.isNotEmpty()
+): Boolean = plainText.isNotBlank() || tags.isNotEmpty()
 
 @Composable
 private fun GalleryReelPanelSurface(
@@ -118,7 +117,7 @@ private fun GalleryReelPanelSurface(
     timeFormat: String,
     panelTransition: Transition<GalleryReelPanelMode>,
     showMemoDetails: Boolean,
-    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
     modifier: Modifier = Modifier,
     imageIndicator: GalleryReelImageIndicatorState? = null,
 ) {
@@ -229,7 +228,7 @@ private fun GalleryReelTextPanelContent(
     dateFormat: String,
     timeFormat: String,
     imageIndicator: GalleryReelImageIndicatorState?,
-    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -255,16 +254,14 @@ private fun GalleryReelTextPanelContent(
                 GalleryReelImageDots(state = state)
             }
         }
-        val content = rememberGalleryReelTextContent(memo)
-        if (content.isNotBlank()) {
+        if (memo.renderDocument.plainText.isNotBlank()) {
             val stableTodoClick = remember(memo.memo, onTodoClick) {
-                { lineIndex: Int, checked: Boolean ->
-                    onTodoClick(memo.memo, lineIndex, checked)
+                { actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan ->
+                    onTodoClick(memo.memo, actionSpan)
                 }
             }
             MarkdownRenderer(
-                content = content,
-                knownTagsToStrip = memo.tags,
+                document = memo.renderDocument,
                 onTodoClick = stableTodoClick,
                 modifier = Modifier.fillMaxWidth(),
                 mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,
@@ -319,19 +316,6 @@ private fun GalleryReelCompactPillContent(
         }
     }
 }
-
-@Composable
-private fun rememberGalleryReelTextContent(memo: MemoUiModel): String {
-    val rawContent = memo.processedContent.ifBlank { memo.memo.content }
-    return remember(rawContent) {
-        rawContent
-    }
-}
-
-private fun galleryReelTextContent(rawContent: String): String =
-    rawContent
-        .replace(GALLERY_REEL_MARKDOWN_IMAGE_REGEX, "")
-        .trim()
 
 @Composable
 private fun GalleryReelMemoMeta(

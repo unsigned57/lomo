@@ -135,7 +135,7 @@ class GalleryScreenDisplayStateTest : AppFunSpec() {
                     imageUrls = listOf(imageUrl),
                 ),
             processedContent = id,
-            precomputedRenderPlan = null,
+            renderDocument = com.lomo.app.testing.fakes.emptyRenderDocument(),
             tags = persistentListOf(),
             imageUrls = persistentListOf(imageUrl),
         )

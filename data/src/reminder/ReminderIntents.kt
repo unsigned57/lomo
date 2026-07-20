@@ -6,6 +6,6 @@ internal object ReminderIntents {
     const val ACTION_SNOOZE = "com.lomo.reminder.action.SNOOZE"
     const val ACTION_DONE = "com.lomo.reminder.action.DONE"
     const val EXTRA_MEMO_ID = "memo_id"
-    const val EXTRA_TOKEN_RAW = "token_raw"
+    const val EXTRA_REMINDER_ID = "reminder_id"
     const val NOTIFICATION_CHANNEL_ID = "lomo.reminder"
 }

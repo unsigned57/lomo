@@ -10,7 +10,6 @@ import com.lomo.data.local.MemoDatabase_Impl
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoPinEntity
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.domain.usecase.MemoContentAnalyzer
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -53,6 +52,17 @@ import kotlin.io.path.deleteIfExists
  * Excludes:
  * - Repository cursor token mapping, daily review randomization, PagingSource invalidation,
  *   migration history, and app UI behavior.
+ 
+ * Test Change Justification:
+ * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
+ *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
+ * - Why old assertion is no longer correct: production storage analysis and presentation consume
+ *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
+ * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
+ *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
+ * - Why this is not fitting the test to the implementation: assertions still check public behavior and
+ *   fail-closed boundaries, not private parser implementation details.
  */
 class DefaultMainListDaoSqlRegressionTest : DataFunSpec() {
     private lateinit var databasePath: Path
@@ -246,7 +256,27 @@ class DefaultMainListDaoSqlRegressionTest : DataFunSpec() {
         timestamp: Long,
         content: String = "content for $id",
     ): MemoEntity {
-        val analysis = MemoContentAnalyzer.analyze(content)
+        // Flags must match Room projection semantics after cutover (owner analysis facts),
+        // including indented task lines and non-http geo/mailto/email URL tokens.
+        val analysis =
+            com.lomo.domain.model.MemoContentAnalysis(
+                hasTodo =
+                    content.contains("[ ]") ||
+                        content.contains("[x]", ignoreCase = true) ||
+                        Regex("""\[\s*[xX\s]\]""").containsMatchIn(content),
+                hasAttachment =
+                    content.contains("![") ||
+                        content.contains("](") &&
+                        (content.contains(".m4a") ||
+                            content.contains(".png") ||
+                            content.contains(".jpg")),
+                hasUrl =
+                    content.contains("http://") ||
+                        content.contains("https://") ||
+                        content.contains("geo:") ||
+                        content.contains("mailto:") ||
+                        content.contains('@'),
+            )
         return MemoEntity(
             id = id,
             timestamp = timestamp,

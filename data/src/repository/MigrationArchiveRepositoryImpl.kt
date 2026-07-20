@@ -21,6 +21,7 @@ constructor(
         private val settingsStore: MigrationSettingsStore,
         private val importBudgets: MigrationArchiveImportBudgets,
         private val stagingWorkspaceFactory: MigrationArchiveStagingWorkspaceFactory,
+        private val writeAuthority: WorkspaceWriteAuthority,
     ) : MigrationArchiveRepository {
         private val dryRunPlanner = MigrationArchiveDryRunPlanner(importBudgets)
         override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary {
@@ -93,6 +94,7 @@ constructor(
             }
         }
         override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary {
+            writeAuthority.requireWritable()
             val archiveFile = stageCompressedArchive(input)
             return try {
                 val plan =

@@ -7,10 +7,7 @@ interface ReminderCoordinator {
 
     suspend fun setGlobalIntervalMillis(millis: Long)
 
-    suspend fun syncForMemo(
-        memoId: String,
-        content: String,
-    )
+    suspend fun syncForMemo(memoId: String)
 
     suspend fun cancelForMemo(memoId: String)
 
@@ -18,16 +15,16 @@ interface ReminderCoordinator {
 
     suspend fun snooze(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     )
 
     suspend fun markDone(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     )
 
     suspend fun recordFired(
         memoId: String,
-        tokenRaw: String,
+        reminderId: String,
     )
 }

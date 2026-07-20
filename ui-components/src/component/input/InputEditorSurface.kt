@@ -2,6 +2,7 @@ package com.lomo.ui.component.input
 
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.TextFieldValue
+import com.lomo.ui.component.markdown.MarkdownRenderState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -71,7 +72,7 @@ data class InputEditorRecordingState(
 
 data class InputEditorSurfaceState(
     val inputValue: TextFieldValue,
-    val previewContent: String? = null,
+    val previewState: MarkdownRenderState,
     val focusRequestToken: Long = 0L,
     val isExpanded: Boolean = false,
     val displayMode: InputEditorDisplayMode = InputEditorDisplayMode.Edit,

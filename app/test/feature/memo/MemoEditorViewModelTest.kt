@@ -322,7 +322,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             dateKey = "2026_03_24",
         )
 
-    class FakeCreateMemoUseCase : CreateMemoUseCase(mockk(), mockk(), mockk()) {
+    class FakeCreateMemoUseCase : CreateMemoUseCase(mockk(), mockk(), mockk(), mockk(), mockk()) {
         var createMemoCalledWithContent: String? = null
         var createMemoCalledWithTimestamp: Long? = null
         var createMemoException: Throwable? = null

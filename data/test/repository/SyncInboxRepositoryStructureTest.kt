@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
+
 /**
  * Behavior Contract:
  * Capability: Kotest Migration
@@ -167,9 +169,12 @@ class SyncInboxRepositoryStructureTest : DataFunSpec() {
                         refreshEngine = refreshEngine,
                         mutationHandler = mutationHandler,
                         outboxScope = immediateTestBackgroundScope(),
+                        writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
                         startOutboxCoordinator = false,
                     ),
                 pendingReviewStore = pendingReviewStore,
+                writeAuthority = WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
+                contentProjector = com.lomo.data.testing.fakes.fakeMarkdownWorkspaceContentProjector(),
             )
     }
 
