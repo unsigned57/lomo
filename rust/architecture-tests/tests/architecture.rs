@@ -16,6 +16,11 @@
 //!   only engine owner, the native facade depends inward on it, production Kotlin imports native
 //!   bindings only from `data`, `BoltFFI` is the only transport, unused optional wire codecs are
 //!   disabled, and the stage-0 probe protocol is gone.
+//! - Given `lomo-store` sources and manifests, when layout is inspected, then schema stays a single
+//!   live version surface, Room-style migration/dao/legacy trees are absent, `rusqlite` ownership is
+//!   limited to the store owner (and tooling probes), native store FFI stays conversion-only, and
+//!   required external behavior-contract tests exist so fail-closed/rebuild strategy cannot silently
+//!   regress into device-side migration archaeology.
 //! - Given version-controlled Kotlin and resource sources, when their paths are inspected, then
 //!   only Amper-native roots are used and Maven-style layout declarations are absent.
 //! - Given meaningful-test fixtures, when their storage paths are inspected, then fixed phase and
@@ -30,9 +35,8 @@
 //! execution beyond Git file ownership queries.
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
     clippy::too_many_lines,
     reason = "architecture gate harness fails closed with panics on missing repository structure"
 )]
@@ -58,9 +62,11 @@ mod tests {
 
     fn contains_identifier(text: &str, identifier: &str) -> bool {
         text.match_indices(identifier).any(|(start, _)| {
-            let before = text[..start].chars().next_back();
+            let before = text
+                .get(..start)
+                .and_then(|prefix| prefix.chars().next_back());
             let end = start + identifier.len();
-            let after = text[end..].chars().next();
+            let after = text.get(end..).and_then(|suffix| suffix.chars().next());
             let is_identifier_char =
                 |character: char| character == '_' || character.is_alphanumeric();
             before.is_none_or(|character| !is_identifier_char(character))
@@ -92,13 +98,63 @@ mod tests {
             .collect()
     }
 
+    fn read_toolchain_channel() -> String {
+        let toolchain = read("rust/rust-toolchain.toml");
+        let mut in_toolchain = false;
+        for line in toolchain.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_toolchain = line == "[toolchain]";
+                continue;
+            }
+            if !in_toolchain {
+                continue;
+            }
+            if let Some(value) = line.strip_prefix("channel") {
+                let value = value
+                    .trim()
+                    .trim_start_matches('=')
+                    .trim()
+                    .trim_matches('"');
+                return value.to_owned();
+            }
+        }
+        panic!("rust/rust-toolchain.toml missing [toolchain] channel");
+    }
+
+    fn msrv_from_channel(channel: &str) -> String {
+        let mut parts = channel.split('.');
+        let major = parts.next().expect("major");
+        let minor = parts.next().expect("minor");
+        format!("{major}.{minor}")
+    }
+
     #[test]
     fn workspace_inherits_pinned_governance() {
         let manifest = read("rust/Cargo.toml");
         let toolchain = read("rust/rust-toolchain.toml");
+        let channel = read_toolchain_channel();
+        let msrv = msrv_from_channel(&channel);
+        let rust_version_line = format!("rust-version = \"{msrv}\"");
+        let channel_line = format!("channel = \"{channel}\"");
+
+        assert!(
+            !matches!(channel.as_str(), "stable" | "beta" | "nightly")
+                && !channel.starts_with("nightly-")
+                && !channel.starts_with("beta-")
+                && !channel.starts_with("stable-"),
+            "channel must be an exact x.y or x.y.z pin, got {channel}"
+        );
+        assert!(
+            manifest.contains(&rust_version_line),
+            "workspace rust-version must match toolchain channel msrv: expected {rust_version_line}"
+        );
+        assert!(
+            toolchain.contains(&channel_line),
+            "toolchain missing {channel_line}"
+        );
 
         for required in [
-            "rust-version = \"1.96\"",
             "license = \"GPL-3.0-only\"",
             "warnings = \"deny\"",
             "unsafe_code = \"deny\"",
@@ -117,7 +173,6 @@ mod tests {
         }
 
         for required in [
-            "channel = \"1.96\"",
             "rustfmt",
             "clippy",
             "llvm-tools-preview",
@@ -131,35 +186,45 @@ mod tests {
                 "toolchain is missing {required}"
             );
         }
+
+        let tools_rs = read("rust/xtask/src/tools.rs");
+        assert!(
+            tools_rs.contains("rust_pin::load"),
+            "xtask tools.rs must load the channel via rust_pin::load"
+        );
+        assert!(
+            !tools_rs.contains("cargo_plus_toolchain().as_str()")
+                || tools_rs.contains("let plus = rust.cargo_plus_toolchain()"),
+            "xtask tools.rs must keep cargo +toolchain strings owned long enough for Command::args"
+        );
+        let rust_pin = read("rust/xtask/src/rust_pin.rs");
+        assert!(
+            rust_pin.contains("rust-toolchain.toml") && rust_pin.contains("pub fn bump"),
+            "rust_pin must own the toolchain channel source and bump entrypoint"
+        );
     }
 
     #[test]
     fn native_facade_is_unique_and_tooling_is_not_a_production_dependency() {
-        let workspace = read("rust/Cargo.toml");
-        let native = read("rust/native/Cargo.toml");
-        let sync_core = read("rust/sync-core/Cargo.toml");
-        let feasibility = read("rust/feasibility/Cargo.toml");
+        assert_workspace_lists_native_and_tooling_members();
+        assert_native_manifest_is_conversion_facade_only();
+        assert_feasibility_tooling_is_non_production();
+    }
 
-        assert!(
-            workspace.contains("\"native\""),
-            "native facade is not a workspace member"
-        );
-        assert!(
-            workspace.contains("\"xtask\""),
-            "xtask is not a workspace member"
-        );
-        assert!(
-            workspace.contains("\"architecture-tests\""),
-            "architecture tests are not a workspace member"
-        );
-        assert!(
-            workspace.contains("\"feasibility\""),
-            "feasibility tooling crate is not a workspace member"
-        );
-        assert!(
-            workspace.contains("\"feasibility-device\""),
-            "feasibility-device linked tooling crate is not a workspace member"
-        );
+    fn assert_workspace_lists_native_and_tooling_members() {
+        let workspace = read("rust/Cargo.toml");
+        for member in [
+            "\"native\"",
+            "\"xtask\"",
+            "\"architecture-tests\"",
+            "\"feasibility\"",
+            "\"feasibility-device\"",
+        ] {
+            assert!(
+                workspace.contains(member),
+                "workspace is missing member {member}"
+            );
+        }
         assert!(
             !repository_root().join("rust/sync-ffi").exists(),
             "old sync-ffi facade remains"
@@ -168,14 +233,30 @@ mod tests {
             !repository_root().join("rust/uniffi-bindgen").exists(),
             "standalone bindgen tooling tail remains"
         );
+    }
+
+    fn assert_native_manifest_is_conversion_facade_only() {
+        let native = read("rust/native/Cargo.toml");
+        let sync_core = read("rust/sync-core/Cargo.toml");
         assert!(native.contains("name = \"lomo-native\""));
         assert!(native.contains("crate-type = [\"staticlib\", \"rlib\"]"));
         assert!(native.contains("lomo-sync-core"));
-        assert!(!native.contains("lomo-xtask"));
-        assert!(!native.contains("lomo-architecture-tests"));
-        assert!(!native.contains("lomo-feasibility"));
-        assert!(!native.contains("lomo-feasibility-device"));
+        for forbidden in [
+            "lomo-xtask",
+            "lomo-architecture-tests",
+            "lomo-feasibility",
+            "lomo-feasibility-device",
+        ] {
+            assert!(
+                !native.contains(forbidden),
+                "native facade must not depend on tooling crate {forbidden}"
+            );
+        }
         assert!(!sync_core.contains("lomo-feasibility"));
+    }
+
+    fn assert_feasibility_tooling_is_non_production() {
+        let feasibility = read("rust/feasibility/Cargo.toml");
         assert!(feasibility.contains("name = \"lomo-feasibility\""));
         assert!(feasibility.contains("publish = false"));
         let feasibility_device = read("rust/feasibility-device/Cargo.toml");
@@ -251,6 +332,7 @@ mod tests {
             "native",
             "perf",
             "preflight",
+            "rust-toolchain-bump",
             "test",
         ]
         .into_iter()
@@ -731,7 +813,17 @@ mod tests {
 
     #[test]
     fn stage_two_dark_build_must_not_wire_production_dual_stack() {
-        // Conversion-only native facade is required before and after cutover.
+        assert_native_markdown_facade_is_conversion_only();
+        assert_data_does_not_import_workspace_owner_ir();
+        let memo_module = read("data/src/di/MemoRepositoryModule.kt");
+        if stage_two_markdown_cutover_complete() {
+            assert_post_markdown_cutover_production_di(&memo_module);
+        } else {
+            assert_pre_markdown_cutover_dark_build_bounds(&memo_module);
+        }
+    }
+
+    fn assert_native_markdown_facade_is_conversion_only() {
         let native = read("rust/native/Cargo.toml");
         assert!(
             native.contains("lomo-workspace"),
@@ -756,8 +848,9 @@ mod tests {
                 || native_lib.contains("render_markdown(&source)"),
             "lomo-native must call the workspace owner for render conversion"
         );
+    }
 
-        // data must never import Rust crate names or raw owner IR type tokens (bridge DTOs only).
+    fn assert_data_does_not_import_workspace_owner_ir() {
         for source in kotlin_sources(&repository_root().join("data/src")) {
             let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
             assert!(
@@ -773,42 +866,38 @@ mod tests {
                 );
             }
         }
+    }
 
-        let memo_module = read("data/src/di/MemoRepositoryModule.kt");
-        if stage_two_markdown_cutover_complete() {
-            // After P2-09 atomic cutover: sole production owner is Rust via workspace projector.
-            for forbidden in ["MarkdownParser", "MemoTextProcessor", "markdownParser"] {
+    fn assert_post_markdown_cutover_production_di(memo_module: &str) {
+        for forbidden in ["MarkdownParser", "MemoTextProcessor", "markdownParser"] {
+            assert!(
+                !memo_module.contains(forbidden),
+                "post-cutover production DI must not bind legacy Markdown authority: {forbidden}"
+            );
+        }
+        assert!(
+            memo_module.contains("MarkdownWorkspaceContentProjector")
+                || memo_module.contains("MarkdownWorkspaceRepository"),
+            "post-cutover production DI must bind the workspace content projector/repository"
+        );
+        for relative in ["app/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
                 assert!(
-                    !memo_module.contains(forbidden),
-                    "post-cutover production DI must not bind legacy Markdown authority: {forbidden}"
+                    !text.contains("lomo_workspace"),
+                    "production Kotlin must not import Rust crate names: {}",
+                    source.display()
+                );
+                assert!(
+                    !contains_identifier(&text, "RenderDocumentV1"),
+                    "production Kotlin must use domain IR, not Rust RenderDocumentV1: {}",
+                    source.display()
                 );
             }
-            assert!(
-                memo_module.contains("MarkdownWorkspaceContentProjector")
-                    || memo_module.contains("MarkdownWorkspaceRepository"),
-                "post-cutover production DI must bind the workspace content projector/repository"
-            );
-            // Kotlin may consume domain MarkdownRender* IR types; must not re-own parsers.
-            for relative in ["app/src", "domain/src", "ui-components/src"] {
-                for source in kotlin_sources(&repository_root().join(relative)) {
-                    let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
-                    assert!(
-                        !text.contains("lomo_workspace"),
-                        "production Kotlin must not import Rust crate names: {}",
-                        source.display()
-                    );
-                    assert!(
-                        !contains_identifier(&text, "RenderDocumentV1"),
-                        "production Kotlin must use domain IR, not Rust RenderDocumentV1: {}",
-                        source.display()
-                    );
-                }
-            }
-            return;
         }
+    }
 
-        // Pre-cutover dark-build: production Kotlin outside data must not consume workspace IR yet,
-        // and DI must still bind Kotlin MarkdownParser as the sole live authority.
+    fn assert_pre_markdown_cutover_dark_build_bounds(memo_module: &str) {
         for relative in ["app/src", "domain/src", "ui-components/src"] {
             for source in kotlin_sources(&repository_root().join(relative)) {
                 let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
@@ -868,6 +957,17 @@ mod tests {
                     "MarkdownParser(",
                     "JetBrainsMarkdownParser",
                     "parseMarkdownSemanticDocument",
+                    // Residual dual-authority bans (post-P2 cleanup)
+                    "MarkdownBlockParser",
+                    "MarkdownInlineScanner",
+                    "ShareAttachmentMarkdownRemapSession",
+                    "fun canonicalToken(",
+                    "linkifyBareUrls(",
+                    "contentFromRawMemoSource",
+                    // A-RES-013: production must not re-own memo-block segmentation for conflict write-back
+                    "fun splitMemoBlocks(",
+                    "private fun splitMemoBlocks(",
+                    "mergeSharedTimestampMemoBlocks(",
                 ] {
                     assert!(
                         !text.contains(forbidden),
@@ -910,6 +1010,697 @@ mod tests {
                 || memo_module.contains("MarkdownWorkspaceRepository"),
             "post-cutover production DI must bind workspace Markdown owner adapter"
         );
+    }
+
+    #[test]
+    fn stage_three_contract_and_evidence_files_exist() {
+        let contract = repository_root().join("fixtures/baseline/STAGE3-CONTRACT.md");
+        let evidence = repository_root().join("fixtures/baseline/STAGE3-EVIDENCE.md");
+        assert!(
+            contract.exists(),
+            "stage 3 requires versioned fixtures/baseline/STAGE3-CONTRACT.md"
+        );
+        assert!(
+            evidence.exists(),
+            "stage 3 requires versioned fixtures/baseline/STAGE3-EVIDENCE.md"
+        );
+
+        let contract_text = read("fixtures/baseline/STAGE3-CONTRACT.md");
+        for required in [
+            "Capability",
+            "Given",
+            "When",
+            "Then",
+            "Observable outcomes",
+            "Excludes",
+            "RED",
+            "GREEN",
+            "Markdown",
+            ".lomo",
+            "SQLite",
+            "rebuildable",
+            "half-success",
+            "rebuild",
+            "write",
+            "sync",
+            "Kotlin never opens SQLite",
+            "UnicodeBlock",
+            "CJK",
+            "unigram",
+            "PageCursor",
+            "stale",
+            "dual-stack",
+            "Room",
+            "dark-build",
+            "AlarmManager",
+            "API ≥ 26",
+            "arm64",
+            "lomo-store",
+            "stage-2 formal exit",
+        ] {
+            assert!(
+                contract_text.contains(required),
+                "STAGE3-CONTRACT.md is missing required lock text: {required}"
+            );
+        }
+
+        let evidence_text = read("fixtures/baseline/STAGE3-EVIDENCE.md");
+        for required in [
+            "P3-00",
+            "RED command",
+            "GREEN command",
+            "Stage 2 closed",
+            "First principles",
+        ] {
+            assert!(
+                evidence_text.contains(required),
+                "STAGE3-EVIDENCE.md is missing required evidence text: {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn stage_three_requires_lomo_store_owner() {
+        let workspace = read("rust/Cargo.toml");
+        let owner_manifest = repository_root().join("rust/store/Cargo.toml");
+        assert!(
+            owner_manifest.exists(),
+            "stage 3 requires the real lomo-store owner crate"
+        );
+        let owner = read("rust/store/Cargo.toml");
+        assert!(
+            workspace.contains("\"store\""),
+            "lomo-store is not a workspace member"
+        );
+        assert!(
+            owner.contains("name = \"lomo-store\""),
+            "store crate has the wrong identity"
+        );
+        assert!(
+            owner.contains("publish = false"),
+            "lomo-store must not be published"
+        );
+        assert!(
+            owner.contains("lomo-core") || owner.contains("lomo_core"),
+            "lomo-store must depend inward on lomo-core"
+        );
+        assert!(
+            !owner.contains("boltffi")
+                && !owner.contains("reqwest")
+                && !owner.contains("git2")
+                && !owner.contains("lomo-sync-core")
+                && !owner.contains("lomo-feasibility")
+                && !owner.contains("lomo-xtask")
+                && !owner.contains("lomo-native"),
+            "lomo-store must stay free of platform, sync-wire, facade, and tooling dependencies"
+        );
+
+        let lib = repository_root().join("rust/store/src/lib.rs");
+        assert!(
+            lib.exists(),
+            "lomo-store must expose real production sources (not an empty marker)"
+        );
+        let lib_text = read("rust/store/src/lib.rs");
+        assert!(
+            !lib_text.trim().is_empty(),
+            "lomo-store lib.rs must not be empty"
+        );
+        assert!(
+            lib_text.contains("STORE_SCHEMA_VERSION") || lib_text.contains("StoreOwnerIdentity"),
+            "lomo-store must expose owner-identity surface (schema version or StoreOwnerIdentity)"
+        );
+
+        let tests_root = repository_root().join("rust/store/tests");
+        assert!(
+            tests_root.exists(),
+            "lomo-store must ship behavior tests under tests/"
+        );
+
+        let mut test_sources = String::new();
+        let mut test_file_count = 0usize;
+        for entry in fs::read_dir(&tests_root).expect("store tests") {
+            let entry = entry.expect("tests entry");
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                test_file_count += 1;
+                test_sources.push_str(&fs::read_to_string(&path).expect("utf-8 test"));
+                test_sources.push('\n');
+            }
+        }
+        assert!(
+            test_file_count >= 1,
+            "lomo-store must ship at least one external behavior test file, found {test_file_count}"
+        );
+        assert!(
+            test_sources.contains("#[test]"),
+            "external store tests must contain real #[test] cases"
+        );
+        assert!(
+            test_sources.contains("StoreOwnerIdentity")
+                || test_sources.contains("STORE_SCHEMA_VERSION")
+                || test_sources.contains("CRATE_NAME"),
+            "external store tests must exercise the shipped public owner-identity surface"
+        );
+    }
+
+    #[test]
+    fn stage_two_formal_exit_is_recorded_before_stage_three_green_claims() {
+        let stage2 = read("fixtures/baseline/STAGE2-EVIDENCE.md");
+        assert!(
+            stage2.contains("Stage 2 closed") || stage2.contains("stage 2 closed"),
+            "STAGE2-EVIDENCE.md must record formal stage-2 exit before stage-3 GREEN claims"
+        );
+
+        let stage3_evidence = repository_root().join("fixtures/baseline/STAGE3-EVIDENCE.md");
+        if stage3_evidence.exists() {
+            let evidence = read("fixtures/baseline/STAGE3-EVIDENCE.md");
+            let claims_green =
+                evidence.contains("GREEN result") || evidence.contains("GREEN command");
+            if claims_green {
+                assert!(
+                    stage2.contains("Stage 2 closed") || stage2.contains("stage 2 closed"),
+                    "stage-3 evidence must not claim GREEN while stage-2 formal exit is unrecorded"
+                );
+                assert!(
+                    evidence.contains("Stage 2 closed")
+                        || evidence.contains("stage-2 formal exit")
+                        || evidence.contains("STAGE2-EVIDENCE"),
+                    "stage-3 evidence must cite stage-2 formal exit as entry prerequisite"
+                );
+            }
+            if stage_three_store_cutover_complete() {
+                // Post cutover: stage-close claims remain forbidden until P3-11 exit is recorded.
+                for claim in [
+                    "Status: stage 3 closed",
+                    "stage 3 is closed",
+                    "stage 3 closed for stage 4",
+                ] {
+                    assert!(
+                        !evidence.contains(claim),
+                        "stage-3 evidence must not claim full stage close before P3-11 exit: {claim}"
+                    );
+                }
+            } else {
+                let forbidden_claims = [
+                    "production dual-stack GREEN",
+                    "P3-10 GREEN",
+                    "Status: stage 3 closed",
+                    "stage 3 is closed",
+                    "stage 3 closed for stage 4",
+                    "Room tail deletion GREEN",
+                ];
+                for claim in forbidden_claims {
+                    assert!(
+                        !evidence.contains(claim),
+                        "stage-3 evidence must not claim production dual-stack switch, Room tail deletion, or stage close early: {claim}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// True when Room production owners are deleted and DI binds store adapters (P3-10).
+    fn stage_three_store_cutover_complete() -> bool {
+        let root = repository_root();
+        !root.join("data/src/local/MemoDatabase.kt").exists()
+            && !root.join("data/src/util/SearchTokenizer.kt").exists()
+            && !root
+                .join("data/src/repository/MemoQueryRepositoryImpl.kt")
+                .exists()
+            && {
+                let memo_module = read("data/src/di/MemoRepositoryModule.kt");
+                memo_module.contains("StoreMemoQueryRepository")
+                    || memo_module.contains("StorePort")
+                    || memo_module.contains("BoltFfiStorePort")
+            }
+    }
+
+    #[test]
+    fn stage_three_dark_build_must_not_wire_production_dual_stack() {
+        // Conversion-only native facade is required before and after cutover.
+        let native = read("rust/native/Cargo.toml");
+        assert!(
+            native.contains("lomo-store") || native.contains("path = \"../store\""),
+            "P3-09+ requires lomo-native conversion-only dependency on lomo-store"
+        );
+        let native_lib = read("rust/native/src/lib.rs");
+        assert!(
+            native_lib.contains("query_memos")
+                && native_lib.contains("get_memo")
+                && native_lib.contains("apply_memo_command")
+                && native_lib.contains("query_reminder_plan")
+                && native_lib.contains("apply_reminder_command")
+                && native_lib.contains("start_rebuild"),
+            "store/reminder/rebuild methods required on the BoltFFI LomoEngine surface"
+        );
+
+        // Production Kotlin must not import Rust store crate names or dual-write feature flags.
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                assert!(
+                    !text.contains("lomo_store") && !text.contains("lomo-store"),
+                    "production Kotlin must not import Rust store crate names: {}",
+                    source.display()
+                );
+                for forbidden in [
+                    "use_rust_store",
+                    "USE_RUST_STORE",
+                    "dualWriteStore",
+                    "dual_write_store",
+                    "RoomAndRustStore",
+                    "rustStoreEnabled",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "production dual-stack / feature-flag store path forbidden: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+
+        let database_module = read("data/src/di/DatabaseModule.kt");
+        let memo_module = read("data/src/di/MemoRepositoryModule.kt");
+        if stage_three_store_cutover_complete() {
+            // After P3-10: sole production owner is Rust store via data adapters.
+            for forbidden in [
+                "Room.databaseBuilder",
+                "androidx.room3",
+                "MemoDatabase",
+                "MemoQueryRepositoryImpl",
+            ] {
+                assert!(
+                    !database_module.contains(forbidden) && !memo_module.contains(forbidden),
+                    "post-cutover production DI must not bind Room residual: {forbidden}"
+                );
+            }
+            assert!(
+                memo_module.contains("StoreMemoQueryRepository")
+                    || memo_module.contains("StorePort")
+                    || memo_module.contains("BoltFfiStorePort"),
+                "post-cutover production DI must bind store port / store memo repositories"
+            );
+            return;
+        }
+
+        // Pre-cutover dark-build: Room remains sole live production persistence.
+        assert!(
+            database_module.contains("Room.databaseBuilder")
+                || database_module.contains("androidx.room3.Room"),
+            "production DatabaseModule must still bind Room until P3-10 cutover"
+        );
+        assert!(
+            !memo_module.contains("lomo_store")
+                && !memo_module.contains("LomoStore")
+                && !memo_module.contains("RustStore"),
+            "production MemoRepositoryModule must not bind Rust store authority during dark-build"
+        );
+        assert!(
+            memo_module.contains("MemoQueryRepositoryImpl")
+                || database_module.contains("MemoDatabase"),
+            "production query/persistence path must remain Room-backed until P3-10"
+        );
+    }
+
+    #[test]
+    fn stage_three_production_store_owner_is_unique_after_cutover() {
+        if !stage_three_store_cutover_complete() {
+            return;
+        }
+
+        let forbidden_sources = [
+            "data/src/local/MemoDatabase.kt",
+            "data/src/util/SearchTokenizer.kt",
+            "data/src/util/IndexedTextLines.kt",
+            "data/src/repository/MemoQueryRepositoryImpl.kt",
+            "data/src/repository/MemoSearchRepositoryImpl.kt",
+            "data/src/repository/MemoFtsQueryBuilder.kt",
+            "data/src/repository/MemoVersionJournal.kt",
+            "data/src/repository/MemoSynchronizer.kt",
+            "data/src/engine/store/DarkBuildStorePort.kt",
+        ];
+        for relative in forbidden_sources {
+            assert!(
+                !repository_root().join(relative).exists(),
+                "legacy Room/local-data owner remains after P3-10 cutover: {relative}"
+            );
+        }
+
+        let data_manifest = read("data/module.yaml");
+        for forbidden in [
+            "androidx.room3",
+            "room3-runtime",
+            "room3-paging",
+            "room3-compiler",
+            "sqlite-bundled",
+        ] {
+            assert!(
+                !data_manifest.contains(forbidden),
+                "Room/SQLite Android dependency remains after P3-10: {forbidden}"
+            );
+        }
+
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                for forbidden in [
+                    "androidx.room3",
+                    "Room.databaseBuilder",
+                    "SearchTokenizer",
+                    "MemoFtsQueryBuilder",
+                    "MemoQueryRepositoryImpl",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "Room/tokenizer residual `{forbidden}` remains after P3-10 cutover: {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+        // JVM UnicodeBlock must not re-own search tokenization in data (layout helpers in
+        // ui-components may still use UnicodeBlock for presentation line-break/script rules).
+        for source in kotlin_sources(&repository_root().join("data/src")) {
+            let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+            assert!(
+                !text.contains("Character.UnicodeBlock") && !text.contains("SearchTokenizer"),
+                "data must not re-own JVM tokenizer authority after P3-10: {}",
+                source.display()
+            );
+        }
+
+        let memo_module = read("data/src/di/MemoRepositoryModule.kt");
+        assert!(
+            memo_module.contains("StoreMemoQueryRepository")
+                || memo_module.contains("BoltFfiStorePort")
+                || memo_module.contains("StorePort"),
+            "post-cutover production DI must bind store owner adapter"
+        );
+    }
+
+    /// Blocks infinite device-side migration archaeology (Room `Migration_*` / dao / legacy trees).
+    #[test]
+    fn store_forbids_room_style_migration_layout() {
+        let store_root = repository_root().join("rust/store");
+        for forbidden_dir in [
+            "src/migrations",
+            "src/migration",
+            "src/dao",
+            "src/daos",
+            "src/entities",
+            "src/entity",
+            "src/legacy",
+        ] {
+            assert!(
+                !store_root.join(forbidden_dir).exists(),
+                "Room-style layout is forbidden under lomo-store: {forbidden_dir}"
+            );
+        }
+
+        // Filename bans apply to production sources only (tests may say owner_identity_*).
+        // Use stem equality / suffix checks so `owner_identity_contract.rs` is not a false hit.
+        let forbidden_stems = [
+            "migration",
+            "migrations",
+            "dao",
+            "entity",
+            "entities",
+            "legacy_schema",
+            "schema_v2_compat",
+            "schema_compat",
+        ];
+        for source in rust_sources(&store_root.join("src")) {
+            let Some(stem_raw) = source.file_stem().and_then(|value| value.to_str()) else {
+                panic!(
+                    "store source path must have a UTF-8 file stem: {}",
+                    source.display()
+                );
+            };
+            let stem = stem_raw.to_ascii_lowercase();
+            for forbidden in forbidden_stems {
+                assert!(
+                    stem != forbidden
+                        && !stem.starts_with(&format!("{forbidden}_"))
+                        && !stem.ends_with(&format!("_{forbidden}"))
+                        && !stem.contains(&format!("_{forbidden}_")),
+                    "Room-style production module stem `{forbidden}` is forbidden under lomo-store/src: {}",
+                    source.display()
+                );
+            }
+        }
+
+        assert!(
+            !store_root.join("store-legacy").exists()
+                && !repository_root().join("rust/store-legacy").exists()
+                && !repository_root().join("rust/store_v2").exists()
+                && !repository_root().join("rust/store-v2").exists(),
+            "parallel lomo-store crate trees (legacy/v2) invite dual persistence owners"
+        );
+    }
+
+    /// Blocks parallel live schema documents that force forever-compat open paths.
+    #[test]
+    fn store_schema_has_single_live_version_surface() {
+        let schema = read("rust/store/src/schema.rs");
+        assert!(
+            contains_identifier(&schema, "STORE_SCHEMA_VERSION"),
+            "lomo-store must expose STORE_SCHEMA_VERSION as the single live schema anchor"
+        );
+        assert!(
+            schema.contains("fn schema_v1_ddl") || schema.contains("fn schema_v1_ddl()"),
+            "schema DDL must live as an explicit schema_v1_ddl (single DDL document style)"
+        );
+
+        let version_const_lines = schema
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with("//")
+                    && trimmed.contains("STORE_SCHEMA_VERSION")
+                    && trimmed.contains("const")
+            })
+            .count();
+        assert_eq!(
+            version_const_lines, 1,
+            "exactly one STORE_SCHEMA_VERSION const is allowed in schema.rs (found {version_const_lines})"
+        );
+
+        // Live DDL helpers must not proliferate into an unbounded version zoo in one file.
+        let schema_fn_count = schema
+            .lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                trimmed.starts_with("pub fn schema_v") || trimmed.starts_with("fn schema_v")
+            })
+            .count();
+        assert!(
+            (1..=2).contains(&schema_fn_count),
+            "expected 1..=2 schema_v* DDL functions (single live schema + optional helper), found {schema_fn_count}"
+        );
+
+        let lib = read("rust/store/src/lib.rs");
+        assert!(
+            lib.contains("STORE_SCHEMA_VERSION") || lib.contains("schema::STORE_SCHEMA_VERSION"),
+            "lomo-store lib must re-export or reference STORE_SCHEMA_VERSION for owner identity"
+        );
+    }
+
+    /// Blocks a second `SQLite` owner via parallel rusqlite production consumers.
+    #[test]
+    fn store_sqlite_access_stays_inside_allowed_crates() {
+        // Workspace pin is allowed; production consumers of the crate must stay narrow.
+        let mut offenders = Vec::new();
+        for relative in repository_files() {
+            if !relative.ends_with("Cargo.toml") || !relative.starts_with("rust/") {
+                continue;
+            }
+            // Workspace root only declares the shared pin.
+            if relative == "rust/Cargo.toml" {
+                continue;
+            }
+            // Sole production owner.
+            if relative == "rust/store/Cargo.toml" {
+                continue;
+            }
+            // Tooling-only hermetic probes (never production graph).
+            if relative == "rust/feasibility/Cargo.toml" {
+                continue;
+            }
+            let text = read(&relative);
+            if text.contains("rusqlite") {
+                offenders.push(relative);
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "rusqlite must not appear outside lomo-store (and tooling feasibility); offenders:\n{}",
+            offenders.join("\n")
+        );
+
+        // Core / workspace / sync-core / native must not reverse-depend into owning SQL.
+        for relative in [
+            "rust/core/Cargo.toml",
+            "rust/workspace/Cargo.toml",
+            "rust/sync-core/Cargo.toml",
+            "rust/native/Cargo.toml",
+        ] {
+            let text = read(relative);
+            assert!(
+                !text.contains("rusqlite"),
+                "{relative} must not depend on rusqlite (store owns SQLite)"
+            );
+        }
+
+        let native = read("rust/native/Cargo.toml");
+        assert!(
+            native.contains("lomo-store") || native.contains("path = \"../store\""),
+            "lomo-native must depend on lomo-store for conversion-only store FFI"
+        );
+        assert!(
+            !native.contains("rusqlite"),
+            "lomo-native must not take a direct rusqlite dependency"
+        );
+    }
+
+    /// Blocks native re-implementation of schema/tokenizer/SQL (dual semantic owner).
+    #[test]
+    fn native_store_ffi_is_conversion_only() {
+        let ffi_path = repository_root().join("rust/native/src/store_ffi.rs");
+        assert!(
+            ffi_path.exists(),
+            "stage-3 requires rust/native/src/store_ffi.rs conversion surface"
+        );
+        let ffi = read("rust/native/src/store_ffi.rs");
+        assert!(
+            ffi.contains("lomo_store") || ffi.contains("use lomo_store"),
+            "store_ffi must delegate into lomo_store"
+        );
+
+        for forbidden in [
+            "CREATE TABLE",
+            "CREATE VIRTUAL TABLE",
+            "CREATE INDEX",
+            "ALTER TABLE",
+            "USING fts5",
+            "pragma_update",
+            "PRAGMA user_version",
+            "UnicodeBlock",
+        ] {
+            assert!(
+                !ffi.contains(forbidden),
+                "lomo-native store_ffi must stay conversion-only; found business/SQL owner marker: {forbidden}"
+            );
+        }
+
+        // Production native sources must not embed store DDL/tokenizer ownership outside store_ffi either.
+        for source in rust_sources(&repository_root().join("rust/native/src")) {
+            let text = fs::read_to_string(&source).expect("Rust source is UTF-8");
+            if source.ends_with("store_ffi.rs") {
+                continue;
+            }
+            for forbidden in ["CREATE VIRTUAL TABLE", "USING fts5", "schema_v1_ddl"] {
+                assert!(
+                    !text.contains(forbidden),
+                    "native production source re-owns store schema surface `{forbidden}`: {}",
+                    source.display()
+                );
+            }
+        }
+    }
+
+    /// Blocks silent Dao-per-table file explosion under the store owner.
+    #[test]
+    fn store_src_module_count_stays_capability_shaped() {
+        let src = repository_root().join("rust/store/src");
+        let mut names = Vec::new();
+        for entry in fs::read_dir(&src).expect("rust/store/src exists") {
+            let entry = entry.expect("store src entry");
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                let name = path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_else(|| {
+                        panic!("store src file name must be UTF-8: {}", path.display())
+                    });
+                names.push(name.to_owned());
+            }
+        }
+        names.sort();
+        // Capability slices (schema/open/query/txn/rebuild/reminder/tokenizer/…) — not Entity×Dao.
+        assert!(
+            names.len() <= 20,
+            "lomo-store/src has {} modules (budget ≤20 for capability shape): {names:?}",
+            names.len()
+        );
+        assert!(
+            names.len() >= 8,
+            "lomo-store/src looks under-structured ({}); expected real capability modules, found {names:?}",
+            names.len()
+        );
+        for required in [
+            "schema.rs",
+            "open.rs",
+            "query.rs",
+            "transaction.rs",
+            "rebuild.rs",
+            "lib.rs",
+        ] {
+            assert!(
+                names.iter().any(|name| name == required),
+                "lomo-store capability module missing: {required} (have {names:?})"
+            );
+        }
+    }
+
+    /// Ensures anti-Room evolution strategy stays covered by named external contracts.
+    #[test]
+    fn store_required_behavior_contract_tests_exist() {
+        let required_tests = [
+            (
+                "rust/store/tests/open_schema_contract.rs",
+                "unknown_higher_schema_version_fails_closed_without_downgrade",
+            ),
+            ("rust/store/tests/rebuild_contract.rs", "#[test]"),
+            ("rust/store/tests/transaction_contract.rs", "#[test]"),
+            ("rust/store/tests/query_cursor_contract.rs", "#[test]"),
+            ("rust/store/tests/tokenizer_fts_contract.rs", "#[test]"),
+            ("rust/store/tests/owner_identity_contract.rs", "#[test]"),
+        ];
+        for (relative, needle) in required_tests {
+            let path = repository_root().join(relative);
+            assert!(
+                path.exists(),
+                "required lomo-store behavior contract missing: {relative}"
+            );
+            let text = read(relative);
+            assert!(
+                text.contains(needle),
+                "behavior contract {relative} must contain `{needle}` so fail-closed/rebuild strategy stays locked"
+            );
+        }
+
+        let open = read("rust/store/tests/open_schema_contract.rs");
+        assert!(
+            open.contains("user_version") && open.contains("STORE_SCHEMA_VERSION"),
+            "open_schema_contract must exercise user_version / STORE_SCHEMA_VERSION gate"
+        );
+
+        let manifest = read("rust/store/Cargo.toml");
+        for harness in [
+            "open_schema_contract",
+            "rebuild_contract",
+            "transaction_contract",
+            "query_cursor_contract",
+            "tokenizer_fts_contract",
+            "owner_identity_contract",
+        ] {
+            assert!(
+                manifest.contains(harness),
+                "lomo-store Cargo.toml must register external test harness `{harness}` (autotests=false)"
+            );
+        }
     }
 
     #[test]
@@ -994,6 +1785,7 @@ mod tests {
             "rust/native/src",
             "rust/feasibility/src",
             "rust/workspace/src",
+            "rust/store/src",
         ] {
             for source in rust_sources(&repository_root().join(relative)) {
                 let text = fs::read_to_string(&source).expect("Rust source is UTF-8");
@@ -1138,12 +1930,20 @@ mod tests {
         let mut remaining = markdown;
 
         while let Some(start) = remaining.find("](") {
-            let after_open = &remaining[start + 2..];
+            let Some(after_open) = remaining.get(start + 2..) else {
+                break;
+            };
             let Some(end) = after_open.find(')') else {
                 break;
             };
-            targets.push(after_open[..end].trim());
-            remaining = &after_open[end + 1..];
+            let Some(target) = after_open.get(..end) else {
+                break;
+            };
+            targets.push(target.trim());
+            let Some(rest) = after_open.get(end + 1..) else {
+                break;
+            };
+            remaining = rest;
         }
 
         targets

@@ -31,10 +31,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -227,17 +225,29 @@ mod tests {
                 "2024-06-06_12:00:00_1".to_owned(),
             ]
         );
-        assert_eq!(document.memos()[0].identity().ordinal(), 0);
-        assert_eq!(document.memos()[1].identity().ordinal(), 1);
-        assert_eq!(document.memos()[0].time_part(), "12:00:00");
-        assert_eq!(document.memos()[1].time_part(), "12:00:00");
+        assert_eq!(
+            document.memos().first().expect("memo").identity().ordinal(),
+            0
+        );
+        assert_eq!(
+            document.memos().get(1).expect("memo").identity().ordinal(),
+            1
+        );
+        assert_eq!(
+            document.memos().first().expect("memo").time_part(),
+            "12:00:00"
+        );
+        assert_eq!(
+            document.memos().get(1).expect("memo").time_part(),
+            "12:00:00"
+        );
     }
 
     #[test]
     fn plain_markdown_fallback_uses_midnight_identity_and_whole_file_span() {
         let document = parse_fixture("plain.md", "plain-note").test_ok("parse");
         assert_eq!(document.memos().len(), 1);
-        let memo = &document.memos()[0];
+        let memo = document.memos().first().expect("memo");
         assert_eq!(memo.identity().as_str(), "plain-note_00:00:00_0");
         assert_eq!(memo.time_part(), "00:00:00");
         assert_eq!(memo.start_line(), 0);
@@ -274,11 +284,11 @@ mod tests {
         assert_eq!(document.serialize_unedited(), bytes.as_slice());
         assert_eq!(document.memos().len(), 2);
         assert_eq!(
-            document.memos()[0].identity().as_str(),
+            document.memos().first().expect("memo").identity().as_str(),
             "2024-06-04_10:00:00_0"
         );
         assert_eq!(
-            document.memos()[1].identity().as_str(),
+            document.memos().get(1).expect("memo").identity().as_str(),
             "2024-06-04_10:00:01_0"
         );
     }
@@ -300,7 +310,7 @@ mod tests {
         );
         assert_eq!(document.memos().len(), 1);
         assert_eq!(
-            document.memos()[0].attachments(),
+            document.memos().first().expect("memo").attachments(),
             &["media/voice/a.m4a".to_owned()]
         );
         // Unedited path must not rewrite source through AST pretty-print.
@@ -311,7 +321,7 @@ mod tests {
     fn lomo_memo_byte_spans_cover_header_and_body_without_line_string_authority() {
         let document = parse_fixture("lomo-basic.md", "2024-06-01").test_ok("parse");
         assert_eq!(document.memos().len(), 2);
-        let first = &document.memos()[0];
+        let first = document.memos().first().expect("memo");
         let header = document
             .source()
             .slice(first.header_span())
@@ -336,7 +346,7 @@ mod tests {
         assert!(memo_bytes.contains("First Lomo memo of the day."));
         assert_eq!(first.tags(), &["life/note".to_owned()]);
         assert_eq!(
-            document.memos()[1].attachments(),
+            document.memos().get(1).expect("memo").attachments(),
             &["media/img/a.jpg".to_owned()]
         );
     }
@@ -345,7 +355,7 @@ mod tests {
     fn body_edit_does_not_change_identity_parts_from_header_and_ordinal() {
         // Characterization lock: identity is dateKey + timePart + ordinal, never content-derived.
         let document = parse_fixture("lomo-basic.md", "2024-06-01").test_ok("parse");
-        let first = &document.memos()[0];
+        let first = document.memos().first().expect("memo");
         assert_eq!(first.identity().date_key(), "2024-06-01");
         assert_eq!(first.identity().time_part(), "09:00:00");
         assert_eq!(first.identity().ordinal(), 0);

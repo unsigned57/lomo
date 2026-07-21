@@ -41,7 +41,8 @@ pub(super) fn exchange_token_for(workspace_id: &str, job_id: &str, label: &str) 
     let scope = hex_sha256(format!("{workspace_id}\0{job_id}").as_bytes());
     // Fixed-width scope prevents collisions between workspace journals that both allocate `job-1`
     // while keeping the protocol identifier below its 128-byte ceiling.
-    format!("ex.{}.{label}", &scope[..32])
+    let scope_prefix = scope.get(..32).unwrap_or(scope.as_str());
+    format!("ex.{scope_prefix}.{label}")
 }
 
 pub(super) fn exchange_path(root: &Path, token: &str) -> PathBuf {
@@ -159,7 +160,11 @@ pub(super) fn is_markdown_file(path: &str) -> bool {
         .windows(3)
         .any(|window| window.eq_ignore_ascii_case(b".md"))
         && path.rsplit('/').next().is_some_and(|name| {
-            name.len() > 3 && name.as_bytes()[name.len() - 3..].eq_ignore_ascii_case(b".md")
+            name.len() > 3
+                && name
+                    .as_bytes()
+                    .get(name.len() - 3..)
+                    .is_some_and(|suffix| suffix.eq_ignore_ascii_case(b".md"))
         })
 }
 
@@ -197,7 +202,12 @@ pub(super) fn listed_page(
 ) -> Result<&lomo_core::MetadataPage, lomo_core::LomoError> {
     match output {
         PlatformActionOutput::Listed { page } => Ok(page),
-        _ => Err(corruption(
+        PlatformActionOutput::Stat { .. }
+        | PlatformActionOutput::DirectoryReady { .. }
+        | PlatformActionOutput::ReadToExchange { .. }
+        | PlatformActionOutput::WriteComplete { .. }
+        | PlatformActionOutput::MoveComplete { .. }
+        | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
             "expected_listed_output",
             "scan driver expected a Listed platform output",
         )),
@@ -212,7 +222,12 @@ pub(super) fn read_to_exchange_output(
             source_metadata,
             artifact,
         } => Ok((source_metadata, artifact)),
-        _ => Err(corruption(
+        PlatformActionOutput::Stat { .. }
+        | PlatformActionOutput::Listed { .. }
+        | PlatformActionOutput::DirectoryReady { .. }
+        | PlatformActionOutput::WriteComplete { .. }
+        | PlatformActionOutput::MoveComplete { .. }
+        | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
             "expected_read_to_exchange_output",
             "document driver expected a ReadToExchange platform output",
         )),
@@ -224,7 +239,12 @@ pub(super) fn write_complete_output(
 ) -> Result<&lomo_core::DocumentMetadata, lomo_core::LomoError> {
     match output {
         PlatformActionOutput::WriteComplete { metadata } => Ok(metadata),
-        _ => Err(corruption(
+        PlatformActionOutput::Stat { .. }
+        | PlatformActionOutput::Listed { .. }
+        | PlatformActionOutput::DirectoryReady { .. }
+        | PlatformActionOutput::ReadToExchange { .. }
+        | PlatformActionOutput::MoveComplete { .. }
+        | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
             "expected_write_complete_output",
             "document driver expected a WriteComplete platform output",
         )),

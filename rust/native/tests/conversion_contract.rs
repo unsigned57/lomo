@@ -22,12 +22,6 @@ use lomo_native::*;
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use super::support::ResultTestExt;
     use super::*;

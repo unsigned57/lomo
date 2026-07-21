@@ -4,17 +4,18 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.repository.MemoMutationRepository
 import timber.log.Timber
 
 class SyncWorker(
     appContext: Context,
     workerParams: WorkerParameters,
-    private val memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
+    private val memoMutationRepository: MemoMutationRepository,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         Timber.d("%s started", WORKER_NAME)
         return runNonFatalCatching<Result> {
-            memoSynchronizer.refresh()
+            memoMutationRepository.refreshMemos()
             successWorkResult(WORKER_NAME)
         }.getOrElse { error ->
             errorWorkResult(

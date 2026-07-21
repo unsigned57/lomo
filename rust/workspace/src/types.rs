@@ -51,6 +51,12 @@ impl WorkspaceRelativePath {
 }
 
 /// Stable memo identity: `${dateKey}_${timePart}_${ordinal}`.
+///
+/// Product storage filename stems (date keys) include the five patterns owned by Kotlin
+/// `StorageFilenameFormats` — default `yyyy_MM_dd` **contains underscores**. Time parts follow
+/// `StorageTimestampFormats` (`HH:mm:ss` / `HH:mm`) and never contain `_`. Wire form is therefore
+/// parsed **from the right**: last `_` segment is ordinal, previous is `time_part`, remainder is
+/// `date_key` (which may itself contain `_`).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct MemoIdentity {
     value: String,
@@ -64,19 +70,19 @@ impl MemoIdentity {
     ///
     /// # Errors
     ///
-    /// Returns a validation error when `date_key` / `time_part` are empty, contain separators that
-    /// would break the wire form, or the rendered identity is empty.
+    /// Returns a validation error when `date_key` / `time_part` are empty, `time_part` contains `_`
+    /// (would make right-to-left parse ambiguous), either part has control characters, or the
+    /// rendered identity is empty. `date_key` **may** contain `_` (product default filename format).
     pub fn try_new(date_key: &str, time_part: &str, ordinal: u32) -> Result<Self, LomoError> {
         if date_key.is_empty()
             || time_part.is_empty()
-            || date_key.contains('_')
             || time_part.contains('_')
             || date_key.chars().any(char::is_control)
             || time_part.chars().any(char::is_control)
         {
             return Err(validation(
                 "invalid_memo_identity_parts",
-                "date_key and time_part must be non-empty and free of '_' / controls",
+                "date_key/time_part must be non-empty; time_part must not contain '_' or controls",
             ));
         }
         let value = format!("{date_key}_{time_part}_{ordinal}");
@@ -94,23 +100,20 @@ impl MemoIdentity {
     ///
     /// Returns a validation error when the wire form does not match the identity contract.
     pub fn parse(raw: &str) -> Result<Self, LomoError> {
-        let mut parts = raw.rsplitn(2, '_');
-        let ordinal_text = parts.next().ok_or_else(|| {
+        // Right-to-left: ordinal, then time_part (no '_'), remainder is date_key (may contain '_').
+        let (prefix, ordinal_text) = raw.rsplit_once('_').ok_or_else(|| {
             validation(
                 "invalid_memo_identity",
                 "memo identity must be dateKey_timePart_ordinal",
             )
         })?;
-        let prefix = parts.next().ok_or_else(|| {
+        let (date_key, time_part) = prefix.rsplit_once('_').ok_or_else(|| {
             validation(
                 "invalid_memo_identity",
                 "memo identity must be dateKey_timePart_ordinal",
             )
         })?;
-        let mut prefix_parts = prefix.splitn(2, '_');
-        let date_key = prefix_parts.next().unwrap_or_default();
-        let time_part = prefix_parts.next().unwrap_or_default();
-        if date_key.is_empty() || time_part.is_empty() || prefix_parts.next().is_some() {
+        if date_key.is_empty() || time_part.is_empty() {
             return Err(validation(
                 "invalid_memo_identity",
                 "memo identity must be dateKey_timePart_ordinal",

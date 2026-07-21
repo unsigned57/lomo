@@ -10,7 +10,7 @@ use lomo_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::WorkspaceMemo;
-use crate::limits::{ResourceBudget, validation};
+use crate::limits::{ResourceBudget, corruption, validation};
 use crate::parse::parse_workspace_document;
 use crate::reminder::ReminderReference;
 use crate::source::SourceBytes;
@@ -297,7 +297,7 @@ fn project_file_page(
                 "workspace scan page size cannot be represented",
             )
         })?;
-    let remaining = &document.memos()[resume_index..];
+    let remaining = document.memos().get(resume_index..).unwrap_or(&[]);
     let selected = remaining.iter().take(remaining_capacity);
     let accumulated_count = u64::try_from(state.accumulated.len()).map_err(|_error| {
         validation(
@@ -467,10 +467,19 @@ fn plan_next_read(
     }
 
     if state.pending_index < state.pending_paths.len() {
-        let path = state.current_file.as_ref().map_or_else(
-            || state.pending_paths[state.pending_index].clone(),
-            |current| current.path.clone(),
-        );
+        let path = match state.current_file.as_ref() {
+            Some(current) => current.path.clone(),
+            None => state
+                .pending_paths
+                .get(state.pending_index)
+                .cloned()
+                .ok_or_else(|| {
+                    corruption(
+                        "scan_pending_path_missing",
+                        "workspace scan pending path index is out of range",
+                    )
+                })?,
+        };
         let memo_offset = state
             .current_file
             .as_ref()

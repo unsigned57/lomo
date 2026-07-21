@@ -73,8 +73,23 @@ impl CoreRevision {
         self.0
     }
 
+    /// Reconstructs a revision from a durable counter.
+    #[must_use]
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
     pub(crate) const fn from_persisted(value: u64) -> Self {
         Self(value)
+    }
+
+    /// Returns the next monotonic revision, or `None` on overflow.
+    #[must_use]
+    pub const fn checked_next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
     }
 }
 
@@ -92,8 +107,59 @@ impl EventSequence {
         self.0
     }
 
+    /// Reconstructs an event sequence from a durable counter.
+    #[must_use]
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
     pub(crate) const fn from_persisted(value: u64) -> Self {
         Self(value)
+    }
+
+    /// Returns the next monotonic event sequence, or `None` on overflow.
+    #[must_use]
+    pub const fn checked_next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+}
+
+/// Bounded invalidation domains for local-data consumers.
+///
+/// Events never carry row payloads. Consumers map scopes to `PagingSource` / snapshot reloads.
+/// An `EventSequence` gap requires [`InvalidationScope::Full`].
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum InvalidationScope {
+    MemoList,
+    Search,
+    Trash,
+    Pin,
+    Tags,
+    Stats,
+    Reminder,
+    /// Full invalidate: used when `EventSequence` gaps are detected (lost events).
+    Full,
+}
+
+/// Returns true when the consumer observed a non-contiguous event sequence and must full-invalidate.
+#[must_use]
+pub const fn event_sequence_requires_full_invalidate(
+    last_seen: EventSequence,
+    incoming: EventSequence,
+) -> bool {
+    let last = last_seen.get();
+    let next = incoming.get();
+    // Contiguous advance is `last + 1`. Equal (duplicate delivery) does not force full invalidate.
+    // Any larger jump or regression is treated as event loss → full invalidate.
+    if next == last {
+        return false;
+    }
+    match last.checked_add(1) {
+        Some(expected) => next != expected,
+        None => true,
     }
 }
 

@@ -38,10 +38,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -164,7 +162,9 @@ mod tests {
                         }
                     }
                     JobStep::Running => {}
-                    other => return other,
+                    JobStep::BlockedByConflict { .. }
+                    | JobStep::Completed
+                    | JobStep::Failed { .. } => return step,
                 }
             }
         }
@@ -282,7 +282,12 @@ mod tests {
                         .test_ok("metadata"),
                     })
                 }
-                other => panic!("unexpected action in harness: {other:?}"),
+                PlatformAction::Stat { .. }
+                | PlatformAction::EnsureDirectory { .. }
+                | PlatformAction::Move { .. }
+                | PlatformAction::Delete { .. } => {
+                    panic!("unexpected action in harness: {action:?}")
+                }
             }
         }
 
@@ -321,8 +326,13 @@ mod tests {
                 })
                 .unwrap_or(0);
             let end = (start + page_size.get() as usize).min(names.len());
-            let slice = &names[start..end];
-            let next = (end < names.len()).then(|| names[end - 1].as_str());
+            let slice = names.get(start..end).unwrap_or(&[]);
+            let next = (end < names.len()).then(|| {
+                names
+                    .get(end - 1)
+                    .map(String::as_str)
+                    .expect("page end implies last entry")
+            });
             let items = slice
                 .iter()
                 .map(|name| self.metadata_for_child(target, name))
@@ -443,12 +453,25 @@ mod tests {
         let page: lomo_workspace::WorkspaceScanPage =
             serde_json::from_str(&result).test_ok("page json");
         assert_eq!(page.items.len(), 1);
-        assert_eq!(page.items[0].path, "2024-01-01.md");
-        assert!(page.items[0].identity.contains("10:00:00"));
-        assert!(page.items[0].tags.iter().any(|t| t == "tag"));
+        assert_eq!(page.items.first().expect("item").path, "2024-01-01.md");
+        assert!(
+            page.items
+                .first()
+                .expect("item")
+                .identity
+                .contains("10:00:00")
+        );
+        assert!(
+            page.items
+                .first()
+                .expect("item")
+                .tags
+                .iter()
+                .any(|t| t == "tag")
+        );
         assert!(page.next_cursor.is_none());
-        assert_eq!(page.items[0].body_start, 11);
-        assert_eq!(page.items[0].body_end, 22);
+        assert_eq!(page.items.first().expect("item").body_start, 11);
+        assert_eq!(page.items.first().expect("item").body_end, 22);
     }
 
     #[test]
@@ -460,7 +483,7 @@ mod tests {
 
         let page = harness.scan_page(16, None).test_ok("scan page");
         assert_eq!(page.items.len(), 1);
-        let reference = &page.items[0].content;
+        let reference = &page.items.first().expect("item").content;
         let artifact = harness.read_exchange_token(&reference.exchange_token);
 
         assert_eq!(artifact, content.as_bytes());
@@ -480,8 +503,8 @@ mod tests {
 
         let first_page = first.scan_page(16, None).test_ok("first page");
         let second_page = second.scan_page(16, None).test_ok("second page");
-        let first_reference = &first_page.items[0].content;
-        let second_reference = &second_page.items[0].content;
+        let first_reference = &first_page.items.first().expect("item").content;
+        let second_reference = &second_page.items.first().expect("item").content;
 
         assert_ne!(
             first_reference.exchange_token,
@@ -537,7 +560,7 @@ mod tests {
         let JobStep::NeedsPlatformBatch { batch: read_batch } = read_step else {
             panic!("expected read batch");
         };
-        let read_action = &read_batch.actions()[0];
+        let read_action = read_batch.actions().first().expect("action");
         let PlatformAction::ReadToExchange { exchange_token, .. } = read_action else {
             panic!("expected read-to-exchange action");
         };
@@ -605,11 +628,13 @@ mod tests {
             .collect();
         assert_eq!(content_tokens.len(), 300);
         assert_eq!(
-            harness.read_exchange_token(&first.items[255].content.exchange_token),
+            harness
+                .read_exchange_token(&first.items.get(255).expect("item").content.exchange_token),
             b"memo-255"
         );
         assert_eq!(
-            harness.read_exchange_token(&second.items[0].content.exchange_token),
+            harness
+                .read_exchange_token(&second.items.first().expect("item").content.exchange_token),
             b"memo-256"
         );
         assert_eq!(
@@ -636,8 +661,14 @@ mod tests {
             .scan_page(256, first.next_cursor)
             .test_ok("second page");
         assert_eq!(second.items.len(), 44);
-        assert_eq!(second.items[0].identity, "2024-02-02_10:00:00_56");
-        assert_eq!(second.items[43].identity, "2024-02-02_10:00:00_99");
+        assert_eq!(
+            second.items.first().expect("item").identity,
+            "2024-02-02_10:00:00_56"
+        );
+        assert_eq!(
+            second.items.get(43).expect("item").identity,
+            "2024-02-02_10:00:00_99"
+        );
         assert!(second.next_cursor.is_none());
     }
 
@@ -667,11 +698,17 @@ mod tests {
         harness.write_file("2026-07-20.md", source.as_bytes());
 
         let page = harness.scan_page(16, None).test_ok("scan page");
-        let reminders = &page.items[0].reminders;
+        let reminders = &page.items.first().expect("item").reminders;
 
         assert_eq!(reminders.len(), 2);
-        assert_ne!(reminders[0].opaque_id, reminders[1].opaque_id);
-        assert_ne!(reminders[0].source_start, reminders[1].source_start);
+        assert_ne!(
+            reminders.first().expect("r0").opaque_id,
+            reminders.get(1).expect("r1").opaque_id
+        );
+        assert_ne!(
+            reminders.first().expect("r0").source_start,
+            reminders.get(1).expect("r1").source_start
+        );
         for reminder in reminders {
             assert_eq!(reminder.revision, fingerprint_of(source.as_bytes()));
             assert_eq!(reminder.memo_identity, "2026-07-20_10:00:00_0");
@@ -685,6 +722,98 @@ mod tests {
             assert!(reminder.done);
             assert!(reminder.source_end > reminder.source_start);
         }
+    }
+
+    #[test]
+    fn document_append_remove_and_toggle_task_are_byte_local() {
+        let harness = Harness::new();
+        let original = b"- 09:00:00\n- [ ] todo item\n\n- 10:00:00\nkeep me\n";
+        harness.write_file("2024-02-01.md", original);
+        let expected = fingerprint_of(original);
+
+        // Toggle identity is the "[ ]" / "[x]" marker span (not the leading "- ").
+        let task_marker = b"[ ]";
+        let task_start = original
+            .windows(task_marker.len())
+            .position(|w| w == task_marker)
+            .expect("task marker") as u64;
+        let task_end = task_start + task_marker.len() as u64;
+
+        let toggle = DocumentCommandRequest {
+            path: "2024-02-01.md".to_owned(),
+            expected_fingerprint: expected,
+            command: DocumentCommandKind::ToggleTask {
+                source_start: task_start,
+                source_end: task_end,
+            },
+        };
+        let toggle_json = serde_json::to_string(&toggle).test_ok("toggle request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &toggle_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start toggle");
+        let terminal = harness.drive_until_terminal(&job_id);
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        let after_toggle = harness.read_file("2024-02-01.md");
+        assert!(
+            after_toggle.windows(5).any(|w| w == b"- [x]"),
+            "toggle must flip checkbox: {:?}",
+            String::from_utf8_lossy(&after_toggle)
+        );
+        assert!(after_toggle.windows(7).any(|w| w == b"keep me"));
+
+        let expected2 = fingerprint_of(&after_toggle);
+        let append = DocumentCommandRequest {
+            path: "2024-02-01.md".to_owned(),
+            expected_fingerprint: expected2,
+            command: DocumentCommandKind::Append {
+                time_part: "11:00:00".to_owned(),
+                content: "appended body".to_owned(),
+            },
+        };
+        let append_json = serde_json::to_string(&append).test_ok("append request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &append_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start append");
+        let terminal = harness.drive_until_terminal(&job_id);
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        let after_append = harness.read_file("2024-02-01.md");
+        assert!(after_append.windows(13).any(|w| w == b"appended body"));
+
+        let expected3 = fingerprint_of(&after_append);
+        let remove = DocumentCommandRequest {
+            path: "2024-02-01.md".to_owned(),
+            expected_fingerprint: expected3,
+            command: DocumentCommandKind::Remove {
+                identity: "2024-02-01_10:00:00_0".to_owned(),
+            },
+        };
+        let remove_json = serde_json::to_string(&remove).test_ok("remove request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &remove_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start remove");
+        let terminal = harness.drive_until_terminal(&job_id);
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        let after_remove = harness.read_file("2024-02-01.md");
+        assert!(
+            !after_remove.windows(7).any(|w| w == b"keep me"),
+            "remove must drop the 10:00 memo"
+        );
+        assert!(after_remove.windows(13).any(|w| w == b"appended body"));
     }
 
     #[test]
@@ -733,7 +862,14 @@ mod tests {
         let original = format!("- 10:00:00\nfirst {token} then {token}\n");
         harness.write_file("2026-07-20.md", original.as_bytes());
         let page = harness.scan_page(16, None).test_ok("scan page");
-        let second = page.items[0].reminders[1].clone();
+        let second = page
+            .items
+            .first()
+            .expect("item")
+            .reminders
+            .get(1)
+            .expect("reminder")
+            .clone();
 
         let request = DocumentCommandRequest {
             path: "2026-07-20.md".to_owned(),
@@ -897,8 +1033,10 @@ mod tests {
                 let applied = harness.execute(action);
                 // Convert Applied → AlreadySatisfied for replay semantics.
                 let outcome = match applied {
-                    ActionOutcome::Applied(output) => ActionOutcome::AlreadySatisfied(output),
-                    other => other,
+                    ActionOutcome::Applied(output) | ActionOutcome::AlreadySatisfied(output) => {
+                        ActionOutcome::AlreadySatisfied(output)
+                    }
+                    ActionOutcome::Failed(error) => ActionOutcome::Failed(error),
                 };
                 ActionResult::new(action.id().clone(), outcome)
             })
@@ -919,5 +1057,33 @@ mod tests {
         // increase in this test harness; the durable engine must not plan a new write batch.
         let polled = harness.engine.poll_job(&job_id).test_ok("poll terminal");
         assert!(matches!(polled, JobStep::Completed));
+    }
+
+    #[test]
+    fn scan_accepts_default_yyyy_mm_dd_filename_stems() {
+        // Product default StorageFilenameFormats.DEFAULT_PATTERN embeds underscores.
+        let harness = Harness::new();
+        harness.write_file("2024_06_01.md", b"- 09:00:00\ndefault format memo\n");
+        harness.write_file("2024-06-02.md", b"- 10:00\nhyphen format memo\n");
+
+        let page = harness.scan_page(32, None).test_ok("scan default stems");
+        let identities: Vec<String> = page
+            .items
+            .iter()
+            .map(|item| item.identity.clone())
+            .collect();
+        assert!(
+            identities.iter().any(|id| id.starts_with("2024_06_01_")),
+            "default yyyy_MM_dd dateKey must form identity: {identities:?}"
+        );
+        assert!(
+            identities.iter().any(|id| id.starts_with("2024-06-02_")),
+            "hyphen dateKey must form identity: {identities:?}"
+        );
+        assert_eq!(
+            page.items.len(),
+            2,
+            "both product date files must scan: {identities:?}"
+        );
     }
 }

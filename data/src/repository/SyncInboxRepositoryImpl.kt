@@ -1,12 +1,14 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.repository.MemoMutationRepository
+
 import android.content.Context
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.data.sync.SyncConflictMerge
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewResolution
@@ -35,7 +37,7 @@ class SyncInboxRepositoryImpl(
     private val workspaceConfigSource: WorkspaceConfigSource,
     private val markdownStorageDataSource: MarkdownStorageDataSource,
     private val workspaceMediaAccess: WorkspaceMediaAccess,
-    private val memoSynchronizer: MemoSynchronizer,
+    private val memoMutationRepository: MemoMutationRepository,
     private val pendingReviewStore: PendingSyncReviewStore,
     private val writeAuthority: WorkspaceWriteAuthority,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
@@ -398,7 +400,7 @@ class SyncInboxRepositoryImpl(
                     SyncReviewResolutionChoice.KEEP_LOCAL -> null
                     SyncReviewResolutionChoice.KEEP_INCOMING -> item.incomingContent
                     SyncReviewResolutionChoice.MERGE_TEXT ->
-                        SyncConflictTextMerge.merge(
+                        SyncConflictMerge.merge(
                             localText = item.localContent,
                             remoteText = item.incomingContent,
                             localLastModified = item.localLastModified,
@@ -418,7 +420,7 @@ class SyncInboxRepositoryImpl(
             }
         }
         if (committedFiles.isNotEmpty()) {
-            memoSynchronizer.refreshImportedSync()
+            memoMutationRepository.refreshMemos()
         }
         cleanupImportedAttachments(inboxRoot, committedFiles)
         return unresolvedItems

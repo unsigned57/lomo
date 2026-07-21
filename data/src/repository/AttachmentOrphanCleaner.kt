@@ -1,6 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.MemoStatisticsDao
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.domain.model.MediaFileExtensions
 
@@ -10,18 +9,14 @@ internal fun String.looksLikeVoiceAttachmentPath(): Boolean {
 }
 
 /**
- * Deletes any attachment path that is no longer referenced by any active or trashed memo.
+ * Deletes attachment paths no longer referenced after a memo mutation.
  *
- * Routes voice/audio targets to [MediaStorageDataSource.deleteVoiceFile] and other attachments to
- * [MediaStorageDataSource.deleteImage] so the correct SAF/direct sub-root is hit.
- *
- * [s3LocalChangeRecorder] and [webDavLocalChangeRecorder] are invoked per deleted path so sync
- * engines propagate the removal.
+ * Post P3-10: reference counting via Room memo tables is gone. Callers only pass paths that the
+ * mutation removed from durable content; this helper performs the filesystem + sync journal side
+ * effects. Store rebuild re-indexes remaining attachment references from Markdown facts.
  */
 internal suspend fun deleteOrphanAttachments(
     paths: List<String>,
-    excludeMemoId: String,
-    memoStatisticsDao: MemoStatisticsDao,
     mediaStorageDataSource: MediaStorageDataSource,
     s3LocalChangeRecorder: S3LocalChangeRecorder,
     webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
@@ -33,9 +28,6 @@ internal suspend fun deleteOrphanAttachments(
         .filterNot { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) }
         .distinct()
         .forEach { path ->
-            if (memoStatisticsDao.countMemosAndTrashWithImage(path, excludeMemoId) != 0) {
-                return@forEach
-            }
             if (path.looksLikeVoiceAttachmentPath()) {
                 mediaStorageDataSource.deleteVoiceFile(path)
                 s3LocalChangeRecorder.recordVoiceDelete(path)

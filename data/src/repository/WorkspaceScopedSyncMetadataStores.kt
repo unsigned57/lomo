@@ -11,7 +11,7 @@ import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
 
 
-class RoomBackedWebDavSyncMetadataStore(
+class FileBackedWebDavSyncMetadataStore(
     private val dao: RawWebDavSyncMetadataDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : WebDavSyncMetadataDao {
@@ -55,7 +55,7 @@ class RoomBackedWebDavSyncMetadataStore(
         private suspend fun activeGeneration(): String = generationProvider.activeGeneration().value
     }
 
-class RoomBackedS3SyncMetadataStore(
+class FileBackedS3SyncMetadataStore(
     private val dao: RawS3SyncMetadataDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : S3SyncMetadataDao {

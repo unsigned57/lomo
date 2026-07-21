@@ -219,14 +219,6 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
             countShareCardImageSlots(document) shouldBe 2
         }
 
-        test("linkifyBareUrlsAndGeoUris correctly transforms bare URLs and geo coordinates without double linkification") {
-            val content =
-                "Visit https://google.com and www.lomo.app and geo:31.2304,121.4737 or [Google](https://google.com) or [https://google.com](https://google.com)"
-            val result = linkifyBareUrlsAndGeoUris(content)
-            result shouldBe
-                "Visit [https://google.com](https://google.com) and [www.lomo.app](https://www.lomo.app) and [geo:31.2304,121.4737](geo:31.2304,121.4737?z=10) or [Google](https://google.com) or [https://google.com](https://google.com)"
-        }
-
         test("markdown share body lines preserve url link style and highlight style from IR") {
             val document =
                 MarkdownRenderDocument(

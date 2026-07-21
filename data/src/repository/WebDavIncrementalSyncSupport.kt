@@ -44,7 +44,7 @@ interface WebDavLocalChangeJournalStore {
     suspend fun clear()
 }
 
-class RoomBackedWebDavLocalChangeJournalStore(
+class FileBackedWebDavLocalChangeJournalStore(
     private val dao: WebDavLocalChangeJournalDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : WebDavLocalChangeJournalStore {

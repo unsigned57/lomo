@@ -11,7 +11,10 @@ class FakeEngineReadinessRepository(
     initial: EngineReadiness = EngineReadiness.Ready(coreRevision = 0uL, eventSequence = 0uL),
 ) : EngineReadinessRepository {
     private val _readiness = MutableStateFlow(initial)
+    private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
+    override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
+        _activeWorkspaceLocation.asStateFlow()
     var resnapshotCount: Int = 0
         private set
     var activateCount: Int = 0
@@ -38,6 +41,7 @@ class FakeEngineReadinessRepository(
             remainingActivateFailures -= 1
             throw activateFailure
         }
+        _activeWorkspaceLocation.value = location
         _readiness.value =
             activateResult
                 ?: EngineReadiness.Ready(coreRevision = 0uL, eventSequence = activateCount.toULong())
@@ -46,6 +50,7 @@ class FakeEngineReadinessRepository(
     override suspend fun clearWorkspace() {
         clearCount += 1
         _readiness.value = EngineReadiness.AwaitingWorkspaceSelection
+        _activeWorkspaceLocation.value = null
         lastActivated = null
     }
 }

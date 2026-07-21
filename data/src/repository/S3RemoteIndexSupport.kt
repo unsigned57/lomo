@@ -47,7 +47,7 @@ interface S3RemoteIndexStore {
     suspend fun clear()
 }
 
-class RoomBackedS3RemoteIndexStore(
+class FileBackedS3RemoteIndexStore(
     private val dao: S3RemoteIndexDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : S3RemoteIndexStore {

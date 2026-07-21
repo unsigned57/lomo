@@ -232,12 +232,12 @@ internal suspend fun finalizeAfterS3Sync(
     return runNonFatalCatching {
         when (val memoRefreshPlan = execution?.memoRefreshPlan ?: S3MemoRefreshPlan.None) {
             S3MemoRefreshPlan.None -> Unit
-            S3MemoRefreshPlan.Full -> runtime.memoSynchronizer.refreshImportedSync()
+            S3MemoRefreshPlan.Full -> runtime.memoMutationRepository.refreshMemos()
             is S3MemoRefreshPlan.Targets ->
                 memoRefreshPlan.filenames
                     .sorted()
                     .forEach { targetFilename ->
-                        runtime.memoSynchronizer.refreshImportedSync(targetFilename)
+                        runtime.memoMutationRepository.refreshMemos()
                     }
         }
         val now = System.currentTimeMillis()

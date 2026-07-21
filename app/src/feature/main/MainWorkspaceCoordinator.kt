@@ -4,6 +4,7 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.WriteFreezeRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -16,6 +17,7 @@ class MainWorkspaceCoordinator(
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
     private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
+    private val writeFreezeRepository: WriteFreezeRepository,
 ) {
     val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
 
@@ -59,5 +61,16 @@ class MainWorkspaceCoordinator(
 
     fun resnapshotEngine() {
         engineReadinessRepository.resnapshot()
+    }
+
+    /**
+     * Observe-root rebuild is suppressed during SwitchRoot freeze and until the active engine
+     * identity matches the persisted selection at Ready. SwitchRoot is the sole rebuild owner
+     * for intentional root switches (settings + main picker).
+     */
+    fun canObserveRootRebuild(directory: String): Boolean {
+        if (writeFreezeRepository.isFrozen.value) return false
+        if (engineReadinessRepository.readiness.value !is EngineReadiness.Ready) return false
+        return engineReadinessRepository.activeWorkspaceLocation.value?.raw == directory
     }
 }

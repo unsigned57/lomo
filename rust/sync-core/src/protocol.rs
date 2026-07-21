@@ -159,19 +159,26 @@ impl<'a> Reader<'a> {
 
     fn u16(&mut self) -> Result<u16, ProtocolError> {
         let bytes = self.take(2)?;
-        Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+        let arr: [u8; 2] = bytes
+            .try_into()
+            .map_err(|_length_mismatch| ProtocolError::Truncated)?;
+        Ok(u16::from_le_bytes(arr))
     }
 
     fn u32(&mut self) -> Result<u32, ProtocolError> {
         let bytes = self.take(4)?;
-        Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        let arr: [u8; 4] = bytes
+            .try_into()
+            .map_err(|_length_mismatch| ProtocolError::Truncated)?;
+        Ok(u32::from_le_bytes(arr))
     }
 
     fn i64(&mut self) -> Result<i64, ProtocolError> {
         let bytes = self.take(8)?;
-        Ok(i64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        let arr: [u8; 8] = bytes
+            .try_into()
+            .map_err(|_length_mismatch| ProtocolError::Truncated)?;
+        Ok(i64::from_le_bytes(arr))
     }
 
     fn string(&mut self, field: &'static str) -> Result<String, ProtocolError> {

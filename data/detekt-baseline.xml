@@ -27,8 +27,6 @@
     <ID>MaxLineLength:DataAndroidResources.kt:ApkDataAndroidResources$@StringRes override val recordingSavedNotificationAction: Int = stringResource("recording_saved_notification_action")</ID>
     <ID>MaxLineLength:ManagedEngineSession.kt:ManagedEngineSession$adapter.executeMemoCommand(rootPath, filename, identity, WorkspaceNativeCommandSpec.Replace(identity, content))</ID>
     <ID>MaxLineLength:ManagedEngineSession.kt:ManagedEngineSession$renderMarkdown(content = content, schemaVersion = com.lomo.domain.model.markdown.MarkdownRenderDocument.SCHEMA_VERSION)</ID>
-    <ID>MaxLineLength:MemoMutationOutboxBuilders.kt:MemoFileOutboxOp.PERMANENT_DELETE -&gt; MemoLifecycleCommand.permanentDelete(outboxSourceMemo(this, contentProjector))</ID>
-    <ID>MaxLineLength:MemoPagingSources.kt:"Trash paging refresh state contains a memo that was not emitted by the source: ${memo.id}"</ID>
     <ID>SwallowedException:ExchangeResolver.kt:ExchangeResolver$_error: CharacterCodingException</ID>
     <ID>SwallowedException:ManagedEngineSession.kt:error: java.time.format.DateTimeParseException</ID>
     <ID>ThrowsCount:ExchangeResolver.kt:ExchangeResolver$fun readUtf8Artifact: String</ID>

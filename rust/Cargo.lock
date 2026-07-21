@@ -730,9 +730,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.188"
+version = "0.2.187"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22053b6a34f84abc97f9129e61334f40174659a1b9bd18c970b83db6a9a6348b"
+checksum = "a7743783ea728ef5c31194c6590797eed286449b4a4e87d626d8a51f0a94e732"
 
 [[package]]
 name = "libgit2-sys"
@@ -832,8 +832,22 @@ version = "0.1.0"
 dependencies = [
  "boltffi",
  "lomo-core",
+ "lomo-store",
  "lomo-sync-core",
  "lomo-workspace",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "lomo-store"
+version = "0.1.0"
+dependencies = [
+ "lomo-core",
+ "lomo-workspace",
+ "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

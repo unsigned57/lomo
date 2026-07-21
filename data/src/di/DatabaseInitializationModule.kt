@@ -1,11 +1,18 @@
 package com.lomo.data.di
 
-import com.lomo.data.local.DatabaseInitializer
+import com.lomo.data.local.StoreDatabaseInitializer
 import com.lomo.domain.repository.DatabaseInitializationRepository
-import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.bind
+import org.koin.dsl.module
 
-val databaseInitializationModule = module {
-    single { DatabaseInitializer(androidContext(), get()) } bind DatabaseInitializationRepository::class
-}
+val databaseInitializationModule =
+    module {
+        single {
+            StoreDatabaseInitializer(
+                context = androidContext(),
+                port = get(),
+                invalidation = get(),
+            )
+        } bind DatabaseInitializationRepository::class
+    }

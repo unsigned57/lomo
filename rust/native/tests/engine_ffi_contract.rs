@@ -20,12 +20,6 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use super::support::ResultTestExt;
     use std::fs;
@@ -58,7 +52,12 @@ mod tests {
         let engine = LomoEngine::open(config).test_ok("FFI engine");
         let job_id = match engine.state() {
             EngineState::Opening { job_id } => job_id,
-            other => panic!("SAF FFI engine must be opening, got {other:?}"),
+            other @ (EngineState::AwaitingWorkspaceSelection
+            | EngineState::Ready { .. }
+            | EngineState::ReadOnlyRecovery { .. }
+            | EngineState::ShuttingDown) => {
+                panic!("SAF FFI engine must be opening, got {other:?}")
+            }
         };
         let step = engine.poll_job(job_id.clone()).test_ok("poll bootstrap");
         assert!(matches!(
@@ -123,7 +122,12 @@ mod tests {
         .test_ok("FFI engine");
         let job_id = match engine.state() {
             EngineState::Opening { job_id } => job_id,
-            other => panic!("SAF FFI engine must be opening, got {other:?}"),
+            other @ (EngineState::AwaitingWorkspaceSelection
+            | EngineState::Ready { .. }
+            | EngineState::ReadOnlyRecovery { .. }
+            | EngineState::ShuttingDown) => {
+                panic!("SAF FFI engine must be opening, got {other:?}")
+            }
         };
         let lomo_native::JobStep::NeedsPlatformBatch { batch } =
             engine.poll_job(job_id.clone()).test_ok("poll bootstrap")

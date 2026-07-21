@@ -1,11 +1,8 @@
 package com.lomo.data.local.entity
 
-import androidx.room3.Entity
+import kotlinx.serialization.Serializable
 
-@Entity(
-    tableName = "image_location_cache",
-    primaryKeys = ["name"],
-)
+@Serializable
 data class ImageLocationCacheEntity(
     val name: String,
     val uri: String,

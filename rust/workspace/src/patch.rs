@@ -124,13 +124,13 @@ impl DocumentPatchPlan {
     /// Prefix bytes that must remain identical.
     #[must_use]
     pub fn byte_prefix<'a>(&self, source: &'a [u8]) -> &'a [u8] {
-        &source[..self.target_span.start()]
+        source.get(..self.target_span.start()).unwrap_or(&[])
     }
 
     /// Suffix bytes that must remain identical.
     #[must_use]
     pub fn byte_suffix<'a>(&self, source: &'a [u8]) -> &'a [u8] {
-        &source[self.target_span.end()..]
+        source.get(self.target_span.end()..).unwrap_or(&[])
     }
 }
 
@@ -302,7 +302,10 @@ fn plan_replace(
     }
     // Preserve whether the original memo span ended with a newline by matching neighborhood.
     let span = memo.memo_span();
-    let original = &source.as_bytes()[span.start()..span.end()];
+    let original = source
+        .as_bytes()
+        .get(span.start()..span.end())
+        .unwrap_or(&[]);
     if original_ends_with_newline(original) && !block.ends_with('\n') && !block.ends_with('\r') {
         block.push_str(newline);
     }
@@ -388,9 +391,22 @@ fn finish_plan(
     };
     let target_span = ByteSpan::try_new(start, end, source.len())?;
     let mut result_bytes = Vec::with_capacity(source.len() - target_span.len() + replacement.len());
-    result_bytes.extend_from_slice(&source.as_bytes()[..start]);
+    let source_bytes = source.as_bytes();
+    let prefix = source_bytes.get(..start).ok_or_else(|| {
+        validation(
+            "patch_span_out_of_range",
+            "patch start is outside the source buffer",
+        )
+    })?;
+    let suffix = source_bytes.get(end..).ok_or_else(|| {
+        validation(
+            "patch_span_out_of_range",
+            "patch end is outside the source buffer",
+        )
+    })?;
+    result_bytes.extend_from_slice(prefix);
     result_bytes.extend_from_slice(&replacement);
-    result_bytes.extend_from_slice(&source.as_bytes()[end..]);
+    result_bytes.extend_from_slice(suffix);
     // Result must remain valid UTF-8 (source is UTF-8; replacement is UTF-8).
     if std::str::from_utf8(&result_bytes).is_err() {
         return Err(validation(
@@ -517,9 +533,9 @@ fn match_newline_at(bytes: &[u8], index: usize) -> Option<usize> {
 }
 
 fn match_newline_before(bytes: &[u8], index: usize) -> Option<usize> {
-    if index >= 2 && bytes[index - 2] == b'\r' && bytes[index - 1] == b'\n' {
+    if index >= 2 && bytes.get(index - 2) == Some(&b'\r') && bytes.get(index - 1) == Some(&b'\n') {
         Some(2)
-    } else if index >= 1 && matches!(bytes[index - 1], b'\n' | b'\r') {
+    } else if index >= 1 && matches!(bytes.get(index - 1).copied(), Some(b'\n' | b'\r')) {
         Some(1)
     } else {
         None

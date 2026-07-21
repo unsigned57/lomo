@@ -153,6 +153,8 @@ class MainViewModelTest : AppFunSpec() {
     private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
     private lateinit var dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider
     private lateinit var reminderCoordinator: com.lomo.app.testing.fakes.FakeReminderCoordinator
+    private lateinit var writeFreezeRepository: FakeWriteFreezeRepository
+    private lateinit var engineReadinessRepository: com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -174,7 +176,15 @@ class MainViewModelTest : AppFunSpec() {
             imageMapProvider = com.lomo.app.provider.FakeImageMapProvider(mediaRepository)
             audioPlayerManager = com.lomo.app.testing.fakes.FakeAudioPlayerManager()
             workspaceStateResolver = FakeWorkspaceStateResolver()
-            switchRootStorageUseCase = SwitchRootStorageUseCase(directorySettingsRepository = appConfigRepository, workspaceStateResolver = workspaceStateResolver, writeFreezeRepository = FakeWriteFreezeRepository(), engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
+            writeFreezeRepository = FakeWriteFreezeRepository()
+            engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
+            switchRootStorageUseCase =
+                SwitchRootStorageUseCase(
+                    directorySettingsRepository = appConfigRepository,
+                    workspaceStateResolver = workspaceStateResolver,
+                    writeFreezeRepository = writeFreezeRepository,
+                    engineReadinessRepository = engineReadinessRepository,
+                )
             dispatcherProvider = FakeDispatcherProvider(testDispatcher)
             reminderCoordinator = com.lomo.app.testing.fakes.FakeReminderCoordinator()
 
@@ -870,7 +880,7 @@ class MainViewModelTest : AppFunSpec() {
                 }
         }
 
-        test("root directory changes do not run ordinary refresh pipeline from observer") {
+        test("observed root change does not rebuild while engine identity does not match selection") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
 
@@ -879,6 +889,29 @@ class MainViewModelTest : AppFunSpec() {
                 repository.resetRecordedCalls()
                 mediaRepository.resetRecordedCalls()
 
+                // DataStore-only change without SwitchRoot activate leaves engine identity unmatched.
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                workspaceStateResolver.rebuildCount shouldBe 0
+                repository.verifyRefreshMemosNotCalled()
+                mediaRepository.verifyRefreshImageLocationsNotCalled()
+                (viewModel.errorMessage.value) shouldBe null
+            }
+        }
+
+        test("observed root change rebuilds only when Ready engine identity matches and freeze is idle") {
+            runTest(testDispatcher) {
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
+
+                val viewModel = createViewModel()
+                testDispatcher.scheduler.advanceUntilIdle()
+                repository.resetRecordedCalls()
+                mediaRepository.resetRecordedCalls()
+                workspaceStateResolver.rebuildCount = 0
+
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
                 testDispatcher.scheduler.advanceUntilIdle()
 
@@ -886,6 +919,25 @@ class MainViewModelTest : AppFunSpec() {
                 repository.verifyRefreshMemosNotCalled()
                 mediaRepository.verifyRefreshImageLocationsNotCalled()
                 (viewModel.errorMessage.value) shouldBe null
+            }
+        }
+
+        test("observed root change does not rebuild while write freeze is active") {
+            runTest(testDispatcher) {
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
+
+                createViewModel()
+                testDispatcher.scheduler.advanceUntilIdle()
+                workspaceStateResolver.rebuildCount = 0
+
+                check(writeFreezeRepository.begin())
+                engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                workspaceStateResolver.rebuildCount shouldBe 0
+                writeFreezeRepository.end()
             }
         }
 
@@ -1047,7 +1099,8 @@ class MainViewModelTest : AppFunSpec() {
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
-                    engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+                    engineReadinessRepository = engineReadinessRepository,
+                    writeFreezeRepository = writeFreezeRepository,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(
@@ -1160,4 +1213,5 @@ class MainViewModelTest : AppFunSpec() {
         }
     }
 }
+
 

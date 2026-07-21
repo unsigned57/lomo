@@ -1,0 +1,55 @@
+[package]
+name = "lomo-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "owner_identity_contract"
+path = "tests/owner_identity_contract.rs"
+
+[[test]]
+name = "open_schema_contract"
+path = "tests/open_schema_contract.rs"
+
+[[test]]
+name = "tokenizer_fts_contract"
+path = "tests/tokenizer_fts_contract.rs"
+
+[[test]]
+name = "query_cursor_contract"
+path = "tests/query_cursor_contract.rs"
+
+[[test]]
+name = "lomo_format_contract"
+path = "tests/lomo_format_contract.rs"
+
+[[test]]
+name = "transaction_contract"
+path = "tests/transaction_contract.rs"
+
+[[test]]
+name = "rebuild_contract"
+path = "tests/rebuild_contract.rs"
+
+[[test]]
+name = "reminder_core_contract"
+path = "tests/reminder_core_contract.rs"
+
+[dependencies]
+lomo-core = { path = "../core" }
+lomo-workspace = { path = "../workspace" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

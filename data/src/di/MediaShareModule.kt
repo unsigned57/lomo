@@ -6,6 +6,8 @@ import com.lomo.data.security.LanShareCredentialStore
 import com.lomo.data.share.SharePairingConfig
 import com.lomo.data.share.ShareTransferOrchestrator
 import com.lomo.data.share.ShareServiceLifecycleController
+import com.lomo.data.share.OwnerShareAttachmentDestinationRemapper
+import com.lomo.data.share.ShareAttachmentDestinationRemapper
 import com.lomo.data.share.ShareAttachmentStorage
 import com.lomo.data.share.ShareIncomingMemoSaver
 import com.lomo.data.share.ShareIncomingStateHolder
@@ -34,7 +36,8 @@ val mediaShareModule = module {
     single { ShareTransferOrchestrator(androidContext(), get(), get()) }
     single { ShareServiceLifecycleController(androidContext(), get(), get()) }
     single { ShareAttachmentStorage(androidContext(), get(), get()) }
-    single { ShareIncomingMemoSaver(get(), get()) }
+    single<ShareAttachmentDestinationRemapper> { OwnerShareAttachmentDestinationRemapper() }
+    single { ShareIncomingMemoSaver(get(), get(), get()) }
     single { ShareIncomingStateHolder() }
 
     single {

@@ -19,12 +19,18 @@ pub fn iter_tag_matches(content: &str) -> Vec<(String, usize, usize)> {
     let mut index = 0usize;
     while index < bytes.len() {
         let at_start = index == 0;
-        let prev_is_ws = index > 0 && is_ascii_whitespace(bytes[index - 1]);
-        if bytes[index] == b'#' && (at_start || prev_is_ws) {
+        let prev_is_ws = index
+            .checked_sub(1)
+            .and_then(|prev| bytes.get(prev).copied())
+            .is_some_and(is_ascii_whitespace);
+        if bytes.get(index) == Some(&b'#') && (at_start || prev_is_ws) {
             let value_start = index + 1;
             let mut value_end = value_start;
             while value_end < bytes.len() {
-                let Some(ch) = content[value_end..].chars().next() else {
+                let Some(ch) = content
+                    .get(value_end..)
+                    .and_then(|tail| tail.chars().next())
+                else {
                     break;
                 };
                 if is_tag_body_char(ch) {
@@ -35,9 +41,13 @@ pub fn iter_tag_matches(content: &str) -> Vec<(String, usize, usize)> {
             }
             if value_end > value_start {
                 let boundary_ok = value_end == bytes.len()
-                    || matches!(bytes[value_end], b' ' | b'\t' | b'\n' | b'\r' | b',');
-                if boundary_ok {
-                    let mut tag = content[value_start..value_end].to_owned();
+                    || matches!(
+                        bytes.get(value_end).copied(),
+                        Some(b' ' | b'\t' | b'\n' | b'\r' | b',')
+                    );
+                if boundary_ok
+                    && let Some(mut tag) = content.get(value_start..value_end).map(str::to_owned)
+                {
                     while tag.ends_with('/') {
                         tag.pop();
                     }
@@ -58,7 +68,7 @@ const fn is_ascii_whitespace(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
 }
 
-fn is_other_symbol_or_currency(ch: char) -> bool {
+const fn is_other_symbol_or_currency(ch: char) -> bool {
     if ch.is_ascii() || ch.is_control() || ch.is_whitespace() {
         return false;
     }

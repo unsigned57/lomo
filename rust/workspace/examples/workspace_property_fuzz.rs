@@ -18,7 +18,7 @@
 
 use std::env;
 use std::error::Error;
-use std::io;
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 use lomo_workspace::{SourceBytes, parse_workspace_document};
@@ -71,7 +71,10 @@ fn main() -> ExitCode {
     match run(&env::args().skip(1).collect::<Vec<_>>()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("workspace-property-fuzz: {error}");
+            match writeln!(io::stderr(), "workspace-property-fuzz: {error}") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             ExitCode::FAILURE
         }
     }
@@ -102,10 +105,12 @@ fn run(arguments: &[String]) -> Result<(), Box<dyn Error>> {
         }
         max_nodes = max_nodes.max(first.render_document().node_count());
     }
-    println!(
+    writeln!(
+        io::stdout(),
         "WORKSPACE_PROPERTY_FUZZ seed={} cases={} total_bytes={total_bytes} max_nodes={max_nodes}",
-        options.seed, options.cases
-    );
+        options.seed,
+        options.cases
+    )?;
     Ok(())
 }
 
@@ -121,7 +126,10 @@ impl FuzzOptions {
         let mut cases = DEFAULT_CASES;
         let mut index = 0;
         while index < arguments.len() {
-            let flag = arguments[index].as_str();
+            let flag = arguments
+                .get(index)
+                .map(String::as_str)
+                .ok_or_else(|| invalid_input("missing flag"))?;
             let value = arguments
                 .get(index + 1)
                 .ok_or_else(|| invalid_input(format!("missing value for {flag}")))?;
@@ -145,7 +153,11 @@ fn generate_source(rng: &mut SeedRng, case_index: usize) -> Result<Vec<u8>, io::
     let fragment_count = rng.next_usize(MAX_FRAGMENTS_PER_CASE + 1)?;
     let mut text = String::new();
     for _ in 0..fragment_count {
-        text.push_str(FRAGMENTS[rng.next_usize(FRAGMENTS.len())?]);
+        let fragment = FRAGMENTS
+            .get(rng.next_usize(FRAGMENTS.len())?)
+            .copied()
+            .unwrap_or("");
+        text.push_str(fragment);
     }
     let mut bytes = Vec::with_capacity(text.len() + 3);
     if case_index.is_multiple_of(7) {

@@ -15,6 +15,13 @@ import kotlinx.coroutines.flow.StateFlow
 interface EngineReadinessRepository {
     val readiness: StateFlow<EngineReadiness>
 
+    /**
+     * Location of the engine currently installed at Ready, or null when no workspace engine is
+     * active. Observe-root rebuild must match this identity to the persisted DataStore selection so
+     * index rebuild never runs against new VFS + old engine mid-switch.
+     */
+    val activeWorkspaceLocation: StateFlow<StorageLocation?>
+
     /** Reloads the authoritative snapshot after foreground resume or suspected notification loss. */
     fun resnapshot()
 

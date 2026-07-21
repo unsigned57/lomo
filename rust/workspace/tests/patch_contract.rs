@@ -23,10 +23,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -75,11 +73,11 @@ mod tests {
         assert!(result.contains("- 09:00:00\nupdated"));
         assert!(result.contains("- 10:00:00\nsecond body\n"));
         assert!(!result.contains("first body"));
-        assert_eq!(
-            &plan.result_bytes()
-                [plan.target_span().start()..plan.target_span().start() + plan.replacement().len()],
-            plan.replacement()
-        );
+        let rewritten = plan
+            .result_bytes()
+            .get(plan.target_span().start()..plan.target_span().start() + plan.replacement().len())
+            .expect("rewritten span");
+        assert_eq!(rewritten, plan.replacement());
     }
 
     #[test]
@@ -147,11 +145,11 @@ mod tests {
         assert_eq!(result, "- 09:00:00\n- [x] todo\n");
         assert_eq!(
             plan.byte_prefix(document.source().as_bytes()),
-            &text.as_bytes()[..marker_start]
+            text.as_bytes().get(..marker_start).expect("prefix")
         );
         assert_eq!(
             plan.byte_suffix(document.source().as_bytes()),
-            &text.as_bytes()[marker_start + 3..]
+            text.as_bytes().get(marker_start + 3..).expect("suffix")
         );
     }
 
@@ -209,7 +207,7 @@ mod tests {
         )
         .test_ok("plan");
         let result = plan.result_bytes();
-        assert_eq!(&result[..3], &[0xEF, 0xBB, 0xBF]);
+        assert_eq!(result.get(..3), Some([0xEF, 0xBB, 0xBF].as_slice()));
         assert!(result.windows(2).any(|w| w == b"\r\n"));
         // second memo bytes after first replacement must still contain the original second block.
         let text = std::str::from_utf8(result).test_ok("utf-8");

@@ -30,6 +30,17 @@ package com.lomo.data.engine
  * Excludes:
  * - SAF action execution internals, workspace selection persistence, Compose rendering, and Rust.
  * - BoltFFI callback-thread enqueue (covered by BoundedInvalidationQueueTest).
+ *
+ * Test Change Justification:
+ * - Reason category: production memo persistence cutover from Room to lomo-store ports.
+ * - Old behavior/assertion being replaced: adapter readiness paths that assumed Room-era
+ *   dual-authority index or non-store engine packaging.
+ * - Why old assertion is no longer correct: the sole production engine surface now includes
+ *   store-backed rebuild/query ports behind the same readiness StateFlow contract.
+ * - Coverage preserved by: snapshot-over-callback truth, sequence-gap resnapshot, subscription
+ *   and port single-close, and Opening→Ready bootstrap remain asserted.
+ * - Why this is not fitting the test to the implementation: assertions still lock observable
+ *   readiness and close counts, not store schema details.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -202,6 +213,22 @@ private class FakeNativeEnginePort(
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         error("document result not expected")
+
+    override fun queryMemos(
+        query: com.lomo.nativebridge.StoreMemoQuery,
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+    ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
+
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
+        error("store get not expected")
+
+    override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit = error("store apply not expected")
+
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        error("store rebuild not expected")
 
     override fun close() {
         portCloseCount += 1

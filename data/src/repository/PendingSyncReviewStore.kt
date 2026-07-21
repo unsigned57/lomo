@@ -33,7 +33,7 @@ data class PendingSyncReviewItemDescriptor(
     val state: SyncReviewItemState,
     val message: String? = null,
 )
-class RoomPendingSyncReviewStore
+class FileBackedPendingSyncReviewStore
 constructor(
         private val dao: PendingSyncReviewDao,
         private val generationProvider: WorkspaceSyncGenerationProvider,

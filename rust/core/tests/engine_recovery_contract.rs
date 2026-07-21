@@ -30,12 +30,6 @@ mod option_support;
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
 
     use std::fs;
@@ -130,7 +124,12 @@ mod tests {
                 assert_eq!(core_revision.get(), 0);
                 event_sequence.get()
             }
-            other => panic!("direct workspace must be ready, got {other:?}"),
+            EngineState::AwaitingWorkspaceSelection
+            | EngineState::Opening { .. }
+            | EngineState::ReadOnlyRecovery { .. }
+            | EngineState::ShuttingDown => {
+                panic!("direct workspace must be ready, got {:?}", first.state())
+            }
         };
         drop(first);
 
@@ -150,7 +149,15 @@ mod tests {
                 assert_eq!(core_revision.get(), 0);
                 assert!(event_sequence.get() > first_sequence);
             }
-            other => panic!("reopened direct workspace must be ready, got {other:?}"),
+            EngineState::AwaitingWorkspaceSelection
+            | EngineState::Opening { .. }
+            | EngineState::ReadOnlyRecovery { .. }
+            | EngineState::ShuttingDown => {
+                panic!(
+                    "reopened direct workspace must be ready, got {:?}",
+                    reopened.state()
+                )
+            }
         }
         assert_ne!(
             fs::read(journal_path).must_succeed("republished journal"),

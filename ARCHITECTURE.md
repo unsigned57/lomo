@@ -23,15 +23,19 @@ This document is the stable architecture entrypoint for the repository. It descr
   the same active `RustEngineAdapter` / `BoltFfiNativeEnginePort`; workspace switch and close take
   an exclusive session lease after all in-flight capability calls release. There is no second
   workspace engine/adapter owner and no dual-stack Markdown DI (Kotlin parser + Rust) after cutover.
+  After P3-10 there is also no dual-stack local-data DI (Room + Rust): store query/mutation/reminder/
+  rebuild go through the same session → native store FFI → `lomo-store`.
   Cold start opens with no workspace; Direct/SAF selection (or cold restore) activates a candidate
   engine and only then closes the previous engine. Callbacks enqueue invalidations only and must
   never re-enter FFI.
 - Memo mutation/trash repository implementations fail closed unless the engine is `Ready` and writes
   are not frozen.
 - Owns process-local `WorkspaceWriteAuthority` as the shared Ready+!freeze choke for workspace file
-  mutations. Markdown/media storage delegates, `DefaultWorkspaceMediaAccess` write/delete paths, and
-  memo outbox drain all consult it so process-start drain, migration import, and remote sync apply
-  cannot write outside Ready+!freeze.
+  mutations. Markdown/media storage delegates and `DefaultWorkspaceMediaAccess` write/delete paths
+  consult it so process-start, migration import, and remote sync apply cannot write outside
+  Ready+!freeze.
+- After P3-10, Kotlin does not open Room/SQLite for memo projections. Sync/cache tables that remain
+  until stage 5 are file-backed (no `androidx.room`).
 - New repository implementations belong here, typically under `data/repository`.
 
 ### `native-bindings`
@@ -75,21 +79,55 @@ This document is the stable architecture entrypoint for the repository. It descr
   tooling crates.
 - **Production ownership (post P2-09 cutover):** document model + Render IR + pure patch planner
   + multi-phase scan / document-command job drivers are the sole Markdown semantic authority.
+  Free-content attachment destination remap (`remap_attachment_destinations`), canonical
+  reminder token construction / mark-done / record-fired mutation planning, memo body extract from
+  raw, and identity-keyed memo-shard conflict merge (`merge_memo_shard_by_identity`) are also
+  owner-only; Kotlin supplies opaque name maps, typed fields, or local/remote shard bytes and
+  applies planned bytes/tokens only.
   `lomo-native` depends on this crate for **conversion-only** BoltFFI DTO mapping. Kotlin production
   consumes domain IR / workspace session adapters only — it must not reintroduce Kotlin
-  `MarkdownParser`, JetBrains AST, or parallel semantic regex authorities. Presentation
-  spacing helpers may collapse plain text; they must not re-parse Markdown structure.
+  `MarkdownParser`, JetBrains AST, private Markdown remappers under `data/src/share`, reminder
+  token grammar builders, header-line memo-block split for conflict write-back, or parallel
+  semantic regex authorities. Presentation spacing helpers may collapse plain text; they must not
+  re-parse Markdown structure or invent link markup before owner render.
+
+### `rust/store` (package `lomo-store`)
+
+- Pure platform-independent local data-loop owner for stage 3 (**production sole owner after P3-10
+  cutover**).
+- Owns SQLite query projections, FTS5 + pure-Rust CJK tokenizer, memo transaction recovery,
+  `.lomo/` durable state/history/operations projections, rebuild (P3-01..P3-06), and reminder
+  business state (P3-07: recurrence/fired/done/next-trigger, floating local + DST policy,
+  catch-up ≤1/session, app-private snooze). Depends inward on `lomo-core` + `lomo-workspace`
+  (token facts/mutation plan) (+ `rusqlite` bundled/`backup`, `sha2`, `serde`/`serde_json`).
+  Must not depend on Android, BoltFFI, UniFFI, JNI, networking backends, sync-v1 wire, or tooling
+  crates. SQLite files live under workspace `.lomo-sqlite/` (never under `.lomo/`). Snooze is
+  app-private only (never under `.lomo`/sync/archive).
+- **Schema v1 open contract:** `foreign_keys=ON`, WAL, busy timeout, `user_version` check, quick
+  integrity; unknown/higher schema fails closed (no destructive downgrade).
+- **Production ownership (post P3-10 cutover):** `lomo-store` is the sole local-data authority via
+  `lomo-native` conversion-only store FFI and data `StorePort` / `StoreMemo*` adapters + Paging.
+  Kotlin never opens SQLite for memo projections; Room database/entity/DAO/migration/KSP/runtime
+  are deleted from the production graph. Sync metadata that formerly lived in Room is clean-slate
+  file-backed under app-private storage until stage 5 Rust sync ownership. No feature-flag
+  dual-write and no progressive dual-stack DI. `AlarmManager` is schedule/cancel only.
+- **Cutover (P3-10):** freeze writes → fail-closed drain of legacy Kotlin memo file outbox (never
+  discard) → re-scan/rebuild Rust DB → compare counts/digests → switch DI → delete Room family in
+  the same wave. Old Room pin/history/sync metadata are not migrated (clean-slate re-scan).
 
 ### `rust/lomo-native`
 
 - The only production native facade (`staticlib` + `rlib`).
 - Linked with generated BoltFFI JNI glue into the only packaged Android library,
   `liblomo_native_jni.so`, package surface `com.lomo.nativebridge`.
-- Depends inward on `lomo-core`, the frozen `lomo-sync-core`, and (from P2-06) `lomo-workspace` for
-  conversion-only render/scan/document-command DTO mapping. It must not re-implement Markdown rules
-  (`parse_workspace_document` / `plan_document_patch` / pulldown remain workspace-owned).
+- Depends inward on `lomo-core`, the frozen `lomo-sync-core`, (from P2-06) `lomo-workspace` for
+  conversion-only render/scan/document-command DTO mapping, and (from P3-09) `lomo-store` for
+  conversion-only query/memo/reminder/rebuild DTO mapping. It must not re-implement Markdown rules
+  (`parse_workspace_document` / `plan_document_patch` / pulldown remain workspace-owned) or store
+  business rules (query/txn/reminder plan remain store-owned).
 - Does not implement business rules; conversion, panic/error isolation, and lifecycle only.
-  Production dual-stack DI is forbidden: after cutover only the workspace owner is live.
+  Production dual-stack DI is forbidden: after cutover only the workspace/store owner is live;
+  dark-build store FFI must not be dual-bound with Room in production modules.
 
 ### `rust/lomo-xtask`, `rust/lomo-architecture-tests`, and `rust/lomo-feasibility`
 
@@ -188,12 +226,22 @@ shipping proof after cutover.
 
 - Owning layer: `lomo-core` owns the formal application kernel; `lomo-native` only converts the
   BoltFFI boundary; Kotlin `data` is the only production consumer of generated `native-bindings`.
+  After P3-10, `lomo-store` (+ `lomo-workspace`) jointly own the local data loop; `data` adapts
+  store/reminder/rebuild surfaces and Android platform ports only.
 - Boundary effect: `app` remains the production native packaging boundary; `native-smoke` remains
   an isolated CI-only packaging boundary. Domain/app readiness contracts must not expose Rust DTOs.
+  Room is absent from the production dependency graph; Kotlin never opens SQLite for memo index.
 - Write authority: domain `EngineReadiness` is the global hard gate; create/switch use cases and
   data mutation repositories enforce Ready + write-freeze at shared choke points. Workspace switch
-  is validate → freeze → persist → activate engine → rebuild → unfreeze. There is no old-Kotlin-core
-  write fallback.
+  is validate → freeze → persist → activate engine → rebuild → unfreeze; `SwitchRootStorageUseCase`
+  is the sole rebuild owner for intentional root switches. Observe-root must not rebuild while
+  freeze is active or while readiness is not Ready for the engine identity matching the persisted
+  selection. On switch abort after any partial rebuild/clear, previous selection+engine+index are
+  restored (mandatory re-scan of the restored selection). There is no old-Kotlin-core write fallback
+  and no Room dual-write path.
+- Exception: preferences remain Kotlin DataStore; AlarmManager/notification/exact-alarm capability
+  remain Kotlin/Android execution. Sync provider business ownership remains stage-5 work; interim
+  sync metadata is file-backed clean-slate (not Room).
 - Permanent tooling fixture: smoke `DocumentsProvider` remains for SAF harnesses without product
   policy; production modules must not import it.
 

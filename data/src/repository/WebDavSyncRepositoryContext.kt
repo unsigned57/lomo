@@ -1,4 +1,6 @@
 package com.lomo.data.repository
+
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MarkdownStorageDataSource
@@ -25,7 +27,7 @@ constructor(
         val markdownStorageDataSource: MarkdownStorageDataSource,
         val localMediaSyncStore: LocalMediaSyncStore,
         val metadataDao: WebDavSyncMetadataDao,
-        val memoSynchronizer: MemoSynchronizer,
+        val memoMutationRepository: MemoMutationRepository,
         val planner: WebDavSyncPlanner,
         val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
         val stateHolder: WebDavSyncStateHolder,

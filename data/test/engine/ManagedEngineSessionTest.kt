@@ -34,6 +34,17 @@ package com.lomo.data.engine
  * workspace port identity and engine-open count.
  * TDD proof: fails before ManagedEngineSession exposes a leased single-adapter workspace route.
  * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
+ *
+ * Test Change Justification:
+ * - Reason category: production memo persistence cutover from Room to lomo-store ports.
+ * - Old behavior/assertion being replaced: session tests that assumed Room-backed workspace
+ *   projection helpers or dual-authority index rebuild semantics.
+ * - Why old assertion is no longer correct: production now installs a single native store-backed
+ *   engine port; Room projection/index tails are deleted.
+ * - Coverage preserved by: readiness publish, activate/close ordering, leased workspace route
+ *   identity, and recovery freeze scenarios remain asserted.
+ * - Why this is not fitting the test to the implementation: outcomes stay product-visible
+ *   readiness and port-lease behavior, not private store SQL.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -679,6 +690,22 @@ private class SessionFakeNativeEnginePort(
             resultFingerprint = "b".repeat(64),
             bytesWritten = 22uL,
         )
+
+    override fun queryMemos(
+        query: com.lomo.nativebridge.StoreMemoQuery,
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+    ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
+
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
+        error("store get not expected")
+
+    override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit = error("store apply not expected")
+
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        error("store rebuild not expected")
 
     override fun close() {
         portCloseCount += 1

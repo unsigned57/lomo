@@ -48,7 +48,7 @@ interface S3RemoteShardStateStore {
     suspend fun clear()
 }
 
-class RoomBackedS3RemoteShardStateStore(
+class FileBackedS3RemoteShardStateStore(
     private val dao: S3RemoteShardStateDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : S3RemoteShardStateStore {

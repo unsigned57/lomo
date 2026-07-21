@@ -7,7 +7,7 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.data.sync.SyncConflictMerge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
@@ -228,7 +228,7 @@ constructor(
                         SyncConflictResolutionChoice.KEEP_LOCAL -> file.localContent
                         SyncConflictResolutionChoice.KEEP_REMOTE -> file.remoteContent
                         SyncConflictResolutionChoice.MERGE_TEXT ->
-                            SyncConflictTextMerge.merge(
+                            SyncConflictMerge.merge(
                                 localText = file.localContent,
                                 remoteText = file.remoteContent,
                                 localLastModified = file.localLastModified,

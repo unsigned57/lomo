@@ -21,6 +21,7 @@ pub use platform::{
     PlatformBatchResult, Sha256Digest, VerifiedAbsence, WorkspaceTarget, WriteMode,
 };
 pub use types::{
-    ActionId, BatchId, CapabilityToken, CoreRevision, EventSequence, ExchangeToken, JobId,
-    OperationId, PageSize, RelativeWorkspacePath, WorkspaceDescriptor, WorkspaceId,
+    ActionId, BatchId, CapabilityToken, CoreRevision, EventSequence, ExchangeToken,
+    InvalidationScope, JobId, OperationId, PageSize, RelativeWorkspacePath, WorkspaceDescriptor,
+    WorkspaceId, event_sequence_requires_full_invalidate,
 };

@@ -617,7 +617,8 @@ class MainViewModel(
             val shouldRefreshForObservedRootChange =
                 directory != null &&
                     directory != previousDirectory &&
-                    !manualRootRefreshPath.compareAndSet(directory, null)
+                    !manualRootRefreshPath.compareAndSet(directory, null) &&
+                    workspaceCoordinator.canObserveRootRebuild(directory)
             if (shouldRefreshForObservedRootChange) {
                 refreshForRootChange()
             }

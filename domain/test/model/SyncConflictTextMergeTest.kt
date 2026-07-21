@@ -1,5 +1,6 @@
 package com.lomo.domain.model
 
+import com.lomo.domain.repository.MemoIdentityConflictMerger
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
@@ -9,43 +10,57 @@ import io.kotest.matchers.shouldBe
  * - Owning layer: domain
  * - Priority tier: P0
  * - Capability: conservatively merge text sync conflicts only when the merge is bounded and deterministic.
+ *   Identity-keyed memo block merge is delegated to [MemoIdentityConflictMerger] (owner in production).
  *
  * Scenarios:
  * - Given one side is empty, when merge runs, then the non-empty side is returned.
  * - Given equal text, non-overlapping anchor insertions, a superset segment, or short disjoint memo content,
  *   when merge runs, then the safe merged text is returned.
- * - Given both sides hold memo blocks that share a header timestamp (the same memo edited on each side),
- *   when merge runs, then the newer file's version replaces the block instead of duplicating it, while
- *   memos with distinct timestamps are still unioned.
+ * - Given an identity merger that plans shared-timestamp rewrite, when merge runs, then owner-planned
+ *   bytes win over disjoint concat.
  * - Given overlapping edits, uncertain segments, or an input that exceeds the configured merge budget,
  *   when merge runs, then null is returned so conflict review handles the file.
- * - Given the configured budget is smaller than the actual LCS matrix including sentinel row/column,
- *   when merge runs, then null is returned before allocating the matrix.
  *
  * Observable outcomes:
  * - Returned merged text, or null to decline automatic write-back.
  *
- * Test Change Justification:
- * - Reason category: SyncConflictTextMerge production code gained memo-dedup merge, budget-aware LCS, and
- *   anchor-based detection. Tests must cover the new merge strategies and budget constraints.
- * - Old behavior/assertion being replaced: merge only handled simple text diff; no memo dedup, no budget gating.
- * - Why old assertion is no longer correct: the merge engine now returns null for overlapping edits
- *   and performs memo-block-level deduplication for shared-timestamp blocks.
- * - Coverage preserved by: keeping existing empty-side and equal-text scenarios, adding budget,
- *   anchor, overlap, and multi-block memo dedup scenarios.
- * - Why this is not fitting the test to the implementation: each new case exercises a distinct
- *   observable merge outcome (null, merged text, deduplicated block), not internal LCS details.
- *
  * TDD proof:
- * - Fails before the fix because merge has no injectable policy/budget and always attempts the LCS path.
- * - RED memo-dedup follow-up: an edited single-memo shard (same timestamp, rewritten first line) was
- *   concatenated into two blocks ("…original beginning\n\n…edited beginning") instead of keeping the
- *   newer single block, because disjoint memo content was unconditionally appended older-first.
+ * - Fails before identity-keyed merge is delegated to MemoIdentityConflictMerger and before
+ *   overlapping/uncertain merges decline with null.
  *
  * Excludes:
  * - Repository write-back, UI rendering, binary conflict handling, and large heap stress tests.
+ * - Owner parse correctness (covered by lomo-workspace memo_shard_identity_merge_contract).
+ *
+ * Test Change Justification:
+ * - Reason category: production memo identity merge ownership moved to workspace/store cutover.
+ * - Old behavior/assertion being replaced: pure domain concat/superset merge without an injected
+ *   identity merger for shared-timestamp memo shards.
+ * - Why old assertion is no longer correct: production conflict recovery now prefers owner-planned
+ *   identity merge over blind disjoint concatenation when timestamps collide.
+ * - Coverage preserved by: empty-side, equal-text, anchor insertion, superset, budget-exceeded,
+ *   and overlapping-decline cases remain asserted; identity-merger path is added.
+ * - Why this is not fitting the test to the implementation: outcomes stay returned merged text or
+ *   null decline, not repository write paths.
  */
 class SyncConflictTextMergeTest : DomainFunSpec() {
+    /** Test double: when both sides share a timestamp token, prefer the newer full shard text. */
+    private val identityMerger =
+        MemoIdentityConflictMerger { local, remote, localLastModified, remoteLastModified ->
+            val timeToken = Regex("""- \d{1,2}:\d{2}(?::\d{2})?""")
+            val localTimes = timeToken.findAll(local).map { it.value }.toSet()
+            val remoteTimes = timeToken.findAll(remote).map { it.value }.toSet()
+            if (localTimes.intersect(remoteTimes).isEmpty()) {
+                null
+            } else {
+                val localIsNewer =
+                    localLastModified == null ||
+                        remoteLastModified == null ||
+                        localLastModified >= remoteLastModified
+                if (localIsNewer) local else remote
+            }
+        }
+
     init {
         test("merge keeps the non-empty side when the other side is missing") {
             val merged =
@@ -118,37 +133,40 @@ class SyncConflictTextMergeTest : DomainFunSpec() {
             merged shouldBe expectedMergedText
         }
 
-        test("merge keeps the newer local version when both sides hold the same edited memo timestamp") {
+        test("merge applies identity merger when both sides share a memo timestamp") {
             val merged =
                 SyncConflictTextMerge.merge(
                     localText = "- 14:30:00 edited beginning",
                     remoteText = "- 14:30:00 original beginning",
                     localLastModified = 20L,
                     remoteLastModified = 10L,
+                    identityMerger = identityMerger,
                 )
 
             merged shouldBe "- 14:30:00 edited beginning"
         }
 
-        test("merge keeps the newer remote version when both sides hold the same edited memo timestamp") {
+        test("merge keeps the newer remote version via identity merger") {
             val merged =
                 SyncConflictTextMerge.merge(
                     localText = "- 14:30:00 stale local edit",
                     remoteText = "- 14:30:00 newer remote edit",
                     localLastModified = 10L,
                     remoteLastModified = 20L,
+                    identityMerger = identityMerger,
                 )
 
             merged shouldBe "- 14:30:00 newer remote edit"
         }
 
-        test("merge deduplicates the shared-timestamp memo while keeping distinct memos") {
+        test("merge uses identity merger result for shared plus distinct memos") {
             val merged =
                 SyncConflictTextMerge.merge(
                     localText = "- 09:00:00 shared edited\n\n- 10:00:00 local only",
                     remoteText = "- 09:00:00 shared original",
                     localLastModified = 20L,
                     remoteLastModified = 10L,
+                    identityMerger = identityMerger,
                 )
 
             merged shouldBe "- 09:00:00 shared edited\n\n- 10:00:00 local only"

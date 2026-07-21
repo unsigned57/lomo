@@ -22,10 +22,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -124,7 +122,9 @@ mod tests {
                         }
                     }
                     JobStep::Running => {}
-                    other => return other,
+                    JobStep::BlockedByConflict { .. }
+                    | JobStep::Completed
+                    | JobStep::Failed { .. } => return step,
                 }
             }
         }
@@ -186,7 +186,12 @@ mod tests {
                         },
                     }
                 }
-                other => panic!("unexpected {other:?}"),
+                PlatformAction::Stat { .. }
+                | PlatformAction::EnsureDirectory { .. }
+                | PlatformAction::Move { .. }
+                | PlatformAction::Delete { .. } => {
+                    panic!("unexpected {action:?}")
+                }
             }
         }
 
@@ -225,8 +230,15 @@ mod tests {
                 })
                 .unwrap_or(0);
             let end = (start + *page_size as usize).min(names.len());
-            let next = (end < names.len()).then(|| names[end - 1].clone());
-            let items = names[start..end]
+            let next = (end < names.len()).then(|| {
+                names
+                    .get(end - 1)
+                    .cloned()
+                    .expect("page end implies last entry")
+            });
+            let items = names
+                .get(start..end)
+                .unwrap_or(&[])
                 .iter()
                 .map(|name| self.metadata_for_child(target, name))
                 .collect();
@@ -347,16 +359,26 @@ mod tests {
             .read_workspace_scan_page(job_id)
             .test_ok("page");
         assert_eq!(page.items.len(), 1);
-        assert_eq!(page.items[0].path, "2024-02-01.md");
-        assert!(page.items[0].tags.iter().any(|tag| tag == "ffi"));
-        let reference = &page.items[0].content;
+        assert_eq!(page.items.first().expect("item").path, "2024-02-01.md");
+        assert!(
+            page.items
+                .first()
+                .expect("item")
+                .tags
+                .iter()
+                .any(|tag| tag == "ffi")
+        );
+        let reference = &page.items.first().expect("item").content;
         let artifact = fs::read(harness.exchange_root.join(&reference.exchange_token))
             .test_ok("read memo content artifact");
         assert_eq!(artifact, content.as_bytes());
         assert_eq!(reference.length, content.len() as u64);
         assert_eq!(reference.digest, fingerprint_of(content.as_bytes()));
-        assert_eq!(page.items[0].body_start, 11);
-        assert_eq!(page.items[0].body_end, 12 + content.len() as u64);
+        assert_eq!(page.items.first().expect("item").body_start, 11);
+        assert_eq!(
+            page.items.first().expect("item").body_end,
+            12 + content.len() as u64
+        );
         assert!(page.next_cursor.is_none());
     }
 
@@ -418,7 +440,14 @@ mod tests {
             .engine
             .read_workspace_scan_page(scan_job)
             .test_ok("scan page");
-        let second = page.items[0].reminders[1].clone();
+        let second = page
+            .items
+            .first()
+            .expect("item")
+            .reminders
+            .get(1)
+            .expect("reminder")
+            .clone();
 
         let command_job = harness
             .engine

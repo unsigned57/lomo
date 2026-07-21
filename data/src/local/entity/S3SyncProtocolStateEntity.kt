@@ -1,26 +1,22 @@
 package com.lomo.data.local.entity
 
-import androidx.room3.ColumnInfo
-import androidx.room3.Entity
+import kotlinx.serialization.Serializable
 
-@Entity(
-    tableName = "s3_sync_protocol_state",
-    primaryKeys = ["workspace_generation", "id"],
-)
+@Serializable
 data class S3SyncProtocolStateEntity(
-    @ColumnInfo(name = "workspace_generation") val workspaceGeneration: String = TRANSIENT_WORKSPACE_GENERATION,
+    val workspaceGeneration: String = TRANSIENT_WORKSPACE_GENERATION,
     val id: Int = SINGLETON_ID,
-    @ColumnInfo(name = "protocol_version") val protocolVersion: Int,
-    @ColumnInfo(name = "last_successful_sync_at") val lastSuccessfulSyncAt: Long?,
-    @ColumnInfo(name = "last_fast_sync_at") val lastFastSyncAt: Long? = null,
-    @ColumnInfo(name = "last_reconcile_at") val lastReconcileAt: Long? = null,
-    @ColumnInfo(name = "last_full_remote_scan_at") val lastFullRemoteScanAt: Long? = null,
-    @ColumnInfo(name = "indexed_local_file_count") val indexedLocalFileCount: Int,
-    @ColumnInfo(name = "indexed_remote_file_count") val indexedRemoteFileCount: Int,
-    @ColumnInfo(name = "local_mode_fingerprint") val localModeFingerprint: String? = null,
-    @ColumnInfo(name = "local_audit_cursor") val localAuditCursor: String? = null,
-    @ColumnInfo(name = "remote_scan_cursor") val remoteScanCursor: String? = null,
-    @ColumnInfo(name = "scan_epoch") val scanEpoch: Long = 0L,
+    val protocolVersion: Int,
+    val lastSuccessfulSyncAt: Long?,
+    val lastFastSyncAt: Long? = null,
+    val lastReconcileAt: Long? = null,
+    val lastFullRemoteScanAt: Long? = null,
+    val indexedLocalFileCount: Int,
+    val indexedRemoteFileCount: Int,
+    val localModeFingerprint: String? = null,
+    val localAuditCursor: String? = null,
+    val remoteScanCursor: String? = null,
+    val scanEpoch: Long = 0L,
 ) {
     init {
         require(workspaceGeneration.isNotBlank()) { "S3 protocol state must be scoped to a workspace generation" }

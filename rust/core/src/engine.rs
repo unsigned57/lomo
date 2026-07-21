@@ -731,6 +731,12 @@ fn submit_result(
             )
         })?;
 
+    let job_missing = || {
+        LomoError::corruption(
+            "job_generation_changed",
+            "job disappeared while updating one journal generation",
+        )
+    };
     if let Some(error) = result.action_results().iter().find_map(|action| {
         if let ActionOutcome::Failed(error) = action.outcome() {
             Some(error.clone())
@@ -738,17 +744,49 @@ fn submit_result(
             None
         }
     }) {
-        candidate.jobs[job_index].status = PersistedJobStatus::Failed(error);
-    } else if let Some(remaining) = candidate.jobs[job_index].batch.remaining_after(prefix) {
-        candidate.jobs[job_index].batch = remaining;
-    } else if let Some(driver_kind) = candidate.jobs[job_index].driver_kind.clone() {
-        if let Err(error) =
-            apply_driver_advance(runtime, &mut candidate, job_index, &driver_kind, result)
-        {
-            candidate.jobs[job_index].status = PersistedJobStatus::Failed(error);
-        }
+        candidate
+            .jobs
+            .get_mut(job_index)
+            .ok_or_else(job_missing)?
+            .status = PersistedJobStatus::Failed(error);
     } else {
-        candidate.jobs[job_index].status = PersistedJobStatus::Completed;
+        let remaining = candidate
+            .jobs
+            .get(job_index)
+            .ok_or_else(job_missing)?
+            .batch
+            .remaining_after(prefix);
+        if let Some(remaining) = remaining {
+            candidate
+                .jobs
+                .get_mut(job_index)
+                .ok_or_else(job_missing)?
+                .batch = remaining;
+        } else {
+            let driver_kind = candidate
+                .jobs
+                .get(job_index)
+                .ok_or_else(job_missing)?
+                .driver_kind
+                .clone();
+            if let Some(driver_kind) = driver_kind {
+                if let Err(error) =
+                    apply_driver_advance(runtime, &mut candidate, job_index, &driver_kind, result)
+                {
+                    candidate
+                        .jobs
+                        .get_mut(job_index)
+                        .ok_or_else(job_missing)?
+                        .status = PersistedJobStatus::Failed(error);
+                }
+            } else {
+                candidate
+                    .jobs
+                    .get_mut(job_index)
+                    .ok_or_else(job_missing)?
+                    .status = PersistedJobStatus::Completed;
+            }
+        }
     }
 
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
@@ -780,7 +818,12 @@ fn apply_driver_advance(
             "jobs are unavailable until a workspace is selected",
         )
     })?;
-    let job = &candidate.jobs[job_index];
+    let job = candidate.jobs.get(job_index).ok_or_else(|| {
+        LomoError::corruption(
+            "job_generation_changed",
+            "job disappeared while applying driver advance",
+        )
+    })?;
     let state_json = job.driver_state_json.clone().ok_or_else(|| {
         LomoError::corruption(
             "missing_job_driver_state",
@@ -800,7 +843,12 @@ fn apply_driver_advance(
     let applied_batch = job.batch.clone();
     let advance = driver.advance(&mut ctx, &state_json, &applied_batch, result)?;
     candidate.next_id = next_counter;
-    let job = &mut candidate.jobs[job_index];
+    let job = candidate.jobs.get_mut(job_index).ok_or_else(|| {
+        LomoError::corruption(
+            "job_generation_changed",
+            "job disappeared while recording driver advance",
+        )
+    })?;
     match advance {
         DriverAdvance::NeedsBatch {
             state_json,

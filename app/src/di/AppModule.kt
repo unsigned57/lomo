@@ -75,7 +75,7 @@ val appModule = module {
     single { MainSidebarStateHolder() }
     single { MainStartupCoordinator(get(), get(), get(), get()) }
     single { MainVersionHistoryCoordinator(get(), get()) }
-    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get()) }
+    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get(), get()) }
     single {
         MemoUiMapper(
             dispatcherProvider = get(),

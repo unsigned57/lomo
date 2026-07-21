@@ -112,6 +112,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
     private val switchRootStorageUseCase by lazy { FakeSwitchRootStorageUseCase(rootLocationFlow) }
     private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
+    private val writeFreezeRepository = FakeWriteFreezeRepository()
+    private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
 
     private lateinit var gitSyncRepo: FakeGitSyncRepository
     private lateinit var mediaRepository: FakeMediaRepository
@@ -155,6 +157,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             rootLocationFlow.value = null
             switchRootStorageUseCase.reset()
             appVersionRepository.lastAppVersion = "1.0.0"
+            engineReadinessRepository.clearWorkspace()
         }
 
         afterTest {
@@ -176,6 +179,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
+                    // Observe-root rebuild requires Ready engine identity matching the new selection.
+                    engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
                     rootLocationFlow.value = StorageLocation("/tmp/large-root")
                     appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
                     runCurrent()
@@ -217,6 +222,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         }
 
                     try {
+                        engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
                         rootLocationFlow.value = StorageLocation("/tmp/large-root")
                         appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
                         runCurrent()
@@ -252,6 +258,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
+                    engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
                     rootLocationFlow.value = StorageLocation("/tmp/large-root")
                     appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
                     refreshStarted.await()
@@ -371,7 +378,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
-                    engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository(),
+                    engineReadinessRepository = engineReadinessRepository,
+                    writeFreezeRepository = writeFreezeRepository,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(

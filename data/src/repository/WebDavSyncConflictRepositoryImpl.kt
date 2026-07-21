@@ -6,7 +6,7 @@ import com.lomo.data.webdav.WebDavClient
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.data.sync.SyncConflictMerge
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
@@ -289,7 +289,7 @@ class WebDavConflictResolver
                 return null
             }
             val content =
-                SyncConflictTextMerge.merge(
+                SyncConflictMerge.merge(
                     localText = file.localContent,
                     remoteText = file.remoteContent,
                     localLastModified = file.localLastModified,
@@ -310,7 +310,7 @@ class WebDavConflictResolver
         }
         private suspend fun refreshAfterResolution() {
             runNonFatalCatching {
-                runtime.memoSynchronizer.refresh()
+                runtime.memoMutationRepository.refreshMemos()
             }.onFailure { error ->
                 Timber.w(error, "Memo refresh after WebDAV conflict resolution failed")
             }
@@ -549,7 +549,7 @@ class WebDavReviewResolver
                 return null
             }
             val content =
-                SyncConflictTextMerge.merge(
+                SyncConflictMerge.merge(
                     localText = item.localContent,
                     remoteText = item.incomingContent,
                     localLastModified = item.localLastModified,
@@ -570,7 +570,7 @@ class WebDavReviewResolver
         }
         private suspend fun refreshAfterResolution() {
             runNonFatalCatching {
-                runtime.memoSynchronizer.refresh()
+                runtime.memoMutationRepository.refreshMemos()
             }.onFailure { error ->
                 Timber.w(error, "Memo refresh after WebDAV review resolution failed")
             }

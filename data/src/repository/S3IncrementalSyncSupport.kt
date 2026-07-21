@@ -43,7 +43,7 @@ interface S3SyncProtocolStateStore {
     suspend fun clear()
 }
 
-class RoomBackedS3SyncProtocolStateStore(
+class FileBackedS3SyncProtocolStateStore(
     private val dao: S3SyncProtocolStateDao,
     private val context: Context,
     private val generationProvider: WorkspaceSyncGenerationProvider,
@@ -166,7 +166,7 @@ interface S3LocalChangeJournalStore {
     suspend fun clear()
 }
 
-class RoomBackedS3LocalChangeJournalStore(
+class FileBackedS3LocalChangeJournalStore(
     private val dao: S3LocalChangeJournalDao,
     private val context: Context,
     private val generationProvider: WorkspaceSyncGenerationProvider,

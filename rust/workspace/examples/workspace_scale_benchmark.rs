@@ -24,7 +24,7 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -37,7 +37,10 @@ fn main() -> ExitCode {
     match run(&env::args().skip(1).collect::<Vec<_>>()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("workspace-scale-benchmark: {error}");
+            match writeln!(io::stderr(), "workspace-scale-benchmark: {error}") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             ExitCode::FAILURE
         }
     }
@@ -101,17 +104,16 @@ fn run(arguments: &[String]) -> Result<(), Box<dyn Error>> {
     warm_samples_ms.sort_by(f64::total_cmp);
 
     let peak_rss_bytes = read_peak_rss_bytes()?;
-    println!(
-        "WORKSPACE_SCALE_BENCH full_p50_ms={:.6} full_p95_ms={:.6} warm_p50_ms={:.6} \
-         result_count={result_count} memo_count={memo_count} node_count={node_count} \
-         peak_rss_bytes={peak_rss_bytes} full_samples={} warm_samples={} memo_files={}",
+    writeln!(
+        io::stdout(),
+        "WORKSPACE_SCALE_BENCH full_p50_ms={:.6} full_p95_ms={:.6} warm_p50_ms={:.6}          result_count={result_count} memo_count={memo_count} node_count={node_count}          peak_rss_bytes={peak_rss_bytes} full_samples={} warm_samples={} memo_files={}",
         percentile(&full_samples_ms, 50),
         percentile(&full_samples_ms, 95),
         percentile(&warm_samples_ms, 50),
         options.full_samples,
         options.warm_samples,
         memo_paths.len(),
-    );
+    )?;
     Ok(())
 }
 
@@ -129,7 +131,10 @@ impl BenchmarkOptions {
         let mut warm_samples = 21_usize;
         let mut index = 0;
         while index < arguments.len() {
-            let flag = arguments[index].as_str();
+            let flag = arguments
+                .get(index)
+                .map(String::as_str)
+                .ok_or_else(|| invalid_input("missing flag"))?;
             let value = arguments
                 .get(index + 1)
                 .ok_or_else(|| invalid_input(format!("missing value for {flag}")))?;
@@ -198,7 +203,7 @@ fn percentile(sorted: &[f64], percentile: usize) -> f64 {
         return 0.0;
     }
     let index = ((sorted.len() - 1) * percentile).div_ceil(100);
-    sorted[index]
+    *sorted.get(index).unwrap_or(&0.0)
 }
 
 fn read_peak_rss_bytes() -> Result<u64, io::Error> {

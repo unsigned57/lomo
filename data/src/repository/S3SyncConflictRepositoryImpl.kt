@@ -6,7 +6,7 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.data.sync.SyncConflictMerge
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewResolution
@@ -374,7 +374,7 @@ class S3ConflictResolver
             mode: S3LocalSyncMode,
         ): S3ConflictResolutionOutcome? {
             val mergedText =
-                SyncConflictTextMerge.merge(
+                SyncConflictMerge.merge(
                     localText = file.localContent,
                     remoteText = file.remoteContent,
                     localLastModified = file.localLastModified,
@@ -781,7 +781,7 @@ class S3ReviewResolver
             mode: S3LocalSyncMode,
         ): S3ReviewResolutionOutcome? {
             val mergedText =
-                SyncConflictTextMerge.merge(
+                SyncConflictMerge.merge(
                     localText = item.localContent,
                     remoteText = item.incomingContent,
                     localLastModified = item.localLastModified,
@@ -917,7 +917,7 @@ private suspend fun refreshS3ResolutionMemoCache(
     sessionKind: String,
 ) {
     runNonFatalCatching {
-        runtime.memoSynchronizer.refreshImportedSync()
+        runtime.memoMutationRepository.refreshMemos()
     }.onFailure { error ->
         Timber.w(error, "Memo refresh after S3 %s resolution failed", sessionKind)
     }

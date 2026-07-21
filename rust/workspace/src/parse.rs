@@ -13,6 +13,7 @@ use crate::document::{
     DocumentBuild, DocumentFormat, MemoBuild, WorkspaceDocument, WorkspaceMemo, memo_from_build,
 };
 use crate::header::{parse_memo_header_line, validate_filename_stem};
+use crate::limits::validation;
 use crate::reminder::ReminderRef;
 use crate::render::{
     RenderBlock, RenderDocumentV1, RenderInline, SemanticFactKind, render_markdown_core,
@@ -21,6 +22,31 @@ use crate::source::{ByteSpan, SourceBytes};
 use crate::types::MemoIdentity;
 
 const PLAIN_MARKDOWN_FALLBACK_TIME: &str = "00:00:00";
+
+/// Projects body text for one raw memo block (header+body bytes) without Kotlin line authority.
+///
+/// Uses the owner document parse: Lomo/Thino headers yield the memo content field; plain Markdown
+/// falls back to the whole trimmed source. Multiple memos in one block fail closed.
+///
+/// # Errors
+///
+/// Returns validation when the source is empty, non-UTF-8, or not a unique single-memo projection.
+pub fn extract_memo_body_from_raw(raw: &str) -> Result<String, LomoError> {
+    let source = SourceBytes::try_from_str(raw)?;
+    // Synthetic stem: body extraction does not depend on identity product rules beyond uniqueness.
+    let document = parse_workspace_document(&source, "body_extract")?;
+    match document.memos() {
+        [memo] => Ok(memo.content().to_owned()),
+        [] => Err(validation(
+            "memo_body_extract_empty",
+            "raw memo source does not project a memo body",
+        )),
+        _ => Err(validation(
+            "memo_body_extract_not_unique",
+            "raw memo source projects multiple memos; refuse line-based split",
+        )),
+    }
+}
 
 /// Parses a workspace Markdown document from validated source bytes.
 ///
@@ -148,8 +174,8 @@ fn build_line_table(text: &str) -> Vec<SourceLine> {
     let mut index = 0usize;
     let mut line_start = 0usize;
     while index < bytes.len() {
-        match bytes[index] {
-            b'\n' => {
+        match bytes.get(index).copied() {
+            Some(b'\n') => {
                 lines.push(SourceLine {
                     content_start: line_start,
                     content_end: index,
@@ -158,7 +184,7 @@ fn build_line_table(text: &str) -> Vec<SourceLine> {
                 index += 1;
                 line_start = index;
             }
-            b'\r' => {
+            Some(b'\r') => {
                 let term_end = if bytes.get(index + 1) == Some(&b'\n') {
                     index + 2
                 } else {
@@ -186,7 +212,7 @@ fn build_line_table(text: &str) -> Vec<SourceLine> {
 }
 
 fn line_content<'a>(text: &'a str, line: &SourceLine) -> &'a str {
-    &text[line.content_start..line.content_end]
+    text.get(line.content_start..line.content_end).unwrap_or("")
 }
 
 fn finish_open_memo(
@@ -294,7 +320,9 @@ fn is_external_url(destination: &str) -> bool {
 }
 
 fn starts_with_ignore_ascii_case(haystack: &[u8], prefix: &[u8]) -> bool {
-    haystack.len() >= prefix.len() && haystack[..prefix.len()].eq_ignore_ascii_case(prefix)
+    haystack
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
 const fn span_contains(container: ByteSpan, candidate: ByteSpan) -> bool {
@@ -321,17 +349,27 @@ fn memo_byte_spans(
         let empty = ByteSpan::try_new(0, 0, source_len)?;
         return Ok((empty, empty, empty));
     }
-    let memo_start = lines[start_line].content_start;
+    let start = lines.get(start_line).ok_or_else(|| {
+        validation(
+            "memo_line_index_out_of_range",
+            "memo start line is outside the source line table",
+        )
+    })?;
+    let memo_start = start.content_start;
     let memo_end = if end_line + 1 < lines.len() {
-        lines[end_line + 1].content_start
+        lines
+            .get(end_line + 1)
+            .map_or(source_len, |line| line.content_start)
     } else {
         source_len
     };
     let memo_span = ByteSpan::try_new(memo_start, memo_end, source_len)?;
     let header_end = if start_line + 1 < lines.len() {
-        lines[start_line + 1].content_start
+        lines
+            .get(start_line + 1)
+            .map_or(start.term_end, |line| line.content_start)
     } else {
-        lines[start_line].term_end
+        start.term_end
     };
     let header_end = header_end.min(memo_end);
     let header_span = ByteSpan::try_new(memo_start, header_end, source_len)?;
@@ -395,7 +433,13 @@ fn count_inlines(inlines: &[RenderInline], image: &mut u32, link: &mut u32) {
             | RenderInline::WikiReference { children, .. } => {
                 count_inlines(children, image, link);
             }
-            _ => {}
+            RenderInline::Text { .. }
+            | RenderInline::Code { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => {}
         }
     }
 }

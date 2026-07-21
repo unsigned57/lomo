@@ -48,7 +48,7 @@ constructor(
             if (result is GitSyncResult.Success) {
                 memoMirror.mirrorMemoFromRepo(repoDir, layout)
                 runNonFatalCatching {
-                    runtime.memoSynchronizer.refresh()
+                    runtime.memoMutationRepository.refreshMemos()
                 }.onFailure { error ->
                     Timber.w(error, "Memo refresh after conflict resolution failed")
                 }

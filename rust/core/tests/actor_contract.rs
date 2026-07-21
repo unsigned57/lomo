@@ -26,12 +26,6 @@ mod option_support;
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
 
     use std::fs;
@@ -76,9 +70,15 @@ mod tests {
     }
 
     fn opening_job(engine: &LomoEngine) -> lomo_core::JobId {
-        match engine.state() {
+        let state = engine.state();
+        match state {
             EngineState::Opening { job_id } => job_id,
-            other => panic!("SAF engine must await bootstrap, got {other:?}"),
+            EngineState::AwaitingWorkspaceSelection
+            | EngineState::Ready { .. }
+            | EngineState::ReadOnlyRecovery { .. }
+            | EngineState::ShuttingDown => {
+                panic!("SAF engine must await bootstrap, got {state:?}")
+            }
         }
     }
 
@@ -273,8 +273,10 @@ mod tests {
         let engine = LomoEngine::open(fixture.config).must_succeed("engine");
         let job_id = opening_job(&engine);
         let listener = Arc::new(SlowListener::new());
+        // Coerce concrete Arc to trait object without a trivial `as` cast.
+        let listener_dyn: Arc<dyn CoreEventListener> = Arc::<SlowListener>::clone(&listener);
         let subscription = engine
-            .subscribe(Arc::clone(&listener) as Arc<dyn CoreEventListener>)
+            .subscribe(listener_dyn)
             .must_succeed("explicit subscription");
         let before = engine.state();
 

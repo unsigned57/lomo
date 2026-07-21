@@ -1,35 +1,17 @@
 package com.lomo.data.di
 
-import com.lomo.data.local.MemoDatabase
-import com.lomo.data.local.withDriverTransactionAndSuspendedMemoFtsTriggers
-import com.lomo.data.local.withDriverTransaction
-import com.lomo.data.repository.AsyncMemoVersionRecorder
-import com.lomo.data.repository.MemoMutationDaoBundle
-import com.lomo.data.repository.RoomMemoVersionStore
-import com.lomo.data.repository.MemoVersionBlobRoot
-import com.lomo.data.repository.MemoVersionStore
-import com.lomo.data.repository.MemoVersionRepositoryImpl
-import com.lomo.data.repository.MemoVersionJournal
-import com.lomo.data.repository.MemoWorkspaceFileStateStore
-import com.lomo.data.repository.MemoWorkspaceProjector
-import com.lomo.data.repository.MemoWorkspaceReader
-import com.lomo.data.repository.MemoWorkspaceShardWriter
-import com.lomo.data.repository.MemoWorkspaceStore
-import com.lomo.data.repository.MemoMutationGate
-import com.lomo.data.repository.MemoMutationHandler
-import com.lomo.data.repository.MemoRefreshPlanner
-import com.lomo.data.repository.MemoRefreshParserWorker
-import com.lomo.data.repository.MemoRefreshDbApplier
-import com.lomo.data.repository.MemoRefreshEngine
-import com.lomo.data.repository.MemoSavePlanFactory
-import com.lomo.data.repository.MemoSynchronizer
-import com.lomo.data.repository.MemoTrashMutationHandler
-import com.lomo.data.repository.RefreshingWorkspaceStateResolver
-import com.lomo.data.repository.MemoQueryRepositoryImpl
-import com.lomo.data.repository.MemoMutationRepositoryImpl
-import com.lomo.data.repository.MemoTrashRepositoryImpl
-import com.lomo.data.repository.MemoSearchRepositoryImpl
-import com.lomo.data.repository.MemoStatisticsRepositoryImpl
+import com.lomo.data.engine.ManagedEngineSession
+import com.lomo.data.engine.store.BoltFfiStorePort
+import com.lomo.data.engine.store.StorePort
+import com.lomo.data.repository.StoreInvalidationBus
+import com.lomo.data.repository.StoreMemoMutationRepository
+import com.lomo.data.repository.StoreMemoQueryRepository
+import com.lomo.data.repository.StoreMemoSearchRepository
+import com.lomo.data.repository.StoreMemoStatisticsRepository
+import com.lomo.data.repository.StoreMemoTrashRepository
+import com.lomo.data.repository.StoreMemoVersionRepository
+import com.lomo.data.repository.StoreWorkspaceStateResolver
+import com.lomo.data.repository.StoreWorkspaceTransitionRepository
 import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.repository.MainListQueryRepository
 import com.lomo.domain.repository.MemoListQueryRepository
@@ -40,116 +22,67 @@ import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.repository.MemoTrashRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
-import com.lomo.domain.usecase.MemoIdentityPolicy
-import org.koin.dsl.module
+import com.lomo.domain.repository.WorkspaceTransitionRepository
 import org.koin.core.module.dsl.singleOf
-import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.binds
+import org.koin.dsl.module
 
-val memoRepositoryModule = module {
-    singleOf(::MarkdownWorkspaceContentProjector)
-    singleOf(::MemoSavePlanFactory)
+/**
+ * P3-10 production DI: Rust store sole local-data owner. No Room dual-stack path.
+ */
+val memoRepositoryModule =
+    module {
+        singleOf(::MarkdownWorkspaceContentProjector)
+        single { StoreInvalidationBus() }
+        single<StorePort> {
+            // ManagedEngineSession implements StoreNativeBridge via WorkspaceNativeAdapter.
+            BoltFfiStorePort(bridge = get<ManagedEngineSession>())
+        }
 
-    // Memo version / journal
-    singleOf(::RoomMemoVersionStore) bind MemoVersionStore::class
-    singleOf(::MemoVersionRepositoryImpl) bind MemoVersionRepository::class
-    single {
-        MemoVersionJournal(
-            store = get(),
-            blobRoot = get<MemoVersionBlobRoot>(),
-            workspaceMediaAccess = get(),
-            memoTextProcessor = get(),
-        )
-    }
-    single { AsyncMemoVersionRecorder(get(), get(named("ApplicationScope"))) }
-    
-    // Core workspace projectors / readers / mutation gates
-    singleOf(::MemoWorkspaceFileStateStore)
-    singleOf(::MemoWorkspaceProjector)
-    singleOf(::MemoWorkspaceReader)
-    singleOf(::MemoWorkspaceShardWriter)
-    singleOf(::MemoWorkspaceStore)
-    singleOf(::MemoMutationGate)
-    single {
-        MemoMutationDaoBundle(
-            memoDao = get(),
-            memoWriteDao = get(),
-            memoTagDao = get(),
-            memoImageDao = get(),
-            memoIdentityDao = get(),
-            memoTrashDao = get(),
-            memoOutboxDao = get(),
-            runInTransaction = { block ->
-                get<MemoDatabase>().withDriverTransaction {
-                    block()
-                }
-            },
-        )
-    }
-    singleOf(::MemoTrashMutationHandler)
-    single {
-        MemoMutationHandler(
-            markdownStorageDataSource = get(),
-            mediaStorageDataSource = get(),
-            daoBundle = get(),
-            memoStatisticsDao = get(),
-            localFileStateDao = get(),
-            workspaceStore = get(),
-            workspaceMediaAccess = get(),
-            savePlanFactory = get(),
-            textProcessor = get(),
-            dataStore = get(),
-            trashMutationHandler = get(),
-            memoIdentityPolicy = get(),
-            memoVersionJournal = get(),
-            mediaRepository = get(),
-            s3LocalChangeRecorder = get(),
-            webDavLocalChangeRecorder = get(),
-            backgroundScope = get(named("ApplicationScope")),
-        )
-    }
+        single {
+            StoreMemoQueryRepository(
+                port = get(),
+                invalidation = get(),
+            )
+        } binds
+            arrayOf(
+                MemoQueryRepository::class,
+                MemoListQueryRepository::class,
+                MainListQueryRepository::class,
+            )
 
-    // Planner / Policies / Workers / Appliers / Engines
-    single { MemoRefreshPlanner }
-    single { MemoIdentityPolicy() }
-    singleOf(::MemoRefreshParserWorker)
-    single {
-        MemoRefreshDbApplier(
-            memoDao = get(),
-            memoWriteDao = get(),
-            memoTagDao = get(),
-            memoImageDao = get(),
-            memoTrashDao = get(),
-            localFileStateDao = get(),
-            memoVersionJournal = get(),
-            runInTransaction = { block ->
-                get<MemoDatabase>().withDriverTransactionAndSuspendedMemoFtsTriggers {
-                    block()
-                }
-            }
-        )
-    }
-    singleOf(::MemoRefreshEngine)
-    single {
-        MemoSynchronizer(
-            refreshEngine = get(),
-            mutationHandler = get(),
-            outboxScope = get(named("ApplicationScope")),
-            writeAuthority = get(),
-        )
-    }
-    single<WorkspaceStateResolver> { RefreshingWorkspaceStateResolver(get(), get(), get()) }
+        single {
+            StoreMemoMutationRepository(
+                port = get(),
+                queryRepository = get(),
+                reminderScheduler = get(),
+                writeAuthority = get(),
+                invalidation = get(),
+            )
+        } bind MemoMutationRepository::class
 
-    // Repositories
-    single { MemoQueryRepositoryImpl(get(), get(), get(), get(), get()) } binds arrayOf(
-        MemoQueryRepository::class,
-        MemoListQueryRepository::class,
-        MainListQueryRepository::class
-    )
-    single { MemoMutationRepositoryImpl(get(), get(), get(), get(), get()) }
-        .bind(MemoMutationRepository::class)
-    single { MemoTrashRepositoryImpl(get(), get(), get()) } bind MemoTrashRepository::class
-    singleOf(::MemoSearchRepositoryImpl) bind MemoSearchRepository::class
-    singleOf(::MemoStatisticsRepositoryImpl) bind MemoStatisticsRepository::class
-}
+        singleOf(::StoreMemoSearchRepository) bind MemoSearchRepository::class
+        single {
+            StoreMemoStatisticsRepository(port = get(), invalidation = get())
+        } bind MemoStatisticsRepository::class
+        single {
+            StoreMemoTrashRepository(
+                port = get(),
+                writeAuthority = get(),
+                invalidation = get(),
+            )
+        } bind MemoTrashRepository::class
+        singleOf(::StoreMemoVersionRepository) bind MemoVersionRepository::class
+
+        single {
+            StoreWorkspaceStateResolver(port = get(), invalidation = get())
+        } bind WorkspaceStateResolver::class
+        single {
+            StoreWorkspaceTransitionRepository(
+                syncStateResetRepository = get(),
+                port = get(),
+                invalidation = get(),
+            )
+        } bind WorkspaceTransitionRepository::class
+    }

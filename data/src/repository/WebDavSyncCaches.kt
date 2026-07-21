@@ -24,7 +24,7 @@ interface WebDavLocalFingerprintCache {
     suspend fun retain(validKeys: Set<WebDavLocalFingerprintKey>)
 }
 
-class RoomBackedWebDavLocalFingerprintCache(
+class FileBackedWebDavLocalFingerprintCache(
     private val dao: WebDavLocalFingerprintDao,
     private val generationProvider: WorkspaceSyncGenerationProvider,
 ) : WebDavLocalFingerprintCache {

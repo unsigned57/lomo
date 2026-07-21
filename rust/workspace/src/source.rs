@@ -171,12 +171,12 @@ impl SourceTextState {
         let mut saw_cr = false;
         let mut index = 0usize;
         while index < body.len() {
-            match body[index] {
-                b'\n' => {
+            match body.get(index).copied() {
+                Some(b'\n') => {
                     saw_lf = true;
                     index += 1;
                 }
-                b'\r' => {
+                Some(b'\r') => {
                     if body.get(index + 1) == Some(&b'\n') {
                         saw_crlf = true;
                         index += 2;
@@ -217,16 +217,16 @@ fn trailing_state(body: &[u8]) -> TrailingState {
     let mut index = body.len();
     while index > 0 {
         let previous = index - 1;
-        match body[previous] {
-            b'\n' => {
-                if previous > 0 && body[previous - 1] == b'\r' {
+        match body.get(previous).copied() {
+            Some(b'\n') => {
+                if previous > 0 && body.get(previous - 1) == Some(&b'\r') {
                     index = previous - 1;
                 } else {
                     index = previous;
                 }
                 blank_lines = blank_lines.saturating_add(1);
             }
-            b'\r' => {
+            Some(b'\r') => {
                 index = previous;
                 blank_lines = blank_lines.saturating_add(1);
             }
@@ -321,6 +321,13 @@ impl SourceBytes {
     /// Returns a validation error when the span is outside this source.
     pub fn slice(&self, span: ByteSpan) -> Result<&str, LomoError> {
         let checked = ByteSpan::try_new(span.start(), span.end(), self.len())?;
-        Ok(&self.as_str()[checked.start()..checked.end()])
+        self.as_str()
+            .get(checked.start()..checked.end())
+            .ok_or_else(|| {
+                validation(
+                    "invalid_byte_span",
+                    "byte span must land on UTF-8 character boundaries",
+                )
+            })
     }
 }

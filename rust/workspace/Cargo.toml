@@ -55,6 +55,22 @@ path = "tests/workspace_jobs_contract.rs"
 name = "document_facts_contract"
 path = "tests/document_facts_contract.rs"
 
+[[test]]
+name = "attachment_remap_contract"
+path = "tests/attachment_remap_contract.rs"
+
+[[test]]
+name = "reminder_token_construct_contract"
+path = "tests/reminder_token_construct_contract.rs"
+
+[[test]]
+name = "memo_body_extract_contract"
+path = "tests/memo_body_extract_contract.rs"
+
+[[test]]
+name = "memo_shard_identity_merge_contract"
+path = "tests/memo_shard_identity_merge_contract.rs"
+
 [[example]]
 name = "workspace_scale_benchmark"
 path = "examples/workspace_scale_benchmark.rs"

@@ -1,4 +1,6 @@
 package com.lomo.data.repository
+
+import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -39,7 +41,7 @@ constructor(
         val markdownStorageDataSource: MarkdownStorageDataSource,
         val localMediaSyncStore: LocalMediaSyncStore,
         val metadataDao: S3SyncMetadataDao,
-        val memoSynchronizer: MemoSynchronizer,
+        val memoMutationRepository: MemoMutationRepository,
         val planner: S3SyncPlanner,
         val performanceTuner: SyncPerformanceTuner,
         val stateHolder: S3SyncStateHolder,

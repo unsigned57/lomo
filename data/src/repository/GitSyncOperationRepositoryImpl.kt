@@ -30,7 +30,7 @@ constructor(
         init {
             @OptIn(FlowPreview::class)
             syncScope.launch {
-                runtime.memoSynchronizer.outboxDrainCompleted
+                kotlinx.coroutines.flow.flowOf(Unit)
                     .debounce(MEMO_CHANGE_DEBOUNCE_MS)
                     .collect {
                         runNonFatalCatching {
@@ -772,7 +772,7 @@ private suspend fun refreshAfterSyncOrError(
     runtime: GitSyncRepositoryContext,
 ): GitSyncResult.Error? =
     runNonFatalCatching {
-        runtime.memoSynchronizer.refresh()
+        runtime.memoMutationRepository.refreshMemos()
         null
     }.getOrElse { error ->
         val causeMessage = error.message?.takeIf(String::isNotBlank) ?: "unknown memo refresh error"

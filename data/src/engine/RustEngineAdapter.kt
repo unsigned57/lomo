@@ -70,6 +70,21 @@ internal class RustEngineAdapter(
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         native.readWorkspaceDocumentCommandResult(jobId)
 
+    override fun queryMemos(
+        query: com.lomo.nativebridge.StoreMemoQuery,
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+    ): com.lomo.nativebridge.StoreMemoPage = native.queryMemos(query, cursor, pageSize)
+
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
+
+    override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit = native.applyMemoCommand(command)
+
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        native.startRebuild(batchSize)
+
     @Synchronized
     private fun onNativeEvent(event: NativeCoreEvent) {
         if (closed.get()) return

@@ -8,6 +8,7 @@ import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MarkdownStorageDataSource
+import com.lomo.domain.repository.MemoMutationRepository
 
 
 internal const val MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE = "Memo directory is not configured"
@@ -20,7 +21,7 @@ class GitSyncRepositoryContext(
     val gitSyncEngine: GitSyncEngine,
     val credentialStore: GitCredentialStore,
     val dataStore: LomoDataStore,
-    val memoSynchronizer: MemoSynchronizer,
+    val memoMutationRepository: MemoMutationRepository,
     val safGitMirrorBridge: SafGitMirrorBridge,
     val gitMediaSyncBridge: GitMediaSyncBridge,
     val gitSyncQueryCoordinator: GitSyncQueryTestCoordinator,

@@ -1,14 +1,22 @@
 package com.lomo.domain.model
 
+import com.lomo.domain.repository.MemoIdentityConflictMerger
+
 private const val MUCH_NEWER_THRESHOLD_MS = 5 * 60 * 1000L
 
 object SyncConflictAutoResolutionAdvisor {
-    fun suggestedChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
-        val safeChoice = safeAutoResolutionChoice(file)
+    fun suggestedChoice(
+        file: SyncConflictFile,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): SyncConflictResolutionChoice? {
+        val safeChoice = safeAutoResolutionChoice(file, identityMerger)
         return safeChoice ?: newerSideChoice(file)
     }
 
-    fun safeAutoResolutionChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
+    fun safeAutoResolutionChoice(
+        file: SyncConflictFile,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): SyncConflictResolutionChoice? {
         if (file.isBinary) return null
 
         val localContent = file.localContent.orEmpty()
@@ -17,7 +25,7 @@ object SyncConflictAutoResolutionAdvisor {
         val normalizedRemote = remoteContent.trim()
         val newerSideChoice = newerSideChoice(file)
         val mergeChoice =
-            mergedText(file)
+            mergedText(file, identityMerger)
                 ?.takeIf { mergedText ->
                     mergedText.trim() != normalizedLocal && mergedText.trim() != normalizedRemote
                 }?.let { SyncConflictResolutionChoice.MERGE_TEXT }
@@ -36,7 +44,10 @@ object SyncConflictAutoResolutionAdvisor {
         }
     }
 
-    fun mergedText(file: SyncConflictFile): String? =
+    fun mergedText(
+        file: SyncConflictFile,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): String? =
         if (file.isBinary) {
             null
         } else {
@@ -45,6 +56,7 @@ object SyncConflictAutoResolutionAdvisor {
                 remoteText = file.remoteContent,
                 localLastModified = file.localLastModified,
                 remoteLastModified = file.remoteLastModified,
+                identityMerger = identityMerger,
             )
         }
 
@@ -60,10 +72,16 @@ object SyncConflictAutoResolutionAdvisor {
 }
 
 object SyncReviewAutoResolutionAdvisor {
-    fun suggestedChoice(item: SyncReviewItem): SyncReviewResolutionChoice? =
-        safeAutoResolutionChoice(item) ?: newerSideChoice(item)
+    fun suggestedChoice(
+        item: SyncReviewItem,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): SyncReviewResolutionChoice? =
+        safeAutoResolutionChoice(item, identityMerger) ?: newerSideChoice(item)
 
-    fun safeAutoResolutionChoice(item: SyncReviewItem): SyncReviewResolutionChoice? {
+    fun safeAutoResolutionChoice(
+        item: SyncReviewItem,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): SyncReviewResolutionChoice? {
         if (item.isBinary) return null
 
         val localContent = item.localContent.orEmpty()
@@ -72,7 +90,7 @@ object SyncReviewAutoResolutionAdvisor {
         val normalizedIncoming = incomingContent.trim()
         val newerSideChoice = newerSideChoice(item)
         val mergeChoice =
-            mergedText(item)
+            mergedText(item, identityMerger)
                 ?.takeIf { mergedText ->
                     mergedText.trim() != normalizedLocal && mergedText.trim() != normalizedIncoming
                 }?.let { SyncReviewResolutionChoice.MERGE_TEXT }
@@ -91,7 +109,10 @@ object SyncReviewAutoResolutionAdvisor {
         }
     }
 
-    fun mergedText(item: SyncReviewItem): String? =
+    fun mergedText(
+        item: SyncReviewItem,
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
+    ): String? =
         if (item.isBinary) {
             null
         } else {
@@ -100,6 +121,7 @@ object SyncReviewAutoResolutionAdvisor {
                 remoteText = item.incomingContent,
                 localLastModified = item.localLastModified,
                 remoteLastModified = item.incomingLastModified,
+                identityMerger = identityMerger,
             )
         }
 

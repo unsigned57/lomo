@@ -16,7 +16,6 @@ import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
-import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.repository.DirectorySettingsRepositoryImpl
 import com.lomo.data.repository.PreferencesRepositoryImpl
@@ -36,7 +35,6 @@ import com.lomo.data.repository.TypographyPreferencesRepositoryImpl
 import com.lomo.data.repository.ColorSchemePreferencesRepositoryImpl
 import com.lomo.data.repository.FontPreferencesRepositoryImpl
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.security.DataStoreSecuritySessionPolicy
 import com.lomo.data.security.DefaultCredentialRepository
 import com.lomo.data.git.GitCredentialStore
@@ -59,7 +57,6 @@ import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
-import com.lomo.domain.repository.WorkspaceTransitionRepository
 import org.koin.dsl.module
 import org.koin.core.module.dsl.singleOf
 import org.koin.android.ext.koin.androidContext
@@ -113,22 +110,6 @@ val coreDataRepositoryModule = module {
         com.lomo.domain.repository.WriteFreezeRepository::class
     singleOf(::WorkspaceWriteAuthority)
 
-    single {
-        WorkspaceTransitionRepositoryImpl(
-            memoWriteDao = get(),
-            memoOutboxDao = get(),
-            memoTagDao = get(),
-            memoImageDao = get(),
-            memoTrashDao = get(),
-            localFileStateDao = get(),
-            syncStateResetRepository = get(),
-            runInTransaction = { block ->
-                get<com.lomo.data.local.MemoDatabase>().withDriverTransaction {
-                    block()
-                }
-            }
-        )
-    } bind WorkspaceTransitionRepository::class
 
     singleOf(::SyncStateResetRepositoryImpl) bind SyncStateResetRepository::class
     singleOf(::DataStoreWorkspaceSyncGenerationProvider) bind WorkspaceSyncGenerationProvider::class

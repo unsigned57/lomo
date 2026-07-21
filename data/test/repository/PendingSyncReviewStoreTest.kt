@@ -33,7 +33,7 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Unit under test: RoomPendingSyncReviewStore
+ * - Unit under test: FileBackedPendingSyncReviewStore
  * - Capability: Persist pending sync review sessions through a descriptor-only review-owned table and payload while preserving S3-discovered incoming locators supplied by production materialization.
  * - Scenarios:
  *   - Given a pending review session, when written, then raw local/incoming markdown is not stored in Room JSON.
@@ -94,7 +94,7 @@ class PendingSyncReviewStoreTest : DataFunSpec() {
     private fun `write stores descriptor without full review content`() =
         runTest {
             val dao = FakePendingSyncReviewDao()
-            val store = RoomPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
             val largeLocal = "local-review-content-".repeat(512)
             val largeIncoming = "incoming-review-content-".repeat(512)
             val review =
@@ -121,7 +121,7 @@ class PendingSyncReviewStoreTest : DataFunSpec() {
 
     private fun `write rejects S3 binary review without explicit side descriptor`() =
         runTest {
-            val store = RoomPendingSyncReviewStore(FakePendingSyncReviewDao(), ReviewStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncReviewStore(FakePendingSyncReviewDao(), ReviewStoreTestGenerationProvider())
             val review =
                 SyncReviewSession(
                     source = SyncBackendType.S3,
@@ -150,7 +150,7 @@ class PendingSyncReviewStoreTest : DataFunSpec() {
     private fun `writeDescriptor stores S3 materialized review locator exactly`(tempFolder: KotestTemporaryFolder) =
         runTest {
             val dao = FakePendingSyncReviewDao()
-            val store = RoomPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
             val relativePath = "notes/review.md"
             val discoveredRemotePath = "prefix/rclone/review-opaque"
             val localContent = "# local"
@@ -209,7 +209,7 @@ class PendingSyncReviewStoreTest : DataFunSpec() {
         tempFolder: KotestTemporaryFolder,
     ) = runTest {
         val dao = FakePendingSyncReviewDao()
-        val store = RoomPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
+        val store = FileBackedPendingSyncReviewStore(dao, ReviewStoreTestGenerationProvider())
         val relativePath = "assets/review.png"
         val discoveredRemotePath = "prefix/rclone/review-binary-opaque"
         val localBytes = byteArrayOf(3, 1, 4)
@@ -263,7 +263,7 @@ class PendingSyncReviewStoreTest : DataFunSpec() {
 
     private fun `clear removes only targeted backend review session`() =
         runTest {
-            val store = RoomPendingSyncReviewStore(FakePendingSyncReviewDao(), ReviewStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncReviewStore(FakePendingSyncReviewDao(), ReviewStoreTestGenerationProvider())
             val inboxReview = reviewSession(source = SyncBackendType.INBOX, path = "inbox/2026_05_26.md")
             val webDavReview = reviewSession(source = SyncBackendType.WEBDAV, path = "lomo/memo/remote.md")
             store.write(inboxReview)

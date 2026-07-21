@@ -8,7 +8,8 @@
 //!   are returned without normalization of the time token.
 //! - Given malformed headers, when parsed, then no header is recognized.
 //! - Given BOM / zero-width separators, when parsed, then the header still matches.
-//! - Given empty / underscore / control stems, when validated, then validation fails closed.
+//! - Given empty / control stems, when validated, then validation fails closed; product date
+//!   stems that embed `_` (default `yyyy_MM_dd`) are accepted.
 //!
 //! Observable outcomes: `ParsedMemoHeader` parts and structured validation errors.
 //! Excludes: full document segmentation (covered by `document_model_contract`).
@@ -17,12 +18,6 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
     use lomo_workspace::header::{parse_memo_header_line, validate_filename_stem};
@@ -80,11 +75,19 @@ mod tests {
     }
 
     #[test]
-    fn filename_stem_rejects_underscore_and_controls() {
-        validate_filename_stem("2024-06-01").test_ok("valid");
-        validate_filename_stem("plain-note").test_ok("valid");
+    fn filename_stem_accepts_product_date_patterns_and_rejects_controls() {
+        // Five StorageFilenameFormats stems + plain note.
+        for stem in [
+            "2024_06_01", // yyyy_MM_dd (default)
+            "2024-06-01", // yyyy-MM-dd
+            "2024.06.01", // yyyy.MM.dd
+            "20240601",   // yyyyMMdd
+            "06-01-2024", // MM-dd-yyyy
+            "plain-note",
+        ] {
+            validate_filename_stem(stem).test_ok("product stem");
+        }
         assert!(validate_filename_stem("").is_err());
-        assert!(validate_filename_stem("a_b").is_err());
         assert!(validate_filename_stem("a\nb").is_err());
     }
 }

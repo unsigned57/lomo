@@ -3,6 +3,7 @@ use lomo_sync_core::{
     encode_request, plan, plan_envelope,
 };
 use std::hint::black_box;
+use std::io::{self, Write};
 use std::num::TryFromIntError;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -11,7 +12,10 @@ fn main() -> ExitCode {
     match run_benchmark() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("planner benchmark failed: {error}");
+            match writeln!(io::stderr(), "planner benchmark failed: {error}") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             ExitCode::FAILURE
         }
     }
@@ -28,7 +32,7 @@ fn run_benchmark() -> Result<(), Box<dyn std::error::Error>> {
         sizes
     };
 
-    println!("scenario,size,iterations,p50_ms,p95_ms");
+    writeln!(io::stdout(), "scenario,size,iterations,p50_ms,p95_ms")?;
     for size in sizes {
         let iterations = iterations_for(size);
         run(
@@ -58,7 +62,7 @@ fn run(
     request: &Request,
     iterations: usize,
     envelope: bool,
-) -> Result<(), lomo_sync_core::ProtocolError> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let encoded = if envelope {
         Some(encode_request(request)?)
     } else {
@@ -82,14 +86,15 @@ fn run(
         samples.push(started.elapsed());
     }
     samples.sort_unstable();
-    let p50 = percentile(&samples, 50);
-    let p95 = percentile(&samples, 95);
-    println!(
+    let p50 = percentile(&samples, 50)?;
+    let p95 = percentile(&samples, 95)?;
+    writeln!(
+        io::stdout(),
         "{name},{},{iterations},{:.3},{:.3}",
         request.local.len().max(request.remote.len()),
         duration_ms(p50),
         duration_ms(p95),
-    );
+    )?;
     Ok(())
 }
 
@@ -177,9 +182,15 @@ fn timestamp(index: usize) -> Result<i64, TryFromIntError> {
     i64::try_from(index)
 }
 
-fn percentile(samples: &[Duration], percentile: usize) -> Duration {
+fn percentile(samples: &[Duration], percentile: usize) -> Result<Duration, &'static str> {
+    if samples.is_empty() {
+        return Err("percentile requires at least one sample");
+    }
     let index = ((samples.len() - 1) * percentile) / 100;
-    samples[index]
+    samples
+        .get(index)
+        .copied()
+        .ok_or("percentile index out of range")
 }
 
 fn duration_ms(duration: Duration) -> f64 {

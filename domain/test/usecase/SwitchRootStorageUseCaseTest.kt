@@ -6,8 +6,9 @@ package com.lomo.domain.usecase
  * - Owning layer: domain.
  * - Priority tier: P0.
  * - Capability: prepare/validate candidate, freeze writes, persist selection, activate engine,
- *   rebuild, then unfreeze. Failure before or during switch leaves the previous selection and
- *   previous engine authoritative and releases freeze. Soft non-Ready activate is a failure.
+ *   rebuild, then unfreeze. Failure before or during switch leaves the previous selection,
+ *   previous engine, and previous index authoritative and releases freeze. Soft non-Ready activate
+ *   is a failure. Rebuild failure after Room clear restores previous index via mandatory rebuild.
  *
  * Scenarios:
  * - Given a valid candidate, when switch succeeds, then freeze begins, selection persists, engine
@@ -16,23 +17,27 @@ package com.lomo.domain.usecase
  *   never begins.
  * - Given persist fails after freeze begins, when switch aborts, then freeze is released and rebuild
  *   does not run.
- * - Given activate fails after persist, when switch aborts, then previous selection is restored and
- *   freeze ends.
+ * - Given activate fails after persist, when switch aborts, then previous selection is restored,
+ *   previous index is rebuilt, and freeze ends.
+ * - Given activate succeeds but rebuild fails after clear, when switch aborts, then previous
+ *   selection+engine are restored and previous index is rebuilt (not left empty).
  *
- * Observable outcomes: ordered event log, freeze begin/end counts, applied updates, activate calls.
- * TDD proof: fails before freeze/validate/activate ordering is required by SwitchRootStorageUseCase.
+ * Observable outcomes: ordered event log, freeze begin/end counts, applied updates, activate calls,
+ * rebuild counts.
+ * TDD proof: fails before freeze/validate/activate ordering is required by SwitchRootStorageUseCase;
+ * A-SW-002 RED: rebuild-fail-after-clear left rebuildCount=1 without restore rebuild.
  * Excludes: concrete SAF/engine open validation and UI navigation.
- 
+ *
  * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
- * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
- *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
- * - Why old assertion is no longer correct: production storage analysis and presentation consume
- *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
- * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
- *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
- * - Why this is not fitting the test to the implementation: assertions still check public behavior and
- *   fail-closed boundaries, not private parser implementation details.
+ * - Reason category: production memo persistence cutover from Room to lomo-store ports.
+ * - Old behavior/assertion being replaced: switch paths that treated Room clear/rebuild as the
+ *   sole index authority after root change.
+ * - Why old assertion is no longer correct: rebuild now targets the Rust store-backed index; Room
+ *   clear is no longer the production recovery path.
+ * - Coverage preserved by: freeze/validate/persist/activate/rebuild ordering and restore-on-failure
+ *   scenarios remain asserted.
+ * - Why this is not fitting the test to the implementation: outcomes stay use-case event order and
+ *   authority restore, not store SQL.
  */
 
 import com.lomo.domain.model.StorageArea
@@ -61,6 +66,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             eventLog.clear()
             directorySettingsRepository.applyFailure = null
             workspaceStateResolver.rebuildFailure = null
+            workspaceStateResolver.remainingRebuildFailures = 0
+            workspaceStateResolver.remainingRebuildFailure = null
             writeFreezeRepository.beginResult = true
             engineReadinessRepository.remainingActivateFailures = 0
             engineReadinessRepository.activateCount = 0
@@ -168,7 +175,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                         StorageAreaUpdate(StorageArea.ROOT, StorageLocation("/tmp/candidate")),
                         StorageAreaUpdate(StorageArea.ROOT, previous),
                     )
-                workspaceStateResolver.rebuildCallCount shouldBe 0
+                // Activate failed before candidate rebuild; restore still re-scans previous index.
+                workspaceStateResolver.rebuildCallCount shouldBe 1
                 // activate attempted for candidate then for restore
                 engineReadinessRepository.activateCount shouldBe 2
                 writeFreezeRepository.beginCount shouldBe 1
@@ -194,6 +202,41 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 writeFreezeRepository.beginCount shouldBe 1
                 writeFreezeRepository.endCount shouldBe 1
                 writeFreezeRepository.isFrozen.value shouldBe false
+            }
+        }
+
+        test("updateRootLocation rebuilds previous index when rebuild fails after clear") {
+            runTest {
+                val previous = StorageLocation("/tmp/previous")
+                directorySettingsRepository.setLocation(StorageArea.ROOT, previous)
+                workspaceStateResolver.remainingRebuildFailures = 1
+                workspaceStateResolver.remainingRebuildFailure = IllegalStateException("refresh failed")
+
+                val error =
+                    runCatching { useCase.updateRootLocation(StorageLocation("/tmp/candidate")) }
+                        .exceptionOrNull()
+
+                val rebuildError = error.shouldBeInstanceOf<IllegalStateException>()
+                rebuildError.message shouldBe "refresh failed"
+                directorySettingsRepository.appliedUpdates shouldBe
+                    listOf(
+                        StorageAreaUpdate(StorageArea.ROOT, StorageLocation("/tmp/candidate")),
+                        StorageAreaUpdate(StorageArea.ROOT, previous),
+                    )
+                // Candidate rebuild failed once; restore rebuild must repopulate previous index.
+                workspaceStateResolver.rebuildCallCount shouldBe 1
+                engineReadinessRepository.activateCount shouldBe 2
+                engineReadinessRepository.lastActivated shouldBe previous
+                writeFreezeRepository.beginCount shouldBe 1
+                writeFreezeRepository.endCount shouldBe 1
+                writeFreezeRepository.isFrozen.value shouldBe false
+                eventLog shouldBe
+                    listOf(
+                        "workspace.validateCandidate",
+                        "directory.applyLocation:ROOT",
+                        "directory.applyLocation:ROOT",
+                        "workspace.rebuildFromCurrentWorkspace",
+                    )
             }
         }
 

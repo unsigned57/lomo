@@ -32,12 +32,6 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use super::support::ResultTestExt;
     use std::fs;
@@ -481,7 +475,14 @@ mod tests {
                         saw_reminder,
                         saw_html,
                     ),
-                    _ => {}
+                    RenderInline::Text { .. }
+                    | RenderInline::Code { .. }
+                    | RenderInline::Image { .. }
+                    | RenderInline::Tag { .. }
+                    | RenderInline::Reminder { .. }
+                    | RenderInline::SoftBreak { .. }
+                    | RenderInline::HardBreak { .. }
+                    | RenderInline::HtmlInline { .. } => {}
                 }
             }
         }

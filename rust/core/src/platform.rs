@@ -577,7 +577,8 @@ impl PlatformActionBatch {
     }
 
     pub(crate) fn remaining_after(&self, prefix_len: usize) -> Option<Self> {
-        if prefix_len >= self.actions.len() {
+        let actions = self.actions.get(prefix_len..)?.to_vec();
+        if actions.is_empty() {
             return None;
         }
         Some(Self {
@@ -586,7 +587,7 @@ impl PlatformActionBatch {
             batch_id: self.batch_id.clone(),
             attempt: self.attempt,
             deadline_epoch_millis: self.deadline_epoch_millis,
-            actions: self.actions[prefix_len..].to_vec(),
+            actions,
         })
     }
 }

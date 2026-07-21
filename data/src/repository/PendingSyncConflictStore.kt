@@ -40,7 +40,7 @@ data class PendingSyncSideMetadata(
     val size: Long? = null,
     val etag: String? = null,
 )
-class RoomPendingSyncConflictStore
+class FileBackedPendingSyncConflictStore
 constructor(
         private val dao: PendingSyncConflictDao,
         private val generationProvider: WorkspaceSyncGenerationProvider,

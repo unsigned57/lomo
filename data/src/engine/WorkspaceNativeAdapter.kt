@@ -109,7 +109,7 @@ internal sealed interface WorkspaceNativeCommandSpec {
  *
  * Implementations hold the generated engine handle only through [NativeEnginePort] + lease rules.
  */
-internal interface WorkspaceNativeAdapter {
+internal interface WorkspaceNativeAdapter : com.lomo.data.engine.store.StoreNativeBridge {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt = MarkdownRenderDocument.SCHEMA_VERSION,
@@ -136,12 +136,15 @@ internal interface WorkspaceNativeAdapter {
     fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot
 
     companion object {
-        const val DEFAULT_JOB_DEADLINE_MILLIS: ULong = 30_000uL
+        // Full-workspace import/refresh can list+read many SAF documents in one scan job.
+        const val DEFAULT_JOB_DEADLINE_MILLIS: ULong = 120_000uL
     }
 }
 
-/** One native handle carrying both engine lifecycle and workspace capabilities. */
-internal interface WorkspaceNativeEnginePort : NativeEnginePort {
+/** One native handle carrying both engine lifecycle and workspace/store capabilities. */
+internal interface WorkspaceNativeEnginePort :
+    NativeEnginePort,
+    com.lomo.data.engine.store.StoreNativeBridge {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt,

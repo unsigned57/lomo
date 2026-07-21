@@ -56,6 +56,7 @@ internal class ManagedEngineSession(
     private val activationMutex = Mutex()
     private val adapterLease = ReentrantReadWriteLock()
     private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.AwaitingWorkspaceSelection)
+    private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private var activeAdapter: RustEngineAdapter? = null
     private var activeCapabilityToken: String? = null
     private var mirrorJob: kotlinx.coroutines.Job? = null
@@ -89,6 +90,8 @@ internal class ManagedEngineSession(
     }
 
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
+    override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
+        _activeWorkspaceLocation.asStateFlow()
 
     override fun resnapshot() {
         check(!closed.get()) { "Managed engine session is closed" }
@@ -226,6 +229,24 @@ internal class ManagedEngineSession(
             )
         }
 
+    override fun queryMemos(
+        query: com.lomo.nativebridge.StoreMemoQuery,
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+    ): com.lomo.nativebridge.StoreMemoPage =
+        withActiveWorkspaceAdapter { adapter -> adapter.queryMemos(query, cursor, pageSize) }
+
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
+        withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
+
+    override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit =
+        withActiveWorkspaceAdapter { adapter -> adapter.applyMemoCommand(command) }
+
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        withActiveWorkspaceAdapter { adapter -> adapter.startRebuild(batchSize) }
+
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceDocumentCommandResult(jobId) }
 
@@ -274,6 +295,7 @@ internal class ManagedEngineSession(
                     // Ready install clears any prior recovery authority and becomes sole publisher.
                     recoveryAuthority.set(null)
                     installAdapterLocked(candidate, capabilityToken = selection.capabilityToken)
+                    _activeWorkspaceLocation.value = location
                     // Exclusive lease waits for every in-flight workspace call before close.
                     previous?.close()
                     token
@@ -296,6 +318,7 @@ internal class ManagedEngineSession(
                     val token = activeCapabilityToken
                     recoveryAuthority.set(null)
                     installAdapterLocked(bootstrap, capabilityToken = null)
+                    _activeWorkspaceLocation.value = null
                     previous?.close()
                     token
                 }
@@ -314,6 +337,7 @@ internal class ManagedEngineSession(
                 activeAdapter = null
                 val activeToken = activeCapabilityToken
                 activeCapabilityToken = null
+                _activeWorkspaceLocation.value = null
                 adapter?.close()
                 activeToken
             }

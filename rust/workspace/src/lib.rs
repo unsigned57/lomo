@@ -6,6 +6,8 @@
 
 #![deny(unsafe_code)]
 
+mod attachment_remap;
+mod conflict_merge;
 mod document;
 pub mod header;
 pub mod jobs;
@@ -18,18 +20,22 @@ mod source;
 mod tags;
 mod types;
 
+pub use attachment_remap::remap_attachment_destinations;
+pub use conflict_merge::merge_memo_shard_by_identity;
 pub use document::{DocumentFormat, WorkspaceDocument, WorkspaceMemo};
 pub use limits::{
     MAX_EDITABLE_MEMO_UTF8_CHARS, MAX_INLINE_RENDER_UTF8_BYTES, MAX_IR_STRING_UTF8_BYTES,
     MAX_RENDER_DOCUMENT_NODES, MAX_SEMANTIC_NESTING_DEPTH, MAX_WORKSPACE_SCAN_PAGE_SIZE,
     ResourceBudget,
 };
-pub use parse::parse_workspace_document;
+pub use parse::{extract_memo_body_from_raw, parse_workspace_document};
 pub use patch::{DocumentPatchCommand, DocumentPatchPlan, TaskSourceIdentity, plan_document_patch};
 pub use reminder::{ReminderRef, ReminderReference};
 pub use render::{
-    RENDER_DOCUMENT_SCHEMA_V1, RenderBlock, RenderDocumentV1, RenderInline, RenderListItem,
-    RenderTableCell, SemanticFact, SemanticFactKind, render_markdown,
+    RENDER_DOCUMENT_SCHEMA_V1, ReminderTokenFacts, ReminderTokenMutation, RenderBlock,
+    RenderDocumentV1, RenderInline, RenderListItem, RenderTableCell, SemanticFact,
+    SemanticFactKind, build_reminder_token, plan_reminder_token_mutation, reminder_token_facts,
+    render_markdown,
 };
 pub use source::{
     BomKind, ByteSpan, DominantNewline, NewlineKind, SourceBytes, SourceFingerprint,

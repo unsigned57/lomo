@@ -1,5 +1,7 @@
 package com.lomo.domain.model
 
+import com.lomo.domain.repository.MemoIdentityConflictMerger
+
 object SyncConflictTextMerge {
     private const val DEFAULT_MAX_LINE_COUNT = 1_000
     private const val DEFAULT_MAX_COMPARISON_CELLS = 250_000L
@@ -20,6 +22,7 @@ object SyncConflictTextMerge {
         localLastModified: Long? = null,
         remoteLastModified: Long? = null,
         policy: Policy = Policy(),
+        identityMerger: MemoIdentityConflictMerger = MemoIdentityConflictMerger.Decline,
     ): String? =
         when {
             localText.isNullOrEmpty() -> remoteText
@@ -32,6 +35,7 @@ object SyncConflictTextMerge {
                     localLastModified = localLastModified,
                     remoteLastModified = remoteLastModified,
                     policy = policy,
+                    identityMerger = identityMerger,
                 )
         }
 
@@ -41,6 +45,7 @@ object SyncConflictTextMerge {
         localLastModified: Long?,
         remoteLastModified: Long?,
         policy: Policy,
+        identityMerger: MemoIdentityConflictMerger,
     ): String? {
         val localLines = localText.toMergeLines()
         val remoteLines = remoteText.toMergeLines()
@@ -67,6 +72,7 @@ object SyncConflictTextMerge {
                     remoteLines = remoteLines,
                     localLastModified = localLastModified,
                     remoteLastModified = remoteLastModified,
+                    identityMerger = identityMerger,
                 )
         }
     }
@@ -179,15 +185,20 @@ object SyncConflictTextMerge {
         remoteLines: List<String>,
         localLastModified: Long?,
         remoteLastModified: Long?,
+        identityMerger: MemoIdentityConflictMerger,
     ): String? {
         if (!looksLikeMemoContent(localLines) || !looksLikeMemoContent(remoteLines)) return null
         if (meaningfulLineSet(localLines).intersect(meaningfulLineSet(remoteLines)).isNotEmpty()) return null
 
-        // When both sides carry memo headers that share a timestamp, the divergence is the SAME memo
-        // edited on each side, not two independent notes. Align blocks by (timestamp, ordinal) and keep
-        // the newer version so an edited memo is never duplicated into two concatenated blocks.
-        mergeSharedTimestampMemoBlocks(localText, remoteText, localLastModified, remoteLastModified)
-            ?.let { return it }
+        // Shared-timestamp / same-memo identity merge is owner-only (parse + ordinals). Kotlin never
+        // segments memo blocks via header lines for write-back authority.
+        identityMerger
+            .mergeSharedIdentities(
+                localText = localText,
+                remoteText = remoteText,
+                localLastModified = localLastModified,
+                remoteLastModified = remoteLastModified,
+            )?.let { return it }
 
         val (olderText, newerText) =
             if (remoteShouldComeFirst(localLastModified, remoteLastModified)) {
@@ -224,91 +235,6 @@ object SyncConflictTextMerge {
         if (localLineCount > maxLineCount || remoteLineCount > maxLineCount) return false
         return (localLineCount.toLong() + 1L) * (remoteLineCount.toLong() + 1L) <= maxComparisonCells
     }
-
 }
 
 private fun String.toMergeLines(): List<String> = if (isEmpty()) emptyList() else split('\n')
-
-/**
- * Aligns two memo-shard texts by memo identity (header timestamp + ordinal within that timestamp).
- * Returns null when either side has no memo headers or the sides share no memo identity, leaving the
- * caller to union genuinely distinct notes. When a memo is present on both sides, the newer file's
- * version wins, so editing a memo never produces a duplicate block.
- */
-private fun mergeSharedTimestampMemoBlocks(
-    localText: String,
-    remoteText: String,
-    localLastModified: Long?,
-    remoteLastModified: Long?,
-): String? {
-    val localBlocks = splitMemoBlocks(localText) ?: return null
-    val remoteBlocks = splitMemoBlocks(remoteText) ?: return null
-    val localKeys = localBlocks.mapTo(mutableSetOf(), MemoBlock::key)
-    val remoteKeys = remoteBlocks.mapTo(mutableSetOf(), MemoBlock::key)
-    if (localKeys.intersect(remoteKeys).isEmpty()) return null
-
-    val localIsNewer =
-        localLastModified == null || remoteLastModified == null || localLastModified >= remoteLastModified
-    val olderBlocks = if (localIsNewer) remoteBlocks else localBlocks
-    val newerBlocks = if (localIsNewer) localBlocks else remoteBlocks
-    val newerByKey = newerBlocks.associateBy(MemoBlock::key)
-
-    val emittedKeys = mutableSetOf<MemoBlockKey>()
-    val merged = mutableListOf<String>()
-    olderBlocks.forEach { block ->
-        if (emittedKeys.add(block.key)) {
-            merged += (newerByKey[block.key] ?: block).text
-        }
-    }
-    newerBlocks.forEach { block ->
-        if (emittedKeys.add(block.key)) {
-            merged += block.text
-        }
-    }
-    return merged.joinToString("\n\n")
-}
-
-private fun splitMemoBlocks(text: String): List<MemoBlock>? {
-    val blocks = mutableListOf<MemoBlock>()
-    val ordinalByTimestamp = mutableMapOf<String, Int>()
-    val preamble = mutableListOf<String>()
-    var currentKey: MemoBlockKey? = null
-    var currentLines = mutableListOf<String>()
-
-    fun flush() {
-        val key = currentKey ?: return
-        blocks += MemoBlock(key = key, text = currentLines.joinToString("\n").trim())
-    }
-
-    text.split('\n').forEach { line ->
-        val header = StorageTimestampFormats.parseMemoHeaderLine(line)
-        if (header != null) {
-            flush()
-            val ordinal = ordinalByTimestamp.getOrDefault(header.timePart, 0)
-            ordinalByTimestamp[header.timePart] = ordinal + 1
-            currentKey = MemoBlockKey(timestamp = header.timePart, ordinal = ordinal)
-            currentLines = mutableListOf(line)
-        } else if (currentKey != null) {
-            currentLines += line
-        } else {
-            preamble += line
-        }
-    }
-    flush()
-
-    if (blocks.isEmpty()) return null
-    // A non-blank preamble cannot be attributed to any memo block; decline alignment so the caller
-    // unions the whole texts instead of silently dropping it.
-    if (preamble.any(String::isNotBlank)) return null
-    return blocks
-}
-
-private data class MemoBlockKey(
-    val timestamp: String,
-    val ordinal: Int,
-)
-
-private data class MemoBlock(
-    val key: MemoBlockKey,
-    val text: String,
-)

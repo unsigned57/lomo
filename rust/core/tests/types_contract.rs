@@ -26,12 +26,6 @@ mod failure_support;
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
 
     use std::fs;
@@ -125,5 +119,55 @@ mod tests {
             assert_eq!(error.code(), "invalid_page_size");
         }
         assert_eq!(PageSize::new(256).must_succeed("upper bound").get(), 256);
+    }
+
+    #[test]
+    fn event_sequence_gap_requires_full_invalidate_scope() {
+        use lomo_core::{
+            EventSequence, InvalidationScope, event_sequence_requires_full_invalidate,
+        };
+
+        let last = EventSequence::from_raw(3);
+        assert!(!event_sequence_requires_full_invalidate(
+            last,
+            EventSequence::from_raw(4)
+        ));
+        assert!(!event_sequence_requires_full_invalidate(
+            last,
+            EventSequence::from_raw(3)
+        ));
+        assert!(event_sequence_requires_full_invalidate(
+            last,
+            EventSequence::from_raw(6)
+        ));
+        assert!(event_sequence_requires_full_invalidate(
+            last,
+            EventSequence::from_raw(2)
+        ));
+        // Bounded scope set is part of the public contract surface.
+        assert_ne!(InvalidationScope::Full, InvalidationScope::MemoList);
+        let scopes = [
+            InvalidationScope::MemoList,
+            InvalidationScope::Search,
+            InvalidationScope::Trash,
+            InvalidationScope::Pin,
+            InvalidationScope::Tags,
+            InvalidationScope::Stats,
+            InvalidationScope::Reminder,
+            InvalidationScope::Full,
+        ];
+        assert_eq!(scopes.len(), 8);
+    }
+
+    #[test]
+    fn core_revision_checked_next_advances_monotonically() {
+        use lomo_core::CoreRevision;
+        let initial = CoreRevision::initial();
+        assert_eq!(initial.get(), 0);
+        let Some(next) = initial.checked_next() else {
+            panic!("next revision must exist from initial")
+        };
+        assert_eq!(next.get(), 1);
+        assert_eq!(CoreRevision::from_raw(42).get(), 42);
     }
 }

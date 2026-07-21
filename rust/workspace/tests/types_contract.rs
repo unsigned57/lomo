@@ -28,12 +28,6 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use super::support::ResultTestExt;
     use lomo_core::ErrorCategory;
@@ -254,13 +248,22 @@ mod tests {
         assert_eq!(parsed.as_str(), "2026-07-18_09:41_2");
         assert_eq!(parsed.ordinal(), 2);
 
+        // Product default StorageFilenameFormats.DEFAULT_PATTERN = yyyy_MM_dd embeds '_'.
+        let default_stem = MemoIdentity::try_new("2026_07_18", "09:41:00", 0).test_ok("yyyy_MM_dd");
+        assert_eq!(default_stem.as_str(), "2026_07_18_09:41:00_0");
+        let round_trip = MemoIdentity::parse(default_stem.as_str()).test_ok("parse yyyy_MM_dd");
+        assert_eq!(round_trip.date_key(), "2026_07_18");
+        assert_eq!(round_trip.time_part(), "09:41:00");
+        assert_eq!(round_trip.ordinal(), 0);
+
         for invalid in ["", "only-date", "2026-07-18_09:41", "2026-07-18_09:41_x"] {
             let error = MemoIdentity::parse(invalid).test_err("invalid identity");
             assert_eq!(error.category(), ErrorCategory::Validation);
             assert_eq!(error.code(), "invalid_memo_identity");
         }
 
-        let bad_parts = MemoIdentity::try_new("2026_07_18", "09:41", 0).test_err("underscore");
-        assert_eq!(bad_parts.code(), "invalid_memo_identity_parts");
+        // time_part must not contain '_' (would break right-to-left parse); date_key may.
+        let bad_time = MemoIdentity::try_new("2026_07_18", "09_41", 0).test_err("time underscore");
+        assert_eq!(bad_time.code(), "invalid_memo_identity_parts");
     }
 }

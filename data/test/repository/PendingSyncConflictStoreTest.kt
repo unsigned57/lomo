@@ -4,7 +4,7 @@ import com.lomo.data.repository.AlwaysWritableWorkspaceWriteAuthority
 
 /*
  * Behavior Contract:
- * - Unit under test: RoomPendingSyncConflictStore
+ * - Unit under test: FileBackedPendingSyncConflictStore
  * - Owning layer: data
  * - Priority tier: P0
  * - Capability: Persist pending sync conflict descriptors with side metadata without storing full content payloads, and preserve S3-discovered remote locators.
@@ -95,7 +95,7 @@ class PendingSyncConflictStoreTest : DataFunSpec() {
     private fun `write stores descriptor without full conflict content`() =
         runTest {
             val dao = FakePendingSyncConflictDao()
-            val store = RoomPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
             val largeLocal = "local-large-content-".repeat(512)
             val largeRemote = "remote-large-content-".repeat(512)
             val conflict =
@@ -132,7 +132,7 @@ class PendingSyncConflictStoreTest : DataFunSpec() {
 
     private fun `write rejects S3 binary conflict without explicit side descriptor`() =
         runTest {
-            val store = RoomPendingSyncConflictStore(FakePendingSyncConflictDao(), ConflictStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncConflictStore(FakePendingSyncConflictDao(), ConflictStoreTestGenerationProvider())
             val conflict =
                 SyncConflictSet(
                     source = SyncBackendType.S3,
@@ -159,7 +159,7 @@ class PendingSyncConflictStoreTest : DataFunSpec() {
     private fun `writeDescriptor stores S3 materialized conflict locator exactly`(tempFolder: KotestTemporaryFolder) =
         runTest {
             val dao = FakePendingSyncConflictDao()
-            val store = RoomPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
             val relativePath = "notes/opaque-equals-relative.md"
             val discoveredRemotePath = "prefix/rclone/opaque-key"
             val localContent = "# local"
@@ -217,7 +217,7 @@ class PendingSyncConflictStoreTest : DataFunSpec() {
         tempFolder: KotestTemporaryFolder,
     ) = runTest {
         val dao = FakePendingSyncConflictDao()
-        val store = RoomPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
+        val store = FileBackedPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
         val relativePath = "assets/photo.png"
         val discoveredRemotePath = "prefix/rclone/photo-opaque"
         val localBytes = byteArrayOf(1, 2, 3, 4)
@@ -272,7 +272,7 @@ class PendingSyncConflictStoreTest : DataFunSpec() {
     private fun `clear removes only targeted backend session`() =
         runTest {
             val dao = FakePendingSyncConflictDao()
-            val store = RoomPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
+            val store = FileBackedPendingSyncConflictStore(dao, ConflictStoreTestGenerationProvider())
             store.write(
                 SyncConflictSet(
                     source = SyncBackendType.S3,

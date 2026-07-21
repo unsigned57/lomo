@@ -40,15 +40,15 @@ pub fn parse_memo_header_line(line: &str) -> Option<ParsedMemoHeader> {
     }
     let time_end = match_supported_time(after_dash)?;
     let boundary_ok = time_end == after_dash.len()
-        || after_dash[time_end..]
-            .chars()
-            .next()
+        || after_dash
+            .get(time_end..)
+            .and_then(|tail| tail.chars().next())
             .is_some_and(is_ignorable_header_separator);
     if !boundary_ok {
         return None;
     }
-    let time_part = after_dash[..time_end].to_owned();
-    let content_part = trim_start_ignorable(&after_dash[time_end..]).to_owned();
+    let time_part = after_dash.get(..time_end)?.to_owned();
+    let content_part = trim_start_ignorable(after_dash.get(time_end..)?).to_owned();
     Some(ParsedMemoHeader {
         time_part,
         content_part,
@@ -57,17 +57,18 @@ pub fn parse_memo_header_line(line: &str) -> Option<ParsedMemoHeader> {
 
 /// Validates a filename stem used as `dateKey` / plain identity prefix.
 ///
+/// Product stems follow Kotlin `StorageFilenameFormats` (five patterns). The default
+/// `yyyy_MM_dd` **contains underscores**; `_` is therefore allowed. Control characters and empty
+/// stems remain forbidden.
+///
 /// # Errors
 ///
-/// Returns validation when the stem is empty, contains `_`, or contains control characters.
+/// Returns validation when the stem is empty or contains control characters.
 pub fn validate_filename_stem(filename_stem: &str) -> Result<(), LomoError> {
-    if filename_stem.is_empty()
-        || filename_stem.contains('_')
-        || filename_stem.chars().any(char::is_control)
-    {
+    if filename_stem.is_empty() || filename_stem.chars().any(char::is_control) {
         return Err(validation(
             "invalid_filename_stem",
-            "filename stem must be non-empty and free of '_' / controls",
+            "filename stem must be non-empty and free of control characters",
         ));
     }
     Ok(())
@@ -82,7 +83,7 @@ fn trim_start_ignorable(input: &str) -> &str {
             break;
         }
     }
-    &input[end..]
+    input.get(end..).unwrap_or("")
 }
 
 const fn is_ignorable_header_separator(ch: char) -> bool {
@@ -96,7 +97,7 @@ fn match_supported_time(input: &str) -> Option<usize> {
     let bytes = input.as_bytes();
     let mut index = 0usize;
     let hour_start = index;
-    while index < bytes.len() && bytes[index].is_ascii_digit() {
+    while index < bytes.len() && bytes.get(index).is_some_and(u8::is_ascii_digit) {
         index += 1;
     }
     let hour_len = index - hour_start;
@@ -108,27 +109,27 @@ fn match_supported_time(input: &str) -> Option<usize> {
     }
     index += 1;
     let minute_start = index;
-    while index < bytes.len() && bytes[index].is_ascii_digit() {
+    while index < bytes.len() && bytes.get(index).is_some_and(u8::is_ascii_digit) {
         index += 1;
     }
     if index - minute_start != 2 {
         return None;
     }
-    let hour = parse_two_digit_component(&input[hour_start..hour_start + hour_len])?;
-    let minute = parse_two_digit_component(&input[minute_start..minute_start + 2])?;
+    let hour = parse_two_digit_component(input.get(hour_start..hour_start + hour_len)?)?;
+    let minute = parse_two_digit_component(input.get(minute_start..minute_start + 2)?)?;
     if hour > 23 || minute > 59 {
         return None;
     }
     if bytes.get(index) == Some(&b':') {
         index += 1;
         let second_start = index;
-        while index < bytes.len() && bytes[index].is_ascii_digit() {
+        while index < bytes.len() && bytes.get(index).is_some_and(u8::is_ascii_digit) {
             index += 1;
         }
         if index - second_start != 2 {
             return None;
         }
-        let second = parse_two_digit_component(&input[second_start..second_start + 2])?;
+        let second = parse_two_digit_component(input.get(second_start..second_start + 2)?)?;
         if second > 59 {
             return None;
         }

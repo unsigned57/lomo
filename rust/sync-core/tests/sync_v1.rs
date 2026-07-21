@@ -14,12 +14,6 @@
 //! Excludes: provider I/O, benchmark timing, and production sync orchestration.
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
-    reason = "contract/harness tests fail closed with panics on missing facts"
-)]
 mod tests {
     use std::fmt::Debug;
 
@@ -225,6 +219,119 @@ mod tests {
             decoded.actions,
             vec![action("memo.md", Direction::Upload, Reason::LocalOnly)]
         );
+    }
+
+    #[test]
+    fn validate_request_rejects_negative_tolerance_and_duplicate_local_path() {
+        let mut negative = request(Backend::S3);
+        negative.timestamp_tolerance_ms = -1;
+        assert!(matches!(
+            plan(&negative),
+            Err(ProtocolError::NegativeValue {
+                field: "timestamp_tolerance_ms",
+                value: -1
+            })
+        ));
+
+        let mut dup = request(Backend::S3);
+        dup.local.push(LocalSnapshot {
+            path: "a.md".into(),
+            last_modified: 1,
+            size: None,
+            fingerprint: None,
+        });
+        dup.local.push(LocalSnapshot {
+            path: "a.md".into(),
+            last_modified: 2,
+            size: None,
+            fingerprint: None,
+        });
+        assert!(matches!(
+            plan(&dup),
+            Err(ProtocolError::DuplicatePath { field: "local", .. })
+        ));
+    }
+
+    #[test]
+    fn validate_request_rejects_bad_path_size_fingerprint_and_suppressed_dup() {
+        let mut bad_path = request(Backend::S3);
+        bad_path.local.push(LocalSnapshot {
+            path: "/absolute.md".into(),
+            last_modified: 1,
+            size: None,
+            fingerprint: None,
+        });
+        assert!(matches!(
+            plan(&bad_path),
+            Err(ProtocolError::InvalidPath { .. })
+        ));
+
+        let mut neg_size = request(Backend::S3);
+        neg_size.local.push(LocalSnapshot {
+            path: "ok.md".into(),
+            last_modified: 1,
+            size: Some(-1),
+            fingerprint: None,
+        });
+        assert!(matches!(
+            plan(&neg_size),
+            Err(ProtocolError::NegativeValue {
+                field: "local size",
+                value: -1
+            })
+        ));
+
+        let mut remote_neg = request(Backend::S3);
+        remote_neg.remote.push(RemoteSnapshot {
+            path: "ok.md".into(),
+            etag: Some("e".into()),
+            last_modified: Some(1),
+            size: Some(-2),
+            fingerprint: None,
+        });
+        assert!(matches!(
+            plan(&remote_neg),
+            Err(ProtocolError::NegativeValue {
+                field: "remote size",
+                value: -2
+            })
+        ));
+
+        let mut null_fp = request(Backend::S3);
+        null_fp.local.push(LocalSnapshot {
+            path: "ok.md".into(),
+            last_modified: 1,
+            size: None,
+            fingerprint: Some("bad\0fp".into()),
+        });
+        assert!(matches!(
+            plan(&null_fp),
+            Err(ProtocolError::InvalidString {
+                field: "local fingerprint"
+            })
+        ));
+
+        let mut null_path = request(Backend::S3);
+        null_path.local.push(LocalSnapshot {
+            path: "a\0.md".into(),
+            last_modified: 1,
+            size: None,
+            fingerprint: None,
+        });
+        assert!(matches!(
+            plan(&null_path),
+            Err(ProtocolError::InvalidPath { .. })
+        ));
+
+        let mut suppressed_dup = request(Backend::S3);
+        suppressed_dup.suppressed = vec!["x.md".into(), "x.md".into()];
+        assert!(matches!(
+            plan(&suppressed_dup),
+            Err(ProtocolError::DuplicatePath {
+                field: "suppressed",
+                ..
+            })
+        ));
     }
 
     fn decode_hex(value: &str) -> Vec<u8> {

@@ -101,6 +101,24 @@ internal class BoltFfiNativeEnginePort(
             engine.readWorkspaceDocumentCommandResult(jobId).toSnapshot()
         }
 
+    override fun queryMemos(
+        query: com.lomo.nativebridge.StoreMemoQuery,
+        cursor: com.lomo.nativebridge.StorePageCursor?,
+        pageSize: UInt,
+    ): com.lomo.nativebridge.StoreMemoPage =
+        withReadLease { engine -> engine.queryMemos(query, cursor, pageSize) }
+
+    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
+        withReadLease { engine -> engine.getMemo(memoId) }
+
+    override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit =
+        withReadLease { engine -> engine.applyMemoCommand(command) }
+
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        withReadLease { engine -> engine.startRebuild(batchSize) }
+
     override fun subscribe(listener: (NativeCoreEvent) -> Unit): NativeEngineSubscription {
         listenerRef.set(listener)
         val subscription =

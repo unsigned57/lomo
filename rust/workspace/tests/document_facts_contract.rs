@@ -28,10 +28,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -95,8 +93,14 @@ mod tests {
         let document = parse_workspace_document(&source, "2026-07-18").test_ok("parse");
         let refs = reminders(&document);
         assert_eq!(refs.len(), 2);
-        assert_ne!(refs[0].source_span(), refs[1].source_span());
-        assert_ne!(refs[0].opaque_id(), refs[1].opaque_id());
+        assert_ne!(
+            refs.first().expect("r0").source_span(),
+            refs.get(1).expect("r1").source_span()
+        );
+        assert_ne!(
+            refs.first().expect("r0").opaque_id(),
+            refs.get(1).expect("r1").opaque_id()
+        );
         for reference in refs {
             assert_eq!(
                 document
@@ -122,7 +126,11 @@ mod tests {
         let original = format!("- 09:00:00\n{token} and {token}\n");
         let old_source = SourceBytes::try_from_str(&original).test_ok("old source");
         let old_document = parse_workspace_document(&old_source, "2026-07-18").test_ok("old parse");
-        let second = reminders(&old_document)[1].clone();
+        let second = reminders(&old_document)
+            .get(1)
+            .copied()
+            .expect("second reminder")
+            .clone();
 
         let externally_edited = format!("- 09:00:00\nexternal prefix {token} and {token}\n");
         let new_source = SourceBytes::try_from_str(&externally_edited).test_ok("new source");

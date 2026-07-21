@@ -18,10 +18,8 @@
 mod support;
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "contract/harness tests fail closed with panics on missing facts"
 )]
 mod tests {
@@ -36,7 +34,7 @@ mod tests {
     #[test]
     fn extracts_nested_tags_and_images() {
         let document = analyze("Morning #life/note and ![shot](media/img/a.jpg) #life/note again");
-        let memo = &document.memos()[0];
+        let memo = document.memos().first().expect("memo");
         assert_eq!(memo.tags(), &["life/note".to_owned()]);
         assert_eq!(memo.attachments(), &["media/img/a.jpg".to_owned()]);
     }
@@ -44,16 +42,22 @@ mod tests {
     #[test]
     fn extracts_cjk_tags() {
         let document = analyze("Thino-style diary entry #日记");
-        assert_eq!(document.memos()[0].tags(), &["日记".to_owned()]);
+        assert_eq!(
+            document.memos().first().expect("memo").tags(),
+            &["日记".to_owned()]
+        );
         let nested = analyze("Evening note with #标签/层级");
-        assert_eq!(nested.memos()[0].tags(), &["标签/层级".to_owned()]);
+        assert_eq!(
+            nested.memos().first().expect("memo").tags(),
+            &["标签/层级".to_owned()]
+        );
     }
 
     #[test]
     fn image_audio_markdown_counts_as_attachment() {
         let document = analyze("Audio: ![voice](media/voice/a.m4a)");
         assert_eq!(
-            document.memos()[0].attachments(),
+            document.memos().first().expect("memo").attachments(),
             &["media/voice/a.m4a".to_owned()]
         );
     }

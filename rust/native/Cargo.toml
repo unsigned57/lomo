@@ -14,6 +14,7 @@ crate-type = ["staticlib", "rlib"]
 boltffi.workspace = true
 lomo-core = { path = "../core" }
 lomo-workspace = { path = "../workspace" }
+lomo-store = { path = "../store" }
 lomo-sync-core = { path = "../sync-core" }
 serde_json.workspace = true
 

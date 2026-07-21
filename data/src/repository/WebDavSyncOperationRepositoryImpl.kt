@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.sync.SyncConflictMerge
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.sync.SyncLayoutMigration
 import com.lomo.data.util.sanitizePathForLog
@@ -371,7 +372,11 @@ class WebDavSyncExecutor
                     )
             }
             conflictFiles.forEach { file ->
-                val choice = SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(file)
+                val choice =
+                    SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(
+                        file = file,
+                        identityMerger = SyncConflictMerge.identityMerger,
+                    )
                 when (choice) {
                     SyncConflictResolutionChoice.KEEP_LOCAL -> {
                         resolvedActions +=
@@ -390,7 +395,11 @@ class WebDavSyncExecutor
                             )
                     }
                     SyncConflictResolutionChoice.MERGE_TEXT -> {
-                        val merged = SyncConflictAutoResolutionAdvisor.mergedText(file)
+                        val merged =
+                            SyncConflictAutoResolutionAdvisor.mergedText(
+                                file = file,
+                                identityMerger = SyncConflictMerge.identityMerger,
+                            )
                         if (merged != null && isWebDavMemoPath(file.relativePath, layout)) {
                             applyMergedConflictResolution(file, merged, client, layout)
                             autoResolvedOutcomes[file.relativePath] =
@@ -562,7 +571,7 @@ class WebDavSyncExecutor
                 when (memoRefreshPlan) {
                     WebDavMemoRefreshPlan.None -> Unit
                     WebDavMemoRefreshPlan.Full ->
-                        runtime.memoSynchronizer.refreshImportedSync()
+                        runtime.memoMutationRepository.refreshMemos()
                     is WebDavMemoRefreshPlan.Targets -> {
                         val refreshConcurrency =
                             runtime.performanceTuner
@@ -575,7 +584,7 @@ class WebDavSyncExecutor
                             memoRefreshPlan.filenames.sorted().map { targetFilename ->
                                 async {
                                     refreshLimiter.withPermit {
-                                        runtime.memoSynchronizer.refreshImportedSync(targetFilename)
+                                        runtime.memoMutationRepository.refreshMemos()
                                     }
                                 }
                             }.awaitAll()

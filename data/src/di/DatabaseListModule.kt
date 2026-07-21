@@ -1,9 +1,6 @@
 package com.lomo.data.di
 
-import com.lomo.data.local.MemoDatabase
-import com.lomo.data.local.dao.DefaultMainListDao
 import org.koin.dsl.module
 
-val databaseListModule = module {
-    single<DefaultMainListDao> { get<MemoDatabase>().defaultMainListDao() }
-}
+/** Post P3-10: main-list DAO deleted with Room; paging is store-owned. */
+val databaseListModule = module { }

@@ -59,24 +59,24 @@ import com.lomo.data.repository.S3SyncStateHolder
 import com.lomo.data.repository.S3SyncStateRepositoryImpl
 import com.lomo.data.repository.S3SyncStatusTester
 import com.lomo.data.repository.S3SyncWorkExecutor
-import com.lomo.data.repository.RoomBackedS3SyncProtocolStateStore
+import com.lomo.data.repository.FileBackedS3SyncProtocolStateStore
 import com.lomo.data.repository.S3SyncProtocolStateStore
-import com.lomo.data.repository.RoomBackedS3LocalChangeJournalStore
+import com.lomo.data.repository.FileBackedS3LocalChangeJournalStore
 import com.lomo.data.repository.S3LocalChangeJournalStore
 import com.lomo.data.repository.DefaultS3LocalChangeRecorder
 import com.lomo.data.repository.S3LocalChangeRecorder
-import com.lomo.data.repository.RoomBackedS3RemoteIndexStore
+import com.lomo.data.repository.FileBackedS3RemoteIndexStore
 import com.lomo.data.repository.S3RemoteIndexStore
-import com.lomo.data.repository.RoomBackedS3RemoteShardStateStore
+import com.lomo.data.repository.FileBackedS3RemoteShardStateStore
 import com.lomo.data.repository.S3RemoteShardStateStore
-import com.lomo.data.repository.RoomBackedS3SyncTransactionRunner
+import com.lomo.data.repository.FileBackedS3SyncTransactionRunner
 import com.lomo.data.repository.S3SyncTransactionRunner
 import com.lomo.data.repository.S3SyncTransferWorkspace
-import com.lomo.data.repository.RoomBackedWebDavLocalChangeJournalStore
+import com.lomo.data.repository.FileBackedWebDavLocalChangeJournalStore
 import com.lomo.data.repository.WebDavLocalChangeJournalStore
 import com.lomo.data.repository.DefaultWebDavLocalChangeRecorder
 import com.lomo.data.repository.WebDavLocalChangeRecorder
-import com.lomo.data.repository.RoomBackedWebDavLocalFingerprintCache
+import com.lomo.data.repository.FileBackedWebDavLocalFingerprintCache
 import com.lomo.data.repository.WebDavLocalFingerprintCache
 import com.lomo.data.repository.WebDavConflictResolver
 import com.lomo.data.repository.AndroidSyncPerformanceTuner
@@ -144,6 +144,9 @@ import org.koin.dsl.bind
 
 val syncDataModule = module {
     singleOf(::SyncHttpClientProvider)
+    single<com.lomo.domain.repository.MemoIdentityConflictMerger> {
+        com.lomo.data.sync.OwnerMemoIdentityConflictMerger()
+    }
     single<RustSyncEnvelopePlanner> { BoltFfiRustSyncEnvelopePlanner }
     singleOf(::RustSyncPlannerClient)
 
@@ -177,7 +180,7 @@ val syncDataModule = module {
             gitSyncEngine = get(),
             credentialStore = get(),
             dataStore = get(),
-            memoSynchronizer = get(),
+            memoMutationRepository = get(),
             safGitMirrorBridge = get(),
             gitMediaSyncBridge = get(),
             gitSyncQueryCoordinator = get(),
@@ -254,19 +257,19 @@ val syncDataModule = module {
     singleOf(::S3SyncConflictRepositoryImpl)
     singleOf(::S3SyncReviewRepositoryImpl)
     singleOf(::S3SyncStateRepositoryImpl)
-    singleOf(::RoomBackedS3SyncProtocolStateStore) bind S3SyncProtocolStateStore::class
-    singleOf(::RoomBackedS3LocalChangeJournalStore) bind S3LocalChangeJournalStore::class
+    singleOf(::FileBackedS3SyncProtocolStateStore) bind S3SyncProtocolStateStore::class
+    singleOf(::FileBackedS3LocalChangeJournalStore) bind S3LocalChangeJournalStore::class
     singleOf(::DefaultS3LocalChangeRecorder) bind S3LocalChangeRecorder::class
-    singleOf(::RoomBackedS3RemoteIndexStore) bind S3RemoteIndexStore::class
-    singleOf(::RoomBackedS3RemoteShardStateStore) bind S3RemoteShardStateStore::class
-    singleOf(::RoomBackedS3SyncTransactionRunner) bind S3SyncTransactionRunner::class
+    singleOf(::FileBackedS3RemoteIndexStore) bind S3RemoteIndexStore::class
+    singleOf(::FileBackedS3RemoteShardStateStore) bind S3RemoteShardStateStore::class
+    singleOf(::FileBackedS3SyncTransactionRunner) bind S3SyncTransactionRunner::class
     single { S3CredentialStore(androidContext()) }
     single { S3SyncTransferWorkspace(androidContext()) }
 
     // WebDav sync components
-    singleOf(::RoomBackedWebDavLocalChangeJournalStore) bind WebDavLocalChangeJournalStore::class
+    singleOf(::FileBackedWebDavLocalChangeJournalStore) bind WebDavLocalChangeJournalStore::class
     singleOf(::DefaultWebDavLocalChangeRecorder) bind WebDavLocalChangeRecorder::class
-    singleOf(::RoomBackedWebDavLocalFingerprintCache) bind WebDavLocalFingerprintCache::class
+    singleOf(::FileBackedWebDavLocalFingerprintCache) bind WebDavLocalFingerprintCache::class
     singleOf(::WebDavRemoteListingCache)
     singleOf(::WebDavSyncStateHolder)
     singleOf(::WebDavSyncRepositoryContext)

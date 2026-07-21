@@ -451,9 +451,8 @@ impl RenderBuilder {
         }
     }
 
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
-        clippy::cognitive_complexity,
         reason = "pulldown Tag dispatch is intentionally one match over the event enum"
     )]
     fn start_tag(&mut self, tag: Tag<'_>, source_span: ByteSpan) -> Result<(), LomoError> {
@@ -597,7 +596,7 @@ impl RenderBuilder {
         Ok(())
     }
 
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         clippy::cognitive_complexity,
         reason = "pulldown TagEnd dispatch is intentionally one match over the event enum"
@@ -1040,7 +1039,12 @@ impl RenderBuilder {
                 | Frame::Table { depth, .. }
                 | Frame::CodeBlock { depth, .. }
                 | Frame::HtmlBlock { depth, .. } => Some(*depth),
-                _ => None,
+                Frame::Emphasis { .. }
+                | Frame::Strong { .. }
+                | Frame::Strikethrough { .. }
+                | Frame::Link { .. }
+                | Frame::Image { .. }
+                | Frame::TableCell { .. } => None,
             })
             .unwrap_or(0)
     }
@@ -1249,7 +1253,9 @@ fn classify_blocks_extensions(
                     rows: classified_rows,
                 });
             }
-            other => out.push(other),
+            RenderBlock::CodeBlock { .. }
+            | RenderBlock::ThematicBreak { .. }
+            | RenderBlock::HtmlBlock { .. } => out.push(block),
         }
     }
     Ok(out)
@@ -1325,7 +1331,13 @@ fn merge_adjacent_text(
                     children: merge_adjacent_text(children, source_len)?,
                 });
             }
-            other => out.push(other),
+            RenderInline::Code { .. }
+            | RenderInline::Image { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => out.push(inline),
         }
     }
     Ok(out)
@@ -1384,7 +1396,14 @@ fn flatten_text_nodes(inlines: Vec<RenderInline>) -> Vec<RenderInline> {
                 target,
                 children: flatten_text_nodes(children),
             },
-            other => other,
+            RenderInline::Text { .. }
+            | RenderInline::Code { .. }
+            | RenderInline::Image { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => inline,
         })
         .collect()
 }
@@ -1400,6 +1419,10 @@ fn classify_wiki(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "wiki image and plain wiki openers share one sequential scanner"
+)]
 fn classify_wiki_text(
     text: &str,
     source_span: ByteSpan,
@@ -1418,9 +1441,11 @@ fn classify_wiki_text(
                 return Err(wiki_classifier_state_error());
             };
             push_wiki_prefix(rest, base, open, source_span, source_len, &mut out)?;
-            let after = &rest[open + 3..];
+            let after = rest
+                .get(open + 3..)
+                .ok_or_else(wiki_classifier_state_error)?;
             if let Some(close) = after.find("]]") {
-                let inner = &after[..close];
+                let inner = after.get(..close).ok_or_else(wiki_classifier_state_error)?;
                 let target = inner.split('|').next().unwrap_or(inner).trim();
                 let alt = inner
                     .split_once('|')
@@ -1435,7 +1460,10 @@ fn classify_wiki_text(
                             base + consumed,
                             source_len,
                         )?,
-                        text: rest[open..consumed].to_owned(),
+                        text: rest
+                            .get(open..consumed)
+                            .ok_or_else(wiki_classifier_state_error)?
+                            .to_owned(),
                     });
                 } else {
                     check_ir_string(target)?;
@@ -1453,7 +1481,9 @@ fn classify_wiki_text(
                     });
                 }
                 base += open + 3 + close + 2;
-                rest = &after[close + 2..];
+                rest = after
+                    .get(close + 2..)
+                    .ok_or_else(wiki_classifier_state_error)?;
             } else {
                 push_wiki_unclosed(text, rest, base, open, source_span, source_len, &mut out)?;
                 break;
@@ -1463,9 +1493,11 @@ fn classify_wiki_text(
                 return Err(wiki_classifier_state_error());
             };
             push_wiki_prefix(rest, base, open, source_span, source_len, &mut out)?;
-            let after = &rest[open + 2..];
+            let after = rest
+                .get(open + 2..)
+                .ok_or_else(wiki_classifier_state_error)?;
             if let Some(close) = after.find("]]") {
-                let inner = &after[..close];
+                let inner = after.get(..close).ok_or_else(wiki_classifier_state_error)?;
                 let target = inner.split('|').next().unwrap_or(inner).trim();
                 if target.is_empty() {
                     let consumed = open + 2 + close + 2;
@@ -1476,7 +1508,10 @@ fn classify_wiki_text(
                             base + consumed,
                             source_len,
                         )?,
-                        text: rest[open..consumed].to_owned(),
+                        text: rest
+                            .get(open..consumed)
+                            .ok_or_else(wiki_classifier_state_error)?
+                            .to_owned(),
                     });
                 } else {
                     check_ir_string(target)?;
@@ -1496,7 +1531,9 @@ fn classify_wiki_text(
                     });
                 }
                 base += open + 2 + close + 2;
-                rest = &after[close + 2..];
+                rest = after
+                    .get(close + 2..)
+                    .ok_or_else(wiki_classifier_state_error)?;
             } else {
                 push_wiki_unclosed(text, rest, base, open, source_span, source_len, &mut out)?;
                 break;
@@ -1533,7 +1570,10 @@ fn push_wiki_prefix(
     if open > 0 {
         out.push(RenderInline::Text {
             source_span: subspan(source_span, base, base + open, source_len)?,
-            text: rest[..open].to_owned(),
+            text: rest
+                .get(..open)
+                .ok_or_else(wiki_classifier_state_error)?
+                .to_owned(),
         });
     }
     Ok(())
@@ -1565,9 +1605,66 @@ fn push_wiki_unclosed(
 ) -> Result<(), LomoError> {
     out.push(RenderInline::Text {
         source_span: subspan(source_span, base + open, text.len(), source_len)?,
-        text: rest[open..].to_owned(),
+        text: rest
+            .get(open..)
+            .ok_or_else(wiki_classifier_state_error)?
+            .to_owned(),
     });
     Ok(())
+}
+
+fn split_highlight_markers(
+    text: &str,
+    source_span: ByteSpan,
+    source_len: usize,
+    split: &mut Vec<RenderInline>,
+) -> Result<(), LomoError> {
+    let mut start = 0usize;
+    let bytes = text.as_bytes();
+    let mut idx = 0usize;
+    while idx + 1 < bytes.len() {
+        if bytes.get(idx) == Some(&b'=') && bytes.get(idx + 1) == Some(&b'=') {
+            if idx > start {
+                split.push(RenderInline::Text {
+                    source_span: subspan(source_span, start, idx, source_len)?,
+                    text: owned_str_slice(text, start, idx)?,
+                });
+            }
+            split.push(RenderInline::Text {
+                source_span: subspan(source_span, idx, idx + 2, source_len)?,
+                text: "==".to_owned(),
+            });
+            idx += 2;
+            start = idx;
+        } else {
+            idx += 1;
+        }
+    }
+    if start < text.len() {
+        split.push(RenderInline::Text {
+            source_span: subspan(source_span, start, text.len(), source_len)?,
+            text: owned_str_tail(text, start)?,
+        });
+    }
+    Ok(())
+}
+
+fn owned_str_slice(text: &str, start: usize, end: usize) -> Result<String, LomoError> {
+    text.get(start..end).map(str::to_owned).ok_or_else(|| {
+        validation(
+            "highlight_slice_invalid",
+            "highlight marker split left a non-boundary range",
+        )
+    })
+}
+
+fn owned_str_tail(text: &str, start: usize) -> Result<String, LomoError> {
+    text.get(start..).map(str::to_owned).ok_or_else(|| {
+        validation(
+            "highlight_slice_invalid",
+            "highlight marker split left a non-boundary range",
+        )
+    })
 }
 
 fn classify_highlight(
@@ -1579,33 +1676,7 @@ fn classify_highlight(
     for inline in inlines {
         match inline {
             RenderInline::Text { source_span, text } if text.contains("==") => {
-                let mut start = 0usize;
-                let bytes = text.as_bytes();
-                let mut idx = 0usize;
-                while idx + 1 < bytes.len() {
-                    if bytes[idx] == b'=' && bytes[idx + 1] == b'=' {
-                        if idx > start {
-                            split.push(RenderInline::Text {
-                                source_span: subspan(source_span, start, idx, source_len)?,
-                                text: text[start..idx].to_owned(),
-                            });
-                        }
-                        split.push(RenderInline::Text {
-                            source_span: subspan(source_span, idx, idx + 2, source_len)?,
-                            text: "==".to_owned(),
-                        });
-                        idx += 2;
-                        start = idx;
-                    } else {
-                        idx += 1;
-                    }
-                }
-                if start < text.len() {
-                    split.push(RenderInline::Text {
-                        source_span: subspan(source_span, start, text.len(), source_len)?,
-                        text: text[start..].to_owned(),
-                    });
-                }
+                split_highlight_markers(&text, source_span, source_len, &mut split)?;
             }
             RenderInline::Strong {
                 source_span,
@@ -1650,7 +1721,15 @@ fn classify_highlight(
                     children: classify_highlight(children, source_len)?,
                 });
             }
-            other => split.push(other),
+            RenderInline::Text { .. }
+            | RenderInline::Code { .. }
+            | RenderInline::Image { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. }
+            | RenderInline::Highlight { .. } => split.push(inline),
         }
     }
 
@@ -1664,7 +1743,10 @@ fn pair_highlight_markers(
     let mut result = Vec::new();
     let mut i = 0usize;
     while i < split.len() {
-        if matches!(&split[i], RenderInline::Text { text, .. } if text == "==") {
+        let Some(current) = split.get(i) else {
+            break;
+        };
+        if matches!(current, RenderInline::Text { text, .. } if text == "==") {
             let mut match_idx = None;
             for (j, candidate) in split.iter().enumerate().skip(i + 1) {
                 if matches!(candidate, RenderInline::Text { text, .. } if text == "==") {
@@ -1673,10 +1755,22 @@ fn pair_highlight_markers(
                 }
             }
             if let Some(j) = match_idx {
-                let inner = split[i + 1..j].to_vec();
+                let inner = split.get(i + 1..j).unwrap_or(&[]).to_vec();
+                let left = split.get(i).ok_or_else(|| {
+                    validation(
+                        "highlight_pair_missing",
+                        "highlight open marker disappeared during pairing",
+                    )
+                })?;
+                let right = split.get(j).ok_or_else(|| {
+                    validation(
+                        "highlight_pair_missing",
+                        "highlight close marker disappeared during pairing",
+                    )
+                })?;
                 let source_span = merge_spans(
-                    inline_source_span(&split[i]),
-                    inline_source_span(&split[j]),
+                    inline_source_span(left),
+                    inline_source_span(right),
                     source_len,
                 )?;
                 result.push(RenderInline::Highlight {
@@ -1685,11 +1779,11 @@ fn pair_highlight_markers(
                 });
                 i = j + 1;
             } else {
-                result.push(split[i].clone());
+                result.push(current.clone());
                 i += 1;
             }
         } else {
-            result.push(split[i].clone());
+            result.push(current.clone());
             i += 1;
         }
     }
@@ -1708,7 +1802,15 @@ fn classify_tags(
             if start > cursor {
                 out.push(RenderInline::Text {
                     source_span: subspan(source_span, cursor, start, source_len)?,
-                    text: text[cursor..start].to_owned(),
+                    text: text
+                        .get(cursor..start)
+                        .ok_or_else(|| {
+                            validation(
+                                "tag_slice_invalid",
+                                "tag scanner produced a non-boundary range",
+                            )
+                        })?
+                        .to_owned(),
                 });
             }
             check_ir_string(&name)?;
@@ -1721,7 +1823,15 @@ fn classify_tags(
         if cursor < text.len() {
             out.push(RenderInline::Text {
                 source_span: subspan(source_span, cursor, text.len(), source_len)?,
-                text: text[cursor..].to_owned(),
+                text: text
+                    .get(cursor..)
+                    .ok_or_else(|| {
+                        validation(
+                            "tag_slice_invalid",
+                            "tag scanner produced a non-boundary range",
+                        )
+                    })?
+                    .to_owned(),
             });
         }
         Ok(out)
@@ -1739,10 +1849,23 @@ fn classify_reminders(
             if start > cursor {
                 out.push(RenderInline::Text {
                     source_span: subspan(source_span, cursor, start, source_len)?,
-                    text: text[cursor..start].to_owned(),
+                    text: text
+                        .get(cursor..start)
+                        .ok_or_else(|| {
+                            validation(
+                                "reminder_slice_invalid",
+                                "reminder scanner produced a non-boundary range",
+                            )
+                        })?
+                        .to_owned(),
                 });
             }
-            let token = &text[start..end];
+            let token = text.get(start..end).ok_or_else(|| {
+                validation(
+                    "reminder_slice_invalid",
+                    "reminder scanner produced a non-boundary range",
+                )
+            })?;
             check_ir_string(token)?;
             out.push(RenderInline::Reminder {
                 source_span: subspan(source_span, start, end, source_len)?,
@@ -1753,7 +1876,15 @@ fn classify_reminders(
         if cursor < text.len() {
             out.push(RenderInline::Text {
                 source_span: subspan(source_span, cursor, text.len(), source_len)?,
-                text: text[cursor..].to_owned(),
+                text: text
+                    .get(cursor..)
+                    .ok_or_else(|| {
+                        validation(
+                            "reminder_slice_invalid",
+                            "reminder scanner produced a non-boundary range",
+                        )
+                    })?
+                    .to_owned(),
             });
         }
         Ok(out)
@@ -1763,12 +1894,12 @@ fn classify_reminders(
 fn strict_reminder_matches(text: &str) -> Vec<(usize, usize)> {
     let mut matches = Vec::new();
     let mut cursor = 0usize;
-    while let Some(relative) = text[cursor..].find('@') {
+    while let Some(relative) = text.get(cursor..).and_then(|tail| tail.find('@')) {
         let start = cursor + relative;
         let left_boundary = start == 0
-            || text[..start]
-                .chars()
-                .next_back()
+            || text
+                .get(..start)
+                .and_then(|prefix| prefix.chars().next_back())
                 .is_some_and(char::is_whitespace);
         if left_boundary && let Some(end) = parse_strict_reminder_at(text, start) {
             matches.push((start, end));
@@ -1852,6 +1983,274 @@ pub struct ReminderTokenFacts {
     pub recurrence_code: String,
 }
 
+/// Constructs one canonical reminder token from typed owner facts.
+///
+/// # Errors
+///
+/// Returns validation when the composed token fails the strict stage-2 grammar.
+pub fn build_reminder_token(
+    due_at_local: &str,
+    repeat_count: u32,
+    fired_count: u32,
+    done: bool,
+    interval_minutes: u32,
+    recurrence_code: &str,
+) -> Result<String, LomoError> {
+    if !is_ymd_hm(due_at_local) {
+        return Err(validation(
+            "invalid_reminder_token",
+            "reminder due_at_local must be yyyy-MM-dd-HH:mm",
+        ));
+    }
+    if repeat_count == 0 {
+        return Err(validation(
+            "invalid_reminder_token",
+            "reminder repeat count must be positive",
+        ));
+    }
+    if fired_count > repeat_count {
+        return Err(validation(
+            "invalid_reminder_token",
+            "reminder fired count cannot exceed repeat count",
+        ));
+    }
+    if !matches!(recurrence_code, "" | "d" | "w") {
+        return Err(validation(
+            "invalid_reminder_token",
+            "reminder recurrence code must be empty, d, or w",
+        ));
+    }
+    let mut token = format!("@{due_at_local}");
+    if repeat_count > 1 {
+        token.push('x');
+        token.push_str(&repeat_count.to_string());
+    }
+    if repeat_count > 1 && interval_minutes != 10 {
+        token.push('i');
+        token.push_str(&interval_minutes.to_string());
+    }
+    if !recurrence_code.is_empty() {
+        token.push('r');
+        token.push_str(recurrence_code);
+    }
+    if done {
+        token.push_str(".done");
+    } else if repeat_count > 1 && fired_count > 0 {
+        token.push('.');
+        token.push_str(&fired_count.to_string());
+    }
+    validate_reminder_token(&token)?;
+    Ok(token)
+}
+
+/// Owner mutation kinds that produce a Rust-canonical replacement token.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReminderTokenMutation {
+    MarkDone,
+    RecordFired,
+}
+
+/// Plans a Rust-canonical replacement token for one owner-owned reminder mutation.
+///
+/// # Errors
+///
+/// Returns validation when the current token is invalid or the mutation is not applicable.
+pub fn plan_reminder_token_mutation(
+    current_token: &str,
+    mutation: ReminderTokenMutation,
+) -> Result<String, LomoError> {
+    let facts = reminder_token_facts(current_token)?;
+    match mutation {
+        ReminderTokenMutation::MarkDone => {
+            if facts.done {
+                return Ok(current_token.to_owned());
+            }
+            if matches!(facts.recurrence_code.as_str(), "d" | "w") {
+                let next_due = advance_due_at_local(&facts.due_at_local, &facts.recurrence_code)?;
+                return build_reminder_token(
+                    &next_due,
+                    facts.repeat_count,
+                    0,
+                    false,
+                    facts.interval_minutes,
+                    &facts.recurrence_code,
+                );
+            }
+            build_reminder_token(
+                &facts.due_at_local,
+                facts.repeat_count,
+                facts.fired_count,
+                true,
+                facts.interval_minutes,
+                &facts.recurrence_code,
+            )
+        }
+        ReminderTokenMutation::RecordFired => {
+            if facts.done {
+                return Ok(current_token.to_owned());
+            }
+            let new_fired = facts.fired_count.saturating_add(1).min(facts.repeat_count);
+            let exhausted = new_fired >= facts.repeat_count;
+            if exhausted && matches!(facts.recurrence_code.as_str(), "d" | "w") {
+                let next_due = advance_due_at_local(&facts.due_at_local, &facts.recurrence_code)?;
+                return build_reminder_token(
+                    &next_due,
+                    facts.repeat_count,
+                    0,
+                    false,
+                    facts.interval_minutes,
+                    &facts.recurrence_code,
+                );
+            }
+            build_reminder_token(
+                &facts.due_at_local,
+                facts.repeat_count,
+                new_fired,
+                exhausted,
+                facts.interval_minutes,
+                &facts.recurrence_code,
+            )
+        }
+    }
+}
+
+fn is_ymd_hm(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() != 16
+        || bytes.get(4).copied() != Some(b'-')
+        || bytes.get(7).copied() != Some(b'-')
+        || bytes.get(10).copied() != Some(b'-')
+        || bytes.get(13).copied() != Some(b':')
+    {
+        return false;
+    }
+    let Some(date) = text.get(..10) else {
+        return false;
+    };
+    if !is_ymd(date) {
+        return false;
+    }
+    let Some(hour) = bytes.get(11..13).and_then(decimal_u32) else {
+        return false;
+    };
+    let Some(minute) = bytes.get(14..16).and_then(decimal_u32) else {
+        return false;
+    };
+    hour <= 23 && minute <= 59
+}
+
+fn advance_due_at_local(due_at_local: &str, recurrence_code: &str) -> Result<String, LomoError> {
+    let bytes = due_at_local.as_bytes();
+    if !is_ymd_hm(due_at_local) {
+        return Err(validation(
+            "invalid_reminder_token",
+            "cannot advance an invalid due_at_local",
+        ));
+    }
+    let year = bytes
+        .get(0..4)
+        .and_then(decimal_u32)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder year is invalid"))?;
+    let month = bytes
+        .get(5..7)
+        .and_then(decimal_u32)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder month is invalid"))?;
+    let day = bytes
+        .get(8..10)
+        .and_then(decimal_u32)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder day is invalid"))?;
+    let hour = bytes
+        .get(11..13)
+        .and_then(decimal_u32)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder hour is invalid"))?;
+    let minute = bytes
+        .get(14..16)
+        .and_then(decimal_u32)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder minute is invalid"))?;
+    let days = match recurrence_code {
+        "d" => 1i32,
+        "w" => 7i32,
+        _ => {
+            return Err(validation(
+                "invalid_reminder_token",
+                "only d/w recurrence can advance due_at_local",
+            ));
+        }
+    };
+    let (year, month, day) = add_days(year, month, day, days)?;
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02}-{hour:02}:{minute:02}"
+    ))
+}
+
+fn add_days(year: u32, month: u32, day: u32, delta: i32) -> Result<(u32, u32, u32), LomoError> {
+    let mut y = i64::from(year);
+    let mut m = i64::from(month);
+    let mut d = i64::from(day) + i64::from(delta);
+    while d < 1 {
+        m -= 1;
+        if m < 1 {
+            m = 12;
+            y -= 1;
+        }
+        d += i64::from(days_in_month(
+            u32::try_from(y).map_err(|_error| {
+                validation("invalid_reminder_token", "reminder year underflow")
+            })?,
+            u32::try_from(m).map_err(|_error| {
+                validation("invalid_reminder_token", "reminder month underflow")
+            })?,
+        )?);
+    }
+    loop {
+        let dim = i64::from(days_in_month(
+            u32::try_from(y)
+                .map_err(|_error| validation("invalid_reminder_token", "reminder year overflow"))?,
+            u32::try_from(m).map_err(|_error| {
+                validation("invalid_reminder_token", "reminder month overflow")
+            })?,
+        )?);
+        if d <= dim {
+            break;
+        }
+        d -= dim;
+        m += 1;
+        if m > 12 {
+            m = 1;
+            y += 1;
+        }
+    }
+    Ok((
+        u32::try_from(y)
+            .map_err(|_error| validation("invalid_reminder_token", "reminder year out of range"))?,
+        u32::try_from(m).map_err(|_error| {
+            validation("invalid_reminder_token", "reminder month out of range")
+        })?,
+        u32::try_from(d)
+            .map_err(|_error| validation("invalid_reminder_token", "reminder day out of range"))?,
+    ))
+}
+
+fn days_in_month(year: u32, month: u32) -> Result<u32, LomoError> {
+    Ok(match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => {
+            return Err(validation(
+                "invalid_reminder_token",
+                "reminder month is invalid",
+            ));
+        }
+    })
+}
+
+/// Parses a validated reminder token into structured facts.
+///
+/// # Errors
+///
+/// Returns validation when the token is not a strict Lomo reminder form.
 pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError> {
     validate_reminder_token(token)?;
     let bytes = token.as_bytes();
@@ -1875,11 +2274,17 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
         offset = end;
     }
     if bytes.get(offset) == Some(&b'r') {
-        token[offset + 1..offset + 2].clone_into(&mut recurrence_code);
+        token
+            .get(offset + 1..offset + 2)
+            .ok_or_else(|| validation("invalid_reminder_token", "reminder recurrence is invalid"))?
+            .clone_into(&mut recurrence_code);
         offset += 2;
     }
     if bytes.get(offset) == Some(&b'.') {
-        if token[offset + 1..].starts_with("done") {
+        if token
+            .get(offset + 1..)
+            .is_some_and(|tail| tail.starts_with("done"))
+        {
             done = true;
         } else {
             let (value, _end) = parse_decimal(token, offset + 1).ok_or_else(|| {
@@ -1889,7 +2294,12 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
         }
     }
     Ok(ReminderTokenFacts {
-        due_at_local: token[1..17].to_owned(),
+        due_at_local: token
+            .get(1..17)
+            .ok_or_else(|| {
+                validation("invalid_reminder_token", "reminder due_at_local is invalid")
+            })?
+            .to_owned(),
         repeat_count: u32::try_from(repeat_count).map_err(|_error| {
             validation(
                 "invalid_reminder_token",
@@ -1936,21 +2346,24 @@ fn decimal_value(bytes: &[u8]) -> Option<u64> {
 fn is_ymd(text: &str) -> bool {
     let b = text.as_bytes();
     if !(b.len() == 10
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[0..4].iter().all(u8::is_ascii_digit)
-        && b[5..7].iter().all(u8::is_ascii_digit)
-        && b[8..10].iter().all(u8::is_ascii_digit))
+        && b.get(4).copied() == Some(b'-')
+        && b.get(7).copied() == Some(b'-')
+        && b.get(0..4)
+            .is_some_and(|slice| slice.iter().all(u8::is_ascii_digit))
+        && b.get(5..7)
+            .is_some_and(|slice| slice.iter().all(u8::is_ascii_digit))
+        && b.get(8..10)
+            .is_some_and(|slice| slice.iter().all(u8::is_ascii_digit)))
     {
         return false;
     }
-    let Some(year) = decimal_u32(&b[0..4]) else {
+    let Some(year) = b.get(0..4).and_then(decimal_u32) else {
         return false;
     };
-    let Some(month) = decimal_u32(&b[5..7]) else {
+    let Some(month) = b.get(5..7).and_then(decimal_u32) else {
         return false;
     };
-    let Some(day) = decimal_u32(&b[8..10]) else {
+    let Some(day) = b.get(8..10).and_then(decimal_u32) else {
         return false;
     };
     let max_day = match month {
@@ -1973,11 +2386,21 @@ fn decimal_u32(bytes: &[u8]) -> Option<u32> {
 
 fn is_hm(text: &str) -> bool {
     let b = text.as_bytes();
-    if !(b.len() == 5 && b[2] == b':' && is_two_digits(&text[0..2]) && is_two_digits(&text[3..5])) {
+    let Some(left) = text.get(0..2) else {
+        return false;
+    };
+    let Some(right) = text.get(3..5) else {
+        return false;
+    };
+    if !(b.len() == 5
+        && b.get(2).copied() == Some(b':')
+        && is_two_digits(left)
+        && is_two_digits(right))
+    {
         return false;
     }
-    let hour = two_digit_value(&b[0..2]);
-    let minute = two_digit_value(&b[3..5]);
+    let hour = b.get(0..2).and_then(two_digit_value);
+    let minute = b.get(3..5).and_then(two_digit_value);
     hour.is_some_and(|value| value < 24) && minute.is_some_and(|value| value < 60)
 }
 
@@ -2056,7 +2479,13 @@ fn map_text_segments(
                     children: map_text_segments(children, map_text)?,
                 });
             }
-            other => out.push(other),
+            RenderInline::Code { .. }
+            | RenderInline::Image { .. }
+            | RenderInline::Tag { .. }
+            | RenderInline::Reminder { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => out.push(inline),
         }
     }
     Ok(out)
@@ -2231,7 +2660,11 @@ fn collect_from_inlines(
                     facts,
                 );
             }
-            _ => {}
+            RenderInline::Text { .. }
+            | RenderInline::Code { .. }
+            | RenderInline::SoftBreak { .. }
+            | RenderInline::HardBreak { .. }
+            | RenderInline::HtmlInline { .. } => {}
         }
     }
 }

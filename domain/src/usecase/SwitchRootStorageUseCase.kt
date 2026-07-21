@@ -13,8 +13,10 @@ import com.lomo.domain.repository.WriteFreezeRepository
  * Candidate validation runs before any durable selection change. Writes freeze for the whole
  * critical section so concurrent mutations cannot observe a half-switched workspace. The engine is
  * activated under freeze after selection persistence so only one engine is authoritative. Soft
- * Recovery and hard open failure both restore the previous selection and previous engine when a
- * previous selection existed; freeze is always released.
+ * Recovery and hard open failure both restore the previous selection, previous engine, and previous
+ * index (mandatory rebuild after any abort that may have cleared Room) when a previous selection
+ * existed; freeze is always released. SwitchRoot is the sole rebuild owner for a root switch —
+ * observe-root must not rebuild while freeze is active.
  */
 open class SwitchRootStorageUseCase(
     private val directorySettingsRepository: DirectorySettingsRepository,
@@ -83,10 +85,12 @@ open class SwitchRootStorageUseCase(
             }
             return
         }
-        // Restore previous selection + engine. Failure is structured so UI can route Recovery.
+        // Restore previous selection + engine + index. Rebuild is mandatory: candidate rebuild may
+        // have already cleared Room before failing, leaving Ready engine with an empty index.
         try {
             directorySettingsRepository.applyRootLocation(previousSelection)
             engineReadinessRepository.activateWorkspace(previousSelection)
+            rebuildCurrentWorkspace()
         } catch (restoreFailure: Exception) {
             throw WorkspaceAuthorityRestoreException(
                 message =

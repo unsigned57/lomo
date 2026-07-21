@@ -20,6 +20,15 @@ use lomo_core as core;
 use lomo_sync_core::plan_envelope;
 use lomo_workspace::{self as workspace, workspace_driver_registry};
 
+mod store_ffi;
+pub use store_ffi::{
+    StoreHandle, StoreMemoCommand, StoreMemoCommandKind, StoreMemoCommit, StoreMemoFilters,
+    StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSummary, StorePageCursor,
+    StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand, StoreReminderCommandKind,
+    StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery, StoreReminderSession,
+    StoreTimeZoneContext, StoreZoneTransition,
+};
+
 #[data]
 #[derive(Clone, Debug)]
 pub struct RenderRequest {
@@ -445,6 +454,10 @@ pub struct CoreEvent {
     pub event_sequence: u64,
     pub core_revision: u64,
     pub job_id: Option<String>,
+    /// Bounded invalidation scopes (`memo_list`, `search`, `reminder`, `full`, …). Empty when the
+    /// publisher has not attached scopes (legacy core events); consumers treat empty as full
+    /// resnapshot when combined with an event-sequence gap.
+    pub scopes: Vec<String>,
 }
 
 #[export]
@@ -491,6 +504,8 @@ impl std::error::Error for EngineError {}
 #[derive(Debug)]
 pub struct LomoEngine {
     core: Arc<core::LomoEngine>,
+    /// Dark-build store handle for Direct workspaces (P3-09). Absent for SAF/no-workspace opens.
+    store: Option<StoreHandle>,
 }
 
 struct ListenerAdapter {
@@ -503,6 +518,7 @@ impl core::CoreEventListener for ListenerAdapter {
             event_sequence: event.event_sequence().get(),
             core_revision: event.core_revision().get(),
             job_id: event.job_id().map(|id| id.as_str().to_owned()),
+            scopes: Vec::new(),
         });
         Ok(())
     }
@@ -530,17 +546,21 @@ impl LomoEngine {
     /// Returns structured boundary/core errors without constructing a partial engine.
     pub fn open(config: EngineConfig) -> Result<Self, EngineError> {
         let bootstrap_deadline = Duration::from_millis(config.bootstrap_deadline_millis);
+        let control_root = PathBuf::from(&config.control_root);
+        let store = match &config.workspace {
+            Some(WorkspaceDescriptor::Direct { root_path }) => {
+                Some(StoreHandle::new(PathBuf::from(root_path), &control_root)?)
+            }
+            _ => None,
+        };
         let workspace = config.workspace.map(workspace_from_ffi).transpose()?;
-        let core_config = core::EngineConfig::new(
-            PathBuf::from(config.control_root),
-            PathBuf::from(config.exchange_root),
-            workspace,
-        )
-        .and_then(|config| config.with_bootstrap_deadline(bootstrap_deadline))
-        .map(|config| config.with_drivers(workspace_driver_registry()))
-        .map_err(EngineError::from)?;
+        let core_config =
+            core::EngineConfig::new(control_root, PathBuf::from(config.exchange_root), workspace)
+                .and_then(|config| config.with_bootstrap_deadline(bootstrap_deadline))
+                .map(|config| config.with_drivers(workspace_driver_registry()))
+                .map_err(EngineError::from)?;
         let core = core::LomoEngine::open(core_config).map_err(EngineError::from)?;
-        Ok(Self { core })
+        Ok(Self { core, store })
     }
 
     #[must_use]
@@ -571,11 +591,9 @@ impl LomoEngine {
         &self,
         listener: Box<dyn CoreEventListener>,
     ) -> Result<Subscription, EngineError> {
-        let adapter = Arc::new(ListenerAdapter { foreign: listener });
-        let subscription = self
-            .core
-            .subscribe(adapter as Arc<dyn core::CoreEventListener>)
-            .map_err(EngineError::from)?;
+        let adapter: Arc<dyn core::CoreEventListener> =
+            Arc::new(ListenerAdapter { foreign: listener });
+        let subscription = self.core.subscribe(adapter).map_err(EngineError::from)?;
         Ok(Subscription { core: subscription })
     }
 
@@ -846,6 +864,95 @@ impl LomoEngine {
             .shutdown(deadline)
             .map(shutdown_to_ffi)
             .map_err(EngineError::from)
+    }
+
+    /// Dark-build `query_memos` (bounded page; no full list transfer).
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or store query errors.
+    pub fn query_memos(
+        &self,
+        query: StoreMemoQuery,
+        cursor: Option<StorePageCursor>,
+        page_size: u32,
+    ) -> Result<StoreMemoPage, EngineError> {
+        self.store_handle()?.query_memos(query, cursor, page_size)
+    }
+
+    /// Dark-build `get_memo`.
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or store errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn get_memo(&self, memo_id: String) -> Result<Option<StoreMemoSnapshot>, EngineError> {
+        self.store_handle()?.get_memo(&memo_id)
+    }
+
+    /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or transaction errors.
+    pub fn apply_memo_command(
+        &self,
+        command: StoreMemoCommand,
+    ) -> Result<StoreMemoCommit, EngineError> {
+        self.store_handle()?.apply_memo_command(command)
+    }
+
+    /// Dark-build `query_reminder_plan`.
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or plan errors.
+    pub fn query_reminder_plan(
+        &self,
+        query: StoreReminderQuery,
+    ) -> Result<StoreReminderPlan, EngineError> {
+        self.store_handle()?.query_reminder_plan(query)
+    }
+
+    /// Dark-build `apply_reminder_command`.
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or command errors.
+    pub fn apply_reminder_command(
+        &self,
+        command: StoreReminderCommand,
+    ) -> Result<StoreReminderCommandResult, EngineError> {
+        self.store_handle()?.apply_reminder_command(command)
+    }
+
+    /// Dark-build `start_rebuild` (synchronous rebuild result).
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or rebuild errors.
+    pub fn start_rebuild(&self, batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
+        self.store_handle()?.start_rebuild(batch_size)
+    }
+
+    fn store_handle(&self) -> Result<&StoreHandle, EngineError> {
+        self.store.as_ref().ok_or_else(|| {
+            EngineError::from(
+                match core::LomoError::from_platform_boundary(
+                    core::ErrorCategory::Validation,
+                    "store_unavailable",
+                    core::RetryDisposition::Never,
+                    None,
+                    None,
+                    "store dark-build surface requires a Direct workspace",
+                ) {
+                    Ok(error) | Err(error) => error,
+                },
+            )
+        })
     }
 }
 
@@ -1660,4 +1767,134 @@ pub fn plan_sync_envelope(input: Vec<u8>) -> Result<Vec<u8>, SyncPlannerError> {
     plan_envelope(&input).map_err(|error| SyncPlannerError::Rejected {
         reason: error.to_string(),
     })
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct AttachmentNameMapping {
+    pub original: String,
+    pub stored: String,
+}
+
+#[export]
+/// Remaps attachment destinations in free-content Markdown via the workspace owner.
+///
+/// # Errors
+///
+/// Returns structured engine validation errors when spans cannot be verified.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String / Vec wire types"
+)]
+pub fn remap_markdown_attachment_destinations(
+    content: String,
+    mappings: Vec<AttachmentNameMapping>,
+) -> Result<String, EngineError> {
+    let mut map = std::collections::BTreeMap::new();
+    for mapping in mappings {
+        map.insert(mapping.original, mapping.stored);
+    }
+    workspace::remap_attachment_destinations(&content, &map).map_err(EngineError::from)
+}
+
+#[data]
+#[derive(Clone, Copy, Debug)]
+pub enum ReminderTokenMutationKind {
+    MarkDone,
+    RecordFired,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct ReminderTokenBuildRequest {
+    pub due_at_local: String,
+    pub repeat_count: u32,
+    pub fired_count: u32,
+    pub done: bool,
+    pub interval_minutes: u32,
+    pub recurrence_code: String,
+}
+
+#[export]
+/// Constructs one canonical reminder token from typed owner facts.
+///
+/// # Errors
+///
+/// Returns validation when the composed token fails the strict stage-2 grammar.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned request wire types"
+)]
+pub fn build_reminder_token(request: ReminderTokenBuildRequest) -> Result<String, EngineError> {
+    workspace::build_reminder_token(
+        &request.due_at_local,
+        request.repeat_count,
+        request.fired_count,
+        request.done,
+        request.interval_minutes,
+        &request.recurrence_code,
+    )
+    .map_err(EngineError::from)
+}
+
+#[export]
+/// Plans a Rust-canonical replacement token for mark-done / record-fired mutations.
+///
+/// # Errors
+///
+/// Returns validation when the current token is invalid or the mutation is not applicable.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn plan_reminder_token_mutation(
+    current_token: String,
+    mutation: ReminderTokenMutationKind,
+) -> Result<String, EngineError> {
+    let kind = match mutation {
+        ReminderTokenMutationKind::MarkDone => workspace::ReminderTokenMutation::MarkDone,
+        ReminderTokenMutationKind::RecordFired => workspace::ReminderTokenMutation::RecordFired,
+    };
+    workspace::plan_reminder_token_mutation(&current_token, kind).map_err(EngineError::from)
+}
+
+#[export]
+/// Projects memo body text from raw header+body bytes via the workspace owner.
+///
+/// # Errors
+///
+/// Returns validation when the raw block is empty or not a unique single-memo projection.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn extract_memo_body_from_raw(raw: String) -> Result<String, EngineError> {
+    workspace::extract_memo_body_from_raw(&raw).map_err(EngineError::from)
+}
+
+#[export]
+/// Owner identity-keyed merge of two Lomo/Thino memo shards for sync conflict write-back.
+///
+/// Returns `None` when the owner declines (no shared identities / not `LomoThino` / preamble).
+///
+/// # Errors
+///
+/// Returns validation/corruption when either source fails owner parse constraints.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn merge_memo_shard_by_identity(
+    local_text: String,
+    remote_text: String,
+    local_last_modified: Option<i64>,
+    remote_last_modified: Option<i64>,
+) -> Result<Option<String>, EngineError> {
+    workspace::merge_memo_shard_by_identity(
+        &local_text,
+        &remote_text,
+        local_last_modified,
+        remote_last_modified,
+    )
+    .map_err(EngineError::from)
 }
