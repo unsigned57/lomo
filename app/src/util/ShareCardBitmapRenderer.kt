@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Typeface
 import com.lomo.app.R
 import com.lomo.app.feature.main.appendLegacyMemoGeoLocation
-import com.lomo.app.feature.main.linkifyMemoGeoUris
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ThemeMode
@@ -37,9 +36,9 @@ class ShareCardBitmapRenderer(
         geoLocation: String? = null,
         bodyTypeface: Typeface? = null,
     ): Bitmap {
-        val contentWithGeo = appendLegacyMemoGeoLocation(content, geoLocation)
-        // Presentation-only linkify; image/attachment identity stays on the owner IR.
-        val ownerInput = linkifyBareUrlsAndGeoUris(contentWithGeo)
+        // Same body bytes as the list/card path (+ optional non-semantic geo append). Do not invent
+        // Markdown link structure via pre-owner regex before renderMarkdown.
+        val ownerInput = appendLegacyMemoGeoLocation(content, geoLocation)
         val document = markdownWorkspaceRepository.renderMarkdown(ownerInput)
         val totalImageSlots = countShareCardImageSlots(document)
         val hasImages = totalImageSlots > 0 || resolvedImagePaths.isNotEmpty()
@@ -180,24 +179,4 @@ internal fun buildShareCardFooterContent(
         showFooter = row != null,
         row = row,
     )
-}
-
-private val BARE_URL_REGEX =
-    Regex(
-        pattern =
-            """(?<!\()(?<!\[)(?<!\]\()((?:https?://|www\.)[^\s()<>]+""" +
-                """(?:\([\w\d]+\)|[^\s\x60!()\[\]{};:'".,<>?«»“”‘’]))""",
-        option = RegexOption.IGNORE_CASE,
-    )
-
-internal fun linkifyBareUrls(content: String): String =
-    BARE_URL_REGEX.replace(content) { match ->
-        val url = match.value
-        val destination = if (url.startsWith("www.", ignoreCase = true)) "https://$url" else url
-        "[$url]($destination)"
-    }
-
-internal fun linkifyBareUrlsAndGeoUris(content: String): String {
-    val withGeo = linkifyMemoGeoUris(content)
-    return linkifyBareUrls(withGeo)
 }
