@@ -28,5 +28,5 @@ allow = [
 unknown-git = "deny"
 unknown-registry = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# Exact pin only: required JVM use-after-close guard is not in formal tag v0.27.5 yet.
+# Exact git pin for BoltFFI (formal tag tip SHA; see rust/tools.toml + workspace deps).
 allow-git = ["https://github.com/boltffi/boltffi"]

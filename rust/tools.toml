@@ -9,13 +9,15 @@ cargo-ndk = "4.1.2"
 cargo-bloat = "0.12.1"
 cargo-llvm-lines = "0.4.46"
 
-# BoltFFI CLI is repository-owned and exact-pinned. Prefer the latest formal tag once it
-# contains the required JVM use-after-close guard; until then pin the official SHA.
+# BoltFFI CLI is repository-owned and exact-pinned. Prefer the latest formal tag;
+# pin its tip SHA so cargo install --rev and workspace boltffi_core stay aligned.
 [ffi.boltffi_cli]
 package = "boltffi_cli"
 binary = "boltffi"
 git = "https://github.com/boltffi/boltffi"
-rev = "2de4597034e0e66dcdfd34191abbe9ae7de7b31e"
-latest_formal_tag_checked = "v0.27.5"
+rev = "a2ad920ba39179effcc9e33f13661d038f7cdeea"
+formal_tag = "v0.28.0"
+latest_formal_tag_checked = "v0.28.0"
 required_fix = "JVM sequential use-after-close handle guard"
-required_fix_in_latest_tag = false
+required_fix_commit = "2de4597034e0e66dcdfd34191abbe9ae7de7b31e"
+required_fix_in_latest_tag = true

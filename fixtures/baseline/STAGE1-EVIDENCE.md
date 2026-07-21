@@ -349,10 +349,16 @@ The authoritative work packages, version policy, metrics, and adversarial scenar
 
 - GREEN command: inspected official tags/commits on 2026-07-16; wrote
   `fixtures/baseline/ffi-transport-baseline.v1.json` and `rust/tools.toml` `[ffi.boltffi_cli]`.
-- GREEN result: latest formal tag `v0.27.5` does not include JVM use-after-close guard
-  `2de4597034e0e66dcdfd34191abbe9ae7de7b31e`; exact official SHA pin recorded with package
-  `boltffi_cli` / binary `boltffi`. UniFFI Kotlin baseline frozen at 194,546 bytes / 5,530 lines;
-  release-like native+JNA four-ABI sum frozen at 2,476,652 bytes.
+- GREEN result (historical pin): latest formal tag then was `v0.27.5`, which did not include JVM
+  use-after-close guard `2de4597034e0e66dcdfd34191abbe9ae7de7b31e`; exact official SHA pin recorded
+  with package `boltffi_cli` / binary `boltffi`. UniFFI Kotlin baseline frozen at 194,546 bytes /
+  5,530 lines; release-like native+JNA four-ABI sum frozen at 2,476,652 bytes.
+- Production pin refresh (2026-07-21): formal tag
+  [`v0.28.0`](https://github.com/boltffi/boltffi/releases/tag/v0.28.0) tip
+  `a2ad920ba39179effcc9e33f13661d038f7cdeea` includes #663; recorded as
+  `boltffi_production_pin` in the baseline JSON and in `rust/tools.toml` /
+  workspace `boltffi_core`. Repository `boltffi-facade` retained (official `boltffi` still defaults
+  url/uuid).
 - Warm generation sample (post-migration host): p50-like single sample **143–178 ms** for
   `boltffi generate kotlin` via xtask.
 

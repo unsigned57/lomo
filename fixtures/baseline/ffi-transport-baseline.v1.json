@@ -14,6 +14,7 @@
   },
   "boltffi_pin_at_baseline": {
     "policy": "latest formal tag preferred; exact official SHA only when required fix is unreleased",
+    "note": "Historical pin when UniFFI baseline was frozen (pre-v0.28.0). Production pin is boltffi_production_pin.",
     "latest_formal_tag_checked": "v0.27.5",
     "latest_formal_tag_published_at": "2026-07-10T14:47:33Z",
     "required_fix": "JVM sequential use-after-close handle guard",
@@ -26,6 +27,19 @@
     "package": "boltffi_cli",
     "binary": "boltffi",
     "replace_with_first_tag_containing_fix": true
+  },
+  "boltffi_production_pin": {
+    "policy": "formal tag tip SHA; CLI and boltffi_core share one rev",
+    "formal_tag": "v0.28.0",
+    "formal_tag_published_at": "2026-07-21T08:38:08Z",
+    "selected_git": "https://github.com/boltffi/boltffi",
+    "selected_rev": "a2ad920ba39179effcc9e33f13661d038f7cdeea",
+    "required_fix": "JVM sequential use-after-close handle guard",
+    "required_fix_commit": "2de4597034e0e66dcdfd34191abbe9ae7de7b31e",
+    "required_fix_in_formal_tag": true,
+    "package": "boltffi_cli",
+    "binary": "boltffi",
+    "facade": "rust/boltffi-facade over boltffi_core default-features=false"
   },
   "environment": {
     "rustc": "1.96.1",

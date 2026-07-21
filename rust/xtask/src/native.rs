@@ -638,9 +638,10 @@ exec "$REAL_CLANG" "$@" "${{EXTRA[@]}}"
     Ok(())
 }
 
-/// Upstream gap (`BoltFFI` pin `2de45970…`): class-method foreign listeners call
-/// `boltffi_jni_callback_parameter` from generated `jni_glue.c`, but the helper is not emitted.
-/// Track: re-audit each pin upgrade; delete this inject when upstream ships the helper.
+/// Upstream gap (historically pre-#696): class-method foreign listeners call
+/// `boltffi_jni_callback_parameter` from generated `jni_glue.c`, but older pins omitted the helper.
+/// #696 is in formal `v0.28.0`; inject is fail-closed and no-ops when the helper is already present.
+/// Re-audit each pin upgrade; delete this inject once a full regenerate proves glue always emits it.
 /// Layout assumptions for the temporary inject are encoded in [`JNI_GLUE_CALLBACK_HELPER`].
 const JNI_GLUE_CALLBACK_HELPER: &str = r"
 typedef struct {

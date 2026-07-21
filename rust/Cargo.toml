@@ -37,11 +37,11 @@ git2 = { version = "=0.21.0", default-features = false, features = ["vendored-li
 # Production depends on the repository-owned `boltffi` facade (macros expand to
 # `::boltffi::__private`). The facade pins official `boltffi_core` with default
 # features disabled so unused url/uuid codecs stay out of the Android .so.
-# Latest formal tag v0.27.5 lacks the JVM use-after-close guard
-# (2de4597034e0e66dcdfd34191abbe9ae7de7b31e); replace the rev with the first
-# formal tag that contains that commit once published.
+# Formal tag v0.28.0 includes the JVM use-after-close guard (PR #663 /
+# 2de4597034e0e66dcdfd34191abbe9ae7de7b31e). Pin the tag tip SHA so CLI and
+# cargo share one exact revision (xtask tools.toml only accepts `rev=`).
 boltffi = { path = "boltffi-facade" }
-boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2de4597034e0e66dcdfd34191abbe9ae7de7b31e", default-features = false }
+boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "a2ad920ba39179effcc9e33f13661d038f7cdeea", default-features = false }
 tempfile = "=3.27.0"
 
 [workspace.lints.rust]

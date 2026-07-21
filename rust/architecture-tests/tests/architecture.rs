@@ -271,14 +271,16 @@ mod tests {
                 && tools.contains("package = \"boltffi_cli\"")
                 && tools.contains("binary = \"boltffi\"")
                 && tools.contains("git = \"https://github.com/boltffi/boltffi\"")
-                && tools.contains("rev = \"2de4597034e0e66dcdfd34191abbe9ae7de7b31e\""),
-            "BoltFFI CLI must be exact-pinned in rust/tools.toml"
+                && tools.contains("rev = \"a2ad920ba39179effcc9e33f13661d038f7cdeea\"")
+                && tools.contains("formal_tag = \"v0.28.0\"")
+                && tools.contains("required_fix_in_latest_tag = true"),
+            "BoltFFI CLI must be exact-pinned to formal tag v0.28.0 tip in rust/tools.toml"
         );
         let workspace = read("rust/Cargo.toml");
         assert!(
             workspace.contains("boltffi = { path = \"boltffi-facade\" }")
                 && workspace.contains("package = \"boltffi_core\"")
-                && workspace.contains("rev = \"2de4597034e0e66dcdfd34191abbe9ae7de7b31e\"")
+                && workspace.contains("rev = \"a2ad920ba39179effcc9e33f13661d038f7cdeea\"")
                 && workspace.contains("default-features = false"),
             "BoltFFI must use the repo facade over exact-pinned boltffi_core with default features off"
         );
@@ -351,8 +353,10 @@ mod tests {
         let baseline = read("fixtures/baseline/ffi-transport-baseline.v1.json");
         assert!(
             baseline.contains("uniffi_baseline_frozen")
-                && baseline.contains("2de4597034e0e66dcdfd34191abbe9ae7de7b31e"),
-            "FFI transport baseline must freeze UniFFI numbers and the BoltFFI pin"
+                && baseline.contains("2de4597034e0e66dcdfd34191abbe9ae7de7b31e")
+                && baseline.contains("\"formal_tag\": \"v0.28.0\"")
+                && baseline.contains("a2ad920ba39179effcc9e33f13661d038f7cdeea"),
+            "FFI transport baseline must freeze UniFFI numbers, historical pin, and production v0.28.0 pin"
         );
     }
 
