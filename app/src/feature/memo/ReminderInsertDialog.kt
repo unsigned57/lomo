@@ -41,7 +41,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.Recurrence
-import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.repository.ReminderTokenFactory
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerStep
 import com.lomo.ui.component.picker.ExpressiveSteppedPickerDialog
@@ -63,6 +63,7 @@ private val REMINDER_INTERVAL_PRESETS = listOf(1, 5, 10, 15, 30)
 internal fun ReminderInsertDialog(
     onDismiss: () -> Unit,
     onConfirm: (token: String) -> Unit,
+    tokenFactory: ReminderTokenFactory = org.koin.compose.koinInject(),
 ) {
     val now = remember { LocalDateTime.now().plusMinutes(5) }
     val datePickerState =
@@ -96,6 +97,7 @@ internal fun ReminderInsertDialog(
                     repeatCount = repeatCount,
                     intervalMinutes = intervalMinutes,
                     recurrence = recurrence,
+                    tokenFactory = tokenFactory,
                 ),
             )
         },
@@ -309,12 +311,11 @@ internal fun buildReminderToken(
     repeatCount: Int,
     intervalMinutes: Int,
     recurrence: Recurrence,
+    tokenFactory: ReminderTokenFactory,
 ): String =
-    ReminderMarker.canonicalToken(
+    tokenFactory.buildInsertToken(
         dueAt = LocalDateTime.of(date, LocalTime.of(hour, minute)),
         repeatCount = repeatCount,
-        firedCount = 0,
-        done = false,
         intervalMinutes = intervalMinutes,
         recurrence = recurrence,
     )

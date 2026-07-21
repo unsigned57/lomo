@@ -1,11 +1,7 @@
 package com.lomo.data.reminder
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
-import android.os.Build
 import androidx.core.content.edit
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.model.ReminderIntervalDefaults
@@ -13,13 +9,12 @@ import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.model.ReminderMarker
-import com.lomo.domain.model.Recurrence
+import com.lomo.domain.repository.ReminderTokenFactory
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import timber.log.Timber
 import java.time.ZoneId
 
 
@@ -32,13 +27,26 @@ interface MemoMutationReminderScheduler {
     suspend fun cancelForMemo(memoId: String)
 }
 
+/**
+ * Production scheduler still bridges Room-era marker lists into [AlarmSchedulePort].
+ *
+ * P3-08: all AlarmManager I/O goes through [schedulePort] (schedule/cancel + capability/mode).
+ * Recurrence/next-trigger **plan** authority moves to Rust (P3-07); full DI cutover is P3-10.
+ *
+ * Residual tails (documented, not product rewrite here):
+ * - markDone/recordFired still rewrite Markdown via domain repositories until P3-10.
+ * - Camera/share/widget external writes still use existing memo mutation paths; they must not
+ *   invent private file writes outside command submission (enforced at those call sites).
+ * - Snooze interval prefs remain process-local until Rust app-private snooze is production-wired.
+ */
 class AlarmManagerReminderScheduler(
     private val context: Context,
     private val memoQueryRepository: MemoQueryRepository,
     private val markdownReminderRepository: MarkdownReminderRepository,
+    private val schedulePort: AlarmSchedulePort = AndroidAlarmSchedulePort(context),
+    private val rollingWindow: ReminderRollingWindowScheduler =
+        ReminderRollingWindowScheduler(schedulePort),
 ) : MemoMutationReminderScheduler {
-    private val alarmManager: AlarmManager =
-        context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val _globalIntervalMillis =
@@ -46,6 +54,8 @@ class AlarmManagerReminderScheduler(
             prefs.getLong(KEY_INTERVAL_MILLIS, ReminderIntervalDefaults.DEFAULT_MILLIS),
         )
     val globalIntervalMillis: StateFlow<Long> = _globalIntervalMillis.asStateFlow()
+
+    fun exactAlarmCapability(): ExactAlarmCapability = schedulePort.exactAlarmCapability()
 
     suspend fun setGlobalIntervalMillis(millis: Long) {
         val sanitized =
@@ -61,7 +71,11 @@ class AlarmManagerReminderScheduler(
     override suspend fun syncForMemo(memoId: String) {
         val markers = markdownReminderRepository.remindersForMemo(memoId)
         val nowMillis = System.currentTimeMillis()
-        markers.forEach { marker -> reschedule(memoId, marker, nowMillis) }
+        val alarms =
+            markers.mapNotNull { marker ->
+                planAlarm(memoId, marker, nowMillis)
+            }
+        rollingWindow.applyPlanForMemos(setOf(memoId), alarms)
     }
 
     override suspend fun cancelForMemo(memoId: String) {
@@ -72,11 +86,13 @@ class AlarmManagerReminderScheduler(
     suspend fun rebuildAll() {
         val memos = memoQueryRepository.getAllMemosList().first()
         val nowMillis = System.currentTimeMillis()
-        memos.forEach { memo ->
-            markdownReminderRepository.remindersForMemo(memo.id).forEach { marker ->
-                reschedule(memo.id, marker, nowMillis)
+        val alarms =
+            memos.flatMap { memo ->
+                markdownReminderRepository.remindersForMemo(memo.id).mapNotNull { marker ->
+                    planAlarm(memo.id, marker, nowMillis)
+                }
             }
-        }
+        rollingWindow.applyPlan(alarms)
     }
 
     suspend fun snooze(
@@ -84,82 +100,51 @@ class AlarmManagerReminderScheduler(
         reminderId: String,
     ) {
         val interval = _globalIntervalMillis.value
-        val pendingIntent = alarmPendingIntent(memoId, reminderId)
         val triggerAt = System.currentTimeMillis() + interval
-        setAlarmClock(triggerAt, pendingIntent)
+        schedulePort.schedule(
+            AlarmScheduleRequest(
+                requestCode = ReminderRequestCodePolicy.alarmRequestCode(memoId, reminderId),
+                triggerAtUtcMillis = triggerAt,
+                memoId = memoId,
+                reminderId = reminderId,
+            ),
+        )
     }
 
     fun cancelAlarm(
         memoId: String,
         reminderId: String,
     ) {
-        alarmManager.cancel(alarmPendingIntent(memoId, reminderId))
+        schedulePort.cancel(
+            ReminderRequestCodePolicy.alarmRequestCode(memoId, reminderId),
+            memoId,
+            reminderId,
+        )
     }
 
-    private fun reschedule(
+    private fun planAlarm(
         memoId: String,
         marker: ReminderMarker,
         nowMillis: Long,
-    ) {
-        val pendingIntent = alarmPendingIntent(memoId, marker.reference.opaqueId)
-        alarmManager.cancel(pendingIntent)
-        if (marker.isExhausted) return
+    ): PlannedReminderAlarm? {
+        if (marker.isExhausted) return null
         val baseTriggerAt =
             marker.dueAt
                 .atZone(ZoneId.systemDefault())
                 .toInstant()
                 .toEpochMilli()
-        val triggerAt = if (marker.repeatCount > 1 && marker.firedCount > 0) {
-            baseTriggerAt + (marker.firedCount * marker.intervalMinutes * 60 * 1000L)
-        } else {
-            baseTriggerAt
-        }
-        val whenToFire = if (triggerAt <= nowMillis) nowMillis + 500L else triggerAt
-        setAlarmClock(whenToFire, pendingIntent)
-    }
-
-    private fun setAlarmClock(
-        triggerAtMillis: Long,
-        pendingIntent: PendingIntent,
-    ) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                !alarmManager.canScheduleExactAlarms()
-            ) {
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent,
-                )
+        val triggerAt =
+            if (marker.repeatCount > 1 && marker.firedCount > 0) {
+                baseTriggerAt + (marker.firedCount * marker.intervalMinutes * 60 * 1000L)
             } else {
-                val info = AlarmManager.AlarmClockInfo(triggerAtMillis, null)
-                alarmManager.setAlarmClock(info, pendingIntent)
+                baseTriggerAt
             }
-        } catch (security: SecurityException) {
-            Timber.tag("ReminderCoordinator").w(security, "exact alarm denied, fallback used")
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerAtMillis,
-                pendingIntent,
-            )
-        }
-    }
-
-    private fun alarmPendingIntent(
-        memoId: String,
-        reminderId: String,
-    ): PendingIntent {
-        val intent =
-            Intent(context, ReminderAlarmReceiver::class.java).apply {
-                action = ReminderIntents.ACTION_FIRE
-                putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
-                putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
-            }
-        return PendingIntent.getBroadcast(
-            context,
-            ReminderRequestCodePolicy.alarmRequestCode(memoId, reminderId),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        val whenToFire = if (triggerAt <= nowMillis) nowMillis + 500L else triggerAt
+        return PlannedReminderAlarm(
+            memoId = memoId,
+            reminderId = marker.reference.opaqueId,
+            triggerAtUtcMillis = whenToFire,
+            isCatchUp = triggerAt <= nowMillis,
         )
     }
 }
@@ -168,6 +153,7 @@ class AlarmManagerReminderCoordinator(
     private val scheduler: AlarmManagerReminderScheduler,
     private val markdownReminderRepository: MarkdownReminderRepository,
     private val memoMutationRepository: MemoMutationRepository,
+    private val reminderTokenFactory: ReminderTokenFactory,
 ) : ReminderCoordinator {
         override val globalIntervalMillis: StateFlow<Long> = scheduler.globalIntervalMillis
 
@@ -198,31 +184,8 @@ class AlarmManagerReminderCoordinator(
             memoId: String,
             reminderId: String,
         ) {
-            mutateMemoMarker(memoId, reminderId) { marker ->
-                if (marker.recurrence != Recurrence.NONE) {
-                    val nextDueAt = when (marker.recurrence) {
-                        Recurrence.DAILY -> marker.dueAt.plusDays(1)
-                        Recurrence.WEEKLY -> marker.dueAt.plusWeeks(1)
-                        else -> marker.dueAt
-                    }
-                    ReminderMarker.canonicalToken(
-                        dueAt = nextDueAt,
-                        repeatCount = marker.repeatCount,
-                        firedCount = 0,
-                        done = false,
-                        intervalMinutes = marker.intervalMinutes,
-                        recurrence = marker.recurrence,
-                    )
-                } else {
-                    ReminderMarker.canonicalToken(
-                        dueAt = marker.dueAt,
-                        repeatCount = marker.repeatCount,
-                        firedCount = marker.firedCount,
-                        done = true,
-                        intervalMinutes = marker.intervalMinutes,
-                        recurrence = marker.recurrence,
-                    )
-                }
+            mutateMemoMarker(memoId, reminderId) { token ->
+                reminderTokenFactory.planMarkDone(token)
             }
             scheduler.cancelAlarm(memoId, reminderId)
         }
@@ -231,47 +194,22 @@ class AlarmManagerReminderCoordinator(
             memoId: String,
             reminderId: String,
         ) {
-            mutateMemoMarker(memoId, reminderId) { marker ->
-                val newFired = (marker.firedCount + 1).coerceAtMost(marker.repeatCount)
-                val isExhausted = newFired >= marker.repeatCount
-                if (isExhausted && marker.recurrence != Recurrence.NONE) {
-                    val nextDueAt = when (marker.recurrence) {
-                        Recurrence.DAILY -> marker.dueAt.plusDays(1)
-                        Recurrence.WEEKLY -> marker.dueAt.plusWeeks(1)
-                        else -> marker.dueAt
-                    }
-                    ReminderMarker.canonicalToken(
-                        dueAt = nextDueAt,
-                        repeatCount = marker.repeatCount,
-                        firedCount = 0,
-                        done = false,
-                        intervalMinutes = marker.intervalMinutes,
-                        recurrence = marker.recurrence,
-                    )
-                } else {
-                    ReminderMarker.canonicalToken(
-                        dueAt = marker.dueAt,
-                        repeatCount = marker.repeatCount,
-                        firedCount = newFired,
-                        done = isExhausted,
-                        intervalMinutes = marker.intervalMinutes,
-                        recurrence = marker.recurrence,
-                    )
-                }
+            mutateMemoMarker(memoId, reminderId) { token ->
+                reminderTokenFactory.planRecordFired(token)
             }
         }
 
         private suspend fun mutateMemoMarker(
             memoId: String,
             reminderId: String,
-            mutator: (ReminderMarker) -> String,
+            planToken: (String) -> String,
         ) {
             val marker =
                 markdownReminderRepository
                     .remindersForMemo(memoId)
                     .singleOrNull { it.reference.opaqueId == reminderId }
                     ?: return
-            val newToken = mutator(marker)
+            val newToken = planToken(marker.token)
             if (newToken == marker.token) return
             markdownReminderRepository.rewriteReminder(marker.reference, newToken)
             memoMutationRepository.refreshMemos()

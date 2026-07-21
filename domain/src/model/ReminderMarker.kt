@@ -42,38 +42,8 @@ data class ReminderMarker(
 
     fun copyWithFiredCount(newFiredCount: Int): ReminderMarker = copy(firedCount = newFiredCount)
 
-    fun canonicalToken(): String =
-        canonicalToken(
-            dueAt = dueAt,
-            repeatCount = repeatCount,
-            firedCount = firedCount,
-            done = done,
-            intervalMinutes = intervalMinutes,
-            recurrence = recurrence,
-        )
-
     companion object {
+        /** Display/format pattern for owner due_at_local wire fields only — not a token grammar. */
         val TIMESTAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm")
-
-        fun canonicalToken(
-            dueAt: LocalDateTime,
-            repeatCount: Int,
-            firedCount: Int,
-            done: Boolean,
-            intervalMinutes: Int = 10,
-            recurrence: Recurrence = Recurrence.NONE,
-        ): String {
-            val base = "@" + dueAt.format(TIMESTAMP_FORMAT)
-            val repeatSuffix = if (repeatCount > 1) "x$repeatCount" else ""
-            val intervalSuffix = if (repeatCount > 1 && intervalMinutes != 10) "i$intervalMinutes" else ""
-            val recurrenceSuffix = if (recurrence != Recurrence.NONE) "r${recurrence.code}" else ""
-            val stateSuffix =
-                when {
-                    done -> ".done"
-                    repeatCount > 1 && firedCount > 0 -> ".$firedCount"
-                    else -> ""
-                }
-            return base + repeatSuffix + intervalSuffix + recurrenceSuffix + stateSuffix
-        }
     }
 }
