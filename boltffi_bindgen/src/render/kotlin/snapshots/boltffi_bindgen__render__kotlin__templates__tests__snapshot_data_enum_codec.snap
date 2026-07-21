@@ -1,0 +1,46 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+object MessageCodec {
+    const val STRUCT_SIZE = 24
+    private const val TAG_OFFSET = 0
+    private const val PAYLOAD_OFFSET = 8
+    private const val TAG_TAG_TEXT = 0
+    private const val TAG_TAG_IMAGE = 1
+
+    fun pack(value: Message): ByteArray {
+        val bytes = ByteArray(STRUCT_SIZE)
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.nativeOrder())
+
+        when (value) {
+            is Message.Text -> {
+                buf.putInt(TAG_OFFSET, TAG_TAG_TEXT)
+                buf.putI64(PAYLOAD_OFFSET + 8, value.content)
+            }
+            is Message.Image -> {
+                buf.putInt(TAG_OFFSET, TAG_TAG_IMAGE)
+                buf.putI32(PAYLOAD_OFFSET + 8, value.width)
+                buf.putI32(PAYLOAD_OFFSET + 12, value.height)
+            }
+        }
+
+        return bytes
+    }
+
+    fun read(buf: ByteBuffer): Message {
+        buf.order(ByteOrder.nativeOrder())
+        return when (val tag = buf.getInt(TAG_OFFSET)) {
+            TAG_TAG_TEXT ->
+                Message.Text(
+                    content = buf.getI64(PAYLOAD_OFFSET + 8)
+                )
+            TAG_TAG_IMAGE ->
+                Message.Image(
+                    width = buf.getI32(PAYLOAD_OFFSET + 8),
+                    height = buf.getI32(PAYLOAD_OFFSET + 12)
+                )
+            else -> throw FfiException(-1, "Unknown Message tag: $tag")
+        }
+    }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "boltffi_backend"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Backend rendering contracts for BoltFFI binding metadata"
+keywords = ["ffi", "codegen", "backend", "bindings"]
+categories = ["development-tools::ffi", "development-tools::build-utils"]
+
+[dependencies]
+askama = "0.16"
+boltffi_binding.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+boltffi_ast.workspace = true
+boltffi_scan.workspace = true
+insta.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+
+[lints]
+workspace = true

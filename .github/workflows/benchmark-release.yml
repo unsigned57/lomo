@@ -1,0 +1,165 @@
+name: Benchmark Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or ref to benchmark'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark-release:
+    name: Run release benchmarks
+    runs-on: macos-latest
+    steps:
+      - name: Resolve benchmark ref
+        id: ref
+        run: |
+          if [[ -n "${{ inputs.ref }}" ]]; then
+            echo "value=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,x86_64-apple-darwin,aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: benchmark-release-macos
+          workspaces: |
+            .
+            examples/demo
+            benchmarks/adapters/uniffi
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: Aandreba/setup-binaryen@v1.0.0
+        with:
+          token: ${{ github.token }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Run Swift benchmarks
+        run: ./benchmarks/harnesses/swift-macos-bench/run-bench.sh
+
+      - name: Run Kotlin JMH benchmarks
+        run: ./benchmarks/harnesses/kotlin-jvm-bench/run-jmh.sh
+
+      - name: Run Java JMH benchmarks
+        run: ./benchmarks/harnesses/java-jvm-bench/run-jmh.sh
+
+      - name: Run WASM benchmarks
+        run: ./benchmarks/harnesses/wasm-bench/run-bench.sh
+
+      - name: Run Python benchmarks
+        run: ./benchmarks/harnesses/python-bench/run-bench.sh
+
+      - name: Run C# benchmarks
+        run: ./benchmarks/harnesses/dotnet-bench/run-bench.sh
+
+      - name: Collect benchmark run documents
+        run: |
+          mkdir -p benchmark-artifacts
+          cp benchmarks/harnesses/swift-macos-bench/build/results/swift-benchmark/benchmark_run.json benchmark-artifacts/swift-macos-benchmark_run.json
+          cp benchmarks/harnesses/kotlin-jvm-bench/build/results/jmh/benchmark_run.json benchmark-artifacts/kotlin-jvm-jmh_benchmark_run.json
+          cp benchmarks/harnesses/java-jvm-bench/build/results/jmh/benchmark_run.json benchmark-artifacts/java-jvm-jmh_benchmark_run.json
+          cp benchmarks/harnesses/wasm-bench/build/results/benchmarkjs/benchmark_run.json benchmark-artifacts/wasm-node-benchmarkjs_benchmark_run.json
+          cp benchmarks/harnesses/python-bench/build/results/pyperf/benchmark_run.json benchmark-artifacts/python-pyperf_benchmark_run.json
+          cp benchmarks/harnesses/dotnet-bench/build/results/dotnet/benchmark_run.json benchmark-artifacts/csharp-dotnet-benchmarkdotnet_benchmark_run.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-run-documents
+          path: benchmark-artifacts/*.json
+          if-no-files-found: error
+
+  publish-archive:
+    name: Publish benchmark archive
+    needs: benchmark-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate archive publish configuration
+        env:
+          ARCHIVE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [[ -z "${ARCHIVE_TOKEN}" ]]; then
+            echo "Missing secret RELEASE_TOKEN" >&2
+            exit 1
+          fi
+
+      - name: Resolve benchmark ref
+        id: ref
+        run: |
+          if [[ -n "${{ inputs.ref }}" ]]; then
+            echo "value=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: boltffi/benchmarks-dashboard
+          token: ${{ secrets.RELEASE_TOKEN }}
+          path: benchmark-archive
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: benchmark-run-documents
+          path: benchmark-run-documents
+
+      - name: Publish benchmark archive data
+        run: |
+          python3 benchmarks/scripts/publish_benchmark_archive.py \
+            --output-root benchmark-archive/public/data \
+            benchmark-run-documents
+
+      - name: Commit and push archive update
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          cd benchmark-archive
+          git config user.name "boltffi-bot"
+          git config user.email "boltffi-bot@users.noreply.github.com"
+
+          if [[ -z "$(git status --porcelain -- public/data)" ]]; then
+            echo "No archive changes to commit"
+            exit 0
+          fi
+
+          git add public/data
+          git commit -m "update benchmark archive for ${REF_NAME}"
+          git push

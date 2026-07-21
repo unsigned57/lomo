@@ -1,0 +1,6 @@
+SubscriptionHandle {{ subscribe }}(const {{ handle_type }} *handle);
+{{ pop_batch_decl }}
+int32_t {{ wait }}(SubscriptionHandle sub, uint32_t timeout_milliseconds);
+void {{ poll }}(SubscriptionHandle sub, uint64_t callback_data, StreamContinuationCallback callback);
+void {{ unsubscribe }}(SubscriptionHandle sub);
+void {{ free }}(SubscriptionHandle sub);

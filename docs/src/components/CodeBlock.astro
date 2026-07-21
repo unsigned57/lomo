@@ -1,0 +1,38 @@
+---
+import Prism from 'prismjs';
+import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-swift';
+import 'prismjs/components/prism-kotlin';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-toml';
+import 'prismjs/components/prism-bash';
+
+interface Props {
+  code: string;
+  lang?: string;
+}
+
+const { code, lang = 'text' } = Astro.props;
+
+const langMap: Record<string, string> = {
+  shell: 'bash',
+  sh: 'bash',
+  cs: 'csharp',
+  text: 'markup',
+};
+
+const prismLang = langMap[lang] || lang;
+const grammar = Prism.languages[prismLang];
+const highlighted = grammar ? Prism.highlight(code.trim(), grammar, prismLang) : code.trim();
+---
+
+<div class="group relative my-4">
+  <div class="flex justify-end mb-1">
+    <span class="text-[10px] uppercase tracking-wider text-muted-foreground opacity-60 font-mono">{lang}</span>
+  </div>
+  <pre class="p-4 rounded-lg bg-[hsl(var(--code-bg))] border border-border overflow-x-auto">
+    <code class="font-mono text-[13px] leading-relaxed text-foreground" set:html={highlighted} />
+  </pre>
+</div>

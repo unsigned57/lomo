@@ -1,0 +1,274 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.2.0 or 0.2.0-beta.1)'
+        required: true
+        type: string
+      skip_publish:
+        description: 'Skip crates.io publish (for testing releases)'
+        required: false
+        type: boolean
+        default: false
+      skip_npm:
+        description: 'Skip npm publish'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Error: Invalid version format. Use semver (e.g., 0.2.0 or 0.2.0-beta.1)"
+            exit 1
+          fi
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # caching handled by Swatinem/rust-cache below
+          cache: false
+          target: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+
+      - name: Bump versions
+        run: cargo set-version --workspace ${{ inputs.version }}
+
+      - name: Bump npm runtime version
+        if: ${{ !inputs.skip_npm }}
+        run: |
+          cd runtime/typescript
+          npm version ${{ inputs.version }} --no-git-tag-version
+
+      - name: Commit, tag, and push
+        run: |
+          VERSION="${{ inputs.version }}"
+          git config user.name "boltffi-bot"
+          git config user.email "boltffi-bot@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.RELEASE_TOKEN }}@github.com/boltffi/boltffi.git
+          git add -A
+          git commit -m "release v$VERSION"
+          git fetch origin main
+          git rebase origin/main
+          git tag "v$VERSION"
+          git push --atomic origin HEAD:main "v$VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ inputs.version }}
+          name: BoltFFI v${{ inputs.version }}
+          draft: false
+          prerelease: ${{ contains(inputs.version, '-') }}
+          generate_release_notes: true
+
+  build-release:
+    name: Build ${{ matrix.target }}
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: boltffi-linux-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: boltffi-linux-x86_64-musl
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: boltffi-darwin-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: boltffi-darwin-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: boltffi-windows-x86_64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # caching handled by Swatinem/rust-cache below
+          cache: false
+          target: ${{ matrix.target }}
+
+      - name: Install musl-tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Configure musl linker
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: release-${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --profile release-lto --target ${{ matrix.target }} -p boltffi_cli
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release-lto
+          tar -czvf ../../../${{ matrix.artifact }}.tar.gz boltffi
+          cd ../../..
+          sha256sum ${{ matrix.artifact }}.tar.gz > ${{ matrix.artifact }}.tar.gz.sha256
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release-lto
+          Compress-Archive -Path boltffi.exe -DestinationPath ../../../${{ matrix.artifact }}.zip
+          cd ../../..
+          (Get-FileHash ${{ matrix.artifact }}.zip -Algorithm SHA256).Hash.ToLower() + "  ${{ matrix.artifact }}.zip" | Out-File -Encoding utf8 ${{ matrix.artifact }}.zip.sha256
+
+      - name: Upload Release Asset (Unix)
+        if: runner.os != 'Windows'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.release.outputs.version }}
+          files: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sha256
+
+      - name: Upload Release Asset (Windows)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.release.outputs.version }}
+          files: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.zip.sha256
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [release, build-release]
+    if: ${{ !inputs.skip_publish }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # caching handled by Swatinem/rust-cache below
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          crate_is_published() {
+            cargo info --registry crates-io "$1@$VERSION" >/dev/null 2>&1
+          }
+
+          wait_for_crate() {
+            local crate="$1"
+
+            for attempt in $(seq 1 20); do
+              if crate_is_published "$crate"; then
+                echo "$crate $VERSION is visible on crates.io"
+                return 0
+              fi
+
+              echo "Waiting for $crate $VERSION to become visible on crates.io ($attempt/20)"
+              sleep 15
+            done
+
+            echo "$crate $VERSION did not become visible on crates.io" >&2
+            return 1
+          }
+
+          publish_crate() {
+            local crate="$1"
+
+            if crate_is_published "$crate"; then
+              echo "$crate $VERSION is already published; skipping"
+              return 0
+            fi
+
+            cargo publish -p "$crate"
+            wait_for_crate "$crate"
+          }
+
+          publish_crate boltffi_ast
+          publish_crate boltffi_binding
+          publish_crate boltffi_scan
+          publish_crate boltffi_ffi_rules
+          publish_crate boltffi_backend
+          publish_crate boltffi_bindgen
+          publish_crate boltffi_macros
+          publish_crate boltffi_verify
+          publish_crate boltffi_core
+          publish_crate boltffi
+          publish_crate boltffi_cli
+
+  publish-npm:
+    name: Publish to npm
+    needs: [release, build-release]
+    if: ${{ !inputs.skip_publish && !inputs.skip_npm }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build and publish runtime
+        run: |
+          cd runtime/typescript
+          npm ci
+          npm run build
+          npm publish --access public --provenance

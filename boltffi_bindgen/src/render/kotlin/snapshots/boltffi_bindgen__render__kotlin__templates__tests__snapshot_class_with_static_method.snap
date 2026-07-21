@@ -1,0 +1,17 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+class Logger internal constructor(internal val handle: Long) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        Native.boltffi_logger_free(handle)
+    }
+
+    companion object {
+
+        fun getDefault(): Logger = Logger(Native.boltffi_logger_get_default())
+    }
+}

@@ -1,0 +1,8 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+fun add(a: Int, b: Int): Int {
+    return Native.boltffi_add(a, b)
+}

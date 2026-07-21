@@ -1,0 +1,53 @@
+---
+interface Props {
+  activeSection: string;
+}
+
+const { activeSection } = Astro.props;
+
+const sections = [
+  { id: "overview", label: "Overview", icon: "⚡" },
+  { id: "getting-started", label: "Getting Started", icon: "▶" },
+  { id: "types", label: "Types", icon: "◈" },
+  { id: "records", label: "Records", icon: "▤" },
+  { id: "classes", label: "Classes", icon: "◰" },
+  { id: "functions", label: "Functions", icon: "ƒ" },
+  { id: "async", label: "Async", icon: "↻" },
+  { id: "callbacks", label: "Callbacks & Traits", icon: "⇄" },
+  { id: "streaming", label: "Streaming", icon: "◉" },
+  { id: "errors", label: "Errors", icon: "⚠" },
+  { id: "custom-types", label: "Custom Types", icon: "◇" },
+  { id: "packaging", label: "Packaging", icon: "📦" },
+  { id: "configuration", label: "Configuration", icon: "⚙" },
+  { id: "tutorial", label: "Tutorial", icon: "🎓" },
+];
+---
+
+<aside class="w-56 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto hidden lg:block">
+  <nav class="py-6 pr-4">
+    <p class="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+      Documentation
+    </p>
+    <ul class="space-y-0.5">
+      {sections.map(({ id, label, icon }) => {
+        const isActive = activeSection === id;
+        return (
+          <li>
+            <a
+              href={`/docs/${id}`}
+              class:list={[
+                "flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              ]}
+            >
+              <span class="w-4 h-4 shrink-0 flex items-center justify-center text-xs">{icon}</span>
+              {label}
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  </nav>
+</aside>

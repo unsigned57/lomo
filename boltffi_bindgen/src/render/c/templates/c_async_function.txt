@@ -1,0 +1,5 @@
+RustFutureHandle {{ symbol }}({{ params }});
+void {{ poll }}(RustFutureHandle handle, uint64_t callback_data, RustFutureContinuationCallback callback);
+{{ complete_return_type }} {{ complete }}(RustFutureHandle handle, FfiStatus* out_status);
+void {{ cancel }}(RustFutureHandle handle);
+void {{ free }}(RustFutureHandle handle);

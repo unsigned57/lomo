@@ -1,0 +1,33 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+/**
+ * A physical location with coordinates.
+ */
+data class Location(
+    /**
+     * Unique identifier for this location.
+     */
+    val id: Long,
+    /**
+     * Latitude in decimal degrees.
+     */
+    val lat: Double
+) {
+    companion object {
+        const val SIZE_BYTES: Int = 16
+
+        fun decode(reader: WireReader): Location = Location(
+            reader.readI64(),
+            reader.readF64()
+        )
+    }
+    fun wireEncodedSize(): Int = SIZE_BYTES
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeI64(id)
+        wire.writeF64(lat)
+    }
+}

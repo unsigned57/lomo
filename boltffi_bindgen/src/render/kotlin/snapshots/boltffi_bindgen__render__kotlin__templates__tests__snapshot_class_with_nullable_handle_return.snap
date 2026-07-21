@@ -1,0 +1,14 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+class Cache internal constructor(internal val handle: Long) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        Native.boltffi_cache_free(handle)
+    }
+
+    fun find(key: String): Cache? { val ptr = Native.boltffi_cache_find(handle, key); return if (ptr == 0L) null else Cache(ptr) }
+}

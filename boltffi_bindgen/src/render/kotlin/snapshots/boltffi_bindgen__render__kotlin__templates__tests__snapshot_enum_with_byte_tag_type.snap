@@ -1,0 +1,23 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+enum class PacketKind(val value: Byte) {
+    Ping((0L).toByte()),
+    Pong((255L).toByte());
+
+    companion object {
+        fun fromValue(value: Byte): PacketKind = entries.first { it.value == value }
+        fun fromWireTag(tag: Int): PacketKind = entries.getOrElse(tag) {
+            throw FfiException(-1, "Unknown PacketKind wire tag: $tag")
+        }
+
+        fun decode(reader: WireReader): PacketKind = fromWireTag(reader.readI32())
+    }
+
+    fun wireTag(): Int = ordinal
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeI32(wireTag())
+    }
+}

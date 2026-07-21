@@ -1,0 +1,60 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: rendered
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_success_i32(returnOut: Long, value: Int): Unit
+}
+
+fun interface StatusMapper {
+    fun mapStatus(status: Int): Int
+}
+
+private object StatusMapperMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, StatusMapper>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: StatusMapper): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): StatusMapper? = map[handle]
+
+    fun remove(handle: Long): StatusMapper? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object StatusMapperCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        StatusMapperMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return StatusMapperMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun map_status(handle: Long, return_out: Long, status: Int): ByteArray {
+        val impl = StatusMapperMap.get(handle) ?: error("StatusMapperMap: invalid handle $handle")
+        return try { run { val __boltffi_mapStatus_result = impl.mapStatus(status); Native.boltffi_success_i32(return_out, __boltffi_mapStatus_result); ByteArray(0) } } catch (__boltffi_mapStatus_error: Throwable) { run { val __boltffi_mapStatus_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(__boltffi_mapStatus_error.message ?: __boltffi_mapStatus_error.toString())); val __boltffi_mapStatus_writer = __boltffi_mapStatus_wire.writer; __boltffi_mapStatus_writer.writeString(__boltffi_mapStatus_error.message ?: __boltffi_mapStatus_error.toString()); val __boltffi_mapStatus_error_bytes = __boltffi_mapStatus_wire.bytes(); __boltffi_mapStatus_wire.close(); __boltffi_mapStatus_error_bytes } }
+    }
+}
+
+object StatusMapperBridge {
+    fun create(value: StatusMapper): Long {
+        return StatusMapperMap.insert(value)
+    }
+}

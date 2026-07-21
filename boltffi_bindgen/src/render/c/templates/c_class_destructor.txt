@@ -1,0 +1,1 @@
+void {{ symbol }}({{ handle_type }} *handle);

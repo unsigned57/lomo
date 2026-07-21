@@ -1,0 +1,76 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture(\"exports/result_values\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_result_to_string(value: java.nio.ByteBuffer, __boltffi_value_len: Int): ByteArray?
+    @JvmStatic external fun boltffi_function_demo_echo_response(response: java.nio.ByteBuffer, __boltffi_response_len: Int): ByteArray?
+}
+
+
+data class Response(
+    val result: BoltFFIResult<Int, String>
+) {
+    internal fun wireSize(): Int {
+        return this.result.wireSize({ __boltffi_value_0 -> 4 }, { __boltffi_value_0 -> 4 + Utf8Codec.maxBytes(__boltffi_value_0) })
+    }
+
+    internal fun writeTo(writer: WireWriter) {
+        writer.writeResult(this.result, { writer, __boltffi_value_0 -> writer.writeI32(__boltffi_value_0) }, { writer, __boltffi_value_0 -> writer.writeString(__boltffi_value_0) })
+    }
+
+    internal fun toByteArray(): ByteArray {
+        val buffer = WireWriterPool.acquire(wireSize())
+        val writer = buffer.writer
+        try {
+            writeTo(writer)
+            return buffer.bytes()
+        } finally {
+            buffer.close()
+        }
+    }
+
+    companion object {
+        internal fun fromReader(reader: WireReader): Response {
+            return Response(
+                reader.readResult({ reader -> reader.readI32() }, { reader -> reader.readString() })
+            )
+        }
+
+        internal fun fromByteArray(bytes: ByteArray): Response {
+            val reader = WireReader(bytes)
+            return fromReader(reader)
+        }
+    }
+}
+
+fun resultToString(value: BoltFFIResult<Int, String>): String {
+    val __boltffi_value_wire = WireWriterPool.acquire(value.wireSize({ __boltffi_value_0 -> 4 }, { __boltffi_value_0 -> 4 + Utf8Codec.maxBytes(__boltffi_value_0) }))
+    val __boltffi_value_writer = __boltffi_value_wire.writer
+    __boltffi_value_writer.writeResult(value, { __boltffi_value_writer, __boltffi_value_0 -> __boltffi_value_writer.writeI32(__boltffi_value_0) }, { __boltffi_value_writer, __boltffi_value_0 -> __boltffi_value_writer.writeString(__boltffi_value_0) })
+    try {
+        val __boltffi_result = Native.boltffi_function_demo_result_to_string(__boltffi_value_wire.directBuffer(), __boltffi_value_wire.size()) ?: throw IllegalStateException("null buffer returned")
+        val __boltffi_reader = WireReader(__boltffi_result)
+        return __boltffi_reader.readString()
+    } finally {
+        __boltffi_value_wire.close()
+    }
+}
+
+fun echoResponse(response: Response): Response {
+    val __boltffi_response_wire = WireWriterPool.acquire(response.wireSize())
+    val __boltffi_response_writer = __boltffi_response_wire.writer
+    response.writeTo(__boltffi_response_writer)
+    try {
+        val __boltffi_result = Native.boltffi_function_demo_echo_response(__boltffi_response_wire.directBuffer(), __boltffi_response_wire.size()) ?: throw IllegalStateException("null buffer returned")
+        val __boltffi_reader = WireReader(__boltffi_result)
+        return Response.fromReader(__boltffi_reader)
+    } finally {
+        __boltffi_response_wire.close()
+    }
+}

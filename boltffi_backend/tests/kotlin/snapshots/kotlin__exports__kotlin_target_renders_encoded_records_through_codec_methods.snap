@@ -1,0 +1,85 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_source(SourceFixture::many([\"enums/role\", \"records/encoded_user\",\n\"exports/encoded_record_functions\",]))"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_echo_user(user: java.nio.ByteBuffer, __boltffi_user_len: Int): ByteArray?
+}
+
+
+data class User(
+    val name: String,
+    val age: UInt,
+    val role: Role,
+    val nickname: String?,
+    val tags: List<String>
+) {
+    internal fun wireSize(): Int {
+        return 4 + Utf8Codec.maxBytes(this.name) + 4 + 1 + 1 + (this.nickname?.let { __boltffi_value_0 -> 4 + Utf8Codec.maxBytes(__boltffi_value_0) } ?: 0) + 4 + this.tags.sumOf { __boltffi_value_0 -> (4 + Utf8Codec.maxBytes(__boltffi_value_0)).toInt() }
+    }
+
+    internal fun writeTo(writer: WireWriter) {
+        writer.writeString(this.name)
+        writer.writeU32(this.age)
+        writer.writeI8(this.role.value)
+        writer.writeOptionalValue(this.nickname, { writer, __boltffi_value_0 -> writer.writeString(__boltffi_value_0) })
+        writer.writeSequence(this.tags, this.tags.size, { writer, __boltffi_value_0 -> writer.writeString(__boltffi_value_0) })
+    }
+
+    internal fun toByteArray(): ByteArray {
+        val buffer = WireWriterPool.acquire(wireSize())
+        val writer = buffer.writer
+        try {
+            writeTo(writer)
+            return buffer.bytes()
+        } finally {
+            buffer.close()
+        }
+    }
+
+    companion object {
+        internal fun fromReader(reader: WireReader): User {
+            return User(
+                reader.readString(),
+                reader.readU32(),
+                Role.fromValue(reader.readI8()),
+                reader.readOptionalValue({ reader -> reader.readString() }),
+                reader.readSequence({ reader -> reader.readString() })
+            )
+        }
+
+        internal fun fromByteArray(bytes: ByteArray): User {
+            val reader = WireReader(bytes)
+            return fromReader(reader)
+        }
+    }
+}
+
+
+enum class Role(val value: Byte) {
+    ADMIN(1.toByte()),
+    GUEST(2.toByte());
+
+    companion object {
+        fun fromValue(value: Byte): Role =
+            entries.first { it.value == value }
+    }
+}
+
+fun echoUser(user: User): User {
+    val __boltffi_user_wire = WireWriterPool.acquire(user.wireSize())
+    val __boltffi_user_writer = __boltffi_user_wire.writer
+    user.writeTo(__boltffi_user_writer)
+    try {
+        val __boltffi_result = Native.boltffi_function_demo_echo_user(__boltffi_user_wire.directBuffer(), __boltffi_user_wire.size()) ?: throw IllegalStateException("null buffer returned")
+        val __boltffi_reader = WireReader(__boltffi_result)
+        return User.fromReader(__boltffi_reader)
+    } finally {
+        __boltffi_user_wire.close()
+    }
+}

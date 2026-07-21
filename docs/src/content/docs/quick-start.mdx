@@ -1,0 +1,118 @@
+---
+title: "Quick Start"
+description: "Build your first BoltFFI project quickly with Rust setup, Cargo configuration, build scripts, and generated bindings for target platforms."
+---
+
+# Quick Start
+
+Build your first BoltFFI project in 5 minutes.
+
+## 1. Create a new library
+
+```bash
+cargo new --lib mylib
+cd mylib
+```
+
+## 2. Configure Cargo.toml
+
+```toml
+[package]
+name = "mylib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+```
+
+Install BoltFFI:
+
+```bash
+cargo add boltffi
+cargo add --build boltffi
+```
+
+## 3. Create build.rs
+
+```rust
+fn main() {
+    boltffi::build::generate();
+}
+```
+
+## 4. Write your Rust code
+
+Replace `src/lib.rs`:
+
+```rust
+use boltffi::{data, export};
+
+#[data]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[export]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[export]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+#[export]
+pub fn distance(a: Point, b: Point) -> f64 {
+    ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+}
+```
+
+## 5. Build and generate bindings
+
+```bash
+# Initialize config
+boltffi init
+
+# Build for iOS
+boltffi build ios --release
+
+# Generate Swift bindings
+boltffi generate swift
+
+# Package as XCFramework
+boltffi pack ios
+
+# Or build the NuGet package for .NET
+boltffi pack csharp
+```
+
+## 6. Use from Swift
+
+```swift
+let sum = add(a: 2, b: 3)
+print("2 + 3 = \(sum)")  // "2 + 3 = 5"
+
+let message = greet(name: "World")
+print(message)  // "Hello, World!"
+
+let p1 = Point(x: 0, y: 0)
+let p2 = Point(x: 3, y: 4)
+print("Distance: \(distance(a: p1, b: p2))")  // "Distance: 5.0"
+```
+
+## 7. Use from C#
+
+```csharp
+int sum = MyLib.Add(2, 3);
+Console.WriteLine($"2 + 3 = {sum}");
+
+string message = MyLib.Greet("World");
+Console.WriteLine(message);
+
+Point p1 = new Point(0.0, 0.0);
+Point p2 = new Point(3.0, 4.0);
+Console.WriteLine(MyLib.Distance(p1, p2));
+```

@@ -1,0 +1,16 @@
+private object {{ reader_name }} {
+    const val STRUCT_SIZE = {{ struct_size }}
+{%- for field in fields %}
+    const val OFFSET_{{ field.const_name }} = {{ field.offset }}
+{%- endfor %}
+
+    fun read(buf: ByteBuffer, offset: Int): {{ class_name }} =
+        {{ class_name }}(
+{%- for field in fields %}
+            {{ field.name }} = buf.{{ field.getter }}(offset + OFFSET_{{ field.const_name }}){{ field.conversion }}{% if !loop.last %},{% endif %}
+{%- endfor %}
+        )
+
+    fun readAll(buf: ByteBuffer, baseOffset: Int, count: Int): List<{{ class_name }}> =
+        List(count) { i -> read(buf, baseOffset + i * STRUCT_SIZE) }
+}

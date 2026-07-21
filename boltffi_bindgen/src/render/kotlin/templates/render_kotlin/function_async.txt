@@ -1,0 +1,41 @@
+{{ self::kdoc_block(doc, "") }}{%- if throws %}
+@Throws({{ err_type }}::class)
+{%- endif %}
+suspend fun {{ func_name }}({% for param in signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}){% match return_type %}{% when Some with (ret) %}: {{ ret }}{% when None %}{% endmatch %} = boltffiCallAsync(
+{%- if wire_writers.is_empty() %}
+    createFuture = { Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}) },
+{%- else %}
+    createFuture = {
+{%- for binding in wire_writers %}
+        {{ binding.setup_code() }}
+{%- endfor %}
+        try {
+            Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+        } finally {
+{%- for close_code in wire_writer_closes %}
+            {{ close_code }}
+{%- endfor %}
+        }
+    },
+{%- endif %}
+    poll = { future, contHandle -> Native.{{ ffi_poll }}(future, contHandle) },
+    complete = { future ->
+{%- if return_is_unit %}
+        Native.{{ ffi_complete }}(future)
+{%- elif return_is_direct %}
+        Native.{{ ffi_complete }}(future){{ return_cast }}
+{%- else %}
+        val buf = Native.{{ ffi_complete }}(future) ?: throw FfiException(-1, "Null buffer returned")
+{%- if is_blittable_return %}
+        useWireBytes(buf) { buffer ->
+            {{ decode_expr }}
+        }
+{%- else %}
+        val reader = WireReader(buf)
+        {{ decode_expr }}
+{%- endif %}
+{%- endif %}
+    },
+    free = { future -> Native.{{ ffi_free }}(future) },
+    cancel = { future -> Native.{{ ffi_cancel }}(future) }
+)

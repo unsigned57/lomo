@@ -1,0 +1,58 @@
+---
+source: boltffi_backend/tests/jni/direct_vector.rs
+expression: "rendered_fixture(\"direct_vector/primitive_vector_parameter\")"
+---
+===== jni/demo.h =====
+<c abi support declarations>
+int32_t boltffi_function_demo_sum(const int32_t *values_ptr, uintptr_t values_len);
+
+===== jni/jni_glue.c =====
+<jni source includes>
+<jni exception helpers>
+JNIEXPORT jint JNICALL Java_com_boltffi_demo_Native_boltffi_1function_1demo_1sum(JNIEnv *env, jclass cls, jintArray values) {
+    (void)cls;
+
+    jint *__boltffi_values_ptr = NULL;
+    jsize __boltffi_values_len = 0;
+    jint __boltffi_values_stack[8];
+    bool __boltffi_values_needs_release = false;
+
+    if (values == NULL) {
+        boltffi_jni_throw_illegal_argument(env, "BoltFFI array argument was null");
+        goto __boltffi_error;
+    }
+    __boltffi_values_len = (*env)->GetArrayLength(env, values);
+    if (__boltffi_values_len <= (jsize)8) {
+        (*env)->GetIntArrayRegion(env, values, 0, __boltffi_values_len, __boltffi_values_stack);
+        if ((*env)->ExceptionCheck(env)) {
+            goto __boltffi_error;
+        }
+        __boltffi_values_ptr = __boltffi_values_stack;
+    } else {
+        __boltffi_values_ptr = (*env)->GetIntArrayElements(env, values, NULL);
+        if (__boltffi_values_ptr == NULL) {
+            goto __boltffi_error;
+        }
+        __boltffi_values_needs_release = true;
+    }
+
+    (void)env;
+    int32_t __boltffi_result = boltffi_function_demo_sum((const int32_t *)__boltffi_values_ptr, (uintptr_t)__boltffi_values_len);
+
+    if (__boltffi_values_ptr != NULL) {
+        if (__boltffi_values_needs_release) {
+            (*env)->ReleaseIntArrayElements(env, values, __boltffi_values_ptr, JNI_ABORT);
+        }
+        __boltffi_values_ptr = NULL;
+    }
+
+    return (jint)__boltffi_result;
+__boltffi_error:
+    if (__boltffi_values_ptr != NULL) {
+        if (__boltffi_values_needs_release) {
+            (*env)->ReleaseIntArrayElements(env, values, __boltffi_values_ptr, JNI_ABORT);
+        }
+        __boltffi_values_ptr = NULL;
+    }
+    return 0;
+}

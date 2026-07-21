@@ -1,0 +1,12 @@
+language = "C"
+include_guard = "BOLTFFI_CORE_H"
+
+[export]
+include = []
+exclude = []
+
+[struct]
+rename_fields = "CamelCase"
+
+[enum]
+rename_variants = "ScreamingSnakeCase"

@@ -1,0 +1,876 @@
+---
+title: "Packaging"
+description: "Understand the BoltFFI packaging pipeline for compiling Rust artifacts, generating bindings and headers, and bundling outputs for each platform."
+---
+
+# Packaging
+
+Packaging takes your Rust library and produces artifacts ready for each packaged platform. A single command handles everything: compiling for each target architecture, generating bindings, and bundling the results into the format each platform expects.
+
+`pack` is for targets where BoltFFI owns the platform package layout, such as an Apple
+XCFramework/SwiftPM package, Android jniLibs, Java JNI output, a C# NuGet package, a WASM npm
+package, or a Python wheel. `generate` writes only the source bindings for a single language and is
+useful when you want to integrate them into an existing project layout yourself.
+
+## Overview
+
+The packaging process has three stages:
+
+1. **Build** - Compile your Rust library for each target architecture (arm64, x86_64, etc.)
+2. **Generate** - Create Swift/Kotlin/Java/C#/TypeScript/Python bindings and C headers from your exported API
+3. **Package** - Bundle everything into platform-specific formats
+
+For Apple, this produces an xcframework and SwiftPM package. For Android, this produces jniLibs and Kotlin sources. For Java (JVM), this produces a JNI shared library and Java sources. For C#, this produces a NuGet package containing the bindings and native runtime assets. For WASM, this produces an npm package with TypeScript bindings. For Python, this produces a generated source package plus one or more wheels for the current host.
+
+## Getting Started
+
+Initialize your project with a configuration file:
+
+```bash
+boltffi init
+```
+
+This creates `boltffi.toml` with defaults. The minimal configuration is:
+
+```toml
+[package]
+name = "mylib"
+```
+
+Your `Cargo.toml` needs the right crate types:
+
+```toml
+[lib]
+crate-type = ["staticlib"]
+```
+
+## Packaging All Platforms
+
+Package each platform with its own command:
+
+```bash
+boltffi pack apple
+boltffi pack android
+boltffi pack java
+boltffi pack csharp
+boltffi pack wasm
+boltffi pack python
+```
+
+Add `--release` for optimized builds:
+
+```bash
+boltffi pack apple --release
+boltffi pack android --release
+boltffi pack java --release
+boltffi pack csharp --release
+boltffi pack wasm --release
+boltffi pack python --release
+```
+
+Or run the full pipeline (check, build, generate, pack) for all platforms at once:
+
+```bash
+boltffi release all
+```
+
+The output lands in `dist/` with a subdirectory per platform:
+
+```
+dist/
+├── apple/
+│   ├── MyLib.xcframework/
+│   │   ├── ios-arm64/
+│   │   │   ├── Headers/
+│   │   │   │   └── mylib.h
+│   │   │   └── libmylib.a
+│   │   ├── ios-arm64_x86_64-simulator/
+│   │   │   ├── Headers/
+│   │   │   │   └── mylib.h
+│   │   │   └── libmylib.a
+│   │   └── Info.plist
+│   ├── Package.swift
+│   └── Sources/
+│       └── BoltFFI/
+│           └── MyLibBoltFFI.swift
+├── android/
+│   ├── jniLibs/
+│   │   ├── arm64-v8a/
+│   │   │   └── libmylib.so
+│   │   ├── armeabi-v7a/
+│   │   │   └── libmylib.so
+│   │   ├── x86/
+│   │   │   └── libmylib.so
+│   │   └── x86_64/
+│   │       └── libmylib.so
+│   └── kotlin/
+│       └── com/example/mylib/
+│           └── MyLib.kt
+├── java/
+│   ├── com/example/mylib/
+│   │   ├── MyLib.java
+│   │   ├── Native.java
+│   │   └── ... (records, enums, etc.)
+│   ├── jni/
+│   │   ├── jni_glue.c
+│   │   └── mylib.h
+│   └── libmylib_jni.dylib (or .so)
+├── csharp/
+│   ├── BoltFFI.CSharp.csproj
+│   ├── src/
+│   │   ├── MyLib.cs
+│   │   ├── Point.cs
+│   │   └── ... (records, enums, classes, callbacks, streams)
+│   ├── runtimes/
+│   │   ├── osx-arm64/native/libmylib.dylib
+│   │   ├── linux-x64/native/libmylib.so
+│   │   └── win-x64/native/mylib.dll
+│   └── packages/
+│       └── MyLib.0.1.0.nupkg
+├── wasm/
+│   └── pkg/
+│       ├── mylib_bg.wasm
+│       ├── mylib.js
+│       ├── mylib.d.ts
+│       ├── bundler.js
+│       ├── web.js
+│       ├── node.js
+│       └── package.json
+└── python/
+    ├── mylib/
+    │   ├── __init__.py
+    │   ├── __init__.pyi
+    │   ├── _native.c
+    │   ├── py.typed
+    │   └── libmylib.dylib (or .so / .dll)
+    ├── pyproject.toml
+    ├── setup.py
+    └── wheelhouse/
+        └── mylib-0.1.0-...whl
+```
+
+## Step-by-Step Workflow
+
+The `boltffi pack` command combines build, generate, and package steps. If you need more control, run each step separately:
+
+**Apple:**
+```bash
+boltffi build apple --release
+boltffi generate swift
+boltffi pack apple --release --no-build
+```
+
+**Android:**
+```bash
+boltffi build android --release
+boltffi generate kotlin
+boltffi pack android --release --no-build
+```
+
+**Java:**
+```bash
+boltffi build java --release
+boltffi generate java
+boltffi pack java --release --no-build
+```
+
+**C#:**
+```bash
+boltffi generate csharp
+boltffi pack csharp --release
+```
+
+`pack csharp` builds the Rust `cdylib` for each runtime identifier configured in
+`targets.csharp.runtime_identifiers`, so it does not accept Cargo `--target` passthrough args.
+
+**WASM:**
+```bash
+boltffi build wasm --release
+boltffi generate typescript
+boltffi pack wasm --release --no-build
+```
+
+**Python**
+```bash
+boltffi build --release
+boltffi generate python
+boltffi pack python --release --no-build
+```
+
+Use `--no-build` with `pack` when you've already built, to skip recompilation.
+
+## Apple Packaging
+
+Package everything for iOS and iOS Simulator:
+
+```bash
+boltffi pack apple --release
+```
+
+This builds for arm64 (device) and arm64/x86_64 (simulator), generates Swift bindings and a C header, creates an xcframework, and generates a SwiftPM package.
+
+Those slices come from `targets.apple.ios_architectures` and `targets.apple.simulator_architectures`. If you enable macOS, `targets.apple.macos_architectures` is included too.
+
+If you enable `[targets.apple.debug_symbols]`, BoltFFI also writes `{XcframeworkName}.xcframework.symbols.zip` under `dist/apple/symbols/`. That companion archive contains the unstripped slice libraries plus a `symbols.json` manifest.
+
+For release-style packaging, BoltFFI rejects this option unless the selected Cargo profile has debuginfo enabled, for example via `[profile.release] debug = true`.
+
+### Output Structure
+
+```
+dist/apple/
+├── MyLib.xcframework/
+│   ├── ios-arm64/
+│   │   ├── Headers/
+│   │   │   └── mylib.h
+│   │   └── libmylib.a
+│   ├── ios-arm64_x86_64-simulator/
+│   │   ├── Headers/
+│   │   │   └── mylib.h
+│   │   └── libmylib.a
+│   └── Info.plist
+├── Package.swift
+└── Sources/
+    └── BoltFFI/
+        └── MyLibBoltFFI.swift
+```
+
+The xcframework contains fat libraries for each platform slice. The SwiftPM package ties it all together with a binary target for the xcframework and a Swift target for the generated bindings.
+
+### Including macOS
+
+To also build for macOS, add this to your `boltffi.toml`:
+
+```toml
+[targets.apple]
+include_macos = true
+```
+
+Then run:
+
+```bash
+boltffi pack apple --release
+```
+
+The xcframework will include an additional `macos-arm64_x86_64` slice.
+
+### Restricting Apple Slices
+
+To package only a subset of Apple slices, configure them explicitly:
+
+```toml
+[targets.apple]
+ios_architectures = ["arm64"]
+simulator_architectures = ["arm64"]
+include_macos = true
+macos_architectures = ["arm64"]
+```
+
+`boltffi pack apple --no-build` validates exactly those configured slices. Stale artifacts for old
+simulator or macOS architectures are ignored. Any Apple architecture list can be set to `[]` to
+exclude that slice family, as long as at least one Apple slice remains enabled overall.
+
+### SwiftPM Layouts
+
+The `layout` option controls how the SwiftPM package is structured. Configure it in `boltffi.toml`:
+
+```toml
+[targets.apple.spm]
+layout = "ffi-only"  # or "bundled" or "split"
+```
+
+**ffi-only** (default): Self-contained package with the xcframework and generated Swift. Import and use directly.
+
+**bundled**: For existing Swift packages where you want to add generated bindings to your own wrapper target. Set `wrapper_sources` to your target's source directory.
+
+**split**: Binary-only package. The generated Swift is written to a separate location for you to include in your own package. Use this when you need full control over the Swift target.
+
+See [Configuration](/docs/configuration) for the full list of options.
+
+### Using in Xcode
+
+1. In Xcode, go to File → Add Package Dependencies
+2. Click "Add Local..." and select the `dist/apple` directory
+3. Add the package to your target
+
+Then import and use:
+
+```swift
+import MyLib
+
+let result = someExportedFunction()
+```
+
+The package exposes a single module with your library name. All exported functions, classes, and types are available.
+
+### Remote Distribution
+
+For distributing via GitHub releases or another host:
+
+```toml
+[targets.apple.spm]
+distribution = "remote"
+repo_url = "https://github.com/you/mylib/releases/download"
+```
+
+```bash
+boltffi pack apple --release --version 1.0.0
+```
+
+This generates a `Package.swift` that points to a remote zip URL instead of a local path. Upload `MyLib.xcframework.zip` to your release, and consumers can add your package by URL.
+
+## Android Packaging
+
+Package everything for Android:
+
+```bash
+boltffi pack android --release
+```
+
+This builds for all Android ABIs (arm64-v8a, armeabi-v7a, x86, x86_64), generates Kotlin bindings and JNI glue, and copies the shared libraries to jniLibs.
+
+If you enable `[targets.android.debug_symbols]`, BoltFFI also writes `{crate_artifact_name}.android.symbols.zip` under `dist/android/symbols/`. That archive mirrors the `jniLibs/<abi>/` layout and includes a `symbols.json` manifest.
+
+For release-style packaging, BoltFFI rejects this option unless the selected Cargo profile has debuginfo enabled.
+
+### Output Structure
+
+```
+dist/android/
+├── jniLibs/
+│   ├── arm64-v8a/
+│   │   └── libmylib.so
+│   ├── armeabi-v7a/
+│   │   └── libmylib.so
+│   ├── x86/
+│   │   └── libmylib.so
+│   └── x86_64/
+│       └── libmylib.so
+└── kotlin/
+    ├── com/
+    │   └── example/
+    │       └── mylib/
+    │           └── MyLib.kt
+    └── jni/
+        └── jni_glue.c
+```
+
+The jniLibs folder follows the standard Android layout. Each ABI gets its own shared library. The Kotlin sources include your bindings and the JNI glue that connects them to the native code.
+
+### Using in Android Studio
+
+1. Copy `dist/android/jniLibs` to your app module's `src/main/` directory
+2. Copy the Kotlin sources from `dist/android/kotlin/com/...` to your source set
+3. Add the JNI glue to your native build (if using CMake or ndk-build)
+
+Then import and use:
+
+```kotlin
+import com.example.mylib.*
+
+val result = someExportedFunction()
+```
+
+### Gradle Integration
+
+If you're using the Android Gradle Plugin with native support, point it at the jniLibs:
+
+```kotlin
+android {
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+}
+```
+
+The shared libraries are loaded automatically when you first call into your Kotlin bindings.
+
+## Kotlin Multiplatform Packaging
+
+Package the experimental Kotlin Multiplatform module:
+
+```bash
+boltffi pack kmp --experimental --release
+```
+
+This generates the KMP sources, builds Android `jniLibs`, and writes JVM desktop native resources to `dist/kotlin-multiplatform/src/jvmMain/resources/native/<host-target>/`.
+
+`pack kmp` verifies `boltffi-kmp-support.json` before packaging. The report must match the current KMP package, module, min SDK, selected platforms, and pruning policy. A module generated with `preview_prune_unsupported = true` cannot be packaged under strict config.
+
+KMP reuses the Java JVM host matrix:
+
+```toml
+[targets.kotlin_multiplatform]
+enabled = true
+
+[targets.java.jvm]
+host_targets = ["current", "linux-x86_64"]
+```
+
+`targets.java.jvm.enabled` does not need to be true for KMP packaging to read `host_targets`. The default is `["current"]`.
+
+## Java Packaging
+
+Package for JVM:
+
+```bash
+boltffi pack java --release
+```
+
+This builds the host Rust library, generates Java bindings and a C header, links the JNI glue against the Rust `staticlib` when available, and writes the native output to `dist/java/native/<host-target>/`. A flat current-host `_jni` copy is kept in `dist/java/` for compatibility during the transition.
+
+If you enable `[targets.java.jvm.debug_symbols]`, BoltFFI also writes `{selected_artifact_name}.jvm.symbols.zip` under `dist/java/symbols/`. That archive mirrors `native/<host-target>/` and includes a `symbols.json` manifest for host-target mapping.
+
+For release-style packaging, BoltFFI rejects this option unless the selected Cargo profile has debuginfo enabled. On Windows MSVC hosts, BoltFFI also archives `.pdb` sidecars for the packaged JNI DLL and bundled Rust DLL when present.
+
+### Prerequisites
+
+- JDK 8+ installed
+- `JAVA_HOME` environment variable set
+- `clang` available (used to compile the JNI bridge)
+
+### Configuration
+
+Enable Java in `boltffi.toml`:
+
+```toml
+[targets.java]
+min_version = 8  # or 16, 17, 21
+
+[targets.java.jvm]
+enabled = true
+host_targets = ["current", "linux-x86_64"]
+```
+
+`host_targets` defaults to `["current"]`. BoltFFI resolves `current` to the active machine target, dedupes it against explicit entries, and writes one native output per resolved host target under `dist/java/native/<host-target>/`. `boltffi pack java --no-build` is still intentionally unsupported; rerun without `--no-build`.
+
+Current Phase 4 support is intentionally narrow:
+
+- Current-host packaging works on `darwin-arm64`, `darwin-x86_64`, `linux-x86_64`, `linux-aarch64`, and `windows-x86_64`
+- Cross-host packaging is supported for the initial parity set, including the macOS release case of `linux-x86_64`
+- Cross-host targets must be fully configured up front; BoltFFI fails early instead of silently skipping them
+
+For the macOS to Linux desktop case, install the Rust target and provide a Linux linker that Cargo can use, for example via `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER` or `BOLTFFI_JAVA_LINKER_X86_64_UNKNOWN_LINUX_GNU`.
+
+Cross-host JNI compilation also needs target-appropriate JNI headers. If the active `JAVA_HOME` does not contain the target platform header directory, point BoltFFI at a target-specific JDK or header directory:
+
+- `BOLTFFI_JAVA_HOME_X86_64_UNKNOWN_LINUX_GNU=/path/to/linux-jdk`
+- or `BOLTFFI_JAVA_INCLUDE_X86_64_UNKNOWN_LINUX_GNU=/path/to/linux-jdk/include/linux`
+
+Do not pass Cargo `--target` through `--cargo-arg` for `pack java`; BoltFFI resolves JVM targets from `targets.java.jvm.host_targets`.
+
+The `min_version` controls which language features the generated code uses:
+
+| Version | Features |
+|---------|----------|
+| 8 | `final class` records, `abstract class` enums, `CompletableFuture` async |
+| 16 | `record` types for structs |
+| 17 | `sealed interface` for enums with data |
+| 21 | Virtual thread blocking calls for async |
+
+### Output Structure
+
+```
+dist/java/
+├── com/example/mylib/
+│   ├── MyLib.java          # Functions module
+│   ├── Native.java         # JNI native declarations
+│   ├── WireReader.java     # Runtime: binary decoding
+│   ├── WireWriter.java     # Runtime: binary encoding
+│   └── ... (records, enums, callbacks, etc.)
+├── jni/
+│   ├── jni_glue.c          # JNI bridge implementation
+│   └── mylib.h             # C header
+├── libmylib_jni.dylib      # Flat compatibility copy for the current host (.so/.dll elsewhere)
+└── native/
+    └── darwin-arm64/
+        └── libmylib_jni.dylib
+```
+
+### Using in a Project
+
+1. Copy the Java sources from `dist/java/com/...` into your source tree
+2. Bundle the matching `dist/java/native/<host-target>/lib*_jni.*` native library in your JAR resources. Generated desktop bindings will extract and `System.load(...)` bundled natives automatically. If you do not bundle the native library, place it where `System.loadLibrary` can find it.
+
+```java
+import com.example.mylib.*;
+
+int result = MyLib.someExportedFunction();
+```
+
+The native library is loaded automatically when you first call into the generated bindings.
+
+### Using with Gradle
+
+```kotlin
+dependencies {
+    implementation(files("libs/mylib-sources.jar"))
+}
+```
+
+Set the library path in your run configuration:
+
+If you are not bundling native libraries into the JAR, you can still point tests at an external native directory:
+
+```kotlin
+tasks.test {
+    jvmArgs("-Djava.library.path=libs/native")
+}
+```
+
+<h2 id="c-sharp-packaging">C# Packaging</h2>
+
+Package everything for .NET:
+
+```bash
+boltffi pack csharp --release
+```
+
+This generates the C# bindings, builds the Rust `cdylib` for each configured runtime identifier,
+and bundles the bindings and native runtime assets into a single NuGet package.
+
+Your Rust crate must include `cdylib` in `crate-type`:
+
+```toml
+[lib]
+crate-type = ["staticlib", "cdylib"]
+```
+
+### Configuration
+
+Enable C# in `boltffi.toml`:
+
+```toml
+[targets.csharp]
+enabled = true
+output = "dist/csharp"
+package_id = "MyOrg.MyLib"
+target_framework = "net10.0"
+runtime_identifiers = ["osx-arm64", "linux-x64", "win-x64"]
+```
+
+`runtime_identifiers` controls which native assets are built and bundled into the NuGet package.
+`current` resolves to the active host RID; canonical values are `osx-arm64`, `osx-x64`,
+`linux-x64`, `linux-arm64`, and `win-x64`.
+
+### Output Structure
+
+```
+dist/csharp/
+├── BoltFFI.CSharp.csproj
+├── src/
+│   ├── MyLib.cs            # Functions, native declarations, and runtime helpers
+│   ├── Point.cs            # Generated records
+│   ├── Status.cs           # Generated enums
+│   └── Sensor.cs           # Generated classes and stream methods
+├── runtimes/
+│   ├── osx-arm64/native/libmylib.dylib
+│   ├── linux-x64/native/libmylib.so
+│   └── win-x64/native/mylib.dll
+└── packages/
+    └── MyLib.0.1.0.nupkg
+```
+
+### Using the NuGet Package
+
+Add the package output directory as a local NuGet source and reference the package from your
+.NET project:
+
+```bash
+dotnet nuget add source ./dist/csharp/packages --name boltffi-local
+dotnet add package MyLib
+```
+
+Then call the generated bindings from C#:
+
+```csharp
+using MyLib;
+
+Point a = new Point(0.0, 0.0);
+Point b = new Point(3.0, 4.0);
+double distance = MyLib.Distance(a, b);
+```
+
+The native runtime assets are loaded automatically from the NuGet `runtimes/<rid>/native/`
+folder. Classes implement `IDisposable`; streams return `IAsyncEnumerable<T>` and can be consumed
+with `await foreach`.
+
+### Source-Only Generation
+
+If you prefer to integrate the bindings into an existing .NET project without using the NuGet
+package, run:
+
+```bash
+boltffi generate csharp
+```
+
+This writes only the `.cs` files to `dist/csharp/`. You are responsible for building and shipping
+the matching Rust `cdylib` alongside your application.
+
+## WASM Packaging
+
+Package everything for WebAssembly:
+
+```bash
+boltffi pack wasm --release
+```
+
+This compiles to wasm32-unknown-unknown, runs wasm-opt for size optimization, generates TypeScript bindings, and produces an npm package ready to publish or use locally.
+
+### Output Structure
+
+```
+dist/wasm/pkg/
+├── wasm_demo_bg.wasm      # Compiled WASM binary
+├── wasm_demo.js           # Generated bindings
+├── wasm_demo.d.ts         # TypeScript declarations
+├── bundler.js             # Entrypoint for bundlers (Vite, webpack)
+├── web.js                 # Entrypoint for browsers
+├── node.js                # Entrypoint for Node.js
+├── package.json           # npm package manifest
+└── README.md
+```
+
+### Entrypoint Behavior
+
+Each entrypoint handles WASM loading differently:
+
+**Core module (`mylib.js`):**
+- Exports `init(source: BufferSource | Response): Promise<void>` for manual initialization
+- Exports all generated API functions
+- Functions throw `Error` if called before `init()` resolves
+
+**Loader entrypoints (`bundler.js`, `web.js`, `node.js`):**
+- Export `initialized: Promise<void>` that resolves when WASM is ready
+- Export all generated API functions
+- Functions throw `Error` if called before `initialized` resolves
+
+Loading strategy by entrypoint:
+- `bundler.js` - relies on bundler WASM asset handling (Vite, webpack)
+- `web.js` - loads WASM via `fetch()` from package-relative location
+- `node.js` - loads WASM via `fs.readFile()` from disk
+
+### Configuration
+
+Set the npm package name in `boltffi.toml`:
+
+```toml
+[targets.wasm.npm]
+package_name = "@myorg/mylib"
+targets = ["bundler", "web", "nodejs"]
+```
+
+The `targets` array controls which entrypoints are generated. Include only what you need.
+
+### wasm-opt
+
+By default, release builds run wasm-opt for size optimization:
+
+```toml
+[targets.wasm.optimize]
+enabled = true
+level = "s"          # optimize for size
+strip_debug = true   # remove debug info
+```
+
+Set `enabled = false` during development for faster builds.
+
+### Using in a Bundler (Vite, webpack)
+
+Install the package and import directly:
+
+```typescript
+import { someExportedFunction, MyClass } from "@myorg/mylib";
+
+const result = someExportedFunction();
+const instance = MyClass.create();
+```
+
+Your bundler handles WASM loading automatically.
+
+### Using in Node.js
+
+Import from the package and await initialization:
+
+```typescript
+import { initialized, someExportedFunction } from "@myorg/mylib";
+
+await initialized;
+const result = someExportedFunction();
+```
+
+The `initialized` promise resolves once the WASM module is loaded and ready.
+
+### Using in a Browser (no bundler)
+
+Use the web entrypoint with a script tag or dynamic import:
+
+```html
+<script type="module">
+  import init, { someExportedFunction } from "./pkg/web.js";
+  
+  await init();
+  const result = someExportedFunction();
+</script>
+```
+
+The `init()` function fetches the WASM file relative to the script location.
+
+### Package Exports
+
+The generated `package.json` includes conditional exports for all enabled environments.
+
+With all targets enabled (`targets = ["bundler", "web", "nodejs"]`):
+
+```json
+{
+  "name": "@myorg/mylib",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./mylib.d.ts",
+      "browser": "./web.js",
+      "node": "./node.js",
+      "default": "./bundler.js"
+    }
+  }
+}
+```
+
+With only Node.js (`targets = ["nodejs"]`):
+
+```json
+{
+  "exports": {
+    ".": {
+      "types": "./mylib.d.ts",
+      "node": "./node.js",
+      "default": "./node.js"
+    }
+  }
+}
+```
+
+The `default` condition resolves to `bundler.js` if enabled, else `web.js` if enabled, else `node.js`.
+
+### Publishing to npm
+
+Publish with:
+
+```bash
+cd dist/wasm/pkg
+npm publish
+```
+
+## Python Packaging
+
+Package the generated Python sources plus the current-host Rust shared library.
+
+```bash
+boltffi pack python
+```
+
+This flow does the work a Python package needs.
+
+1. regenerates the Python source package unless `--regenerate false`
+2. builds or reuses the host `cdylib`
+3. stages the shared library into the generated package
+4. builds a wheel with `python -m pip wheel`
+
+### Configuration
+
+Enable the target in `boltffi.toml`.
+
+```toml
+[targets.python]
+enabled = true
+module_name = "demo_runtime"
+
+[targets.python.wheel]
+output = "dist/python/wheelhouse"
+interpreters = ["python3.11", "python3.12", "python3.13"]
+```
+
+`module_name` controls the generated import path. `output` controls where wheels land. `interpreters` defines the Python version matrix for the current host. You can override the configured interpreter list per command with repeated `--python` flags.
+
+### Output Structure
+
+```
+dist/python/
+├── demo_runtime/
+│   ├── __init__.py
+│   ├── __init__.pyi
+│   ├── _native.c
+│   ├── py.typed
+│   └── libdemo_ffi.dylib
+├── pyproject.toml
+├── setup.py
+└── wheelhouse/
+    ├── demo_package-0.1.0-cp311-...whl
+    └── demo_package-0.1.0-cp312-...whl
+```
+
+The shared library filename changes per host.
+
+- macOS: `.dylib`
+- Linux: `.so`
+- Windows: `.dll`
+
+### Interpreter Selection
+
+To package for specific installed interpreters on the current host.
+
+```bash
+boltffi pack python --python python3.12 --python python3.13
+```
+
+If you omit `--python` and do not configure `[targets.python.wheel].interpreters`, BoltFFI falls back to the first available default interpreter on the host.
+
+## Build Profiles
+
+Debug builds are faster but produce larger, slower binaries:
+
+```bash
+boltffi pack apple           # debug
+boltffi pack apple --release # optimized
+```
+
+Always use `--release` for distribution. Debug builds include symbols and skip optimizations, resulting in binaries 5-10x larger than release builds.
+
+## Skipping Steps
+
+If you've already built and just want to repackage:
+
+```bash
+boltffi pack apple --no-build         # skip cargo build
+boltffi pack apple --xcframework-only # skip SwiftPM package
+boltffi pack apple --spm-only         # skip xcframework
+```
+
+Force regeneration of bindings:
+
+```bash
+boltffi pack apple --regenerate
+```
+
+These options are useful during development when iterating on specific parts of the pipeline.
+
+## Full Release Pipeline
+
+The `release` command runs check, build, generate, and pack in one shot:
+
+```bash
+boltffi release apple
+boltffi release android
+boltffi release java
+boltffi release wasm
+boltffi release all --experimental
+```
+
+Or build everything at once:
+
+```bash
+boltffi release all
+```

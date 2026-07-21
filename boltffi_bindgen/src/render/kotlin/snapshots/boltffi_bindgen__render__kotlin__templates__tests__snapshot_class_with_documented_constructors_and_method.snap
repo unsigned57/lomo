@@ -1,0 +1,36 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+/**
+ * A persistent key-value data store.
+ */
+class DataStore internal constructor(internal val handle: Long) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    /**
+     * Creates a new data store with the given capacity.
+     */
+    constructor(capacity: Int) : this(
+        Native.boltffi_data_store_new(capacity)
+    )
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        Native.boltffi_data_store_free(handle)
+    }
+
+    companion object {
+        /**
+         * Creates a data store with sensible default settings.
+         */
+        fun withDefaults(): DataStore {
+            return DataStore(Native.boltffi_data_store_with_defaults())
+        }
+    }
+
+    /**
+     * Inserts a value into the store by key.
+     */
+    fun insert(key: String) { Native.boltffi_data_store_insert(handle, key) }
+}

@@ -1,0 +1,25 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture_with_host(\"exports/custom_string_type_functions\", host)"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_keep_email(value: java.nio.ByteBuffer, __boltffi_value_len: Int): ByteArray?
+}
+
+fun keepEmail(value: java.net.URI): java.net.URI {
+    val __boltffi_value_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(value.toString()))
+    val __boltffi_value_writer = __boltffi_value_wire.writer
+    __boltffi_value_writer.writeString(value.toString())
+    try {
+        val __boltffi_result = Native.boltffi_function_demo_keep_email(__boltffi_value_wire.directBuffer(), __boltffi_value_wire.size()) ?: throw IllegalStateException("null buffer returned")
+        val __boltffi_reader = WireReader(__boltffi_result)
+        return java.net.URI.create(__boltffi_reader.readString())
+    } finally {
+        __boltffi_value_wire.close()
+    }
+}

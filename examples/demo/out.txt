@@ -1,0 +1,27 @@
+warning: function `parse_cargo_target_directory` is never used
+    --> boltffi_cli/src/commands/pack.rs:1471:4
+     |
+1471 | fn parse_cargo_target_directory(metadata: &[u8]) -> Result<PathBuf> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+
+☕ Packing Java
+   ✓ Generating C header
+   ✓ Generating Java bindings
+   ✓ Building Rust host library
+../platforms/java/src/main/java/jni/jni_glue.c:4927:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+ 4927 | }
+      | ^
+../platforms/java/src/main/java/jni/jni_glue.c:4997:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+ 4997 | }
+      | ^
+../platforms/java/src/main/java/jni/jni_glue.c:5199:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+ 5199 | }
+      | ^
+3 warnings generated.
+ld: warning: ignoring duplicate libraries: '-lSystem'
+   ✓ Compiling JNI library
+
+✨ Done in 2.5s

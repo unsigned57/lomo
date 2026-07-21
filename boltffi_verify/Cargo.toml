@@ -1,0 +1,15 @@
+[package]
+name = "boltffi_verify"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Static analysis and verification for BoltFFI generated bindings"
+keywords = ["ffi", "verification", "static-analysis", "bindings"]
+categories = ["development-tools::ffi", "development-tools::testing"]
+
+[dependencies]
+thiserror.workspace = true
+tree-sitter = "0.26"
+tree-sitter-swift = "0.7"

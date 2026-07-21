@@ -1,0 +1,30 @@
+name: IOSBench
+options:
+  bundleIdPrefix: com.boltffi.bench
+  deploymentTarget:
+    iOS: "16.0"
+
+packages:
+  BenchBoltFFI:
+    path: ../../generated/boltffi/BoltFFIPackage
+  BenchUniffi:
+    path: ../../adapters/uniffi/UniffiPackage
+
+targets:
+  IOSBench:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: BenchBoltFFI
+      - package: BenchUniffi
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.boltffi.bench.ios
+      CODE_SIGN_STYLE: Automatic
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: IOSBench
+        CFBundleDisplayName: iOS Bench
+        UILaunchScreen: {}

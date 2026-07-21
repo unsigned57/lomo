@@ -1,0 +1,42 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+sealed class SearchResult {
+
+    data class Found(val item: String?) : SearchResult()
+
+    data object NotFound : SearchResult()
+
+    companion object {
+        fun decode(reader: WireReader): SearchResult {
+            val tag = reader.readI32()
+            return when (tag) {
+                0 -> {
+                    Found(
+                        reader.readOption { it.readString() }
+                    )
+                }
+                1 -> {
+                    NotFound
+                }
+                else -> throw FfiException(-1, "Unknown SearchResult tag: $tag")
+            }
+        }
+    }
+
+    fun wireEncodedSize(): Int = 4 + when (this) {
+        is Found -> wire.sizeOption(item) { w, v -> w.sizeString(v) }
+        is NotFound -> 0
+    }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        when (this) {
+            is Found -> {
+                wire.writeI32(0)
+                wire.writeOption(item) { w, v -> w.writeString(v) }
+            }
+            is NotFound -> wire.writeI32(1)
+        }
+    }
+}

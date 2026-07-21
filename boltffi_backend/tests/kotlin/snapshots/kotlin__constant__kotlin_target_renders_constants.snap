@@ -1,0 +1,40 @@
+---
+source: boltffi_backend/tests/kotlin/constant.rs
+expression: "rendered_fixture(\"constant/literals_and_accessors\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_const_demo_magic(): ByteArray?
+}
+
+
+enum class Mode(val value: Byte) {
+    FAST(1.toByte()),
+    SLOW(2.toByte());
+
+    companion object {
+        fun fromValue(value: Byte): Mode =
+            entries.first { it.value == value }
+    }
+}
+
+val enabled: Boolean = true
+
+val limit: UInt = 1024.toUInt()
+
+val half: Double = 0.5
+
+val greeting: String = "hello"
+
+val defaultMode: Mode = Mode.FAST
+
+val magic: ByteArray
+    get() {
+        val __boltffi_result = Native.boltffi_const_demo_magic() ?: throw IllegalStateException("null buffer returned")
+        val __boltffi_reader = WireReader(__boltffi_result)
+        return __boltffi_reader.readBytes()
+    }

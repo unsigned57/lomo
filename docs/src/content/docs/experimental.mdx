@@ -1,0 +1,57 @@
+---
+title: "Experimental Features"
+description: "Enable and manage experimental BoltFFI features and targets such as TypeScript async streams."
+---
+
+# Experimental Features
+
+Some BoltFFI features are behind an experimental flag. The API for these features may change between releases, so they require an explicit opt-in.
+
+Java, C#, and Python bindings are generally available and no longer require experimental opt-in.
+
+| Feature | Key | Status |
+|---------|-----|--------|
+| Dart target | `dart` | In progress |
+| Kotlin Multiplatform target | `kotlin_multiplatform` | Initial JVM/Android actuals |
+| TS async streams | `typescript.async_streams` | Functional |
+
+## Enabling
+
+### CLI flag
+
+Pass `--experimental` to include experimental targets during that command run:
+
+```bash
+boltffi generate all --experimental
+boltffi pack all --experimental
+```
+
+### Config file
+
+Add the feature key to `experimental` in `boltffi.toml`:
+
+```toml
+experimental = ["kotlin_multiplatform", "typescript.async_streams"]
+```
+
+The CLI flag applies to a single command. The config array applies to every build.
+
+## Feature Details
+
+### Kotlin Multiplatform
+
+**Key:** `kotlin_multiplatform`
+
+Enables `boltffi generate kmp` and includes Kotlin Multiplatform output during `boltffi generate all --experimental`. The generated module contains `commonMain` declarations plus `jvmMain` and `androidMain` actuals that delegate to the existing Kotlin/JNI bindings.
+
+This is an initial target slice. Kotlin/Native `cinterop` actuals for iOS/macOS are not generated yet.
+
+### TypeScript Async Streams
+
+**Key:** `typescript.async_streams`
+
+Enables `AsyncIterable` stream generation for TypeScript/WASM targets. Without this flag, stream methods are skipped during TypeScript codegen.
+
+## Graduating from Experimental
+
+When a feature stabilizes, it moves out of the experimental list. The `--experimental` flag and config entry are no longer required. Existing code continues to work without changes.

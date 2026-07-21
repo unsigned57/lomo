@@ -1,0 +1,346 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1FE14C1DAD9625BC48BFE11D /* IOSBenchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E86B4821568D83B97C55FC /* IOSBenchApp.swift */; };
+		4F1488A57922E60C229FA2E3 /* BenchUniffi in Frameworks */ = {isa = PBXBuildFile; productRef = 96FD1B915C550506B2979773 /* BenchUniffi */; };
+		6CC1DF49B012FC906770E3B7 /* BenchBoltFFI in Frameworks */ = {isa = PBXBuildFile; productRef = 3F8AA48C2EA5472624A14A6B /* BenchBoltFFI */; };
+		BE2C382B4B3D47DC7EAC70FC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FEC1F6D93CFC8AF1C67217E /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0FEC1F6D93CFC8AF1C67217E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		16E86B4821568D83B97C55FC /* IOSBenchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSBenchApp.swift; sourceTree = "<group>"; };
+		27747111A7CD287CF8D98D9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		294318DCD3AD91ABF2422870 /* UniffiPackage */ = {isa = PBXFileReference; lastKnownFileType = folder; name = UniffiPackage; path = "../../adapters/uniffi/UniffiPackage"; sourceTree = SOURCE_ROOT; };
+		52FBEB00215417CB7836791F /* IOSBench.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = IOSBench.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ABE23F64F2E10B2B251BE54E /* BoltFFIPackage */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BoltFFIPackage; path = "../../generated/boltffi/BoltFFIPackage"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5DCD6A47F67CAE8A48FD987D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6CC1DF49B012FC906770E3B7 /* BenchBoltFFI in Frameworks */,
+				4F1488A57922E60C229FA2E3 /* BenchUniffi in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1754874026F9BA634B9A8CDA /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0FEC1F6D93CFC8AF1C67217E /* ContentView.swift */,
+				27747111A7CD287CF8D98D9C /* Info.plist */,
+				16E86B4821568D83B97C55FC /* IOSBenchApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		2D7342043916728BD6B52FFB /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				ABE23F64F2E10B2B251BE54E /* BoltFFIPackage */,
+				294318DCD3AD91ABF2422870 /* UniffiPackage */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		41AE534DB27938FED412F4E2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				52FBEB00215417CB7836791F /* IOSBench.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		9E09B1EF54857D93D56A87F9 = {
+			isa = PBXGroup;
+			children = (
+				1754874026F9BA634B9A8CDA /* App */,
+				2D7342043916728BD6B52FFB /* Packages */,
+				41AE534DB27938FED412F4E2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AD5895482CA3CE3A66E22DD8 /* IOSBench */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8226CC0334B539E5AC670274 /* Build configuration list for PBXNativeTarget "IOSBench" */;
+			buildPhases = (
+				9066663FCFC5A28D39BC2632 /* Sources */,
+				5DCD6A47F67CAE8A48FD987D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IOSBench;
+			packageProductDependencies = (
+				3F8AA48C2EA5472624A14A6B /* BenchBoltFFI */,
+				96FD1B915C550506B2979773 /* BenchUniffi */,
+			);
+			productName = IOSBench;
+			productReference = 52FBEB00215417CB7836791F /* IOSBench.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		68AE3C8BBBA64040ABA8A91D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					AD5895482CA3CE3A66E22DD8 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 55AFD07ADB04B175C7848A4D /* Build configuration list for PBXProject "IOSBench" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 9E09B1EF54857D93D56A87F9;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BB563CA3E56C66DDD7B64316 /* XCLocalSwiftPackageReference "../../generated/boltffi/BoltFFIPackage" */,
+				FAC4B70864B26A1917F5A586 /* XCLocalSwiftPackageReference "../../adapters/uniffi/UniffiPackage" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AD5895482CA3CE3A66E22DD8 /* IOSBench */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9066663FCFC5A28D39BC2632 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BE2C382B4B3D47DC7EAC70FC /* ContentView.swift in Sources */,
+				1FE14C1DAD9625BC48BFE11D /* IOSBenchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2DB000F01F01B3853D246404 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.boltffi.bench.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AE5AB08E36B1B8F8930BE7E3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C9677DEE8F9955E74D3CADAB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.boltffi.bench.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DA2A37F3D9DF4379B9823451 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		55AFD07ADB04B175C7848A4D /* Build configuration list for PBXProject "IOSBench" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA2A37F3D9DF4379B9823451 /* Debug */,
+				AE5AB08E36B1B8F8930BE7E3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8226CC0334B539E5AC670274 /* Build configuration list for PBXNativeTarget "IOSBench" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C9677DEE8F9955E74D3CADAB /* Debug */,
+				2DB000F01F01B3853D246404 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BB563CA3E56C66DDD7B64316 /* XCLocalSwiftPackageReference "../../generated/boltffi/BoltFFIPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../generated/boltffi/BoltFFIPackage";
+		};
+		FAC4B70864B26A1917F5A586 /* XCLocalSwiftPackageReference "../../adapters/uniffi/UniffiPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../adapters/uniffi/UniffiPackage";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3F8AA48C2EA5472624A14A6B /* BenchBoltFFI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BenchBoltFFI;
+		};
+		96FD1B915C550506B2979773 /* BenchUniffi */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BenchUniffi;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 68AE3C8BBBA64040ABA8A91D /* Project object */;
+}

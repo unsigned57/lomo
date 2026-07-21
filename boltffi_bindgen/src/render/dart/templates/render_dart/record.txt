@@ -1,0 +1,106 @@
+{% match record.blittable_layout %}
+{% when None%}
+{%- when Some with (layout) %}
+final class {{ layout.struct_name }} extends $$ffi.Struct {
+{%- for field in layout.fields %}
+  {{ field.native_type.field_annot() }}
+  external {{ field.native_type.dart_sub_type() }} {{ field.name }};
+{% endfor -%}
+}
+{% endmatch %}
+final class {{ record.name }}{% if record.is_error %} implements Exception{% endif %} {
+{%- for field in record.fields %}
+  {{ field.dart_type }} {{ field.name }};
+{%- endfor %}
+
+  {{ record.name }}({
+{%- for field in record.fields %}
+    required this.{{ field.name }},
+{%- endfor %}
+  });
+
+  factory {{ record.name }}._m$wireDecode(_$$WireReader _p$reader) {
+    return {{ record.name }}(
+{%- for field in record.fields %}
+      {{ field.name }}: {{ field.wire_decode_expr("_p$reader")|indent(6)|trim }},
+{%- endfor %}
+    );
+  }
+
+  void _m$wireEncode(_$$WireWriter _p$writer) {
+{%- for field in record.fields %}
+    {{ field.wire_encode_expr("_p$writer")|indent(4)|trim }}
+{%- endfor %}
+  }
+
+  int _m$wireEncodedSize() =>
+{%- for field in record.fields %}
+    {{ field.wire_encoded_size_expr() }}{% if !loop.last %} +{% endif %}
+{%- endfor %};
+{% match record.blittable_layout %}
+{% when None %}
+{%- when Some with (layout) %}
+{%- for field in layout.fields %}
+  // static const {{ field.offset_const_name }} = {{ field.offset }};
+{%- endfor %}
+  // static const _k$structSize = {{ layout.struct_size }};
+  static final _k$structSize = $$ffi.sizeOf<{{ layout.struct_name }}>();
+
+  void _m$blittableEncode(_$$WireWriter _p$writer) {
+    final ref = _p$writer.getCurrPtr<{{ layout.struct_name }}>().ref;
+    _p$writer._offset += _k$structSize;
+{%- for field in layout.fields %}
+    ref.{{ field.name }} = {{ field.name }};
+{%- endfor %}
+  }
+
+  factory {{ record.name }}._m$fromStruct({{ layout.struct_name }} _p$struct) {
+    return {{ record.name }}(
+{%- for field in layout.fields %}
+      {{ field.name }}: _p$struct.{{ field.name }},
+{%- endfor %}
+    );
+  }
+
+  factory {{ record.name }}._m$blittableDecodeFromPtrLen($$ffi.Pointer<$$ffi.Uint8> _p$ptr, int _p$len) {
+    if (_p$len != _k$structSize) {
+      throw _$$FFIException(-1, "BlittbleDecodeFromPtrLenError({{ record.name }}): expected pointer length (${_p$len}) to be equal to struct size (${_k$structSize})");
+    }
+
+    return {{ record.name }}._m$fromStruct(_p$ptr.cast<{{ layout.struct_name }}>().ref);
+  }
+
+  {{ layout.struct_name }} _m$toStruct() {
+    final l$writer = _$$WireWriter(_k$structSize);
+    final ref = l$writer._ptr.cast<{{ layout.struct_name }}>().ref;
+    l$writer._offset += _k$structSize;
+{%- for field in layout.fields %}
+    ref.{{ field.name }} = {{ field.name }};
+{%- endfor %}
+    return ref;
+  }
+{% endmatch -%}
+{%- for ctor in record.constructors %}
+{%- match ctor.kind %}
+{% when super::DartConstructorKind::Default %}
+  factory {{ record.name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% when super::DartConstructorKind::Named with { name: ctor_name } %}
+  factory {{ record.name }}.{{ ctor_name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% endmatch -%}
+{% endfor -%}
+{%- for meth in record.methods %}
+  {% if meth.is_static() %}static {% endif %}{{ meth.ret_ty.dart_type() }} {{ meth.name }}(
+{%- for param in meth.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% endfor -%}
+}

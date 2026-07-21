@@ -1,0 +1,24 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+data class Point(
+    val x: Double,
+    val y: Double
+) {
+    companion object {
+        const val SIZE_BYTES: Int = 16
+
+        fun decode(reader: WireReader): Point = Point(
+            reader.readF64(),
+            reader.readF64()
+        )
+    }
+    fun wireEncodedSize(): Int = SIZE_BYTES
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeF64(x)
+        wire.writeF64(y)
+    }
+}

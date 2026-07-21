@@ -1,0 +1,29 @@
+[package]
+name = "boltffi_tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+boltffi.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "macros"] }
+
+[build-dependencies]
+boltffi_ast.workspace = true
+boltffi_backend.workspace = true
+boltffi_binding.workspace = true
+boltffi_scan.workspace = true
+cc = "1.2"
+proc-macro2.workspace = true
+quote.workspace = true
+
+[dev-dependencies]
+boltffi_core.workspace = true
+boltffi_ast.workspace = true
+boltffi_backend.workspace = true
+boltffi_binding.workspace = true
+boltffi_scan.workspace = true
+syn.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+---
+source: boltffi_backend/tests/kotlin/direct_vector.rs
+expression: "rendered_fixture(\"direct_vector/primitive_vector_parameter\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_sum(values: IntArray): Int
+}
+
+fun sum(values: IntArray): Int {
+    return Native.boltffi_function_demo_sum(values)
+}

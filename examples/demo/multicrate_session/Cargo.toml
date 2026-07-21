@@ -1,0 +1,8 @@
+[package]
+name = "demo_multicrate_session"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+boltffi = { path = "../../../boltffi" }
+demo_multicrate_model = { path = "../multicrate_model" }

@@ -1,0 +1,194 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: rendered
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+
+import kotlinx.coroutines.launch
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_async_callback_complete_Bytes(callback: Long, context: Long, result: ByteArray): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_Bytes_failure(callback: Long, context: Long): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_Bytes_error(callback: Long, context: Long, result: ByteArray): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_Record____Point(callback: Long, context: Long, result: ByteArray): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_Record____Point_failure(callback: Long, context: Long): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_Record____Point_error(callback: Long, context: Long, result: ByteArray): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_U32(callback: Long, context: Long, result: Int): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_U32_failure(callback: Long, context: Long): Unit
+    @JvmStatic external fun boltffi_async_callback_complete_U32_error(callback: Long, context: Long, result: Int): Unit
+
+    @JvmStatic fun boltffiFutureContinuationCallback(handle: Long, pollResult: Byte) {
+        BoltFfiAsync.resume(handle, pollResult)
+    }
+}
+
+
+data class Point(
+    val x: Int,
+    val y: Int
+) {
+    internal fun toByteArray(): ByteArray {
+        val buffer = java.nio.ByteBuffer
+            .allocate(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer.array()
+    }
+
+    internal fun toDirectBuffer(): java.nio.ByteBuffer {
+        val buffer = java.nio.ByteBuffer
+            .allocateDirect(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer
+    }
+
+    internal fun writeTo(buffer: java.nio.ByteBuffer, offset: Int) {
+        buffer.putInt(offset, x)
+        buffer.putInt(offset + 4, y)
+    }
+
+    companion object {
+        internal const val STRUCT_SIZE: Int = 8
+
+        internal fun fromByteArray(bytes: ByteArray): Point {
+            require(bytes.size == STRUCT_SIZE)
+            val buffer = java.nio.ByteBuffer
+                .wrap(bytes)
+                .order(java.nio.ByteOrder.nativeOrder())
+            return fromBuffer(buffer, 0)
+        }
+
+        internal fun fromBuffer(buffer: java.nio.ByteBuffer, offset: Int): Point {
+            return Point(
+                buffer.getInt(offset),
+                buffer.getInt(offset + 4)
+            )
+        }
+    }
+}
+
+
+sealed class LoadError(val value: Int) : Exception() {
+    object Bad : LoadError(1)
+
+    companion object {
+        fun fromValue(value: Int): LoadError =
+            when (value) {
+                1 -> Bad
+                else -> throw IllegalArgumentException("unknown LoadError value: $value")
+            }
+    }
+}
+
+interface Listener {
+    suspend fun value(key: UInt): UInt
+    suspend fun point(point: Point): Point
+    suspend fun values(count: UInt): UIntArray
+    suspend fun tryLoad(key: UInt): String
+    suspend fun checkEnabled(key: UInt): Boolean
+}
+
+private object ListenerMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, Listener>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: Listener): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): Listener? = map[handle]
+
+    fun remove(handle: Long): Listener? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object ListenerCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        ListenerMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return ListenerMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun value(handle: Long, key: Int, callbackToken: Long, callbackContext: Long) {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        boltffiLaunchCallback {
+            try {
+                val __boltffi_result = impl.value(key.toUInt())
+                Native.boltffi_async_callback_complete_U32(callbackToken, callbackContext, __boltffi_result.toInt())
+            } catch (throwable: Throwable) {
+                Native.boltffi_async_callback_complete_U32_failure(callbackToken, callbackContext)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun point(handle: Long, point: ByteArray, callbackToken: Long, callbackContext: Long) {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        boltffiLaunchCallback {
+            try {
+                val __boltffi_result = impl.point(Point.fromByteArray(point))
+                Native.boltffi_async_callback_complete_Record____Point(callbackToken, callbackContext, __boltffi_result.toByteArray())
+            } catch (throwable: Throwable) {
+                Native.boltffi_async_callback_complete_Record____Point_failure(callbackToken, callbackContext)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun values(handle: Long, count: Int, callbackToken: Long, callbackContext: Long) {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        boltffiLaunchCallback {
+            try {
+                val __boltffi_result = impl.values(count.toUInt())
+                Native.boltffi_async_callback_complete_Bytes(callbackToken, callbackContext, DirectVectorCodec.writeUIntArray(__boltffi_result))
+            } catch (throwable: Throwable) {
+                Native.boltffi_async_callback_complete_Bytes_failure(callbackToken, callbackContext)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun try_load(handle: Long, key: Int, callbackToken: Long, callbackContext: Long) {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        boltffiLaunchCallback {
+            try {
+                try { run { val __boltffi_result = impl.tryLoad(key.toUInt()); val __boltffi_tryLoad_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(__boltffi_result)); val __boltffi_tryLoad_writer = __boltffi_tryLoad_wire.writer; __boltffi_tryLoad_writer.writeString(__boltffi_result); Native.boltffi_async_callback_complete_Bytes(callbackToken, callbackContext, __boltffi_tryLoad_wire.bytes()); __boltffi_tryLoad_wire.close(); Unit } } catch (__boltffi_tryLoad_error: LoadError) { run { val __boltffi_tryLoad_wire = WireWriterPool.acquire(4); val __boltffi_tryLoad_writer = __boltffi_tryLoad_wire.writer; __boltffi_tryLoad_writer.writeI32(__boltffi_tryLoad_error.value); val __boltffi_tryLoad_error_bytes = __boltffi_tryLoad_wire.bytes(); Native.boltffi_async_callback_complete_Bytes_error(callbackToken, callbackContext, __boltffi_tryLoad_error_bytes); __boltffi_tryLoad_wire.close(); Unit } }
+            } catch (throwable: Throwable) {
+                Native.boltffi_async_callback_complete_Bytes_failure(callbackToken, callbackContext)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun check_enabled(handle: Long, key: Int, callbackToken: Long, callbackContext: Long) {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        boltffiLaunchCallback {
+            try {
+                try { run { val __boltffi_result = impl.checkEnabled(key.toUInt()); val __boltffi_checkEnabled_wire = WireWriterPool.acquire(1); val __boltffi_checkEnabled_writer = __boltffi_checkEnabled_wire.writer; __boltffi_checkEnabled_writer.writeBool(__boltffi_result); Native.boltffi_async_callback_complete_Bytes(callbackToken, callbackContext, __boltffi_checkEnabled_wire.bytes()); __boltffi_checkEnabled_wire.close(); Unit } } catch (__boltffi_checkEnabled_error: LoadError) { run { val __boltffi_checkEnabled_wire = WireWriterPool.acquire(4); val __boltffi_checkEnabled_writer = __boltffi_checkEnabled_wire.writer; __boltffi_checkEnabled_writer.writeI32(__boltffi_checkEnabled_error.value); val __boltffi_checkEnabled_error_bytes = __boltffi_checkEnabled_wire.bytes(); Native.boltffi_async_callback_complete_Bytes_error(callbackToken, callbackContext, __boltffi_checkEnabled_error_bytes); __boltffi_checkEnabled_wire.close(); Unit } }
+            } catch (throwable: Throwable) {
+                Native.boltffi_async_callback_complete_Bytes_failure(callbackToken, callbackContext)
+            }
+        }
+    }
+}
+
+object ListenerBridge {
+    fun create(value: Listener): Long {
+        return ListenerMap.insert(value)
+    }
+}

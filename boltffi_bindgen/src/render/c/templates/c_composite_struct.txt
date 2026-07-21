@@ -1,0 +1,9 @@
+// ___{{ name }}: internal repr(C) layout for {{ name }}.
+// The ___ prefix marks this as an FFI-private type — foreign wrappers
+// generate their own native struct and read/write through this layout.
+typedef struct {
+{%- for field in fields %}
+    {{ field.c_type }} {{ field.name }};
+{%- endfor %}
+} ___{{ name }};
+

@@ -1,0 +1,19 @@
+[package]
+name = "boltffi_ast"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Canonical source AST for BoltFFI exported Rust APIs"
+keywords = ["ffi", "ast", "metadata", "bindings"]
+categories = ["development-tools::ffi"]
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

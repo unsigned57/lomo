@@ -1,0 +1,5 @@
+typedef {{ tag_c_type }} ___{{ name }};
+{%- for variant in variants %}
+#define ___{{ name }}_{{ variant.name }} {{ variant.discriminant }}
+{%- endfor %}
+

@@ -1,0 +1,42 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture(\"exports/multi_argument_closure_parameter\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_install(callback: Long): Unit
+}
+
+fun interface ClosureU32U32ToU32 {
+    fun invoke(arg0: UInt, arg1: UInt): UInt
+}
+
+private object ClosureU32_U32ToU32Callbacks {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, ClosureU32U32ToU32>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: ClosureU32U32ToU32): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    @JvmStatic
+    fun free(handle: Long) {
+        map.remove(handle)
+    }
+
+    @JvmStatic
+    fun call(handle: Long, arg0: Int, arg1: Int): Int {
+        val impl = map[handle] ?: error("ClosureU32_U32ToU32Callbacks: invalid handle $handle")
+        return impl.invoke(arg0.toUInt(), arg1.toUInt()).toInt()
+    }
+}
+
+fun install(callback: ClosureU32U32ToU32) {
+    Native.boltffi_function_demo_install(ClosureU32_U32ToU32Callbacks.insert(callback))
+}

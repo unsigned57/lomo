@@ -1,0 +1,24 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+data class Config(
+    val timeout: Int = 30,
+    val retries: Int = 3
+) {
+    companion object {
+        const val SIZE_BYTES: Int = 8
+
+        fun decode(reader: WireReader): Config = Config(
+            reader.readI32(),
+            reader.readI32()
+        )
+    }
+    fun wireEncodedSize(): Int = SIZE_BYTES
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeI32(timeout)
+        wire.writeI32(retries)
+    }
+}

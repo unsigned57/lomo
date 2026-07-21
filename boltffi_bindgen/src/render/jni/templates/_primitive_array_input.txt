@@ -1,0 +1,27 @@
+{%- if param.array_has_stack_copy_fast_path() %}
+    {{ param.array_elements_value_type() }} _{{ param.name }}_stack[{{ param.array_stack_copy_max_len() }}];
+    uintptr_t _{{ param.name }}_len = (uintptr_t)(*env)->GetArrayLength(env, {{ param.name }});
+    {{ param.array_c_type() }}* _{{ param.name }}_ptr = NULL;
+    bool _{{ param.name }}_needs_release = false;
+    if (_{{ param.name }}_len <= {{ param.array_stack_copy_max_len() }}) {
+        (*env)->{{ param.array_get_region_fn() }}(env, {{ param.name }}, 0, (jsize)_{{ param.name }}_len, _{{ param.name }}_stack);
+        if (boltffi_exception_pending(env)) {
+            _{{ param.name }}_len = 0;
+            _boltffi_input_error = true;
+        } else {
+            _{{ param.name }}_ptr = ({{ param.array_c_type() }}*)_{{ param.name }}_stack;
+        }
+    } else {
+        _{{ param.name }}_ptr = ({{ param.array_c_type() }}*)(*env)->{{ param.array_get_elements_fn() }}(env, {{ param.name }}, NULL);
+        if (_{{ param.name }}_ptr == NULL) {
+            _{{ param.name }}_len = 0;
+            _boltffi_input_error = true;
+        } else {
+            _{{ param.name }}_needs_release = true;
+        }
+    }
+{%- else %}
+    uintptr_t _{{ param.name }}_len = (uintptr_t)(*env)->GetArrayLength(env, {{ param.name }});
+    {{ param.array_c_type() }}* _{{ param.name }}_ptr = ({{ param.array_c_type() }}*)(*env)->{{ param.array_get_elements_fn() }}(env, {{ param.name }}, NULL);
+    if (_{{ param.name }}_ptr == NULL) { _{{ param.name }}_len = 0; _boltffi_input_error = true; }
+{%- endif %}

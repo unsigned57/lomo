@@ -1,0 +1,90 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: rendered
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_install(callback: Long): Unit
+}
+
+fun interface ClosureToDemoPoint {
+    fun invoke(): Demo.Point
+}
+
+private object ClosureToDemoPointCallbacks {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, ClosureToDemoPoint>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: ClosureToDemoPoint): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    @JvmStatic
+    fun free(handle: Long) {
+        map.remove(handle)
+    }
+
+    @JvmStatic
+    fun call(handle: Long): ByteArray {
+        val impl = map[handle] ?: error("ClosureToDemoPointCallbacks: invalid handle $handle")
+        return impl.invoke().toByteArray()
+    }
+}
+
+object Demo {
+
+    data class Point(
+        val x: Int,
+        val y: Int
+    ) {
+        internal fun toByteArray(): ByteArray {
+            val buffer = java.nio.ByteBuffer
+                .allocate(STRUCT_SIZE)
+                .order(java.nio.ByteOrder.nativeOrder())
+            writeTo(buffer, 0)
+            return buffer.array()
+        }
+
+        internal fun toDirectBuffer(): java.nio.ByteBuffer {
+            val buffer = java.nio.ByteBuffer
+                .allocateDirect(STRUCT_SIZE)
+                .order(java.nio.ByteOrder.nativeOrder())
+            writeTo(buffer, 0)
+            return buffer
+        }
+
+        internal fun writeTo(buffer: java.nio.ByteBuffer, offset: Int) {
+            buffer.putInt(offset, x)
+            buffer.putInt(offset + 4, y)
+        }
+
+        companion object {
+            internal const val STRUCT_SIZE: Int = 8
+
+            internal fun fromByteArray(bytes: ByteArray): Point {
+                require(bytes.size == STRUCT_SIZE)
+                val buffer = java.nio.ByteBuffer
+                    .wrap(bytes)
+                    .order(java.nio.ByteOrder.nativeOrder())
+                return fromBuffer(buffer, 0)
+            }
+
+            internal fun fromBuffer(buffer: java.nio.ByteBuffer, offset: Int): Point {
+                return Point(
+                    buffer.getInt(offset),
+                    buffer.getInt(offset + 4)
+                )
+            }
+        }
+    }
+
+    fun install(callback: ClosureToDemoPoint) {
+        Native.boltffi_function_demo_install(ClosureToDemoPointCallbacks.insert(callback))
+    }
+}

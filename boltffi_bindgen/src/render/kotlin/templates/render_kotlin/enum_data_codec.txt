@@ -1,0 +1,46 @@
+object {{ codec_name }} {
+    const val STRUCT_SIZE = {{ struct_size }}
+    private const val TAG_OFFSET = 0
+    private const val PAYLOAD_OFFSET = {{ payload_offset }}
+
+{%- for variant in variants %}
+    private const val TAG_{{ variant.const_name }} = {{ variant.tag_value }}
+{%- endfor %}
+
+    fun pack(value: {{ class_name }}): ByteArray {
+        val bytes = ByteArray(STRUCT_SIZE)
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.nativeOrder())
+
+        when (value) {
+{%- for variant in variants %}
+            is {{ class_name }}.{{ variant.name }} -> {
+                buf.putInt(TAG_OFFSET, TAG_{{ variant.const_name }})
+{%- for field in variant.fields %}
+                buf.{{ field.putter }}(PAYLOAD_OFFSET + {{ field.offset }}, {{ field.value_expr }})
+{%- endfor %}
+            }
+{%- endfor %}
+        }
+
+        return bytes
+    }
+
+    fun read(buf: ByteBuffer): {{ class_name }} {
+        buf.order(ByteOrder.nativeOrder())
+        return when (val tag = buf.getInt(TAG_OFFSET)) {
+{%- for variant in variants %}
+            TAG_{{ variant.const_name }} ->
+{%- if variant.fields.is_empty() %}
+                {{ class_name }}.{{ variant.name }}
+{%- else %}
+                {{ class_name }}.{{ variant.name }}(
+{%- for field in variant.fields %}
+                    {{ field.param_name }} = buf.{{ field.getter }}(PAYLOAD_OFFSET + {{ field.offset }}){{ field.conversion }}{% if !loop.last %},{% endif %}
+{%- endfor %}
+                )
+{%- endif %}
+{%- endfor %}
+            else -> throw FfiException(-1, "Unknown {{ class_name }} tag: $tag")
+        }
+    }
+}

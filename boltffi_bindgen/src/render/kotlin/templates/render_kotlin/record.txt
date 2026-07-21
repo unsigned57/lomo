@@ -1,0 +1,102 @@
+{%- if fields.is_empty() %}
+{{ self::kdoc_block(doc, "") }}object {{ class_name }}{% if is_error %} : kotlin.Exception(""){% endif %} {
+    fun decode(reader: WireReader): {{ class_name }} = {{ class_name }}
+
+    fun wireEncodedSize(): Int = 0
+
+    fun wireEncodeTo(wire: WireWriter) {
+    }
+}
+{%- else %}
+{{ self::kdoc_block(doc, "") }}data class {{ class_name }}(
+{%- for field in fields %}
+{{ self::kdoc_block(field.doc, "    ") }}    {% if is_error && field.name == "message" %}override {% endif %}val {{ field.name }}: {{ field.kotlin_type }}{% if field.has_default() %} = {{ field.default_expr() }}{% endif %}{% if !loop.last %},{% endif %}
+{%- endfor %}
+) {% if is_error %}: kotlin.Exception({% match message_field_name %}{% when Some with (message_field_name) %}{{ message_field_name }}{% when None %}""{% endmatch %}){% endif %}{
+    companion object {
+{%- if is_blittable %}
+        const val SIZE_BYTES: Int = {{ struct_size }}
+
+        fun decode(reader: WireReader): {{ class_name }} = {{ class_name }}(
+{%- for field in fields %}
+            {{ field.wire_decode_expr }}{% if is_blittable && field.padding_after > 0 %}.also { reader.skip({{ field.padding_after }}) }{% endif %}{% if !loop.last %},{% endif %}
+{%- endfor %}
+        )
+{%- else %}
+        fun decode(reader: WireReader): {{ class_name }} = {{ class_name }}(
+{%- for field in fields %}
+            {{ field.wire_decode_expr }}{% if !loop.last %},{% endif %}
+{%- endfor %}
+        )
+{%- endif %}
+{%- for ctor in constructors %}
+
+{{ self::kdoc_block(ctor.doc, "        ") }}{%- if ctor.throws %}
+        @Throws({{ ctor.err_type }}::class)
+{%- endif %}
+        fun {{ ctor.name }}({% for param in ctor.signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}){% if let Some(ret) = ctor.return_type %}: {{ ret }}{% endif %} {
+{%- if ctor.wire_writers.is_empty() %}
+{%- if ctor.return_is_direct %}
+            return Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ ctor.return_cast }}
+{%- else %}
+            val buf = Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+                ?: throw FfiException(-1, "Null buffer returned")
+{%- if ctor.is_blittable_return %}
+            return useWireBytes(buf) { buffer ->
+                {{ ctor.decode_expr }}
+            }
+{%- else %}
+            val reader = WireReader(buf)
+            return {{ ctor.decode_expr }}
+{%- endif %}
+{%- endif %}
+{%- else %}
+{%- for binding in ctor.wire_writers %}
+            {{ binding.setup_code() }}
+{%- endfor %}
+            try {
+{%- if ctor.return_is_direct %}
+                return Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ ctor.return_cast }}
+{%- else %}
+                val buf = Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+                    ?: throw FfiException(-1, "Null buffer returned")
+{%- if ctor.is_blittable_return %}
+                return useWireBytes(buf) { buffer ->
+                    {{ ctor.decode_expr }}
+                }
+{%- else %}
+                val reader = WireReader(buf)
+                return {{ ctor.decode_expr }}
+{%- endif %}
+{%- endif %}
+            } finally {
+{%- for close_code in ctor.wire_writer_closes %}
+                {{ close_code }}
+{%- endfor %}
+            }
+{%- endif %}
+        }
+{%- endfor %}
+{%- include "_companion_methods.txt" %}
+    }
+
+{%- if is_blittable %}
+    fun wireEncodedSize(): Int = SIZE_BYTES
+{%- else %}
+    fun wireEncodedSize(): Int =
+{%- for field in fields %}
+        {{ field.wire_size_expr }}{% if !loop.last %} +{% endif %}
+{%- endfor %}
+{%- endif %}
+
+    fun wireEncodeTo(wire: WireWriter) {
+{%- for field in fields %}
+        {{ field.wire_encode }}
+{%- if is_blittable && field.padding_after > 0 %}
+        wire.writePadding({{ field.padding_after }})
+{%- endif %}
+{%- endfor %}
+    }
+{%- include "_instance_methods.txt" %}
+}
+{%- endif %}

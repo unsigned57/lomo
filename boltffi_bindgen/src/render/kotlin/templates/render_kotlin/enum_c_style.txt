@@ -1,0 +1,41 @@
+{{ self::kdoc_block(doc, "") }}enum class {{ class_name }}(val value: {{ value_type }}) {
+{%- for variant in variants %}
+{{ self::kdoc_block(variant.doc, "    ") }}    {{ variant.name }}({{ self::kotlin_integer_literal(variant.tag, value_type) }}){% if !loop.last %},{% else %};{% endif %}
+{%- endfor %}
+
+    companion object {
+        fun fromValue(value: {{ value_type }}): {{ class_name }} = entries.first { it.value == value }
+        fun fromWireTag(tag: Int): {{ class_name }} = entries.getOrElse(tag) {
+            throw FfiException(-1, "Unknown {{ class_name }} wire tag: $tag")
+        }
+
+        fun decode(reader: WireReader): {{ class_name }} = fromWireTag(reader.readI32())
+{%- for ctor in constructors %}
+
+{{ self::kdoc_block(ctor.doc, "        ") }}        fun {{ ctor.name }}({% for param in ctor.signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}): {{ class_name }} {
+{%- if ctor.wire_writers.is_empty() %}
+            return {{ class_name }}.fromValue(Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}))
+{%- else %}
+{%- for binding in ctor.wire_writers %}
+            {{ binding.setup_code() }}
+{%- endfor %}
+            try {
+                return {{ class_name }}.fromValue(Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}))
+            } finally {
+{%- for close_code in ctor.wire_writer_closes %}
+                {{ close_code }}
+{%- endfor %}
+            }
+{%- endif %}
+        }
+{%- endfor %}
+{%- include "_companion_methods.txt" %}
+    }
+
+    fun wireTag(): Int = ordinal
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeI32(wireTag())
+    }
+{%- include "_instance_methods.txt" %}
+}

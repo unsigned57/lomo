@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>BoltFFIBench</RootNamespace>
+    <AssemblyName>BoltFFIBench</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\generated\boltffi\dist\csharp\*.cs" LinkBase="Generated\BoltFFI" />
+    <Compile Include="..\..\adapters\uniffi\dist\csharp\*.cs" LinkBase="Generated\UniFFI" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <BoltffiNativeDir>$(MSBuildThisFileDirectory)..\..\generated\boltffi\target\release</BoltffiNativeDir>
+    <UniffiNativeDir>$(MSBuildThisFileDirectory)..\..\adapters\uniffi\target\release</UniffiNativeDir>
+  </PropertyGroup>
+
+  <Target Name="CopyNativeLibraries" AfterTargets="Build">
+    <ItemGroup>
+      <_BoltffiNativeLib Include="$(BoltffiNativeDir)\libdemo.dylib" Condition="Exists('$(BoltffiNativeDir)\libdemo.dylib')" />
+      <_BoltffiNativeLib Include="$(BoltffiNativeDir)\libdemo.so"    Condition="Exists('$(BoltffiNativeDir)\libdemo.so')" />
+      <_BoltffiNativeLib Include="$(BoltffiNativeDir)\demo.dll"      Condition="Exists('$(BoltffiNativeDir)\demo.dll')" />
+      <_UniffiNativeLib Include="$(UniffiNativeDir)\libbench_uniffi.dylib" Condition="Exists('$(UniffiNativeDir)\libbench_uniffi.dylib')" />
+      <_UniffiNativeLib Include="$(UniffiNativeDir)\libbench_uniffi.so"    Condition="Exists('$(UniffiNativeDir)\libbench_uniffi.so')" />
+      <_UniffiNativeLib Include="$(UniffiNativeDir)\bench_uniffi.dll"      Condition="Exists('$(UniffiNativeDir)\bench_uniffi.dll')" />
+    </ItemGroup>
+    <Error
+      Text="demo cdylib not found in $(BoltffiNativeDir). Run benchmarks/harnesses/dotnet-bench/run-bench.sh or regenerate the benchmark overlay first."
+      Condition="'@(_BoltffiNativeLib)' == ''" />
+    <Error
+      Text="bench_uniffi cdylib not found in $(UniffiNativeDir). Run benchmarks/harnesses/dotnet-bench/run-bench.sh or regenerate the UniFFI benchmark bindings first."
+      Condition="'@(_UniffiNativeLib)' == ''" />
+    <Copy SourceFiles="@(_BoltffiNativeLib)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_UniffiNativeLib)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

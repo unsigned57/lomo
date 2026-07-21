@@ -1,0 +1,821 @@
+---
+title: "Configuration"
+description: "Configure boltffi.toml package names, target outputs, and platform packaging behavior for generated Swift, Kotlin, Java, C#, TypeScript, and Python bindings."
+---
+
+# Configuration
+
+BoltFFI reads its configuration from a file called `boltffi.toml` in your project's root directory. This file tells BoltFFI how to name your modules, where to put generated files, and how to structure the output packages. Run `boltffi init` to create one with sensible defaults, then customize it for your needs.
+
+## Overlay Configs
+
+BoltFFI always starts from `./boltffi.toml`. For one-off builds, you can merge an additional TOML
+file on top with the global `--overlay` flag:
+
+```bash
+boltffi --overlay boltffi.ci.toml pack android
+boltffi --overlay boltffi.release.toml pack all --release
+```
+
+This is useful when you want CI or release-specific settings without changing the tracked base
+config. The base `boltffi.toml` must still exist; the overlay only augments or overrides values in
+that file for the current command. `boltffi init` is the one command that intentionally rejects
+`--overlay`.
+
+## Package Identity
+
+Every `boltffi.toml` starts with a `[package]` section that identifies your library:
+
+```toml
+[package]
+name = "mylib"
+```
+
+The `name` field is used to derive default names throughout the pipeline. For example, if your package name is `mylib`, BoltFFI generates a Swift module called `MyLib` and a Kotlin class called `MyLib`. All output paths also use this name as a base.
+
+If your Rust crate has a different name than what you want to expose (perhaps your crate is `my_lib` with underscores but you want `mylib`), specify both:
+
+```toml
+[package]
+name = "mylib"
+crate = "my_lib"
+```
+
+BoltFFI scans and builds the crate specified by `crate`, but uses `name` for all generated module names and paths.
+
+## Apple Configuration
+
+The `[targets.apple]` section controls iOS, iOS Simulator, and optionally macOS builds.
+
+### Output Directory
+
+All Apple artifacts go into a single root directory. By default this is `dist/apple`, but you can change it:
+
+```toml
+[targets.apple]
+output = "build/ios"
+```
+
+After running `boltffi pack apple`, this directory contains your xcframework, Package.swift, and generated Swift sources.
+
+### Deployment Target
+
+The deployment target sets the minimum iOS version your library supports. This affects which APIs are available and which devices can run your code:
+
+```toml
+[targets.apple]
+deployment_target = "15.0"
+```
+
+The default is `16.0`. Lower this if you need to support older devices, but be aware that some Swift concurrency features require iOS 13+ and full async/await requires iOS 15+.
+
+### Including macOS
+
+By default, BoltFFI only builds for iOS and iOS Simulator. If your library also needs to run on Mac, enable macOS builds:
+
+```toml
+[targets.apple]
+include_macos = true
+```
+
+This adds macOS slices to your xcframework, making it usable in Mac Catalyst apps and native macOS applications.
+
+### Apple Slice Selection
+
+BoltFFI resolves Apple slices from `boltffi.toml` instead of always packaging the full default matrix. By default it builds:
+
+- iOS device: `arm64`
+- iOS Simulator: `arm64`, `x86_64`
+- macOS: disabled unless `include_macos = true`
+
+You can narrow that matrix explicitly:
+
+```toml
+[targets.apple]
+ios_architectures = ["arm64"]
+simulator_architectures = ["arm64"]
+include_macos = true
+macos_architectures = ["arm64"]
+```
+
+Each Apple architecture list can be set to `[]` to exclude that slice family. `macos_architectures`
+only applies when `include_macos = true`. When a list is omitted, BoltFFI keeps the current
+defaults. BoltFFI still requires at least one Apple slice across device, simulator, or enabled
+macOS targets.
+
+### Swift Module Name
+
+The generated Swift code is organized into a module. By default, BoltFFI converts your package name to PascalCase (`mylib` becomes `MyLib`). Override this if you want a different name:
+
+```toml
+[targets.apple.swift]
+module_name = "MyLibrary"
+```
+
+This name appears in your Swift import statements: `import MyLibrary`.
+
+### SwiftPM Layouts
+
+The layout determines how BoltFFI structures the SwiftPM package. This is the most important configuration choice for Apple because it affects how you integrate the library into your Xcode project.
+
+### Debug Symbols
+
+If you want a companion archive of the unstripped Apple slice libraries, enable `debug_symbols`:
+
+```toml
+[targets.apple.debug_symbols]
+enabled = true
+output = "dist/apple/symbols"
+```
+
+`boltffi pack apple` writes `{XcframeworkName}.xcframework.symbols.zip` to that directory. The archive includes a `symbols.json` manifest plus one unstripped static library per discovered Apple target slice.
+
+For release-like packaging profiles, BoltFFI now requires Cargo debuginfo to be enabled before it will emit this archive. In practice that usually means:
+
+```toml
+[profile.release]
+debug = true
+```
+
+#### ffi-only Layout
+
+This is the default and simplest option. BoltFFI creates a self-contained SwiftPM package with everything inside:
+
+```toml
+[targets.apple.spm]
+layout = "ffi-only"
+```
+
+**When to use:** You want a drop-in package that works immediately. No additional setup required.
+
+**Output structure:**
+```
+dist/apple/
+├── MyLib.xcframework/
+│   ├── ios-arm64/
+│   │   ├── Headers/mylib.h
+│   │   └── libmylib.a
+│   └── ios-arm64_x86_64-simulator/
+│       ├── Headers/mylib.h
+│       └── libmylib.a
+├── Package.swift
+└── Sources/
+    └── BoltFFI/
+        └── MyLibBoltFFI.swift
+```
+
+**Generated Package.swift:**
+```swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyLib",
+    platforms: [.iOS(.v16)],
+    products: [
+        .library(name: "MyLib", targets: ["MyLib"])
+    ],
+    targets: [
+        .binaryTarget(
+            name: "MyLibFFI",
+            path: "MyLib.xcframework"
+        ),
+        .target(
+            name: "MyLib",
+            dependencies: ["MyLibFFI"],
+            path: "Sources/BoltFFI"
+        )
+    ]
+)
+```
+
+To use this package in Xcode, add it as a local package dependency pointing to `dist/apple`, then `import MyLib` in your Swift code.
+
+#### bundled Layout
+
+Use this when you have an existing Swift package and want to add BoltFFI-generated bindings to it. BoltFFI places the generated Swift inside your existing source directory:
+
+```toml
+[targets.apple.spm]
+layout = "bundled"
+wrapper_sources = "Sources/MyWrapper"
+```
+
+**When to use:** You're adding Rust functionality to an existing Swift package, or you want to write additional Swift wrapper code alongside the generated bindings.
+
+**Output structure:**
+```
+dist/apple/
+├── MyLib.xcframework/
+├── Package.swift
+└── Sources/
+    └── MyWrapper/
+        ├── YourExistingCode.swift
+        └── BoltFFI/
+            └── MyLibBoltFFI.swift
+```
+
+The `wrapper_sources` path tells BoltFFI where your existing Swift target lives. Generated bindings go into a `Riff` subdirectory inside that path. Your Package.swift should already have a target pointing at `Sources/MyWrapper`.
+
+#### split Layout
+
+Use this when you want maximum control. BoltFFI creates a binary-only package containing just the xcframework, and writes the generated Swift to a separate location:
+
+```toml
+[targets.apple.spm]
+layout = "split"
+
+[targets.apple.swift]
+output = "Sources/Generated"
+```
+
+**When to use:** You maintain your own SwiftPM package structure and just need the xcframework and generated code as raw ingredients.
+
+**Output structure:**
+```
+dist/apple/
+├── MyLib.xcframework/
+└── Package.swift          # binary target only
+
+Sources/
+└── Generated/
+    └── BoltFFI/
+        └── MyLibBoltFFI.swift
+```
+
+**Generated Package.swift:**
+```swift
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "MyLibFFI",
+    platforms: [.iOS(.v16)],
+    products: [
+        .library(name: "MyLibFFI", targets: ["MyLibFFI"])
+    ],
+    targets: [
+        .binaryTarget(
+            name: "MyLibFFI",
+            path: "MyLib.xcframework"
+        )
+    ]
+)
+```
+
+You then create your own package that depends on `MyLibFFI` and includes the generated Swift from `Sources/Generated`.
+
+### Remote Distribution
+
+By default, Package.swift references the xcframework via a local file path. This works for development and when you bundle the package directly in your app repository. For distributing your library to others, switch to remote distribution:
+
+```toml
+[targets.apple.spm]
+distribution = "remote"
+repo_url = "https://github.com/yourname/mylib/releases/download"
+```
+
+Then package with a version:
+
+```bash
+boltffi pack apple --release --version 1.0.0
+```
+
+**Generated Package.swift:**
+```swift
+.binaryTarget(
+    name: "MyLibFFI",
+    url: "https://github.com/yourname/mylib/releases/download/1.0.0/MyLib.xcframework.zip",
+    checksum: "abc123..."
+)
+```
+
+Upload `MyLib.xcframework.zip` to your GitHub release. Consumers can then add your package by URL without needing the source.
+
+### Type Mappings
+
+If you use custom types that should map to native Swift types, configure type mappings. For example, if your Rust code uses a `Uuid` type that should become Swift's `UUID`:
+
+```toml
+[targets.apple.swift.type_mappings]
+Uuid = { type = "UUID", conversion = "uuid_string" }
+```
+
+The generated Swift uses `UUID` directly instead of a wrapper type. BoltFFI handles the string conversion automatically at the FFI boundary.
+
+Available conversions:
+- `uuid_string`: Converts between String and UUID
+- `url_string`: Converts between String and URL
+
+## Android Configuration
+
+The `[targets.android]` section controls builds for all Android ABIs.
+
+### Output Directory
+
+All Android artifacts go into a single root directory:
+
+```toml
+[targets.android]
+output = "build/android"
+```
+
+The default is `dist/android`. After running `boltffi pack android`, this directory contains your jniLibs and Kotlin sources.
+
+### Minimum SDK
+
+Set the minimum Android API level:
+
+```toml
+[targets.android]
+min_sdk = 21
+```
+
+The default is `24` (Android 7.0). Lower values support more devices but may limit available APIs.
+
+### Kotlin Package
+
+Generated Kotlin code needs a package name. By default, BoltFFI uses `com.example.{name}`:
+
+```toml
+[targets.android.kotlin]
+package = "com.mycompany.mylib"
+```
+
+This determines the directory structure of the generated files and the package declaration in the Kotlin source.
+
+### API Style
+
+Choose how exported functions appear in Kotlin:
+
+```toml
+[targets.android.kotlin]
+api_style = "top_level"
+```
+
+**top_level** (default): Functions are top-level Kotlin functions. Import the package and call directly:
+
+```kotlin
+import com.mycompany.mylib.*
+
+val result = processData(input)
+```
+
+**module_object**: Functions are methods on an object. Useful if you want to namespace everything:
+
+```toml
+[targets.android.kotlin]
+api_style = "module_object"
+module_name = "MyLib"
+```
+
+```kotlin
+import com.mycompany.mylib.MyLib
+
+val result = MyLib.processData(input)
+```
+
+### Factory Style
+
+When your Rust code has factory functions (functions that create class instances), choose how they appear in Kotlin:
+
+```toml
+[targets.android.kotlin]
+factory_style = "constructors"
+```
+
+**constructors** (default): Factory functions become Kotlin constructors:
+
+```kotlin
+val client = HttpClient(baseUrl)
+```
+
+**companion_methods**: Factory functions become companion object methods:
+
+```kotlin
+val client = HttpClient.create(baseUrl)
+```
+
+### Output Structure
+
+After running `boltffi pack android`, you get:
+
+```
+dist/android/
+├── jniLibs/
+│   ├── arm64-v8a/
+│   │   └── libmylib.so
+│   ├── armeabi-v7a/
+│   │   └── libmylib.so
+│   ├── x86/
+│   │   └── libmylib.so
+│   └── x86_64/
+│       └── libmylib.so
+└── kotlin/
+    ├── com/mycompany/mylib/
+    │   └── MyLib.kt
+    └── jni/
+        └── jni_glue.c
+```
+
+Copy `jniLibs` to your Android project's `src/main/` directory. Copy the Kotlin sources to your source set. The native libraries are loaded automatically when you first use the Kotlin bindings.
+
+### Android Debug Symbols
+
+To keep a companion archive of the unstripped JNI libraries per ABI:
+
+```toml
+[targets.android.debug_symbols]
+enabled = true
+output = "dist/android/symbols"
+```
+
+`boltffi pack android` writes `{crate_artifact_name}.android.symbols.zip` to that directory. The archive mirrors the `jniLibs/<abi>/` layout and includes a `symbols.json` manifest with ABI and target mappings.
+
+For release-like packaging profiles, BoltFFI requires Cargo debuginfo to be enabled before it will emit this archive.
+
+## Kotlin Multiplatform Configuration
+
+The `[targets.kotlin_multiplatform]` section is experimental and controls `boltffi generate kmp --experimental`.
+
+```toml
+experimental = ["kotlin_multiplatform"]
+
+[targets.kotlin_multiplatform]
+enabled = true
+output = "dist/kotlin-multiplatform"
+package = "com.mycompany.mylib"
+module_name = "MyLib"
+# Experimental diagnostic mode. Default is false.
+preview_prune_unsupported = false
+```
+
+Generated output is a Kotlin Multiplatform Gradle module with `commonMain` declarations and `jvmMain`/`androidMain` actuals backed by the existing Kotlin/JNI generator. Kotlin/Native `cinterop` actuals for iOS/macOS are not generated yet.
+
+KMP generation is strict by default. Unsupported exported APIs fail generation so `commonMain` never silently exposes a partial contract. Setting `preview_prune_unsupported = true` omits unsupported APIs, writes `boltffi-kmp-support.json`, and marks the generated module as pruned for diagnostic iteration.
+
+If `package` or `module_name` is omitted, BoltFFI reuses the corresponding Android Kotlin defaults.
+
+`boltffi pack kmp` writes JVM desktop native resources under `src/jvmMain/resources/native/<host-target>/`. Those JVM host targets come from `[targets.java.jvm].host_targets`, which defaults to `["current"]`; `targets.java.jvm.enabled` does not need to be true for KMP packaging to use the shared host matrix.
+
+## Java Configuration
+
+The `[targets.java]` section controls Java bindings for both JVM and Android.
+
+### Package Name
+
+Generated Java code needs a package name. By default, BoltFFI uses `com.example.{name}`:
+
+```toml
+[targets.java]
+package = "com.mycompany.mylib"
+```
+
+This determines the directory structure and the `package` declaration in every generated `.java` file.
+
+### Module Name
+
+The generated functions class uses a name derived from your package name. Override it if needed:
+
+```toml
+[targets.java]
+module_name = "MyLib"
+```
+
+This becomes the class name for the static functions module: `MyLib.someFunction()`.
+
+### Minimum Java Version
+
+The `min_version` controls which Java language features the generated code uses:
+
+```toml
+[targets.java]
+min_version = 8
+```
+
+| Version | Generated code uses |
+|---------|---------------------|
+| 8 | `final class` for records, `abstract class` for enums with data, `CompletableFuture` for async |
+| 16 | `record` types for structs |
+| 17 | `sealed interface` + `record` for enums with data |
+| 21 | Virtual thread blocking calls for async (no `CompletableFuture`) |
+
+### JVM Target
+
+Enable JVM packaging to produce a standalone JNI library for desktop or server use:
+
+```toml
+[targets.java.jvm]
+enabled = true
+output = "dist/java"
+host_targets = ["current", "linux-x86_64"]
+```
+
+The default output is `dist/java`. This produces Java sources, a C header, JNI glue, a structured native output under `dist/java/native/<host-target>/`, and a flat current-host `_jni` compatibility copy in `dist/java/`. `host_targets` defaults to `["current"]`, supports aliases such as `darwin-aarch64` and `linux-x86-64`, resolves `current` to the active host, and dedupes repeated entries. Requires `JAVA_HOME` and `clang`.
+
+Phase 4 extends JVM packaging from current-host-only output to explicit desktop host matrices. Current-host packaging works on `darwin-arm64`, `darwin-x86_64`, `linux-x86_64`, `linux-aarch64`, and `windows-x86_64`. The initial cross-host parity path is macOS packaging `linux-x86_64`, which requires the Rust target, a configured Linux linker such as `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER` or `BOLTFFI_JAVA_LINKER_X86_64_UNKNOWN_LINUX_GNU`, and target-appropriate JNI headers via either `BOLTFFI_JAVA_HOME_X86_64_UNKNOWN_LINUX_GNU` or `BOLTFFI_JAVA_INCLUDE_X86_64_UNKNOWN_LINUX_GNU`. `pack java` rejects explicit Cargo `--target` passthrough args because the host matrix is controlled by `host_targets`.
+
+### JVM Debug Symbols
+
+To archive the unstripped desktop JNI libraries per packaged host target:
+
+```toml
+[targets.java.jvm.debug_symbols]
+enabled = true
+output = "dist/java/symbols"
+```
+
+`boltffi pack java` writes `{selected_artifact_name}.jvm.symbols.zip` to that directory. The archive mirrors `native/<host-target>/` and includes a `symbols.json` manifest with host-target mappings.
+
+For release-like packaging profiles, BoltFFI requires Cargo debuginfo to be enabled before it will emit this archive. On Windows MSVC hosts, the archive also includes sibling `.pdb` files for the JNI DLL and any bundled Rust DLL when those sidecars exist.
+
+### Android Target
+
+Enable Android packaging to produce shared libraries for all Android ABIs:
+
+```toml
+[targets.java.android]
+enabled = true
+output = "dist/java/android"
+min_sdk = 24
+```
+
+The default output is `dist/java/android`. The `min_sdk` sets the minimum Android API level (default `24`).
+
+Both JVM and Android targets can be enabled simultaneously. They share the same `package`, `module_name`, and `min_version` settings but produce separate output.
+
+<h2 id="c-sharp-configuration">C# Configuration</h2>
+
+The `[targets.csharp]` section controls C# generation and NuGet packaging.
+
+### Output Directory
+
+C# artifacts go into `dist/csharp` by default:
+
+```toml
+[targets.csharp]
+enabled = true
+output = "dist/csharp"
+```
+
+Run generation or packaging with:
+
+```bash
+boltffi generate csharp   # writes .cs files only
+boltffi pack csharp       # builds the NuGet package with native runtime assets
+```
+
+`generate csharp` writes one `.cs` file for the top-level module/runtime helpers plus additional `.cs` files for generated records, enums, classes, callbacks, and stream-owning types directly under `output`. `pack csharp` writes the generated sources under `{output}/src`, builds the Rust `cdylib` for each configured runtime identifier into `{output}/runtimes/<rid>/native/`, and emits a `.nupkg` under `{output}/packages/` that bundles everything together.
+
+### Namespace
+
+By default, C# sources use a namespace derived from the Rust crate name. Set `namespace` when your generated C# types need to live under an application or product namespace:
+
+```toml
+[targets.csharp]
+enabled = true
+namespace = "CounterApp.Shared"
+```
+
+### Runtime Identifiers
+
+Choose which .NET runtime identifiers `pack csharp` builds native assets for:
+
+```toml
+[targets.csharp]
+enabled = true
+runtime_identifiers = ["osx-arm64", "linux-x64", "win-x64"]
+```
+
+`current` resolves to the active host RID. Supported canonical values are `osx-arm64`, `osx-x64`, `linux-x64`, `linux-arm64`, and `win-x64`. See [BOLTFFI_TOML_SPEC.md](https://github.com/boltffi/boltffi/blob/main/BOLTFFI_TOML_SPEC.md) for the full list of options including `package_id`, `target_framework`, and `package_output`.
+
+## WASM Configuration
+
+The `[targets.wasm]` section controls WebAssembly builds and npm package generation.
+
+### Output Directory
+
+All WASM artifacts go into a single root directory:
+
+```toml
+[targets.wasm]
+output = "dist/wasm"
+```
+
+The default is `dist/wasm`. After running `boltffi pack wasm`, this directory contains your compiled WASM binary, TypeScript bindings, and npm package files.
+
+### Build Profile
+
+Control whether to build debug or release:
+
+```toml
+[targets.wasm]
+profile = "release"
+```
+
+The default is `release`. Use `debug` during development for faster builds and better error messages, but always ship `release` builds.
+
+### wasm-opt Optimization
+
+Release builds run `wasm-opt` to reduce binary size:
+
+```toml
+[targets.wasm.optimize]
+enabled = true
+level = "s"          # optimize for size
+strip_debug = true   # remove debug info
+```
+
+Available optimization levels:
+- `0` through `4`: increasing optimization (4 is most aggressive)
+- `s`: optimize for size (default, recommended)
+- `z`: optimize aggressively for size
+
+Set `enabled = false` during development to skip optimization and speed up builds.
+
+### TypeScript Module Name
+
+The generated TypeScript uses a module name derived from your package name. Override it if needed:
+
+```toml
+[targets.wasm.typescript]
+module_name = "mylib"
+output = "dist/wasm/pkg"
+```
+
+This affects the generated filenames: `mylib.js`, `mylib.d.ts`, `mylib_bg.wasm`.
+
+### npm Package
+
+Configure the npm package that `boltffi pack wasm` generates:
+
+```toml
+[targets.wasm.npm]
+package_name = "@mycompany/mylib"
+targets = ["bundler", "web", "nodejs"]
+```
+
+The `package_name` field is required for packaging. Include the scope if publishing to a scoped npm registry.
+
+The `targets` array controls which environment entrypoints are generated:
+
+- `bundler`: For Vite, webpack, and other bundlers that handle WASM loading
+- `web`: For browsers without a bundler (uses `fetch()` to load WASM)
+- `nodejs`: For Node.js (uses `fs.readFile()` to load WASM)
+
+Include only the targets you need. Each generates a separate entrypoint file.
+
+### npm Package Metadata
+
+Add metadata to the generated `package.json`:
+
+```toml
+[targets.wasm.npm]
+package_name = "@mycompany/mylib"
+version = "1.0.0"
+license = "MIT"
+repository = "https://github.com/mycompany/mylib"
+generate_package_json = true
+generate_readme = true
+```
+
+If `version`, `license`, or `repository` are not set, they fall back to the values in `[package]` or your `Cargo.toml`.
+
+### Type Mappings
+
+Map custom types to native TypeScript types:
+
+```toml
+[targets.wasm.typescript.type_mappings]
+Uuid = { type = "string", conversion = "uuid_string" }
+```
+
+Since TypeScript doesn't have native UUID or URL types, these typically map to `string`.
+
+## Python Configuration
+
+Python has two package boundaries.
+
+- generation writes the Python source package
+- packaging builds the host Rust shared library and produces wheels
+
+The generated package root defaults to `dist/python`.
+
+```toml
+[targets.python]
+enabled = true
+```
+
+### Module Name
+
+By default, BoltFFI uses the Rust crate artifact name for the Python package module. Override it if you want a different import name.
+
+```toml
+[targets.python]
+enabled = true
+module_name = "demo_runtime"
+```
+
+This changes the generated package directory and the import path.
+
+```python
+import demo_runtime
+```
+
+### Wheel Output
+
+Python packaging writes wheels into `dist/python/wheelhouse` by default. Override that under `[targets.python.wheel]`.
+
+```toml
+[targets.python]
+enabled = true
+
+[targets.python.wheel]
+output = "dist/python/wheels"
+```
+
+### Python Interpreter Matrix
+
+`boltffi pack python` targets the current host platform, but it can build wheels for more than one installed Python interpreter on that host. Configure the interpreter commands explicitly when you want a stable packaging matrix.
+
+```toml
+[targets.python]
+enabled = true
+
+[targets.python.wheel]
+interpreters = ["python3.11", "python3.12", "python3.13"]
+```
+
+Each value is an interpreter executable or path that BoltFFI resolves before packaging. You can also override this per command with repeated `--python` flags.
+
+```bash
+boltffi pack python --python python3.12 --python python3.13
+```
+
+If you omit `interpreters`, BoltFFI falls back to the first available default interpreter it finds on the host.
+
+## Complete Example
+
+Here's a full configuration for a library that targets all platforms:
+
+```toml
+[package]
+name = "mylib"
+
+[targets.apple]
+output = "dist/apple"
+deployment_target = "15.0"
+include_macos = true
+ios_architectures = ["arm64"]
+simulator_architectures = ["arm64", "x86_64"]
+macos_architectures = ["arm64", "x86_64"]
+
+[targets.apple.swift]
+module_name = "MyLib"
+
+[targets.apple.swift.type_mappings]
+Uuid = { type = "UUID", conversion = "uuid_string" }
+
+[targets.apple.spm]
+layout = "ffi-only"
+distribution = "local"
+
+[targets.android]
+output = "dist/android"
+min_sdk = 24
+
+[targets.android.kotlin]
+package = "com.mycompany.mylib"
+api_style = "top_level"
+factory_style = "constructors"
+
+[targets.java]
+package = "com.mycompany.mylib"
+min_version = 8
+
+[targets.java.jvm]
+enabled = true
+
+[targets.csharp]
+enabled = true
+output = "dist/csharp"
+
+[targets.wasm]
+output = "dist/wasm"
+
+[targets.wasm.npm]
+package_name = "@mycompany/mylib"
+targets = ["bundler", "web", "nodejs"]
+
+[targets.wasm.optimize]
+enabled = true
+level = "s"
+
+[targets.python]
+enabled = true
+module_name = "mylib_runtime"
+
+[targets.python.wheel]
+output = "dist/python/wheels"
+interpreters = ["python3.11", "python3.12"]
+```

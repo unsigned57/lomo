@@ -1,0 +1,14 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+class HttpClient internal constructor(internal val handle: Long) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        Native.boltffi_http_client_free(handle)
+    }
+
+    suspend fun fetch(url: String): ByteArray { /* async impl */ }
+}

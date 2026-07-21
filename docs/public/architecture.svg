@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 320">
+  <rect width="1260" height="320" fill="#fafbfc"/>
+
+  <!-- Rust Box -->
+  <rect x="530" y="30" width="200" height="60" rx="4" fill="#fef3e8" stroke="#e8c4a8" stroke-width="1"/>
+  <text x="630" y="55" text-anchor="middle" fill="#b45309" font-family="system-ui, sans-serif" font-size="13" font-weight="500">Rust Code</text>
+  <text x="630" y="75" text-anchor="middle" fill="#d97706" font-family="system-ui, sans-serif" font-size="11">#[data], #[export]</text>
+
+  <!-- Arrow down -->
+  <path d="M630 90 L630 125" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- BoltFFI Box -->
+  <rect x="530" y="130" width="200" height="60" rx="4" fill="#e8f4fc" stroke="#b8d4e8" stroke-width="1"/>
+  <text x="630" y="155" text-anchor="middle" fill="#1a5276" font-family="system-ui, sans-serif" font-size="13" font-weight="500">BoltFFI</text>
+  <text x="630" y="175" text-anchor="middle" fill="#5d8aa8" font-family="system-ui, sans-serif" font-size="11">binding generation</text>
+
+  <!-- Arrows down to Swift, Kotlin, Java, C#, TypeScript, and Python -->
+  <path d="M550 190 L117.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M582 190 L322.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M614 190 L527.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M646 190 L732.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M678 190 L937.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M710 190 L1142.5 225" stroke="#94a3b8" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Swift Box -->
+  <rect x="30" y="230" width="175" height="60" rx="4" fill="#fce8e8" stroke="#e8b8b8" stroke-width="1"/>
+  <text x="117.5" y="255" text-anchor="middle" fill="#c0392b" font-family="system-ui, sans-serif" font-size="13" font-weight="500">Swift</text>
+  <text x="117.5" y="275" text-anchor="middle" fill="#e74c3c" font-family="system-ui, sans-serif" font-size="11">XCFramework</text>
+
+  <!-- Kotlin Box -->
+  <rect x="235" y="230" width="175" height="60" rx="4" fill="#e8f8e8" stroke="#b8e8b8" stroke-width="1"/>
+  <text x="322.5" y="255" text-anchor="middle" fill="#27ae60" font-family="system-ui, sans-serif" font-size="13" font-weight="500">Kotlin</text>
+  <text x="322.5" y="275" text-anchor="middle" fill="#2ecc71" font-family="system-ui, sans-serif" font-size="11">JNI Libraries</text>
+
+  <!-- Java Box -->
+  <rect x="440" y="230" width="175" height="60" rx="4" fill="#f3e8fc" stroke="#d0b8e8" stroke-width="1"/>
+  <text x="527.5" y="255" text-anchor="middle" fill="#7b2d8e" font-family="system-ui, sans-serif" font-size="13" font-weight="500">Java</text>
+  <text x="527.5" y="275" text-anchor="middle" fill="#9b59b6" font-family="system-ui, sans-serif" font-size="11">JNI Libraries</text>
+
+  <!-- C# Box -->
+  <rect x="645" y="230" width="175" height="60" rx="4" fill="#e8f7f5" stroke="#b8e0db" stroke-width="1"/>
+  <text x="732.5" y="255" text-anchor="middle" fill="#0e7490" font-family="system-ui, sans-serif" font-size="13" font-weight="500">C#</text>
+  <text x="732.5" y="275" text-anchor="middle" fill="#06b6d4" font-family="system-ui, sans-serif" font-size="11">NuGet Package</text>
+
+  <!-- TypeScript Box -->
+  <rect x="850" y="230" width="175" height="60" rx="4" fill="#e8f0fc" stroke="#b8c8e8" stroke-width="1"/>
+  <text x="937.5" y="255" text-anchor="middle" fill="#2563eb" font-family="system-ui, sans-serif" font-size="13" font-weight="500">TypeScript</text>
+  <text x="937.5" y="275" text-anchor="middle" fill="#3b82f6" font-family="system-ui, sans-serif" font-size="11">WASM Package</text>
+
+  <!-- Python Box -->
+  <rect x="1055" y="230" width="175" height="60" rx="4" fill="#fff7cc" stroke="#e8dc8c" stroke-width="1"/>
+  <text x="1142.5" y="255" text-anchor="middle" fill="#7c5c00" font-family="system-ui, sans-serif" font-size="13" font-weight="500">Python</text>
+  <text x="1142.5" y="275" text-anchor="middle" fill="#b58900" font-family="system-ui, sans-serif" font-size="11">Wheels</text>
+
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+</svg>

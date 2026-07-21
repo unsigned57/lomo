@@ -1,0 +1,453 @@
+---
+source: boltffi_backend/tests/jni/callback.rs
+expression: "rendered_fixture(\"callback/async_callback_returning_callback_handle\")"
+---
+===== jni/demo.h =====
+<c abi support declarations>
+typedef struct {
+    void (*free)(uint64_t);
+    uint64_t (*clone)(uint64_t);
+    uint32_t (*on_value)(uint64_t, uint32_t);
+} ___ChildVTable;
+typedef struct {
+    void (*free)(uint64_t);
+    uint64_t (*clone)(uint64_t);
+    void (*on_name)(uint64_t, const uint8_t *, uintptr_t);
+} ___SiblingVTable;
+typedef struct {
+    void (*free)(uint64_t);
+    uint64_t (*clone)(uint64_t);
+    void (*child)(uint64_t, void (*)(void *, FfiStatus, BoltFFICallbackHandle), void *);
+    void (*sibling)(uint64_t, void (*)(void *, FfiStatus, BoltFFICallbackHandle), void *);
+} ___ListenerVTable;
+void boltffi_register_callback_demo_child(const ___ChildVTable *vtable);
+BoltFFICallbackHandle boltffi_create_callback_demo_child(uint64_t handle);
+void boltffi_register_callback_demo_sibling(const ___SiblingVTable *vtable);
+BoltFFICallbackHandle boltffi_create_callback_demo_sibling(uint64_t handle);
+void boltffi_register_callback_demo_listener(const ___ListenerVTable *vtable);
+BoltFFICallbackHandle boltffi_create_callback_demo_listener(uint64_t handle);
+
+===== jni/jni_glue.c =====
+<jni source includes>
+<jni thread runtime>
+<jni exception helpers>
+<jni byte-array helpers>
+static jclass g____ChildVTable_class = NULL;
+static jmethodID g____ChildVTable_free_method = NULL;
+static jmethodID g____ChildVTable_clone_method = NULL;
+static jmethodID g____ChildVTable_on_value_method = NULL;
+
+static void ___ChildVTable_free(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+    (*env)->CallStaticVoidMethod(env, g____ChildVTable_class, g____ChildVTable_free_method, (jlong)handle);
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+}
+
+static uint64_t ___ChildVTable_clone(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+    jlong result = (*env)->CallStaticLongMethod(env, g____ChildVTable_class, g____ChildVTable_clone_method, (jlong)handle);
+    if (boltffi_jni_clear_exception(env)) {
+        boltffi_jni_exit(env, attached);
+        return 0;
+    }
+    boltffi_jni_exit(env, attached);
+    return (uint64_t)result;
+}
+
+static uint32_t ___ChildVTable_on_value(uint64_t handle, uint32_t value) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+
+    uint32_t result = (uint32_t)(*env)->CallStaticIntMethod(env, g____ChildVTable_class, g____ChildVTable_on_value_method, (jlong)handle, (jint)value);
+    if (boltffi_jni_clear_exception(env)) {
+        goto __boltffi_fail;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return result;
+__boltffi_fail:
+
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+
+    return 0;
+}
+
+static ___ChildVTable g____ChildVTable_vtable = {
+    .free = ___ChildVTable_free,
+    .clone = ___ChildVTable_clone,
+    .on_value = ___ChildVTable_on_value,
+};
+
+static bool boltffi_jni_load____ChildVTable_callbacks(JNIEnv *env) {
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/ChildCallbacks", "com/boltffi/demo/ChildCallbacks", &g____ChildVTable_class)) {
+        return false;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ChildVTable_class, "com/boltffi/demo/ChildCallbacks", "free", "free", "(J)V", "(J)V", &g____ChildVTable_free_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ChildVTable_class, "com/boltffi/demo/ChildCallbacks", "clone", "clone", "(J)J", "(J)J", &g____ChildVTable_clone_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ChildVTable_class, "com/boltffi/demo/ChildCallbacks", "on_value", "on_value", "(JI)I", "(JI)I", &g____ChildVTable_on_value_method)) {
+        goto fail;
+    }
+    boltffi_register_callback_demo_child(&g____ChildVTable_vtable);
+    return true;
+fail:
+    (*env)->DeleteGlobalRef(env, g____ChildVTable_class);
+    g____ChildVTable_class = NULL;
+    return false;
+}
+
+static void boltffi_jni_unload____ChildVTable_callbacks(JNIEnv *env) {
+    if (g____ChildVTable_class != NULL) {
+        (*env)->DeleteGlobalRef(env, g____ChildVTable_class);
+    }
+    g____ChildVTable_class = NULL;
+    g____ChildVTable_free_method = NULL;
+    g____ChildVTable_clone_method = NULL;
+    g____ChildVTable_on_value_method = NULL;
+}
+
+static jclass g____SiblingVTable_class = NULL;
+static jmethodID g____SiblingVTable_free_method = NULL;
+static jmethodID g____SiblingVTable_clone_method = NULL;
+static jmethodID g____SiblingVTable_on_name_method = NULL;
+
+static void ___SiblingVTable_free(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+    (*env)->CallStaticVoidMethod(env, g____SiblingVTable_class, g____SiblingVTable_free_method, (jlong)handle);
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+}
+
+static uint64_t ___SiblingVTable_clone(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+    jlong result = (*env)->CallStaticLongMethod(env, g____SiblingVTable_class, g____SiblingVTable_clone_method, (jlong)handle);
+    if (boltffi_jni_clear_exception(env)) {
+        boltffi_jni_exit(env, attached);
+        return 0;
+    }
+    boltffi_jni_exit(env, attached);
+    return (uint64_t)result;
+}
+
+static void ___SiblingVTable_on_name(uint64_t handle, const uint8_t *name_ptr, uintptr_t name_len) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+
+    jbyteArray name = NULL;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+
+    name = boltffi_jni_bytes_to_byte_array(env, name_ptr, name_len);
+    if (name == NULL) {
+        goto __boltffi_fail;
+    }
+
+    (*env)->CallStaticVoidMethod(env, g____SiblingVTable_class, g____SiblingVTable_on_name_method, (jlong)handle, name);
+    if (boltffi_jni_clear_exception(env)) {
+        goto __boltffi_fail;
+    }
+
+    if (name != NULL) {
+        (*env)->DeleteLocalRef(env, name);
+        name = NULL;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return;
+__boltffi_fail:
+
+    if (name != NULL) {
+        (*env)->DeleteLocalRef(env, name);
+        name = NULL;
+    }
+
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+
+    return;
+}
+
+static ___SiblingVTable g____SiblingVTable_vtable = {
+    .free = ___SiblingVTable_free,
+    .clone = ___SiblingVTable_clone,
+    .on_name = ___SiblingVTable_on_name,
+};
+
+static bool boltffi_jni_load____SiblingVTable_callbacks(JNIEnv *env) {
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/SiblingCallbacks", "com/boltffi/demo/SiblingCallbacks", &g____SiblingVTable_class)) {
+        return false;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____SiblingVTable_class, "com/boltffi/demo/SiblingCallbacks", "free", "free", "(J)V", "(J)V", &g____SiblingVTable_free_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____SiblingVTable_class, "com/boltffi/demo/SiblingCallbacks", "clone", "clone", "(J)J", "(J)J", &g____SiblingVTable_clone_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____SiblingVTable_class, "com/boltffi/demo/SiblingCallbacks", "on_name", "on_name", "(J[B)V", "(J[B)V", &g____SiblingVTable_on_name_method)) {
+        goto fail;
+    }
+    boltffi_register_callback_demo_sibling(&g____SiblingVTable_vtable);
+    return true;
+fail:
+    (*env)->DeleteGlobalRef(env, g____SiblingVTable_class);
+    g____SiblingVTable_class = NULL;
+    return false;
+}
+
+static void boltffi_jni_unload____SiblingVTable_callbacks(JNIEnv *env) {
+    if (g____SiblingVTable_class != NULL) {
+        (*env)->DeleteGlobalRef(env, g____SiblingVTable_class);
+    }
+    g____SiblingVTable_class = NULL;
+    g____SiblingVTable_free_method = NULL;
+    g____SiblingVTable_clone_method = NULL;
+    g____SiblingVTable_on_name_method = NULL;
+}
+
+static jclass g____ListenerVTable_class = NULL;
+static jmethodID g____ListenerVTable_free_method = NULL;
+static jmethodID g____ListenerVTable_clone_method = NULL;
+static jmethodID g____ListenerVTable_child_method = NULL;
+static jmethodID g____ListenerVTable_sibling_method = NULL;
+
+static void ___ListenerVTable_free(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+    (*env)->CallStaticVoidMethod(env, g____ListenerVTable_class, g____ListenerVTable_free_method, (jlong)handle);
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+}
+
+static uint64_t ___ListenerVTable_clone(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+    jlong result = (*env)->CallStaticLongMethod(env, g____ListenerVTable_class, g____ListenerVTable_clone_method, (jlong)handle);
+    if (boltffi_jni_clear_exception(env)) {
+        boltffi_jni_exit(env, attached);
+        return 0;
+    }
+    boltffi_jni_exit(env, attached);
+    return (uint64_t)result;
+}
+
+static void ___ListenerVTable_child(uint64_t handle, void (*complete)(void *, FfiStatus, BoltFFICallbackHandle), void *complete_context) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+
+    if (!boltffi_jni_enter(&env, &attached)) {
+        complete(complete_context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+        return;
+    }
+
+    (*env)->CallStaticVoidMethod(env, g____ListenerVTable_class, g____ListenerVTable_child_method, (jlong)handle, (jlong)complete, (jlong)complete_context);
+    if (boltffi_jni_clear_exception(env)) {
+        goto __boltffi_fail;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return;
+__boltffi_fail:
+
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+
+    complete(complete_context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+
+    return;
+}
+
+static void ___ListenerVTable_sibling(uint64_t handle, void (*complete)(void *, FfiStatus, BoltFFICallbackHandle), void *complete_context) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+
+    if (!boltffi_jni_enter(&env, &attached)) {
+        complete(complete_context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+        return;
+    }
+
+    (*env)->CallStaticVoidMethod(env, g____ListenerVTable_class, g____ListenerVTable_sibling_method, (jlong)handle, (jlong)complete, (jlong)complete_context);
+    if (boltffi_jni_clear_exception(env)) {
+        goto __boltffi_fail;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return;
+__boltffi_fail:
+
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+
+    complete(complete_context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+
+    return;
+}
+
+static ___ListenerVTable g____ListenerVTable_vtable = {
+    .free = ___ListenerVTable_free,
+    .clone = ___ListenerVTable_clone,
+    .child = ___ListenerVTable_child,
+    .sibling = ___ListenerVTable_sibling,
+};
+
+static bool boltffi_jni_load____ListenerVTable_callbacks(JNIEnv *env) {
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/ListenerCallbacks", "com/boltffi/demo/ListenerCallbacks", &g____ListenerVTable_class)) {
+        return false;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ListenerVTable_class, "com/boltffi/demo/ListenerCallbacks", "free", "free", "(J)V", "(J)V", &g____ListenerVTable_free_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ListenerVTable_class, "com/boltffi/demo/ListenerCallbacks", "clone", "clone", "(J)J", "(J)J", &g____ListenerVTable_clone_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ListenerVTable_class, "com/boltffi/demo/ListenerCallbacks", "child", "child", "(JJJ)V", "(JJJ)V", &g____ListenerVTable_child_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____ListenerVTable_class, "com/boltffi/demo/ListenerCallbacks", "sibling", "sibling", "(JJJ)V", "(JJJ)V", &g____ListenerVTable_sibling_method)) {
+        goto fail;
+    }
+    boltffi_register_callback_demo_listener(&g____ListenerVTable_vtable);
+    return true;
+fail:
+    (*env)->DeleteGlobalRef(env, g____ListenerVTable_class);
+    g____ListenerVTable_class = NULL;
+    return false;
+}
+
+static void boltffi_jni_unload____ListenerVTable_callbacks(JNIEnv *env) {
+    if (g____ListenerVTable_class != NULL) {
+        (*env)->DeleteGlobalRef(env, g____ListenerVTable_class);
+    }
+    g____ListenerVTable_class = NULL;
+    g____ListenerVTable_free_method = NULL;
+    g____ListenerVTable_clone_method = NULL;
+    g____ListenerVTable_child_method = NULL;
+    g____ListenerVTable_sibling_method = NULL;
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1child(JNIEnv *env, jclass cls, jlong callback, jlong context, jlong result) {
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    BoltFFICallbackHandle payload = boltffi_create_callback_demo_child((uint64_t)result);
+    complete((void *)context, (FfiStatus){.code = 0}, payload);
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1child_1failure(JNIEnv *env, jclass cls, jlong callback, jlong context) {
+    (void)env;
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    complete((void *)context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1child_1error(JNIEnv *env, jclass cls, jlong callback, jlong context, jlong result) {
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    BoltFFICallbackHandle payload = boltffi_create_callback_demo_child((uint64_t)result);
+    complete((void *)context, (FfiStatus){.code = 1}, payload);
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1sibling(JNIEnv *env, jclass cls, jlong callback, jlong context, jlong result) {
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    BoltFFICallbackHandle payload = boltffi_create_callback_demo_sibling((uint64_t)result);
+    complete((void *)context, (FfiStatus){.code = 0}, payload);
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1sibling_1failure(JNIEnv *env, jclass cls, jlong callback, jlong context) {
+    (void)env;
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    complete((void *)context, (FfiStatus){.code = 1}, (BoltFFICallbackHandle){0});
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1async_1callback_1complete_1Callback_1demo_1sibling_1error(JNIEnv *env, jclass cls, jlong callback, jlong context, jlong result) {
+    (void)cls;
+    void (*complete)(void *, FfiStatus, BoltFFICallbackHandle) = (void (*)(void *, FfiStatus, BoltFFICallbackHandle))callback;
+    BoltFFICallbackHandle payload = boltffi_create_callback_demo_sibling((uint64_t)result);
+    complete((void *)context, (FfiStatus){.code = 1}, payload);
+}
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    jint env_result = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
+    if (env_result != JNI_OK) {
+        fprintf(stderr, "BoltFFI JNI_OnLoad failed: GetEnv(JNI_VERSION_1_6) returned %d\n", (int)env_result);
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/Native", "com/boltffi/demo/Native", &boltffi_jni_native_class)) {
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_load____ChildVTable_callbacks(env)) {
+        boltffi_jni_unload____ChildVTable_callbacks(env);
+        boltffi_jni_unload____SiblingVTable_callbacks(env);
+        boltffi_jni_unload____ListenerVTable_callbacks(env);
+        (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        boltffi_jni_native_class = NULL;
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_load____SiblingVTable_callbacks(env)) {
+        boltffi_jni_unload____ChildVTable_callbacks(env);
+        boltffi_jni_unload____SiblingVTable_callbacks(env);
+        boltffi_jni_unload____ListenerVTable_callbacks(env);
+        (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        boltffi_jni_native_class = NULL;
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_load____ListenerVTable_callbacks(env)) {
+        boltffi_jni_unload____ChildVTable_callbacks(env);
+        boltffi_jni_unload____SiblingVTable_callbacks(env);
+        boltffi_jni_unload____ListenerVTable_callbacks(env);
+        (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        boltffi_jni_native_class = NULL;
+        return JNI_ERR;
+    }
+    boltffi_jni_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) {
+        boltffi_jni_unload____ChildVTable_callbacks(env);
+        boltffi_jni_unload____SiblingVTable_callbacks(env);
+        boltffi_jni_unload____ListenerVTable_callbacks(env);
+        if (boltffi_jni_native_class != NULL) {
+            (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        }
+    }
+    boltffi_jni_vm = NULL;
+    boltffi_jni_native_class = NULL;
+}

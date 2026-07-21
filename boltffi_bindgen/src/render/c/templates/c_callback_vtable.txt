@@ -1,0 +1,11 @@
+typedef struct {{ vtable_type }} {
+    void (*free)(uint64_t handle);
+    uint64_t (*clone)(uint64_t handle);
+{%- for method in methods %}
+    void (*{{ method.field_name }})({{ method.params }});
+{%- endfor %}
+} {{ vtable_type }};
+
+void {{ register_fn }}(const struct {{ vtable_type }} *vtable);
+BoltFFICallbackHandle {{ create_fn }}(uint64_t handle);
+

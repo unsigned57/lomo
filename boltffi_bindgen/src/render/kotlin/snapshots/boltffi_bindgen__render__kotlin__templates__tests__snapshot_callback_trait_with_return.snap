@@ -1,0 +1,70 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 1301
+expression: template.render().unwrap()
+---
+/**
+ * Validates input strings.
+ */
+/**
+ * ### Thread Safety
+ *
+ * Callback methods may be invoked from any thread and the thread is not guaranteed to be
+ * the same between calls. **Your implementation must be thread-safe.**
+ * Use `BoltFFIScope.launchOnMain` if updating UI.
+ */
+interface Validator {
+    fun validate(input: String): Boolean
+}
+
+private object ValidatorMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, Validator>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(obj: Validator): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = obj
+        return handle
+    }
+
+    fun get(handle: Long): Validator? = map[handle]
+
+    fun remove(handle: Long): Validator? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val obj = map[handle] ?: return 0L
+        return insert(obj)
+    }
+}
+
+object ValidatorCallbacks {
+
+    @JvmStatic
+    fun free(handle: Long) {
+        ValidatorMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return ValidatorMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun validate(handle: Long, input: String): Boolean {
+        val impl = ValidatorMap.get(handle) ?: error("ValidatorMap: invalid handle $handle")
+        return impl.validate(input)
+    }
+}
+
+object ValidatorBridge {
+    private val registered = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun register() {
+        if (!registered.compareAndSet(false, true)) return
+    }
+
+    fun create(impl: Validator): Long {
+        register()
+        return ValidatorMap.insert(impl)
+    }
+}

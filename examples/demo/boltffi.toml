@@ -1,0 +1,66 @@
+[package]
+name = "demo"
+
+[targets.apple]
+enabled = true
+include_macos = true
+
+[targets.apple.xcframework]
+output = "../platforms/apple/ffi/Demo.xcframework"
+
+[targets.apple.debug_symbols]
+enabled = true
+standalone_archive = false
+
+[targets.apple.spm]
+output = "../platforms/apple/ffi"
+layout = "split"
+
+[targets.apple.swift]
+output = "../platforms/apple/Sources/Demo"
+
+[targets.apple.swift.type_mappings.Email]
+type = "URL"
+conversion = "url_string"
+
+[targets.android]
+enabled = true
+
+[targets.android.kotlin]
+package = "com.boltffi.demo"
+output = "../platforms/kotlin/generated"
+
+[targets.android.pack]
+output = "../platforms/android/src/main/jniLibs"
+
+[targets.wasm]
+enabled = true
+
+[targets.wasm.typescript]
+output = "../platforms/wasm/generated"
+
+[targets.wasm.npm]
+output = "../platforms/wasm/dist"
+package_name = "@boltffi/demo"
+targets = ["bundler", "web", "nodejs"]
+
+[targets.java]
+min_version = 16
+package = "com.boltffi.demo"
+
+[targets.java.jvm]
+enabled = true
+output = "../platforms/java/src/main/java"
+host_targets = ["current"]
+
+[targets.dart]
+enabled = true
+output = "../platforms/dart/pkgs"
+
+[targets.python]
+enabled = true
+output = "../platforms/python/dist"
+
+[targets.csharp]
+enabled = true
+output = "../platforms/csharp/dist"

@@ -1,0 +1,51 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+sealed class Event {
+
+    data class Click(val x: Int, val y: Int, val button: Int) : Event()
+
+    data class KeyPress(val code: Int) : Event()
+
+    companion object {
+        fun decode(reader: WireReader): Event {
+            val tag = reader.readI32()
+            return when (tag) {
+                0 -> {
+                    Click(
+                        reader.readI32(),
+                        reader.readI32(),
+                        reader.readI32()
+                    )
+                }
+                1 -> {
+                    KeyPress(
+                        reader.readI32()
+                    )
+                }
+                else -> throw FfiException(-1, "Unknown Event tag: $tag")
+            }
+        }
+    }
+
+    fun wireEncodedSize(): Int = 4 + when (this) {
+        is Click -> 4 + 4 + 4
+        is KeyPress -> 4
+    }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        when (this) {
+            is Click -> {
+                wire.writeI32(0)
+                wire.writeI32(x)
+                wire.writeI32(y)
+                wire.writeI32(button)
+            }
+            is KeyPress -> {
+                wire.writeI32(1)
+                wire.writeI32(code)
+            }
+        }
+    }
+}

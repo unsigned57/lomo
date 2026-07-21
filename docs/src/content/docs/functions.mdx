@@ -1,0 +1,1044 @@
+---
+title: "Functions"
+description: "Export Rust free functions with #[export], map parameters and return values across languages, and understand naming and FFI behavior."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Functions
+
+This page covers free functions - standalone functions that aren't attached to a struct or class. For methods on objects, see [Classes](/docs/classes).
+
+Mark a Rust function with `#[export]` and BoltFFI generates a corresponding function in each target language. The function signature, parameter types, and return type all map according to the rules in [Types](/docs/types).
+
+Function names may be renamed to match target language conventions. For example, `get_user` becomes `getUser` in languages that use camelCase and `GetUser` in C#.
+
+## Basic export
+
+The simplest case: a function that takes primitives and returns a primitive.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[export]
+pub fn multiply(x: f64, y: f64) -> f64 {
+    x * y
+}`}
+  swift={`func add(a: Int32, b: Int32) -> Int32
+func multiply(x: Double, y: Double) -> Double
+
+let sum = add(a: 5, b: 3)
+let product = multiply(x: 2.5, y: 4.0)`}
+  kotlin={`fun add(a: Int, b: Int): Int
+fun multiply(x: Double, y: Double): Double
+
+val sum = add(5, 3)
+val product = multiply(2.5, 4.0)`}
+  java={`static int add(int a, int b)
+static double multiply(double x, double y)
+
+int sum = add(5, 3);
+double product = multiply(2.5, 4.0);`}
+  csharp={`static int Add(int a, int b)
+static double Multiply(double x, double y)
+
+int sum = MyLib.Add(5, 3);
+double product = MyLib.Multiply(2.5, 4.0);`}
+  typescript={`function add(a: number, b: number): number
+function multiply(x: number, y: number): number
+
+const sum = add(5, 3)
+const product = multiply(2.5, 4.0)`}
+  python={`def add(a: int, b: int) -> int: ...
+def multiply(x: float, y: float) -> float: ...
+
+sum_value = add(5, 3)
+product = multiply(2.5, 4.0)`}
+/>
+
+## Parameters
+
+### Primitives and strings
+
+Primitive parameters pass directly with no overhead. Strings require copying since each language manages its own memory.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+#[export]
+pub fn char_count(s: &str) -> usize {
+    s.chars().count()
+}`}
+  swift={`func greet(name: String) -> String
+func charCount(s: String) -> UInt
+
+let msg = greet(name: "World")
+let len = charCount(s: "hello")`}
+  kotlin={`fun greet(name: String): String
+fun charCount(s: String): ULong
+
+val msg = greet("World")
+val len = charCount("hello")`}
+  java={`static String greet(String name)
+static long charCount(String s)
+
+String msg = greet("World");
+long len = charCount("hello");`}
+  csharp={`static string Greet(string name)
+static nuint CharCount(string s)
+
+string msg = MyLib.Greet("World");
+nuint len = MyLib.CharCount("hello");`}
+  typescript={`function greet(name: string): string
+function charCount(s: string): number
+
+const msg = greet("World")
+const len = charCount("hello")`}
+  python={`def greet(name: str) -> str: ...
+def char_count(s: str) -> int: ...
+
+msg = greet("World")
+length = char_count("hello")`}
+/>
+
+Use `&str` for string parameters (you're borrowing) and `String` for return values (you're transferring ownership).
+
+### Structs and enums
+
+Functions can accept structs and enums marked with `#[data]`. The data and all its fields move across the boundary.
+
+<CodeComparison
+  title=""
+  rust={`#[data]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[data]
+pub enum Unit {
+    Meters,
+    Feet,
+}
+
+#[export]
+pub fn distance(a: Point, b: Point, unit: Unit) -> f64 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let d = (dx*dx + dy*dy).sqrt();
+    match unit {
+        Unit::Meters => d,
+        Unit::Feet => d * 3.28084,
+    }
+}`}
+  swift={`public struct Point {
+    public var x: Double
+    public var y: Double
+}
+
+public enum Unit {
+    case meters
+    case feet
+}
+
+func distance(a: Point, b: Point, unit: Unit) -> Double
+
+let d = distance(
+    a: Point(x: 0, y: 0),
+    b: Point(x: 3, y: 4),
+    unit: .meters
+)`}
+  kotlin={`data class Point(
+    val x: Double,
+    val y: Double
+)
+
+enum class Unit {
+    Meters,
+    Feet
+}
+
+fun distance(a: Point, b: Point, unit: Unit): Double
+
+val d = distance(
+    Point(0.0, 0.0),
+    Point(3.0, 4.0),
+    Unit.Meters
+)`}
+  java={`// Point, Unit generated as records or
+// classes based on Java version target
+static double distance(
+    Point a, Point b, Unit unit)
+
+double d = distance(
+    new Point(0.0, 0.0),
+    new Point(3.0, 4.0),
+    Unit.METERS);`}
+  csharp={`public readonly record struct Point(
+    double X,
+    double Y
+);
+
+public enum Unit
+{
+    Meters,
+    Feet,
+}
+
+static double Distance(
+    Point a, Point b, Unit unit)
+
+double d = MyLib.Distance(
+    new Point(0.0, 0.0),
+    new Point(3.0, 4.0),
+    Unit.Meters);`}
+  typescript={`interface Point {
+    readonly x: number
+    readonly y: number
+}
+
+enum Unit {
+    Meters = 0,
+    Feet = 1
+}
+
+function distance(a: Point, b: Point, unit: Unit): number
+
+const d = distance(
+    { x: 0, y: 0 },
+    { x: 3, y: 4 },
+    Unit.Meters
+)`}
+  python={`from dataclasses import dataclass
+from enum import IntEnum
+
+@dataclass
+class Point:
+    x: float
+    y: float
+
+class Unit(IntEnum):
+    METERS = 0
+    FEET = 1
+
+def distance(a: Point, b: Point, unit: Unit) -> float: ...
+
+d = distance(
+    Point(0, 0),
+    Point(3, 4),
+    Unit.METERS
+)`}
+/>
+
+### Slices
+
+Use `&[T]` to accept a collection without taking ownership. The caller's array or list is accessible as a slice inside Rust.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn sum(values: &[i32]) -> i32 {
+    values.iter().sum()
+}
+
+#[export]
+pub fn average(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.iter().sum::<f64>() / values.len() as f64
+}`}
+  swift={`func sum(values: [Int32]) -> Int32
+func average(values: [Double]) -> Double
+
+let total = sum(values: [1, 2, 3, 4, 5])
+let avg = average(values: [1.0, 2.0, 3.0])`}
+  kotlin={`fun sum(values: IntArray): Int
+fun average(values: DoubleArray): Double
+
+val total = sum(intArrayOf(1, 2, 3, 4, 5))
+val avg = average(doubleArrayOf(1.0, 2.0, 3.0))`}
+  java={`static int sum(int[] values)
+static double average(double[] values)
+
+int total = sum(new int[]{1, 2, 3, 4, 5});
+double avg = average(
+    new double[]{1.0, 2.0, 3.0});`}
+  csharp={`static int Sum(int[] values)
+static double Average(double[] values)
+
+int total = MyLib.Sum(new[] {1, 2, 3, 4, 5});
+double avg = MyLib.Average(
+    new[] {1.0, 2.0, 3.0});`}
+  typescript={`function sum(values: number[]): number
+function average(values: number[]): number
+
+const total = sum([1, 2, 3, 4, 5])
+const avg = average([1.0, 2.0, 3.0])`}
+  python={`def sum(values: list[int]) -> int: ...
+def average(values: list[float]) -> float: ...
+
+total = sum([1, 2, 3, 4, 5])
+avg = average([1.0, 2.0, 3.0])`}
+/>
+
+### Optional
+
+Use `Option<T>` when a parameter might not be provided. The caller passes `nil`/`null` or a value.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn greet_user(
+    name: &str,
+    title: Option<String>
+) -> String {
+    match title {
+        Some(t) => format!("Hello, {} {}!", t, name),
+        None => format!("Hello, {}!", name),
+    }
+}
+
+#[export]
+pub fn set_timeout(
+    ms: u64,
+    callback_id: Option<u64>
+) {
+    // ...
+}`}
+  swift={`func greetUser(
+    name: String,
+    title: String?
+) -> String
+
+func setTimeout(
+    ms: UInt64,
+    callbackId: UInt64?
+)
+
+let formal = greetUser(name: "Smith", title: "Dr.")
+let casual = greetUser(name: "John", title: nil)`}
+  kotlin={`fun greetUser(
+    name: String,
+    title: String?
+): String
+
+fun setTimeout(
+    ms: ULong,
+    callbackId: ULong?
+)
+
+val formal = greetUser("Smith", "Dr.")
+val casual = greetUser("John", null)`}
+  java={`static String greetUser(
+    String name,
+    java.util.Optional<String> title)
+
+static void setTimeout(
+    long ms,
+    java.util.Optional<Long> callbackId)
+
+String formal = greetUser(
+    "Smith", java.util.Optional.of("Dr."));
+String casual = greetUser(
+    "John", java.util.Optional.empty());`}
+  csharp={`static string GreetUser(
+    string name,
+    string? title)
+
+static void SetTimeout(
+    ulong ms,
+    ulong? callbackId)
+
+string formal = MyLib.GreetUser("Smith", "Dr.");
+string casual = MyLib.GreetUser("John", null);`}
+  typescript={`function greetUser(
+    name: string,
+    title: string | null
+): string
+
+function setTimeout(
+    ms: bigint,
+    callbackId: bigint | null
+): void
+
+const formal = greetUser("Smith", "Dr.")
+const casual = greetUser("John", null)`}
+  python={`def greet_user(
+    name: str,
+    title: str | None
+) -> str: ...
+
+def set_timeout(
+    ms: int,
+    callback_id: int | None
+) -> None: ...
+
+formal = greet_user("Smith", "Dr.")
+casual = greet_user("John", None)`}
+/>
+
+### Classes
+
+Functions can accept class instances as parameters. The class reference passes across the boundary without copying the object.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Logger {
+    pub fn new(prefix: &str) -> Self {
+        Logger { prefix: prefix.into() }
+    }
+}
+
+#[export]
+pub fn log_message(
+    logger: &Logger,
+    message: &str
+) {
+    println!("[{}] {}", logger.prefix, message);
+}`}
+  swift={`func logMessage(logger: Logger, message: String)
+
+let logger = Logger(prefix: "app")
+logMessage(logger: logger, message: "started")`}
+  kotlin={`fun logMessage(logger: Logger, message: String)
+
+val logger = Logger("app")
+logMessage(logger, "started")`}
+  java={`static void logMessage(
+    Logger logger, String message)
+
+Logger logger = new Logger("app");
+logMessage(logger, "started");`}
+  csharp={`static void LogMessage(
+    Logger logger, string message)
+
+using Logger logger = new Logger("app");
+MyLib.LogMessage(logger, "started");`}
+  typescript={`function logMessage(
+    logger: Logger, message: string): void
+
+const logger = Logger.new("app")
+logMessage(logger, "started")`}
+  python={`def log_message(
+    logger: Logger,
+    message: str
+) -> None: ...
+
+logger = Logger("app")
+log_message(logger, "started")`}
+/>
+
+### Callback traits
+
+Functions can accept callback traits. A callback trait is a Rust trait marked with `#[export]` that the target language implements. Unlike closures (single anonymous function), callback traits can have multiple methods and carry state. See [Callbacks](/docs/callbacks) for more.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub trait EventListener {
+    fn on_start(&self);
+    fn on_progress(&self, percent: f64);
+    fn on_complete(&self, result: String);
+}
+
+#[export]
+pub fn run_task(
+    listener: impl EventListener
+) {
+    listener.on_start();
+    listener.on_progress(0.5);
+    listener.on_complete("done".into());
+}`}
+  swift={`protocol EventListener {
+    func onStart()
+    func onProgress(percent: Double)
+    func onComplete(result: String)
+}
+
+func runTask(listener: EventListener)
+
+class MyListener: EventListener {
+    func onStart() { print("started") }
+    func onProgress(percent: Double) {
+        print("\\(percent * 100)%")
+    }
+    func onComplete(result: String) {
+        print(result)
+    }
+}
+
+runTask(listener: MyListener())`}
+  kotlin={`interface EventListener {
+    fun onStart()
+    fun onProgress(percent: Double)
+    fun onComplete(result: String)
+}
+
+fun runTask(listener: EventListener)
+
+val listener = object : EventListener {
+    override fun onStart() =
+        println("started")
+    override fun onProgress(percent: Double) =
+        println("\${percent * 100}%")
+    override fun onComplete(result: String) =
+        println(result)
+}
+
+runTask(listener)`}
+  java={`public interface EventListener {
+    void onStart();
+    void onProgress(double percent);
+    void onComplete(String result);
+}
+
+static void runTask(EventListener listener)
+
+runTask(new EventListener() {
+    public void onStart() {
+        System.out.println("started");
+    }
+    public void onProgress(double percent) {
+        System.out.println(percent * 100 + "%");
+    }
+    public void onComplete(String result) {
+        System.out.println(result);
+    }
+});`}
+  csharp={`public interface EventListener
+{
+    void OnStart();
+    void OnProgress(double percent);
+    void OnComplete(string result);
+}
+
+static void RunTask(EventListener listener)
+
+public sealed class MyListener : EventListener
+{
+    public void OnStart() =>
+        Console.WriteLine("started");
+    public void OnProgress(double percent) =>
+        Console.WriteLine(percent * 100 + "%");
+    public void OnComplete(string result) =>
+        Console.WriteLine(result);
+}
+
+MyLib.RunTask(new MyListener());`}
+  typescript={`interface EventListener {
+    onStart(): void
+    onProgress(percent: number): void
+    onComplete(result: string): void
+}
+
+function runTask(listener: EventListener): void
+
+runTask({
+    onStart() { console.log("started") },
+    onProgress(percent) {
+        console.log(percent * 100 + "%")
+    },
+    onComplete(result) {
+        console.log(result)
+    }
+})`}
+  python={`class EventListener:
+    def on_start(self) -> None: ...
+    def on_progress(self, percent: float) -> None: ...
+    def on_complete(self, result: str) -> None: ...
+
+def run_task(listener: EventListener) -> None: ...
+
+class MyListener(EventListener):
+    def on_start(self) -> None:
+        print("started")
+    def on_progress(self, percent: float) -> None:
+        print(f"{percent * 100}%")
+    def on_complete(self, result: str) -> None:
+        print(result)
+
+run_task(MyListener())`}
+/>
+
+## Return types
+
+### Option
+
+Return `Option<T>` when a value might not exist. The caller gets a nullable type they can check before using.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn find_user(id: u64) -> Option<User> {
+    database.get(&id).cloned()
+}
+
+#[export]
+pub fn first_positive(values: &[i32]) -> Option<i32> {
+    values.iter().copied().find(|&x| x > 0)
+}`}
+  swift={`func findUser(id: UInt64) -> User?
+func firstPositive(values: [Int32]) -> Int32?
+
+if let user = findUser(id: 42) {
+    print(user.name)
+}
+
+let pos = firstPositive(values: [-1, -2, 3])`}
+  kotlin={`fun findUser(id: ULong): User?
+fun firstPositive(values: IntArray): Int?
+
+findUser(42uL)?.let { user ->
+    println(user.name)
+}
+
+val pos = firstPositive(intArrayOf(-1, -2, 3))`}
+  java={`static java.util.Optional<User> findUser(
+    long id)
+static java.util.Optional<Integer> firstPositive(
+    int[] values)
+
+findUser(42L).ifPresent(user ->
+    System.out.println(user.name()));
+
+java.util.Optional<Integer> pos =
+    firstPositive(new int[]{-1, -2, 3});`}
+  csharp={`static User? FindUser(ulong id)
+static int? FirstPositive(int[] values)
+
+User? user = MyLib.FindUser(42);
+if (user is not null) {
+    Console.WriteLine(user.Name);
+}
+
+int? pos = MyLib.FirstPositive(
+    new[] {-1, -2, 3});`}
+  typescript={`function findUser(id: bigint): User | null
+function firstPositive(values: number[]): number | null
+
+const user = findUser(42n)
+if (user !== null) {
+    console.log(user.name)
+}
+
+const pos = firstPositive([-1, -2, 3])`}
+  python={`def find_user(id: int) -> User | None: ...
+def first_positive(values: list[int]) -> int | None: ...
+
+user = find_user(42)
+if user is not None:
+    print(user.name)
+
+pos = first_positive([-1, -2, 3])`}
+/>
+
+### Result
+
+Return `Result<T, E>` when an operation can fail. The error type must be marked with `#[error]`. The generated function throws in the target language.
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub enum ParseError {
+    InvalidFormat,
+    OutOfRange,
+}
+
+#[export]
+pub fn parse_port(s: &str) -> Result<u16, ParseError> {
+    let n: u32 = s.parse()
+        .map_err(|_| ParseError::InvalidFormat)?;
+    if n > 65535 {
+        return Err(ParseError::OutOfRange);
+    }
+    Ok(n as u16)
+}`}
+  swift={`public enum ParseError: Error {
+    case invalidFormat
+    case outOfRange
+}
+
+func parsePort(s: String) throws -> UInt16
+
+do {
+    let port = try parsePort(s: "8080")
+} catch ParseError.invalidFormat {
+    print("bad format")
+} catch ParseError.outOfRange {
+    print("too large")
+}`}
+  kotlin={`sealed class ParseError : Exception() {
+    object InvalidFormat : ParseError()
+    object OutOfRange : ParseError()
+}
+
+@Throws(ParseError::class)
+fun parsePort(s: String): UShort
+
+try {
+    val port = parsePort("8080")
+} catch (e: ParseError.InvalidFormat) {
+    println("bad format")
+} catch (e: ParseError.OutOfRange) {
+    println("too large")
+}`}
+  java={`public enum ParseError {
+    INVALID_FORMAT,
+    OUT_OF_RANGE;
+
+    public static final class Exception
+        extends RuntimeException {
+        public ParseError getError()
+    }
+}
+
+static short parsePort(String s)
+    // throws ParseError.Exception
+
+try {
+    short port = parsePort("8080");
+} catch (ParseError.Exception e) {
+    if (e.getError() == ParseError.INVALID_FORMAT)
+        System.out.println("bad format");
+    else if (e.getError() == ParseError.OUT_OF_RANGE)
+        System.out.println("too large");
+}`}
+  csharp={`public enum ParseError
+{
+    InvalidFormat,
+    OutOfRange,
+}
+
+public sealed class ParseErrorException : Exception
+{
+    public ParseError Error { get; }
+}
+
+static ushort ParsePort(string s)
+
+try {
+    ushort port = MyLib.ParsePort("8080");
+} catch (ParseErrorException e) {
+    if (e.Error == ParseError.InvalidFormat)
+        Console.WriteLine("bad format");
+    else if (e.Error == ParseError.OutOfRange)
+        Console.WriteLine("too large");
+}`}
+  typescript={`enum ParseError {
+    InvalidFormat = 0,
+    OutOfRange = 1
+}
+
+class ParseErrorException extends Error {
+    readonly code: ParseError
+}
+
+function parsePort(s: string): number  // throws
+
+try {
+    const port = parsePort("8080")
+} catch (e) {
+    if (e instanceof ParseErrorException) {
+        if (e.code === ParseError.InvalidFormat) {
+            console.log("bad format")
+        } else if (e.code === ParseError.OutOfRange) {
+            console.log("too large")
+        }
+    }
+}`}
+  python={`from enum import IntEnum
+
+class ParseError(IntEnum):
+    INVALID_FORMAT = 0
+    OUT_OF_RANGE = 1
+
+class ParseErrorException(RuntimeError):
+    error: ParseError
+
+def parse_port(s: str) -> int: ...
+
+try:
+    port = parse_port("8080")
+except ParseErrorException as error:
+    if error.error == ParseError.INVALID_FORMAT:
+        print("bad format")
+    elif error.error == ParseError.OUT_OF_RANGE:
+        print("too large")`}
+/>
+
+Use `Option` when absence is expected. Use `Result` when absence is an error.
+
+### Vec
+
+Return `Vec<T>` when you're producing a collection. Each element moves across the boundary.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn range(start: i32, end: i32) -> Vec<i32> {
+    (start..end).collect()
+}
+
+#[export]
+pub fn filter_positive(values: &[i32]) -> Vec<i32> {
+    values.iter().copied().filter(|&x| x > 0).collect()
+}`}
+  swift={`func range(start: Int32, end: Int32) -> [Int32]
+func filterPositive(values: [Int32]) -> [Int32]
+
+let nums = range(start: 0, end: 10)
+let pos = filterPositive(values: [-1, 2, -3, 4])`}
+  kotlin={`fun range(start: Int, end: Int): IntArray
+fun filterPositive(values: IntArray): IntArray
+
+val nums = range(0, 10)
+val pos = filterPositive(intArrayOf(-1, 2, -3, 4))`}
+  java={`static int[] range(int start, int end)
+static int[] filterPositive(int[] values)
+
+int[] nums = range(0, 10);
+int[] pos = filterPositive(
+    new int[]{-1, 2, -3, 4});`}
+  csharp={`static int[] Range(int start, int end)
+static int[] FilterPositive(int[] values)
+
+int[] nums = MyLib.Range(0, 10);
+int[] pos = MyLib.FilterPositive(
+    new[] {-1, 2, -3, 4});`}
+  typescript={`function range(start: number, end: number): number[]
+function filterPositive(values: number[]): number[]
+
+const nums = range(0, 10)
+const pos = filterPositive([-1, 2, -3, 4])`}
+  python={`def range(start: int, end: int) -> list[int]: ...
+def filter_positive(values: list[int]) -> list[int]: ...
+
+nums = range(0, 10)
+pos = filter_positive([-1, 2, -3, 4])`}
+/>
+
+## Async functions
+
+Mark a function `async` and BoltFFI generates an async function in the target language:
+
+- Swift: `async`
+- Kotlin: `suspend`
+- Java: `CompletableFuture` on Java 8+, with virtual-thread blocking calls on Java 21+
+- C#: `Task`
+- TypeScript: `Promise`
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn fetch_data(url: &str) -> Result<String, FetchError> {
+    let response = client.get(url).await?;
+    let body = response.text().await?;
+    Ok(body)
+}
+
+#[export]
+pub async fn load_config() -> Config {
+    let bytes = read_file("config.json").await;
+    parse_config(&bytes)
+}`}
+  swift={`func fetchData(url: String) async throws -> String
+func loadConfig() async -> Config
+
+Task {
+    let data = try await fetchData(url: "https://api.example.com")
+    let config = await loadConfig()
+}`}
+  kotlin={`suspend fun fetchData(url: String): String
+suspend fun loadConfig(): Config
+
+coroutineScope {
+    val data = fetchData("https://api.example.com")
+    val config = loadConfig()
+}`}
+  java={`// Java 21+ (virtual threads)
+static String fetchData(String url)
+    // throws FetchErrorException
+static Config loadConfig()
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<String> fetchData(
+    String url)
+static CompletableFuture<Config> loadConfig()
+
+String data = fetchData(
+    "https://api.example.com");`}
+  csharp={`static Task<string> FetchData(string url)
+static Task<Config> LoadConfig()
+
+string data = await MyLib.FetchData(
+    "https://api.example.com");
+Config config = await MyLib.LoadConfig();`}
+  typescript={`async function fetchData(url: string): Promise<string>
+async function loadConfig(): Promise<Config>
+
+const data = await fetchData("https://api.example.com")
+const config = await loadConfig()`}
+  python={`async def fetch_data(url: str) -> str: ...
+async def load_config() -> Config: ...
+
+data = await fetch_data("https://api.example.com")
+config = await load_config()`}
+/>
+
+BoltFFI has no built-in executor. You choose your Rust async runtime (Tokio, async-std, smol, etc.), and BoltFFI bridges the async boundary between Rust and the target language. See [Async](/docs/async) for more.
+
+## Closures
+
+Functions can accept closures as parameters. The closure is called synchronously within the Rust function.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn foreach_range(
+    start: i32,
+    end: i32,
+    mut callback: impl FnMut(i32)
+) {
+    (start..end).for_each(|i| callback(i));
+}
+
+#[export]
+pub fn map_values(
+    values: &[i32],
+    transform: impl Fn(i32) -> i32
+) -> Vec<i32> {
+    values.iter().map(|&x| transform(x)).collect()
+}`}
+  swift={`func foreachRange(
+    start: Int32,
+    end: Int32,
+    callback: (Int32) -> Void
+)
+
+func mapValues(
+    values: [Int32],
+    transform: (Int32) -> Int32
+) -> [Int32]
+
+var sum: Int32 = 0
+foreachRange(start: 1, end: 5) { sum += $0 }
+
+let doubled = mapValues(values: [1, 2, 3]) { $0 * 2 }`}
+  kotlin={`fun foreachRange(
+    start: Int,
+    end: Int,
+    callback: (Int) -> Unit
+)
+
+fun mapValues(
+    values: IntArray,
+    transform: (Int) -> Int
+): IntArray
+
+var sum = 0
+foreachRange(1, 5) { sum += it }
+
+val doubled = mapValues(intArrayOf(1, 2, 3)) { it * 2 }`}
+  java={`// @FunctionalInterface generated for each
+// closure signature
+static void foreachRange(
+    int start, int end,
+    ForeachRangeCallback callback)
+static int[] mapValues(
+    int[] values,
+    MapValuesTransform transform)
+
+int[] sum = {0};
+foreachRange(1, 5, v -> sum[0] += v);
+
+int[] doubled = mapValues(
+    new int[]{1, 2, 3}, v -> v * 2);`}
+  csharp={`public delegate void ForeachRangeCallback(int value);
+public delegate int MapValuesTransform(int value);
+
+static void ForeachRange(
+    int start, int end,
+    ForeachRangeCallback callback)
+static int[] MapValues(
+    int[] values,
+    MapValuesTransform transform)
+
+int sum = 0;
+MyLib.ForeachRange(1, 5, v => sum += v);
+
+int[] doubled = MyLib.MapValues(
+    new[] {1, 2, 3}, v => v * 2);`}
+  typescript={`function foreachRange(
+    start: number,
+    end: number,
+    callback: (value: number) => void
+): void
+
+function mapValues(
+    values: number[],
+    transform: (value: number) => number
+): number[]
+
+let sum = 0
+foreachRange(1, 5, (v) => { sum += v })
+
+const doubled = mapValues([1, 2, 3], (v) => v * 2)`}
+  python={`from collections.abc import Callable
+
+def foreach_range(
+    start: int,
+    end: int,
+    callback: Callable[[int], None]
+) -> None: ...
+
+def map_values(
+    values: list[int],
+    transform: Callable[[int], int]
+) -> list[int]: ...
+
+total = 0
+def add_value(value: int) -> None:
+    global total
+    total += value
+
+foreach_range(1, 5, add_value)
+doubled = map_values([1, 2, 3], lambda value: value * 2)`}
+/>
+
+Each closure call crosses the FFI boundary. If you're calling the closure many times in a tight loop, consider restructuring to reduce crossings.
+
+## Limitations
+
+- Generic functions like `fn max<T: Ord>(a: T, b: T) -> T` are not supported. Create concrete versions for each type you need.
+
+- Functions cannot return references. Return owned data instead.
+
+- Closures that outlive the function call (stored for later use) are not supported. The closure must be called within the function body.
+
+```rust
+// Not supported - generic
+#[export]
+pub fn max<T: Ord>(a: T, b: T) -> T { ... }
+
+// Supported - concrete versions
+#[export]
+pub fn max_i32(a: i32, b: i32) -> i32 {
+    if a > b { a } else { b }
+}
+
+#[export]
+pub fn max_f64(a: f64, b: f64) -> f64 {
+    if a > b { a } else { b }
+}
+```

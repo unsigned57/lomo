@@ -1,0 +1,10 @@
+{%- for method in methods %}{% if !method.is_static %}
+{%- match method.impl_ %}
+{%- when SyncMethod with (wire_method) %}
+
+{{ wire_method|indent(4, true) }}
+{%- when AsyncMethod with (async_method) %}
+
+{{ async_method|indent(4, true) }}
+{%- endmatch %}
+{%- endif %}{% endfor %}

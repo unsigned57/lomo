@@ -1,0 +1,909 @@
+---
+title: "Types"
+description: "Reference how Rust types map to Swift, Kotlin, Java, C#, TypeScript, and Python in BoltFFI, including supported primitives, collections, and performance notes."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Types
+
+When you design a Rust API for BoltFFI, you need to know what happens to your types on the other side. This page shows the mapping for each target language.
+
+## Quick Reference
+
+#### Numeric Types
+
+<TypeTable
+  title="Integers"
+  mappings={[
+    { rust: "i8", swift: "Int8", kotlin: "Byte", java: "byte", csharp: "sbyte", typescript: "number" },
+    { rust: "i16", swift: "Int16", kotlin: "Short", java: "short", csharp: "short", typescript: "number" },
+    { rust: "i32", swift: "Int32", kotlin: "Int", java: "int", csharp: "int", typescript: "number" },
+    { rust: "i64", swift: "Int64", kotlin: "Long", java: "long", csharp: "long", typescript: "bigint" },
+    { rust: "u8", swift: "UInt8", kotlin: "UByte", java: "byte", csharp: "byte", typescript: "number" },
+    { rust: "u16", swift: "UInt16", kotlin: "UShort", java: "short", csharp: "ushort", typescript: "number" },
+    { rust: "u32", swift: "UInt32", kotlin: "UInt", java: "int", csharp: "uint", typescript: "number" },
+    { rust: "u64", swift: "UInt64", kotlin: "ULong", java: "long", csharp: "ulong", typescript: "bigint" },
+  ]}
+/>
+
+<TypeTable
+  title="Floats & Primitives"
+  mappings={[
+    { rust: "f32", swift: "Float", kotlin: "Float", java: "float", csharp: "float", typescript: "number" },
+    { rust: "f64", swift: "Double", kotlin: "Double", java: "double", csharp: "double", typescript: "number" },
+    { rust: "bool", swift: "Bool", kotlin: "Boolean", java: "boolean", csharp: "bool", typescript: "boolean" },
+    { rust: "String", swift: "String", kotlin: "String", java: "String", csharp: "string", typescript: "string" },
+  ]}
+/>
+
+#### Collections & Wrappers
+
+<TypeTable
+  title=""
+  mappings={[
+    { rust: "Vec<T>", swift: "[T]", kotlin: "List<T>", java: "List<T>", csharp: "T[]", typescript: "T[]" },
+    { rust: "Option<T>", swift: "T?", kotlin: "T?", java: "T (nullable)", csharp: "T?", typescript: "T | null" },
+    { rust: "Result<T, E>", swift: "throws", kotlin: "throws", java: "throws", csharp: "throws", typescript: "throws" },
+  ]}
+/>
+
+#### Built-in Custom Types
+
+<TypeTable
+  title=""
+  mappings={[
+    { rust: "Duration", swift: "TimeInterval", kotlin: "Duration", java: "Duration", csharp: "long", typescript: "Duration" },
+    { rust: "SystemTime", swift: "Date", kotlin: "Instant", java: "Instant", csharp: "long", typescript: "Date" },
+    { rust: "Uuid", swift: "UUID", kotlin: "UUID", java: "UUID", csharp: "string", typescript: "string" },
+    { rust: "Url", swift: "URL", kotlin: "URI", java: "URI", csharp: "string", typescript: "string" },
+    { rust: "Vec<u8>", swift: "Data", kotlin: "ByteArray", java: "byte[]", csharp: "byte[]", typescript: "Uint8Array" },
+  ]}
+/>
+
+## Primitives
+
+Primitives are the foundation of BoltFFI's performance. When you pass an `i32` or `f64` across the FFI boundary, the bytes copy directly. There's no serialization, no intermediate buffer, no allocation. The value moves from one side to the other as raw memory.
+
+This matters because every FFI call has overhead. If you're making thousands of calls per second, or processing real-time data, that overhead adds up. By keeping your hot-path types primitive, you minimize the cost of each crossing.
+
+Choose your integer size deliberately. `i32` handles most application logic. `i64` is necessary for timestamps, file sizes, or any value that might exceed 2 billion. `u8` is the right choice for byte buffers, binary protocols, or any raw data manipulation. Using the smallest size that fits your data isn't premature optimization here; it directly affects how much memory moves across the boundary.
+
+<CodeComparison
+  title="Integer sizes"
+  rust={`#[export]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[export]
+pub fn timestamp_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+#[export]
+pub fn byte_at(
+    data: &[u8],
+    index: usize
+) -> u8 {
+    data[index]
+}`}
+  swift={`func add(a: Int32, b: Int32) -> Int32
+func timestampMs() -> Int64
+func byteAt(data: [UInt8], index: UInt) -> UInt8
+
+let sum = add(a: 5, b: 3)
+let ts = timestampMs()
+let b = byteAt(data: [0x48, 0x69], index: 0)`}
+  kotlin={`fun add(a: Int, b: Int): Int
+fun timestampMs(): Long
+fun byteAt(data: ByteArray, index: ULong): UByte
+
+val sum = add(5, 3)
+val ts = timestampMs()
+val b = byteAt(byteArrayOf(0x48, 0x69), 0uL)`}
+  java={`static int add(int a, int b)
+static long timestampMs()
+static byte byteAt(byte[] data, long index)
+
+int sum = add(5, 3);
+long ts = timestampMs();
+byte b = byteAt(new byte[]{0x48, 0x69}, 0L);`}
+  csharp={`static int Add(int a, int b)
+static long TimestampMs()
+static byte ByteAt(byte[] data, nuint index)
+
+int sum = MyLib.Add(5, 3);
+long ts = MyLib.TimestampMs();
+byte b = MyLib.ByteAt(new byte[] { 0x48, 0x69 }, 0);`}
+  typescript={`function add(a: number, b: number): number
+function timestampMs(): bigint
+function byteAt(data: Uint8Array, index: number): number
+
+const sum = add(5, 3)
+const ts = timestampMs()
+const b = byteAt(new Uint8Array([0x48, 0x69]), 0)`}
+  python={`def add(a: int, b: int) -> int: ...
+def timestamp_ms() -> int: ...
+def byte_at(data: bytes, index: int) -> int: ...
+
+sum_value = add(5, 3)
+ts = timestamp_ms()
+b = byte_at(bytes([0x48, 0x69]), 0)`}
+/>
+
+For floating point, `f64` is the default choice. It matches what most languages use for their default float type, and the extra precision rarely hurts. Use `f32` when you're interfacing with graphics APIs, audio processing, or other domains where single precision is the standard.
+
+<CodeComparison
+  title="Floating point"
+  rust={`#[export]
+pub fn circle_area(radius: f64) -> f64 {
+    std::f64::consts::PI * radius * radius
+}
+
+#[export]
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}`}
+  swift={`func circleArea(radius: Double) -> Double
+func lerp(a: Float, b: Float, t: Float) -> Float
+
+let area = circleArea(radius: 5.0)
+let mid = lerp(a: 0.0, b: 10.0, t: 0.5)`}
+  kotlin={`fun circleArea(radius: Double): Double
+fun lerp(a: Float, b: Float, t: Float): Float
+
+val area = circleArea(5.0)
+val mid = lerp(0.0f, 10.0f, 0.5f)`}
+  java={`static double circleArea(double radius)
+static float lerp(float a, float b, float t)
+
+double area = circleArea(5.0);
+float mid = lerp(0.0f, 10.0f, 0.5f);`}
+  csharp={`static double CircleArea(double radius)
+static float Lerp(float a, float b, float t)
+
+double area = MyLib.CircleArea(5.0);
+float mid = MyLib.Lerp(0.0f, 10.0f, 0.5f);`}
+  typescript={`function circleArea(radius: number): number
+function lerp(a: number, b: number, t: number): number
+
+const area = circleArea(5.0)
+const mid = lerp(0.0, 10.0, 0.5)`}
+  python={`def circle_area(radius: float) -> float: ...
+def lerp(a: float, b: float, t: float) -> float: ...
+
+area = circle_area(5.0)
+mid = lerp(0.0, 10.0, 0.5)`}
+/>
+
+## Strings
+
+Strings are where the FFI cost becomes visible. Unlike primitives, strings require memory allocation and copying. Rust's string data lives in Rust's heap; the target language's string lives in its own heap. Crossing the boundary means allocating new memory and copying bytes.
+
+Both `&str` and `String` on the Rust side become owned strings in the target language. There's no way to pass a reference that the target language can use without copying, because Rust's memory model doesn't extend across the FFI boundary. The target language needs its own copy that it can manage with its own garbage collector or reference counting.
+
+The practical rule: use `&str` for parameters (you're borrowing the caller's data) and `String` for return values (you're transferring ownership). This matches idiomatic Rust and works cleanly with BoltFFI's generated code.
+
+<CodeComparison
+  title="String parameters and returns"
+  rust={`#[export]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+#[export]
+pub fn repeat(s: &str, n: usize) -> String {
+    s.repeat(n)
+}
+
+#[export]
+pub fn first_word(s: &str) -> String {
+    s.split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string()
+}`}
+  swift={`func greet(name: String) -> String
+func repeat(s: String, n: UInt) -> String
+func firstWord(s: String) -> String
+
+let msg = greet(name: "World")
+let ha = repeat(s: "ha", n: 3)  // "hahaha"
+let word = firstWord(s: "hello world")`}
+  kotlin={`fun greet(name: String): String
+fun repeat(s: String, n: ULong): String
+fun firstWord(s: String): String
+
+val msg = greet("World")
+val ha = repeat("ha", 3uL)  // "hahaha"
+val word = firstWord("hello world")`}
+  java={`static String greet(String name)
+static String repeat(String s, long n)
+static String firstWord(String s)
+
+String msg = greet("World");
+String ha = repeat("ha", 3L);  // "hahaha"
+String word = firstWord("hello world");`}
+  csharp={`static string Greet(string name)
+static string Repeat(string s, nuint n)
+static string FirstWord(string s)
+
+string msg = MyLib.Greet("World");
+string ha = MyLib.Repeat("ha", 3);  // "hahaha"
+string word = MyLib.FirstWord("hello world");`}
+  typescript={`function greet(name: string): string
+function repeat(s: string, n: number): string
+function firstWord(s: string): string
+
+const msg = greet("World")
+const ha = repeat("ha", 3)  // "hahaha"
+const word = firstWord("hello world")`}
+  python={`def greet(name: str) -> str: ...
+def repeat(s: str, n: int) -> str: ...
+def first_word(s: str) -> str: ...
+
+msg = greet("World")
+ha = repeat("ha", 3)  # "hahaha"
+word = first_word("hello world")`}
+/>
+
+If string handling is your bottleneck, rethink the API. Instead of calling a function once per string in a loop, pass a batch of strings and process them all in one call. Or do the string-heavy work entirely on the Rust side and only return the final result.
+
+## Records
+
+Records are value types: structs and enums marked with `#[data]`. When a record crosses the boundary, it gets copied. The target language receives its own copy of the data.
+
+The cost depends on the contents: primitive-only records are fast, records with strings or collections require allocations.
+
+```rust
+#[data]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[data]
+pub enum Status {
+    Pending,
+    Active,
+    Done,
+}
+```
+
+See [Records](/docs/records) for nested structs, default values, enums with data, and performance characteristics.
+
+## Classes
+
+Classes are reference types. The object lives in Rust, and the target language holds a handle to it. Use classes for stateful objects, resources, or anything with methods.
+
+```rust
+pub struct Counter { value: i32 }
+
+#[export]
+impl Counter {
+    pub fn new() -> Self { Counter { value: 0 } }
+    pub fn increment(&mut self) { self.value += 1; }
+    pub fn get(&self) -> i32 { self.value }
+}
+```
+
+See [Classes](/docs/classes) for constructors, methods, thread safety, and memory management.
+
+## Option
+
+`Option<T>` in Rust becomes a nullable type in the target language. `None` becomes `null` or `nil` on the other side.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn find_user(id: u64) -> Option<String> {
+    if id == 42 {
+        Some("alice".to_string())
+    } else {
+        None
+    }
+}
+
+#[export]
+pub fn parse_int(s: &str) -> Option<i32> {
+    s.parse().ok()
+}`}
+  swift={`func findUser(id: UInt64) -> String?
+func parseInt(s: String) -> Int32?
+
+let user = findUser(id: 42)  // Optional("alice")
+let num = parseInt(s: "123") // Optional(123)
+let bad = parseInt(s: "abc") // nil`}
+  kotlin={`fun findUser(id: ULong): String?
+fun parseInt(s: String): Int?
+
+val user = findUser(42uL)  // "alice"
+val num = parseInt("123")  // 123
+val bad = parseInt("abc")  // null`}
+  java={`static String findUser(long id)
+static java.util.Optional<Integer> parseInt(String s)
+
+String user = findUser(42L);  // "alice"
+Optional<Integer> num = parseInt("123"); // 123
+Optional<Integer> bad = parseInt("abc"); // empty`}
+  csharp={`static string? FindUser(ulong id)
+static int? ParseInt(string s)
+
+string? user = MyLib.FindUser(42UL);  // "alice"
+int? num = MyLib.ParseInt("123");     // 123
+int? bad = MyLib.ParseInt("abc");     // null`}
+  typescript={`function findUser(id: bigint): string | null
+function parseInt(s: string): number | null
+
+const user = findUser(42n)  // "alice"
+const num = parseInt("123") // 123
+const bad = parseInt("abc") // null`}
+  python={`def find_user(id: int) -> str | None: ...
+def parse_int(s: str) -> int | None: ...
+
+user = find_user(42)      # "alice"
+num = parse_int("123")    # 123
+bad = parse_int("abc")    # None`}
+/>
+
+## Result and errors
+
+`Result<T, E>` becomes a throwing function. The `Ok` value is returned normally; the `Err` value becomes a thrown exception. The error type must be marked with `#[error]`.
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub enum ParseError {
+    Empty,
+    InvalidFormat,
+    OutOfRange,
+}
+
+#[export]
+pub fn parse_port(s: &str) -> Result<u16, ParseError> {
+    if s.is_empty() {
+        return Err(ParseError::Empty);
+    }
+    let n: i32 = s.parse()
+        .map_err(|_| ParseError::InvalidFormat)?;
+    if n < 0 || n > 65535 {
+        return Err(ParseError::OutOfRange);
+    }
+    Ok(n as u16)
+}`}
+  swift={`public enum ParseError: Error {
+    case empty
+    case invalidFormat
+    case outOfRange
+}
+
+func parsePort(s: String) throws -> UInt16
+
+do {
+    let port = try parsePort(s: "8080")
+} catch ParseError.empty {
+    print("empty input")
+} catch {
+    print("other error")
+}`}
+  kotlin={`sealed class ParseError : Exception() {
+    object Empty : ParseError()
+    object InvalidFormat : ParseError()
+    object OutOfRange : ParseError()
+}
+
+@Throws(ParseError::class)
+fun parsePort(s: String): UShort
+
+try {
+    val port = parsePort("8080")
+} catch (e: ParseError.Empty) {
+    println("empty input")
+} catch (e: ParseError) {
+    println("other error")
+}`}
+  java={`public enum ParseError {
+    EMPTY(0),
+    INVALID_FORMAT(1),
+    OUT_OF_RANGE(2);
+
+    public final int value;
+}
+
+static short parsePort(String s) // throws
+
+try {
+    short port = parsePort("8080");
+} catch (RuntimeException e) {
+    System.out.println(e.getMessage());
+}`}
+  csharp={`public enum ParseError
+{
+    Empty = 0,
+    InvalidFormat = 1,
+    OutOfRange = 2,
+}
+
+static ushort ParsePort(string s) // throws
+
+try {
+    ushort port = MyLib.ParsePort("8080");
+} catch (ParseErrorException e) {
+    Console.WriteLine(e.Error);
+}`}
+  typescript={`enum ParseError {
+    Empty = 0,
+    InvalidFormat = 1,
+    OutOfRange = 2
+}
+
+class ParseErrorException extends Error {
+    readonly code: ParseError
+}
+
+function parsePort(s: string): number // throws
+
+try {
+    const port = parsePort("8080")
+} catch (e) {
+    if (e instanceof ParseErrorException && e.code === ParseError.Empty) {
+        console.log("empty input")
+    } else {
+        console.log("other error")
+    }
+}`}
+  python={`from enum import IntEnum
+
+class ParseError(IntEnum):
+    EMPTY = 0
+    INVALID_FORMAT = 1
+    OUT_OF_RANGE = 2
+
+class ParseErrorException(RuntimeError):
+    error: ParseError
+
+def parse_port(s: str) -> int: ...
+
+try:
+    port = parse_port("8080")
+except ParseErrorException as error:
+    print(error.error)`}
+/>
+
+## Collections
+
+Collections let you pass multiple values in a single call. `Vec<T>` in Rust becomes a native array or list in the target language. Slices (`&[T]`) work the same way for input parameters.
+
+The cost scales with the number of elements. A `Vec<i32>` with 1000 elements moves 1000 integers across the boundary. A `Vec<User>` with 1000 users moves 1000 structs, each with their own strings and fields. For large collections of complex types, this can become the dominant cost in your FFI call.
+
+If performance matters, prefer collections of primitives over collections of complex types.
+
+### Basic collections
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn sum(values: &[i32]) -> i32 {
+    values.iter().sum()
+}
+
+#[export]
+pub fn range(start: i32, end: i32) -> Vec<i32> {
+    (start..end).collect()
+}
+
+#[export]
+pub fn filter_positive(
+    values: &[i32]
+) -> Vec<i32> {
+    values.iter()
+        .copied()
+        .filter(|&x| x > 0)
+        .collect()
+}`}
+  swift={`func sum(values: [Int32]) -> Int32
+func range(start: Int32, end: Int32) -> [Int32]
+func filterPositive(values: [Int32]) -> [Int32]
+
+let total = sum(values: [1, 2, 3, 4, 5])
+let nums = range(start: 0, end: 10)
+let pos = filterPositive(values: [-1, 2, -3, 4])`}
+  kotlin={`fun sum(values: IntArray): Int
+fun range(start: Int, end: Int): IntArray
+fun filterPositive(values: IntArray): IntArray
+
+val total = sum(intArrayOf(1, 2, 3, 4, 5))
+val nums = range(0, 10)
+val pos = filterPositive(intArrayOf(-1, 2, -3, 4))`}
+  java={`static int sum(int[] values)
+static int[] range(int start, int end)
+static int[] filterPositive(int[] values)
+
+int total = sum(new int[]{1, 2, 3, 4, 5});
+int[] nums = range(0, 10);
+int[] pos = filterPositive(new int[]{-1, 2, -3, 4});`}
+  csharp={`static int Sum(int[] values)
+static int[] Range(int start, int end)
+static int[] FilterPositive(int[] values)
+
+int total = MyLib.Sum(new[] { 1, 2, 3, 4, 5 });
+int[] nums = MyLib.Range(0, 10);
+int[] pos = MyLib.FilterPositive(new[] { -1, 2, -3, 4 });`}
+  typescript={`function sum(values: number[]): number
+function range(start: number, end: number): number[]
+function filterPositive(values: number[]): number[]
+
+const total = sum([1, 2, 3, 4, 5])
+const nums = range(0, 10)
+const pos = filterPositive([-1, 2, -3, 4])`}
+  python={`def sum(values: list[int]) -> int: ...
+def range(start: int, end: int) -> list[int]: ...
+def filter_positive(values: list[int]) -> list[int]: ...
+
+total = sum([1, 2, 3, 4, 5])
+nums = range(0, 10)
+pos = filter_positive([-1, 2, -3, 4])`}
+/>
+
+### Nested collections
+
+`Vec<Vec<T>>` and deeper nesting are supported. The deeper you nest, the more work it takes to move across the boundary.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn transpose(
+    matrix: &[Vec<i32>]
+) -> Vec<Vec<i32>> {
+    if matrix.is_empty() {
+        return vec![];
+    }
+    let rows = matrix.len();
+    let cols = matrix[0].len();
+    (0..cols)
+        .map(|c| {
+            (0..rows)
+                .map(|r| matrix[r][c])
+                .collect()
+        })
+        .collect()
+}`}
+  swift={`func transpose(matrix: [[Int32]]) -> [[Int32]]
+
+let m = [[1, 2, 3], [4, 5, 6]]
+let t = transpose(matrix: m)
+// [[1, 4], [2, 5], [3, 6]]`}
+  kotlin={`fun transpose(matrix: List<IntArray>): List<IntArray>
+
+val m = listOf(intArrayOf(1, 2, 3), intArrayOf(4, 5, 6))
+val t = transpose(m)
+// [[1, 4], [2, 5], [3, 6]]`}
+  java={`static List<int[]> transpose(List<int[]> matrix)
+
+List<int[]> m = List.of(
+    new int[]{1, 2, 3},
+    new int[]{4, 5, 6}
+);
+List<int[]> t = transpose(m);
+// [[1, 4], [2, 5], [3, 6]]`}
+  csharp={`static int[][] Transpose(int[][] matrix)
+
+int[][] m = {
+    new[] { 1, 2, 3 },
+    new[] { 4, 5, 6 },
+};
+int[][] t = MyLib.Transpose(m);
+// [[1, 4], [2, 5], [3, 6]]`}
+  typescript={`function transpose(matrix: number[][]): number[][]
+
+const m = [[1, 2, 3], [4, 5, 6]]
+const t = transpose(m)
+// [[1, 4], [2, 5], [3, 6]]`}
+  python={`def transpose(matrix: list[list[int]]) -> list[list[int]]: ...
+
+m = [[1, 2, 3], [4, 5, 6]]
+t = transpose(m)
+# [[1, 4], [2, 5], [3, 6]]`}
+/>
+
+## Callbacks
+
+Pass functions from the target language into Rust. Use `impl Fn`, `impl FnMut`, or `impl FnOnce` for simple callbacks.
+
+```rust
+#[export]
+pub fn foreach_range(start: i32, end: i32, mut cb: impl FnMut(i32)) {
+    (start..end).for_each(|i| cb(i));
+}
+```
+
+For callbacks with multiple methods or that need to be stored, use callback traits with `#[export]`.
+
+```rust
+#[export]
+pub trait Logger {
+    fn log(&self, message: &str);
+    fn flush(&self);
+}
+```
+
+See [Callbacks](/docs/callbacks) for closures, callback traits, and async callbacks.
+
+## What's not supported
+
+Some Rust types can't cross the FFI boundary. This isn't a limitation of BoltFFI specifically; these types don't have meaningful representations in other languages, or would require runtime support that doesn't exist.
+
+- Generic structs like `struct Wrapper<T>` require monomorphization. Define concrete types like `struct StringWrapper { value: String }` instead.
+
+- Trait objects like `dyn Trait` rely on Rust's vtable mechanism. Use an enum with variants for each concrete type you need to support.
+
+- Raw pointers are inherently unsafe. Handle pointer manipulation inside Rust and expose safe types at the boundary.
+
+- Non-static lifetimes like `&'a str` can't be enforced across FFI. Return owned data (`String`) instead of borrowed references.
+
+- HashSet doesn't have a universal representation. Convert to `Vec<T>` instead.
+
+## Built-in custom types
+
+BoltFFI recognizes certain standard library and common crate types and maps them to idiomatic equivalents in each target language.
+
+<TypeTable
+  title="Built-in Type Mappings"
+  mappings={[
+    { rust: "std::time::Duration", swift: "TimeInterval", kotlin: "Duration", java: "Duration", csharp: "long", typescript: "Duration" },
+    { rust: "std::time::SystemTime", swift: "Date", kotlin: "Instant", java: "Instant", csharp: "long", typescript: "Date" },
+    { rust: "uuid::Uuid", swift: "UUID", kotlin: "UUID", java: "UUID", csharp: "string", typescript: "string" },
+    { rust: "url::Url", swift: "URL", kotlin: "URI", java: "URI", csharp: "string", typescript: "string" },
+    { rust: "Vec<u8>", swift: "Data", kotlin: "ByteArray", java: "byte[]", csharp: "byte[]", typescript: "Uint8Array" },
+  ]}
+/>
+
+### Duration
+
+`std::time::Duration` represents a span of time. BoltFFI encodes it as seconds plus nanoseconds (12 bytes total). Swift uses `TimeInterval` (a `Double` of seconds), Kotlin and Java use `java.time.Duration`, C# uses a `long`, TypeScript uses a `{ secs: bigint, nanos: number }` object, and Python uses seconds as a `float`.
+
+<CodeComparison
+  title=""
+  rust={`use std::time::Duration;
+
+#[export]
+pub fn sleep_duration() -> Duration {
+    Duration::from_millis(500)
+}
+
+#[export]
+pub fn double_duration(d: Duration) -> Duration {
+    d * 2
+}`}
+  swift={`func sleepDuration() -> TimeInterval
+func doubleDuration(d: TimeInterval) -> TimeInterval
+
+let half = sleepDuration()  // 0.5
+let full = doubleDuration(d: half)  // 1.0`}
+  kotlin={`fun sleepDuration(): Duration
+fun doubleDuration(d: Duration): Duration
+
+val half = sleepDuration()  // PT0.5S
+val full = doubleDuration(half)  // PT1S`}
+  java={`static Duration sleepDuration()
+static Duration doubleDuration(Duration d)
+
+Duration half = sleepDuration();
+Duration full = doubleDuration(half);`}
+  csharp={`static long SleepDuration()
+static long DoubleDuration(long d)
+
+long half = MyLib.SleepDuration();
+long full = MyLib.DoubleDuration(half);`}
+  typescript={`function sleepDuration(): Duration
+function doubleDuration(d: Duration): Duration
+
+const half = sleepDuration()  // { secs: 0n, nanos: 500000000 }
+const full = doubleDuration(half)`}
+  python={`def sleep_duration() -> float: ...
+def double_duration(d: float) -> float: ...
+
+half = sleep_duration()  # 0.5
+full = double_duration(half)`}
+/>
+
+### SystemTime
+
+`std::time::SystemTime` represents a point in time. BoltFFI encodes it as seconds since Unix epoch plus nanoseconds (12 bytes). Swift uses `Date`, Kotlin and Java use `Instant`, C# uses a `long`, TypeScript uses `Date`, and Python uses Unix seconds as a `float`. Negative values represent times before 1970.
+
+<CodeComparison
+  title=""
+  rust={`use std::time::SystemTime;
+
+#[export]
+pub fn now() -> SystemTime {
+    SystemTime::now()
+}
+
+#[export]
+pub fn epoch() -> SystemTime {
+    SystemTime::UNIX_EPOCH
+}`}
+  swift={`func now() -> Date
+func epoch() -> Date
+
+let current = now()
+let unix = epoch()  // 1970-01-01`}
+  kotlin={`fun now(): Instant
+fun epoch(): Instant
+
+val current = now()
+val unix = epoch()  // 1970-01-01T00:00:00Z`}
+  java={`static Instant now()
+static Instant epoch()
+
+Instant current = now();
+Instant unix = epoch();`}
+  csharp={`static long Now()
+static long Epoch()
+
+long current = MyLib.Now();
+long unix = MyLib.Epoch();`}
+  typescript={`function now(): Date
+function epoch(): Date
+
+const current = now()
+const unix = epoch()  // 1970-01-01T00:00:00.000Z`}
+  python={`def now() -> float: ...
+def epoch() -> float: ...
+
+current = now()
+unix = epoch()  # 0.0`}
+/>
+
+### UUID
+
+`uuid::Uuid` from the [uuid](https://crates.io/crates/uuid) crate maps to native UUID types in Swift, Kotlin, Java, and Python. C# and TypeScript receive it as a string since those bindings do not use a generated UUID wrapper.
+
+<CodeComparison
+  title=""
+  rust={`use uuid::Uuid;
+
+#[export]
+pub fn new_id() -> Uuid {
+    Uuid::new_v4()
+}
+
+#[export]
+pub fn parse_id(s: &str) -> Option<Uuid> {
+    Uuid::parse_str(s).ok()
+}`}
+  swift={`func newId() -> UUID
+func parseId(s: String) -> UUID?
+
+let id = newId()
+let parsed = parseId(s: "550e8400-e29b-41d4-a716-446655440000")`}
+  kotlin={`fun newId(): UUID
+fun parseId(s: String): UUID?
+
+val id = newId()
+val parsed = parseId("550e8400-e29b-41d4-a716-446655440000")`}
+  java={`static UUID newId()
+static UUID parseId(String s)
+
+UUID id = newId();
+UUID parsed = parseId("550e8400-e29b-41d4-a716-446655440000");`}
+  csharp={`static string NewId()
+static string? ParseId(string s)
+
+string id = MyLib.NewId();
+string? parsed = MyLib.ParseId("550e8400-e29b-41d4-a716-446655440000");`}
+  typescript={`function newId(): string
+function parseId(s: string): string | null
+
+const id = newId()  // "550e8400-e29b-41d4-a716-446655440000"
+const parsed = parseId("550e8400-e29b-41d4-a716-446655440000")`}
+  python={`def new_id() -> uuid.UUID: ...
+def parse_id(s: str) -> uuid.UUID | None: ...
+
+id = new_id()
+parsed = parse_id("550e8400-e29b-41d4-a716-446655440000")`}
+/>
+
+### URL
+
+`url::Url` from the [url](https://crates.io/crates/url) crate maps to `URL` in Swift, `URI` in Kotlin and Java, and `string` in C# and TypeScript. The URL is serialized as its string representation.
+
+<CodeComparison
+  title=""
+  rust={`use url::Url;
+
+#[export]
+pub fn base_url() -> Url {
+    Url::parse("https://example.com").unwrap()
+}
+
+#[export]
+pub fn with_path(base: Url, path: &str) -> Url {
+    base.join(path).unwrap()
+}`}
+  swift={`func baseUrl() -> URL
+func withPath(base: URL, path: String) -> URL
+
+let base = baseUrl()
+let full = withPath(base: base, path: "/api/v1")`}
+  kotlin={`fun baseUrl(): URI
+fun withPath(base: URI, path: String): URI
+
+val base = baseUrl()
+val full = withPath(base, "/api/v1")`}
+  java={`static URI baseUrl()
+static URI withPath(URI base, String path)
+
+URI base = baseUrl();
+URI full = withPath(base, "/api/v1");`}
+  csharp={`static string BaseUrl()
+static string WithPath(string baseUrl, string path)
+
+string baseUrl = MyLib.BaseUrl();  // "https://example.com/"
+string full = MyLib.WithPath(baseUrl, "/api/v1");`}
+  typescript={`function baseUrl(): string
+function withPath(base: string, path: string): string
+
+const base = baseUrl()  // "https://example.com/"
+const full = withPath(base, "/api/v1")`}
+  python={`def base_url() -> str: ...
+def with_path(base: str, path: str) -> str: ...
+
+base = base_url()  # "https://example.com/"
+full = with_path(base, "/api/v1")`}
+/>
+
+### Bytes
+
+`Vec<u8>` and `&[u8]` represent raw binary data. Unlike other collections, bytes get special treatment: they map to `Data` in Swift, `ByteArray` in Kotlin, `byte[]` in Java and C#, and `Uint8Array` in TypeScript.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn compress(data: &[u8]) -> Vec<u8> {
+    // compression logic
+    data.to_vec()
+}
+
+#[export]
+pub fn hash(data: &[u8]) -> Vec<u8> {
+    // hashing logic
+    vec![0u8; 32]
+}`}
+  swift={`func compress(data: Data) -> Data
+func hash(data: Data) -> Data
+
+let compressed = compress(data: originalData)
+let digest = hash(data: message)`}
+  kotlin={`fun compress(data: ByteArray): ByteArray
+fun hash(data: ByteArray): ByteArray
+
+val compressed = compress(originalData)
+val digest = hash(message)`}
+  java={`static byte[] compress(byte[] data)
+static byte[] hash(byte[] data)
+
+byte[] compressed = compress(originalData);
+byte[] digest = hash(message);`}
+  csharp={`static byte[] Compress(byte[] data)
+static byte[] Hash(byte[] data)
+
+byte[] compressed = MyLib.Compress(originalData);
+byte[] digest = MyLib.Hash(message);`}
+  typescript={`function compress(data: Uint8Array): Uint8Array
+function hash(data: Uint8Array): Uint8Array
+
+const compressed = compress(originalData)
+const digest = hash(message)`}
+  python={`def compress(data: bytes) -> bytes: ...
+def hash(data: bytes) -> bytes: ...
+
+compressed = compress(original_data)
+digest = hash(message)`}
+/>

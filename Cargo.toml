@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["boltffi", "boltffi_core", "boltffi_macros", "boltffi_bindgen", "boltffi_cli", "boltffi_ffi_rules", "boltffi_ast", "boltffi_binding", "boltffi_backend", "boltffi_scan", "boltffi_verify", "boltffi_tests"]
+exclude = ["benchmarks/adapters/uniffi", "examples/demo"]
+
+[workspace.package]
+version = "0.28.0"
+edition = "2024"
+authors = ["Ali A. Hilal <me@alihilal.com>"]
+license = "MIT"
+repository = "https://github.com/boltffi/boltffi"
+
+[workspace.dependencies]
+boltffi = { version = "0.28.0", path = "boltffi" }
+boltffi_core = { version = "0.28.0", path = "boltffi_core" }
+boltffi_macros = { version = "0.28.0", path = "boltffi_macros" }
+boltffi_bindgen = { version = "0.28.0", path = "boltffi_bindgen" }
+boltffi_ffi_rules = { version = "0.28.0", path = "boltffi_ffi_rules" }
+boltffi_ast = { version = "0.28.0", path = "boltffi_ast" }
+boltffi_binding = { version = "0.28.0", path = "boltffi_binding" }
+boltffi_backend = { version = "0.28.0", path = "boltffi_backend" }
+boltffi_scan = { version = "0.28.0", path = "boltffi_scan" }
+boltffi_verify = { version = "0.28.0", path = "boltffi_verify" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+syn = { version = "2.0", features = ["full", "parsing", "visit"] }
+quote = "1.0"
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+walkdir = "2.4"
+rstest = "0.26"
+tokio = "1"
+object = "0.39"
+insta = "1.46"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+missing_safety_doc = "allow"
+
+[profile.release]
+debug = 1
+
+[profile.release-lto]
+inherits = "release"
+opt-level = 3
+debug = "none"
+strip = "symbols"
+debug-assertions = false
+overflow-checks = false
+lto = "fat"
+panic = "abort"
+incremental = false
+codegen-units = 1

@@ -1,0 +1,103 @@
+name: New target language
+description: Track the work to add a new binding target language.
+title: "Add <language> as a target"
+labels: ["target", "tracking"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A target lands across many PRs, so this issue is the place to lay out the plan and track progress. Read [Adding a new target language](https://github.com/boltffi/boltffi/blob/main/docs/contributors/adding-a-target.md) first.
+
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      placeholder: Ruby, Go, Dart, ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: Approach
+      description: How the target renders from the IR, and anything language-specific worth deciding up front.
+      placeholder: |
+        Identifier casing and reserved-word handling, multi-file output rules, anything unusual about the language's type system.
+    validations:
+      required: true
+
+  - type: textarea
+    id: bridge
+    attributes:
+      label: Bridge stack
+      description: Which bridge the target sits on and whether it needs a runtime layer.
+      placeholder: |
+        Reuse CBridge, add a <lang> runtime layer if the target calls into the C ABI through generated glue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Plan
+      description: One PR per step, driven by examples/demo. Adjust the order to the language, but keep the phases.
+      value: |
+        ### Phase 1: Foundation
+        - [ ] Add the target to the `Target` enum and the demo audit registry
+        - [ ] Scaffold the host backend under `boltffi_backend/src/target/<lang>/` (render, codec, runtime)
+        - [ ] Wire it into `boltffi_bindgen/src/generate.rs` and the CLI
+        - [ ] Add to `Experimental::ALL` so it is opt-in
+
+        ### Phase 2: Code generation
+        - [ ] Free functions with primitive crossings (the first thing that runs end to end, so the rest can be tested against it)
+        - [ ] Records
+        - [ ] Options
+        - [ ] Results
+        - [ ] Enums
+        - [ ] Classes
+        - [ ] Callbacks
+        - [ ] Async
+        - [ ] Enum and class methods
+        - [ ] Bytes
+        - [ ] Builtins
+        - [ ] Custom types
+        - [ ] Multi-crate
+
+        ### Phase 3: Packaging and demo
+        - [ ] Make the generated output a normal package or binary layout for the language
+        - [ ] Run the demo end to end against the generated package
+
+        ### Phase 4: Docs and GA
+        - [ ] Keep `just demo-test-audit` green, removing exclusions as features land
+        - [ ] Update overview, packaging, configuration, and any language-specific docs
+        - [ ] Promote to GA, removing the target from `Experimental::ALL`
+    validations:
+      required: true
+
+  - type: textarea
+    id: deferred
+    attributes:
+      label: Deferred for now
+      description: Features the target will not support at first, and why.
+      placeholder: |
+        Streams deferred until the runtime has a place to drive them, for example.
+    validations:
+      required: false
+
+  - type: input
+    id: tracking-author
+    attributes:
+      label: Who is driving this
+      placeholder: GitHub handle
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Before starting
+      options:
+        - label: I have read the adding-a-target guide and I am building on the IR path, not the frozen render path.
+          required: true
+        - label: I understand an experimental target is expected to reach GA in six to eight weeks of active work, and a stalled target may be removed.
+          required: true

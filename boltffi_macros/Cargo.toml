@@ -1,0 +1,29 @@
+[package]
+name = "boltffi_macros"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Procedural macros for BoltFFI - #[data], #[export], #[class] attributes"
+keywords = ["ffi", "proc-macro", "codegen", "bindings"]
+categories = ["development-tools::ffi", "development-tools::procedural-macro-helpers"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["printing"] }
+quote.workspace = true
+proc-macro2.workspace = true
+proc-macro-crate = "3.5"
+boltffi_ffi_rules.workspace = true
+boltffi_ast.workspace = true
+boltffi_binding.workspace = true
+boltffi_scan.workspace = true
+
+[dev-dependencies]
+boltffi_bindgen.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 1716
+expression: template.render().unwrap()
+---
+
+fun concat(a: String, b: String): String {
+    val aWire = WireWriterPool.acquire(BoltFFIWire.sizeString(a))
+        kotlin.run {
+            val wire = aWire.writer
+            BoltFFIWire.writeString(a)
+        }
+    val bWire = WireWriterPool.acquire(BoltFFIWire.sizeString(b))
+        kotlin.run {
+            val wire = bWire.writer
+            BoltFFIWire.writeString(b)
+        }
+    try {
+        val buf = Native.boltffi_concat(aWire.ptr, aWire.len, bWire.ptr, bWire.len)
+            ?: throw FfiException(-1, "Null buffer returned")
+        val reader = WireReader(buf)
+        return reader.readString()
+    } finally {
+        aWire.close()
+        bWire.close()
+    }
+}

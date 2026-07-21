@@ -1,0 +1,30 @@
+[package]
+name = "boltffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance FFI bindings generator for Rust. Up to 1000x faster than UniFFI, 450x faster than wasm-bindgen."
+homepage = "https://boltffi.dev"
+documentation = "https://boltffi.dev/docs"
+readme = "../README.md"
+keywords = ["ffi", "swift", "kotlin", "wasm", "bindings"]
+categories = ["development-tools::ffi", "api-bindings"]
+
+[features]
+default = ["uuid", "url"]
+fast-alloc = ["boltffi_core/fast-alloc"]
+uuid = ["boltffi_core/uuid"]
+chrono = ["boltffi_core/chrono"]
+url = ["boltffi_core/url"]
+
+[dependencies]
+boltffi_core.workspace = true
+boltffi_macros.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[lints]
+workspace = true

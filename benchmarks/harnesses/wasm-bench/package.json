@@ -1,0 +1,12 @@
+{
+  "name": "wasm-bench",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "@boltffi/runtime": "file:../../../runtime/typescript",
+    "benchmark": "^2.1.4"
+  }
+}

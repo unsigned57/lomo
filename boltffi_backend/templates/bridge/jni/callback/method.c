@@ -1,0 +1,26 @@
+static {{ method.c_return_type }} {{ method.function }}({% for parameter in method.c_parameters %}{{ parameter.declaration }}{% if !loop.last %}, {% endif %}{% endfor %}) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+{% include "bridge/jni/callback/method/locals.c" %}
+    if (!boltffi_jni_enter(&env, &attached)) {
+{%- for completion in method.completions %}
+        {{ completion.callback }}({{ completion.failure_arguments }});
+{%- endfor %}
+{%- if method.returns_void %}
+        return;
+{%- else %}
+        return {{ method.failure_value }};
+{%- endif %}
+    }
+{% include "bridge/jni/callback/method/byte_arrays.c" %}
+{% include "bridge/jni/callback/method/direct_vectors.c" %}
+{% include "bridge/jni/callback/method/record_arrays.c" %}
+{% include "bridge/jni/callback/method/callback_handles.c" %}
+{% include "bridge/jni/callback/method/closure_handles.c" %}
+{% include "bridge/jni/callback/method/invoke.c" %}
+__boltffi_fail:
+{% include "bridge/jni/callback/method/cleanup.c" %}
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+{% include "bridge/jni/callback/method/fail.c" %}
+}

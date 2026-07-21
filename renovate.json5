@@ -1,0 +1,72 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitTypeAll(chore)",
+  ],
+  timezone: "UTC",
+  schedule: ["on Wednesday"],
+  prConcurrentLimit: 5,
+  minimumReleaseAge: "5 days",
+  labels: ["dependencies"],
+
+  // No pinned crates at this time. All version strings in Cargo.toml files are
+  // floating minimums (caret ranges), not pins. If a real pin is ever needed
+  // (e.g., an upstream crate breaks us), add a packageRule below with
+  // matchPackageNames + allowedVersions and document the reason inline.
+  packageRules: [
+    {
+      description: "Group all Cargo updates (workspace, benchmarks, examples/demo) so path-dep consumers stay in sync with library deps",
+      matchManagers: ["cargo"],
+      groupName: "cargo",
+      commitMessagePrefix: "chore(deps):",
+    },
+    {
+      description: "Group example platform updates (apple/Swift Package Manager, kotlin/Gradle, wasm/npm; java and python demos are stdlib-only)",
+      matchFileNames: ["examples/platforms/**"],
+      groupName: "example-platforms",
+      commitMessagePrefix: "chore(examples):",
+    },
+    {
+      description: "Group GitHub Actions updates",
+      matchManagers: ["github-actions"],
+      groupName: "github-actions",
+      commitMessagePrefix: "chore(ci):",
+    },
+    {
+      // Without this, Renovate only opens PRs when Cargo.toml needs to change.
+      // Patch/minor updates resolved through existing caret ranges would sit in
+      // Cargo.lock forever.
+      description: "Update Cargo lockfiles even when the declared range is satisfied",
+      matchManagers: ["cargo"],
+      rangeStrategy: "update-lockfile",
+    },
+    {
+      description: "Group rust-toolchain updates",
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["rust"],
+      groupName: "rust-toolchain",
+      commitMessagePrefix: "chore(deps):",
+    },
+  ],
+
+  customManagers: [
+    {
+      // Renovate has no built-in manager for rust-toolchain.toml (PR #32432
+      // was closed unmerged). Track the `channel = "x.y.z"` line against
+      // rust-lang/rust GitHub releases.
+      //
+      // Refs:
+      //   https://docs.renovatebot.com/modules/manager/regex/
+      //   https://github.com/renovatebot/renovate/pull/32432
+      //   https://github.com/arkedge/renovate-config/blob/main/rust-toolchain.json5
+      customType: "regex",
+      managerFilePatterns: ["/(^|/)rust-toolchain\\.toml$/"],
+      matchStrings: ["channel\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      depNameTemplate: "rust",
+      packageNameTemplate: "rust-lang/rust",
+      datasourceTemplate: "github-releases",
+    },
+  ],
+}

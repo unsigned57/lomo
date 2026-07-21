@@ -1,0 +1,24 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+data class Person(
+    val id: Int,
+    val name: String
+) {
+    companion object {
+        fun decode(reader: WireReader): Person = Person(
+            reader.readI32(),
+            reader.readString()
+        )
+    }
+    fun wireEncodedSize(): Int =
+        4 +
+        wire.sizeString(name)
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeI32(id)
+        wire.writeString(name)
+    }
+}

@@ -1,0 +1,61 @@
+{{ self::kdoc_block(doc, "") }}{%- if throws %}
+@Throws({{ err_type }}::class)
+{%- endif %}
+fun {{ func_name }}({% for param in signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}){% if let Some(ret) = return_type %}: {{ ret }}{% endif %} {
+{%- if wire_writers.is_empty() %}
+{%- if return_is_unit %}
+    Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+{%- elif return_is_direct %}
+{%- if direct_return_is_nullable %}
+    val result = Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+        ?: throw FfiException(-1, "Null buffer returned")
+    return result{{ return_cast }}
+{%- else %}
+    return Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ return_cast }}
+{%- endif %}
+{%- else %}
+    val buf = Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+        ?: throw FfiException(-1, "Null buffer returned")
+{%- if is_blittable_return %}
+    return useWireBytes(buf) { buffer ->
+        {{ decode_expr }}
+    }
+{%- else %}
+    val reader = WireReader(buf)
+    return {{ decode_expr }}
+{%- endif %}
+{%- endif %}
+{%- else %}
+{%- for binding in wire_writers %}
+    {{ binding.setup_code() }}
+{%- endfor %}
+    try {
+{%- if return_is_unit %}
+        Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+{%- elif return_is_direct %}
+{%- if direct_return_is_nullable %}
+        val result = Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+            ?: throw FfiException(-1, "Null buffer returned")
+        return result{{ return_cast }}
+{%- else %}
+        return Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ return_cast }}
+{%- endif %}
+{%- else %}
+        val buf = Native.{{ ffi_name }}({% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+            ?: throw FfiException(-1, "Null buffer returned")
+{%- if is_blittable_return %}
+        return useWireBytes(buf) { buffer ->
+            {{ decode_expr }}
+        }
+{%- else %}
+        val reader = WireReader(buf)
+        return {{ decode_expr }}
+{%- endif %}
+{%- endif %}
+    } finally {
+{%- for close_code in wire_writer_closes %}
+        {{ close_code }}
+{%- endfor %}
+    }
+{%- endif %}
+}

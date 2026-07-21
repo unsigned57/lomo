@@ -1,0 +1,41 @@
+{{ self::kdoc_block(doc, "") }}{%- if throws %}
+@Throws({{ err_type }}::class)
+{%- endif %}
+suspend fun {{ method_name }}({% for param in signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}){% match return_type %}{% when Some with (ret) %}: {{ ret }}{% when None %}{% endmatch %} = boltffiCallAsync(
+{%- if wire_writers.is_empty() %}
+    createFuture = { Native.{{ ffi_name }}({% if include_handle %}handle{% if native_args.len() > 0 %}, {% endif %}{% endif %}{% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}) },
+{%- else %}
+    createFuture = {
+{%- for binding in wire_writers %}
+        {{ binding.setup_code() }}
+{%- endfor %}
+        try {
+            Native.{{ ffi_name }}({% if include_handle %}handle{% if native_args.len() > 0 %}, {% endif %}{% endif %}{% for arg in native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+        } finally {
+{%- for close_code in wire_writer_closes %}
+            {{ close_code }}
+{%- endfor %}
+        }
+    },
+{%- endif %}
+    poll = { future, contHandle -> Native.{{ ffi_poll }}({% if include_handle %}handle, {% endif %}future, contHandle) },
+    complete = { future ->
+{%- if return_is_unit %}
+        Native.{{ ffi_complete }}({% if include_handle %}handle, {% endif %}future)
+{%- elif return_is_direct %}
+        Native.{{ ffi_complete }}({% if include_handle %}handle, {% endif %}future){{ return_cast }}
+{%- else %}
+        val buf = Native.{{ ffi_complete }}({% if include_handle %}handle, {% endif %}future) ?: throw FfiException(-1, "Null buffer returned")
+{%- if is_blittable_return %}
+        useWireBytes(buf) { buffer ->
+            {{ decode_expr }}
+        }
+{%- else %}
+        val reader = WireReader(buf)
+        {{ decode_expr }}
+{%- endif %}
+{%- endif %}
+    },
+    free = { future -> Native.{{ ffi_free }}({% if include_handle %}handle, {% endif %}future) },
+    cancel = { future -> Native.{{ ffi_cancel }}({% if include_handle %}handle, {% endif %}future) }
+)

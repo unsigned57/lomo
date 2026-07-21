@@ -1,0 +1,164 @@
+---
+title: "Custom Types"
+description: "Use custom_type! to map external Rust crate types like uuid or url into BoltFFI-friendly FFI representations with safe conversions."
+---
+
+# Custom Types
+
+Sometimes you need to expose types from external crates that you don't own. You can't add `#[data]` to a type defined in another crate, but you can teach BoltFFI how to convert it to and from an FFI-compatible representation. This lets you use types from popular crates like `chrono`, `uuid`, or `url` directly in your exported API.
+
+The conversion happens automatically at the FFI boundary. Your Rust code uses the original type, consumers see either a primitive or a record, and BoltFFI handles the conversion in both directions.
+
+## The custom_type! Macro
+
+The `custom_type!` macro defines a conversion between an external type and an FFI-compatible representation. BoltFFI uses this mapping whenever the type appears in function signatures, struct fields, or return values.
+
+```rust
+use boltffi::custom_type;
+
+custom_type! {
+    pub Uuid,
+    remote = uuid::Uuid,
+    repr = String,
+    into_ffi = |uuid| uuid.to_string(),
+    try_from_ffi = |s| uuid::Uuid::parse_str(&s).map_err(|_| boltffi::CustomTypeConversionError),
+}
+```
+
+The macro takes these parameters:
+
+- **name** - The identifier BoltFFI uses to track this mapping. Must be unique within your crate.
+- **remote** - The external type you're wrapping. This is what your Rust code uses.
+- **repr** - The FFI-compatible representation. Must be a type BoltFFI already knows how to transfer: primitives, `String`, `Vec<T>`, or types marked with `#[data]`.
+- **into_ffi** - A closure that converts from the remote type to the repr. Takes a reference to the remote type.
+- **try_from_ffi** - A closure that converts from the repr back to the remote type. Returns `Result<Remote, Error>`.
+- **error** - (optional) The error type returned by `try_from_ffi`. Defaults to `CustomTypeConversionError`.
+
+After defining this, you can use `uuid::Uuid` directly in your API:
+
+```rust
+#[export]
+impl UserService {
+    pub fn get_user(&self, id: uuid::Uuid) -> Option<User> {
+        self.users.get(&id).cloned()
+    }
+    
+    pub fn create_user(&self, name: String) -> uuid::Uuid {
+        let id = uuid::Uuid::new_v4();
+        self.users.insert(id, User { id, name });
+        id
+    }
+}
+```
+
+Consumers see `String` in the generated bindings. The conversion is transparent.
+
+## The CustomFfiConvertible Trait
+
+For types you define yourself, you can implement the `CustomFfiConvertible` trait directly and mark the impl with `#[custom_ffi]`. This gives you access to the full type system and works for types that need complex conversion logic.
+
+```rust
+use boltffi::{custom_ffi, CustomFfiConvertible};
+
+pub struct UserId(i64);
+
+#[custom_ffi]
+impl CustomFfiConvertible for UserId {
+    type FfiRepr = i64;
+    type Error = boltffi::CustomTypeConversionError;
+    
+    fn into_ffi(&self) -> Self::FfiRepr {
+        self.0
+    }
+    
+    fn try_from_ffi(repr: Self::FfiRepr) -> Result<Self, Self::Error> {
+        if repr > 0 {
+            Ok(UserId(repr))
+        } else {
+            Err(boltffi::CustomTypeConversionError)
+        }
+    }
+}
+```
+
+The `#[custom_ffi]` attribute generates the wire encoding implementations automatically. The trait requires:
+
+- **FfiRepr** - The FFI-compatible representation type.
+- **Error** - The error type for failed conversions.
+- **into_ffi** - Converts from the custom type to the repr.
+- **try_from_ffi** - Converts from the repr to the custom type.
+
+Note: Due to Rust's orphan rule, you cannot implement `CustomFfiConvertible` for types from external crates. Use the `custom_type!` macro for those.
+
+## Choosing an Approach
+
+Use `custom_type!` when:
+- The type is from an external crate (chrono, uuid, url, etc.)
+- The conversion is straightforward (parse/format, extract field)
+
+Use `#[custom_ffi]` when:
+- The type is defined in your crate
+- You want the type to implement `WireEncode`/`WireDecode` directly
+- You need validation logic in `try_from_ffi`
+
+## Representation Types
+
+The representation type must be something BoltFFI can transfer across the FFI boundary:
+
+| Remote Type | Good Repr | Why |
+|------------|-----------|-----|
+| `uuid::Uuid` | `String` | Standard string format |
+| `chrono::DateTime<Utc>` | `i64` | Unix timestamp millis |
+| `url::Url` | `String` | URLs are strings |
+| `rust_decimal::Decimal` | `String` | Avoid floating point |
+| `geo::Point` | `GeoPoint` (your `#[data]` type) | Structured data |
+
+For structured data, define a record type:
+
+```rust
+#[data]
+pub struct GeoPoint {
+    pub lat: f64,
+    pub lng: f64,
+}
+
+custom_type! {
+    pub GeoPointWrapper,
+    remote = geo::Point,
+    repr = GeoPoint,
+    into_ffi = |point| GeoPoint { lat: point.y(), lng: point.x() },
+    try_from_ffi = |gp| Ok(geo::Point::new(gp.lng, gp.lat)),
+}
+```
+
+## Containers
+
+Custom types work inside containers. If you define a conversion for `uuid::Uuid`, you can use `Vec<uuid::Uuid>`, `Option<uuid::Uuid>`, and `Result<uuid::Uuid, E>` in your API. BoltFFI applies the conversion to each element automatically.
+
+```rust
+#[export]
+impl BatchService {
+    pub fn get_users(&self, ids: Vec<uuid::Uuid>) -> Vec<User> {
+        ids.iter()
+            .filter_map(|id| self.users.get(id).cloned())
+            .collect()
+    }
+}
+```
+
+The generated bindings show `[String]` for the parameter. Each string is converted to a `Uuid` before your code runs.
+
+## Conversion Errors
+
+When `try_from_ffi` returns an error, BoltFFI panics with a message identifying the custom type. This is intentional: invalid data crossing the FFI boundary indicates a bug in the consumer's code. If you need to handle invalid input gracefully, validate at the API level:
+
+```rust
+#[export]
+impl UserService {
+    pub fn get_user(&self, id: String) -> Result<Option<User>, ValidationError> {
+        let uuid = uuid::Uuid::parse_str(&id)
+            .map_err(|_| ValidationError::InvalidUuid)?;
+        Ok(self.users.get(&uuid).cloned())
+    }
+}
+```

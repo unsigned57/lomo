@@ -1,0 +1,25 @@
+[package]
+name = "boltffi_ffi_rules"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FFI type rules and transport encoding for BoltFFI"
+keywords = ["ffi", "encoding", "transport", "bindings"]
+categories = ["development-tools::ffi"]
+
+[features]
+serde = []
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+
+[lints]
+workspace = true

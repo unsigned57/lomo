@@ -1,0 +1,51 @@
+JNIEXPORT jlong JNICALL {{ jni_name }}(JNIEnv *env, jclass cls{{ jni_params }}) {
+    bool _boltffi_input_error = false;
+{%- for param in params %}
+{%- if param.is_string() %}
+    const char* _{{ param.name }}_c = {{ param.name }} ? (*env)->GetStringUTFChars(env, {{ param.name }}, NULL) : NULL;
+    if ({{ param.name }} != NULL && _{{ param.name }}_c == NULL) _boltffi_input_error = true;
+{%- endif %}
+{%- if param.is_primitive_array() %}
+{% include "_primitive_array_input.txt" %}
+{%- endif %}
+{%- if param.is_buffer() %}
+    jlong _{{ param.name }}_size = (*env)->GetDirectBufferCapacity(env, {{ param.name }});
+    uint8_t* _{{ param.name }}_ptr = (uint8_t*)(*env)->GetDirectBufferAddress(env, {{ param.name }});
+    uintptr_t _{{ param.name }}_len = {{ param.buffer_len_expr() }};
+{%- if param.has_buffer_len_check() %}
+    {{ param.buffer_len_check() }}
+{%- endif %}
+{%- endif %}
+{%- if param.is_composite() %}
+    jlong _{{ param.name }}_size = (*env)->GetDirectBufferCapacity(env, {{ param.name }});
+    uint8_t* _{{ param.name }}_ptr = (uint8_t*)(*env)->GetDirectBufferAddress(env, {{ param.name }});
+    {{ param.composite_c_type() }} _{{ param.name }}_val;
+    if (_{{ param.name }}_ptr && _{{ param.name }}_size >= (jlong)sizeof({{ param.composite_c_type() }})) {
+        memcpy(&_{{ param.name }}_val, _{{ param.name }}_ptr, sizeof({{ param.composite_c_type() }}));
+    } else {
+        memset(&_{{ param.name }}_val, 0, sizeof({{ param.composite_c_type() }}));
+        _boltffi_input_error = true;
+    }
+{%- endif %}
+
+{%- endfor %}
+    void* _handle = NULL;
+    if (_boltffi_input_error) goto boltffi_input_cleanup;
+    _handle = {{ ffi_name }}({% for param in params %}{{ param.ffi_arg() }}{% if !loop.last %}, {% endif %}{% endfor %});
+boltffi_input_cleanup:
+{%- for param in params %}
+{%- if param.is_primitive_array() %}
+{%- if param.array_has_stack_copy_fast_path() %}
+    if (_{{ param.name }}_needs_release) (*env)->{{ param.array_release_elements_fn() }}(env, {{ param.name }}, ({{ param.array_elements_ptr_type() }})_{{ param.name }}_ptr, {{ param.array_release_mode() }});
+{%- else %}
+    if (_{{ param.name }}_ptr != NULL) (*env)->{{ param.array_release_elements_fn() }}(env, {{ param.name }}, ({{ param.array_elements_ptr_type() }})_{{ param.name }}_ptr, {{ param.array_release_mode() }});
+{%- endif %}
+{%- endif %}
+{%- if param.is_string() %}
+    if (_{{ param.name }}_c != NULL) (*env)->ReleaseStringUTFChars(env, {{ param.name }}, _{{ param.name }}_c);
+{%- endif %}
+
+{%- endfor %}
+    if (_boltffi_input_error) return 0;
+    return (jlong)_handle;
+}

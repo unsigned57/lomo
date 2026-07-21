@@ -1,0 +1,28 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 908
+expression: template.render().unwrap()
+---
+
+suspend fun fetchData(url: String): String = boltffiCallAsync(
+    createFuture = {
+        val urlWire = WireWriterPool.acquire(BoltFFIWire.sizeString(url))
+        kotlin.run {
+            val wire = urlWire.writer
+            BoltFFIWire.writeString(url)
+        }
+        try {
+            Native.boltffi_fetch_data(urlWire.ptr, urlWire.len)
+        } finally {
+            urlWire.close()
+        }
+    },
+    poll = { future, contHandle -> Native.boltffi_fetch_data_poll(future, contHandle) },
+    complete = { future ->
+        val buf = Native.boltffi_fetch_data_complete(future) ?: throw FfiException(-1, "Null buffer returned")
+        val reader = WireReader(buf)
+        reader.readString()
+    },
+    free = { future -> Native.boltffi_fetch_data_free(future) },
+    cancel = { future -> Native.boltffi_fetch_data_cancel(future) }
+)

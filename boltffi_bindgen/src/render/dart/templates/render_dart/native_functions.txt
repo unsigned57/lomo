@@ -1,0 +1,15 @@
+{%- for cfunc in cfuncs %}
+{%- include "native_function.txt" %}
+{%- endfor %}
+
+@$$ffi.Native<$$ffi.Void Function(_$$FFIString)>(symbol: 'boltffi_free_string', isLeaf: true)
+external void _f$boltffi_free_string(_$$FFIString s);
+
+@$$ffi.Native<$$ffi.Void Function(_$$FFIBuf)>(symbol: 'boltffi_free_buf', isLeaf: true)
+external void _f$boltffi_free_buf(_$$FFIBuf buf);
+
+@$$ffi.Native<_$$FFIStatus Function($$ffi.Pointer<_$$FFIString>)>(symbol: 'boltffi_last_error_message', isLeaf: true)
+external _$$FFIStatus _f$boltffi_last_error_message($$ffi.Pointer<_$$FFIString> out);
+
+@$$ffi.Native<$$ffi.Void Function()>(symbol: 'boltffi_clear_last_error', isLeaf: true)
+external void _f$boltffi_clear_last_error();

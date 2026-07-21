@@ -1,0 +1,22 @@
+[package]
+name = "boltffi_scan"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Scans Rust syntax into the BoltFFI source AST"
+keywords = ["ffi", "scanner", "syn", "ast"]
+categories = ["development-tools::ffi"]
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+boltffi_ast.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+walkdir.workspace = true
+
+[lints]
+workspace = true

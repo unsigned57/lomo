@@ -1,0 +1,1110 @@
+---
+title: "Classes"
+description: "Expose Rust structs as BoltFFI classes with #[export] impl blocks, including constructors, methods, ownership, thread safety, and lifecycle management."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Classes
+
+BoltFFI has two ways to expose a struct: as data or as a class.
+
+Data (`#[data]`) is for plain values. A `Point { x, y }` or a `User { id, name, email }`. Data is copied when it crosses the boundary. The target language gets a struct or record with public fields. You can also attach methods and constructors with `#[data(impl)]`. See [Records](/docs/records#methods-and-constructors).
+
+Classes (`#[export] impl`) are for objects with behavior. A `DatabaseConnection` or a `HttpClient`. The object lives in Rust, the target language holds a reference to it. Methods operate on that reference. The object is not copied - there's one instance, and both sides point to it.
+
+Use data when you're passing values around. Use classes when you're managing state or resources.
+
+## Defining a class
+
+Put `#[export]` on the impl block, not the struct. The struct stays private; only the methods you define in the impl block are exposed.
+
+<CodeComparison
+  title=""
+  rust={`use std::sync::Mutex;
+
+pub struct Counter {
+    value: Mutex<i32>,
+}
+
+#[export]
+impl Counter {
+    pub fn new() -> Self {
+        Counter { value: Mutex::new(0) }
+    }
+    
+    pub fn increment(&self) {
+        *self.value.lock().unwrap() += 1;
+    }
+    
+    pub fn get(&self) -> i32 {
+        *self.value.lock().unwrap()
+    }
+}`}
+  swift={`public class Counter {
+    public init()
+    public func increment()
+    public func get() -> Int32
+}
+
+let counter = Counter()
+counter.increment()
+counter.increment()
+print(counter.get())  // 2`}
+  kotlin={`class Counter {
+    constructor()
+    fun increment()
+    fun get(): Int
+}
+
+val counter = Counter()
+counter.increment()
+counter.increment()
+println(counter.get())  // 2`}
+  java={`public final class Counter
+    implements AutoCloseable {
+    public Counter()
+    public void increment()
+    public int get()
+    public void close()
+}
+
+Counter counter = new Counter();
+counter.increment();
+counter.increment();
+System.out.println(counter.get()); // 2
+counter.close();`}
+  csharp={`public sealed class Counter : IDisposable
+{
+    public Counter()
+    public void Increment()
+    public int Get()
+    public void Dispose()
+}
+
+using Counter counter = new Counter();
+counter.Increment();
+counter.Increment();
+Console.WriteLine(counter.Get()); // 2`}
+  typescript={`declare class Counter {
+    private constructor()
+    static new(): Counter
+    increment(): void
+    get(): number
+    dispose(): void
+}
+
+const counter = Counter.new()
+counter.increment()
+counter.increment()
+console.log(counter.get())  // 2
+counter.dispose()`}
+  python={`class Counter:
+    def __init__(self) -> None: ...
+    def increment(self) -> None: ...
+    def get(self) -> int: ...
+
+counter = Counter()
+counter.increment()
+counter.increment()
+print(counter.get())  # 2`}
+/>
+
+## Constructors
+
+Methods that return `Self` become constructors. How they appear in the target language depends on the method name and parameters.
+
+### The `new()` method
+
+A method named `new()` becomes the primary constructor.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Counter {
+    pub fn new() -> Self {
+        Counter { value: 0 }
+    }
+}`}
+  swift={`public class Counter {
+    public init()
+}
+
+let c = Counter()`}
+  kotlin={`class Counter {
+    constructor()
+}
+
+val c = Counter()`}
+  java={`public final class Counter
+    implements AutoCloseable {
+    public Counter()
+}
+
+Counter c = new Counter();`}
+  csharp={`public sealed class Counter : IDisposable
+{
+    public Counter()
+}
+
+using Counter c = new Counter();`}
+  typescript={`declare class Counter {
+    private constructor()
+    static new(): Counter
+    dispose(): void
+}
+
+const c = Counter.new()`}
+  python={`class Counter:
+    def __init__(self) -> None: ...
+
+c = Counter()`}
+/>
+
+### Named constructors with parameters
+
+Methods with parameters that return `Self` become additional constructors. In Swift, they become `convenience init`. In Kotlin, they go in the companion object. Java and C# expose them as static factory methods on the generated class.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Database {
+    pub fn new() -> Self {
+        Database { path: ":memory:".into() }
+    }
+    
+    pub fn open(path: &str) -> Self {
+        Database { path: path.into() }
+    }
+    
+    pub fn with_options(
+        path: &str,
+        read_only: bool
+    ) -> Self {
+        Database {
+            path: path.into(),
+            read_only,
+        }
+    }
+}`}
+  swift={`public class Database {
+    public init()
+    public convenience init(path: String)
+    public convenience init(path: String, readOnly: Bool)
+}
+
+let db1 = Database()
+let db2 = Database(path: "data.db")
+let db3 = Database(path: "data.db", readOnly: true)`}
+  kotlin={`class Database {
+    constructor()
+
+    companion object {
+        fun open(path: String): Database
+        fun withOptions(path: String, readOnly: Boolean): Database
+    }
+}
+
+val db1 = Database()
+val db2 = Database.open("data.db")
+val db3 = Database.withOptions("data.db", true)`}
+  java={`public final class Database
+    implements AutoCloseable {
+    public Database()
+    public static Database open(String path)
+    public static Database withOptions(
+        String path, boolean readOnly)
+}
+
+Database db1 = new Database();
+Database db2 = Database.open("data.db");
+Database db3 = Database.withOptions(
+    "data.db", true);`}
+  csharp={`public sealed class Database : IDisposable
+{
+    public Database()
+    public static Database Open(string path)
+    public static Database WithOptions(
+        string path, bool readOnly)
+}
+
+using Database db1 = new Database();
+using Database db2 = Database.Open("data.db");
+using Database db3 = Database.WithOptions(
+    "data.db", true);`}
+  typescript={`declare class Database {
+    private constructor()
+    static new(): Database
+    static open(path: string): Database
+    static withOptions(path: string, readOnly: boolean): Database
+    dispose(): void
+}
+
+const db1 = Database.new()
+const db2 = Database.open("data.db")
+const db3 = Database.withOptions("data.db", true)`}
+  python={`class Database:
+    def __init__(self) -> None: ...
+
+    @classmethod
+    def open(cls, path: str) -> "Database": ...
+
+    @classmethod
+    def with_options(
+        cls,
+        path: str,
+        read_only: bool
+    ) -> "Database": ...
+
+db1 = Database()
+db2 = Database.open("data.db")
+db3 = Database.with_options("data.db", True)`}
+/>
+
+### Factory methods (no parameters)
+
+Methods with no parameters and a name other than `new` become factory methods.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Config {
+    pub fn new() -> Self {
+        Config::default_config()
+    }
+    
+    pub fn production() -> Self {
+        Config { debug: false, timeout: 30 }
+    }
+    
+    pub fn development() -> Self {
+        Config { debug: true, timeout: 120 }
+    }
+}`}
+  swift={`public class Config {
+    public init()
+    public static func production() -> Config
+    public static func development() -> Config
+}
+
+let cfg = Config.production()`}
+  kotlin={`class Config {
+    constructor()
+
+    companion object {
+        fun production(): Config
+        fun development(): Config
+    }
+}
+
+val cfg = Config.production()`}
+  java={`public final class Config
+    implements AutoCloseable {
+    public Config()
+    public static Config production()
+    public static Config development()
+}
+
+Config cfg = Config.production();`}
+  csharp={`public sealed class Config : IDisposable
+{
+    public Config()
+    public static Config Production()
+    public static Config Development()
+}
+
+using Config cfg = Config.Production();`}
+  typescript={`declare class Config {
+    private constructor()
+    static new(): Config
+    static production(): Config
+    static development(): Config
+    dispose(): void
+}
+
+const cfg = Config.production()`}
+  python={`class Config:
+    def __init__(self) -> None: ...
+
+    @classmethod
+    def production(cls) -> "Config": ...
+
+    @classmethod
+    def development(cls) -> "Config": ...
+
+cfg = Config.production()`}
+/>
+
+### Fallible constructors
+
+Constructors can return `Result<Self, E>`. The error type must be marked with `#[error]`. The constructor becomes throwing in the target language.
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub enum DbError {
+    NotFound,
+    PermissionDenied,
+}
+
+#[export]
+impl Database {
+    pub fn open(path: &str) -> Result<Self, DbError> {
+        if !path_exists(path) {
+            return Err(DbError::NotFound);
+        }
+        Ok(Database { path: path.into() })
+    }
+}`}
+  swift={`public class Database {
+    public convenience init(path: String) throws
+}
+
+do {
+    let db = try Database(path: "data.db")
+} catch DbError.notFound {
+    print("file not found")
+}`}
+  kotlin={`class Database {
+    companion object {
+        @Throws(DbError::class)
+        fun open(path: String): Database
+    }
+}
+
+try {
+    val db = Database.open("data.db")
+} catch (e: DbError.NotFound) {
+    println("file not found")
+}`}
+  java={`public final class Database
+    implements AutoCloseable {
+    public static Database open(String path)
+        // throws DbError.Exception
+}
+
+try {
+    Database db = Database.open("data.db");
+} catch (DbError.Exception e) {
+    if (e.getError() == DbError.NOT_FOUND)
+        System.out.println("file not found");
+}`}
+  csharp={`public sealed class Database : IDisposable
+{
+    public static Database Open(string path)
+}
+
+try {
+    using Database db = Database.Open("data.db");
+} catch (DbErrorException e) {
+    if (e.Error == DbError.NotFound)
+        Console.WriteLine("file not found");
+}`}
+  typescript={`declare enum DbError {
+    NotFound = 0,
+    PermissionDenied = 1
+}
+
+declare class DbErrorException extends Error {
+    readonly code: DbError
+}
+
+declare class Database {
+    private constructor()
+    static open(path: string): Database  // throws
+    dispose(): void
+}
+
+try {
+    const db = Database.open("data.db")
+} catch (e) {
+    if (e instanceof DbErrorException && e.code === DbError.NotFound) {
+        console.log("file not found")
+    }
+}`}
+  python={`from enum import IntEnum
+
+class DbError(IntEnum):
+    NOT_FOUND = 0
+    PERMISSION_DENIED = 1
+
+class DbErrorException(RuntimeError):
+    error: DbError
+
+class Database:
+    @classmethod
+    def open(cls, path: str) -> "Database": ...
+
+try:
+    db = Database.open("data.db")
+except DbErrorException as error:
+    if error.error == DbError.NOT_FOUND:
+        print("file not found")`}
+/>
+
+## Methods
+
+Once you have a class, you define methods on it. Any `pub fn` in the `#[export] impl` block that takes `&self` becomes an instance method in the target language. The target language calls the method, BoltFFI routes it to Rust, and Rust executes it on the actual object.
+
+Because the target language can call your methods from any thread at any time, BoltFFI requires `&self` (shared reference), not `&mut self` (exclusive reference). If your method needs to change state, use interior mutability (`Mutex`, `RwLock`, atomics, or whatever synchronization fits your use case). This way multiple threads can safely call methods on the same object without data races. The [`&self vs &mut self`](#self-vs-mut-self) section below covers this in detail.
+
+<CodeComparison
+  title=""
+  rust={`use std::sync::Mutex;
+
+pub struct Account {
+    balance: Mutex<i64>,
+}
+
+#[export]
+impl Account {
+    pub fn balance(&self) -> i64 {
+        *self.balance.lock().unwrap()
+    }
+    
+    pub fn deposit(&self, amount: i64) {
+        *self.balance.lock().unwrap() += amount;
+    }
+    
+    pub fn withdraw(
+        &self,
+        amount: i64
+    ) -> Result<(), AccountError> {
+        let mut balance = self.balance.lock().unwrap();
+        if amount > *balance {
+            return Err(AccountError::Insufficient);
+        }
+        *balance -= amount;
+        Ok(())
+    }
+}`}
+  swift={`public class Account {
+    public func balance() -> Int64
+    public func deposit(amount: Int64)
+    public func withdraw(amount: Int64) throws
+}
+
+let acc = Account()
+acc.deposit(amount: 100)
+print(acc.balance())
+
+do {
+    try acc.withdraw(amount: 50)
+} catch {
+    print(error)
+}`}
+  kotlin={`class Account {
+    fun balance(): Long
+    fun deposit(amount: Long)
+    @Throws(AccountError::class)
+    fun withdraw(amount: Long)
+}
+
+val acc = Account()
+acc.deposit(100)
+println(acc.balance())
+
+try {
+    acc.withdraw(50)
+} catch (e: AccountError) {
+    println(e.message)
+}`}
+  java={`public final class Account
+    implements AutoCloseable {
+    public long balance()
+    public void deposit(long amount)
+    public void withdraw(long amount)
+        // throws AccountError.Exception
+}
+
+Account acc = new Account();
+acc.deposit(100L);
+System.out.println(acc.balance());
+
+try {
+    acc.withdraw(50L);
+} catch (AccountError.Exception e) {
+    System.out.println(e.getError());
+}`}
+  csharp={`public sealed class Account : IDisposable
+{
+    public long Balance()
+    public void Deposit(long amount)
+    public void Withdraw(long amount)
+}
+
+using Account acc = new Account();
+acc.Deposit(100);
+Console.WriteLine(acc.Balance());
+
+try {
+    acc.Withdraw(50);
+} catch (AccountErrorException e) {
+    Console.WriteLine(e.Error);
+}`}
+  typescript={`declare class Account {
+    private constructor()
+    static new(): Account
+    balance(): bigint
+    deposit(amount: bigint): void
+    withdraw(amount: bigint): void  // throws
+    dispose(): void
+}
+
+const acc = Account.new()
+acc.deposit(100n)
+console.log(acc.balance())
+
+try {
+    acc.withdraw(50n)
+} catch (e) {
+    console.log(e)
+}`}
+  python={`from enum import IntEnum
+
+class Account:
+    def __init__(self) -> None: ...
+    def balance(self) -> int: ...
+    def deposit(self, amount: int) -> None: ...
+    def withdraw(self, amount: int) -> None: ...
+
+class AccountError(IntEnum):
+    INSUFFICIENT_FUNDS = 0
+
+class AccountErrorException(RuntimeError):
+    error: AccountError
+
+acc = Account()
+acc.deposit(100)
+print(acc.balance())
+
+try:
+    acc.withdraw(50)
+except AccountErrorException as error:
+    print(error)`}
+/>
+
+### &self vs &mut self
+
+When the target language calls a method, there's no guarantee which thread it comes from. Swift might dispatch from the main thread, a GCD queue, or a `Task`. Kotlin might call from a coroutine on any dispatcher. Java might call from any thread in a thread pool. C# might call from the thread pool or any `Task` continuation. You don't control this.
+
+That's the problem with `&mut self`. It requires exclusive access to the object. If two threads call a `&mut self` method at the same time, you get undefined behavior. BoltFFI catches this at compile time:
+
+```rust
+#[export]
+impl Counter {
+    pub fn increment(&mut self) {  // Compile error
+        self.value += 1;
+    }
+}
+```
+
+```
+error: BoltFFI: `&mut self` methods are not thread-safe in FFI contexts
+
+Two threads calling `&mut self` on the same instance = undefined behavior.
+
+Options:
+1. Use `&self` with interior mutability (Mutex, RefCell, etc.) [recommended]
+2. Add #[export(single_threaded)] ONLY if you enforce thread safety in the target
+   language and want to avoid synchronization overhead you don't need
+```
+
+Use `&self` instead, and move the synchronization inside your struct. `Mutex`, `RwLock`, atomics, channels, or any other mechanism that makes concurrent access safe:
+
+```rust
+use std::sync::Mutex;
+
+pub struct Counter {
+    value: Mutex<i32>,
+}
+
+#[export]
+impl Counter {
+    pub fn new() -> Self {
+        Counter { value: Mutex::new(0) }
+    }
+    
+    pub fn increment(&self) {
+        *self.value.lock().unwrap() += 1;
+    }
+    
+    pub fn get(&self) -> i32 {
+        *self.value.lock().unwrap()
+    }
+}
+```
+
+If you know the object will only ever be accessed from a single thread and want to skip the synchronization overhead, see [Single-threaded mode](#single-threaded-mode).
+
+### Static methods
+
+Methods without `self` become static methods on the class.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Config {
+    pub fn default_timeout() -> u32 {
+        30
+    }
+    
+    pub fn max_connections() -> u32 {
+        100
+    }
+}`}
+  swift={`public class Config {
+    public static func defaultTimeout() -> UInt32
+    public static func maxConnections() -> UInt32
+}
+
+let t = Config.defaultTimeout()`}
+  kotlin={`class Config {
+    companion object {
+        fun defaultTimeout(): UInt
+        fun maxConnections(): UInt
+    }
+}
+
+val t = Config.defaultTimeout()`}
+  java={`public final class Config
+    implements AutoCloseable {
+    public static int defaultTimeout()
+    public static int maxConnections()
+}
+
+int t = Config.defaultTimeout();`}
+  csharp={`public sealed class Config : IDisposable
+{
+    public static uint DefaultTimeout()
+    public static uint MaxConnections()
+}
+
+uint t = Config.DefaultTimeout();`}
+  typescript={`declare class Config {
+    private constructor()
+    static defaultTimeout(): number
+    static maxConnections(): number
+}
+
+const t = Config.defaultTimeout()`}
+  python={`class Config:
+    @staticmethod
+    def default_timeout() -> int: ...
+
+    @staticmethod
+    def max_connections() -> int: ...
+
+t = Config.default_timeout()`}
+/>
+
+### Async methods
+
+Mark a method `async` and it becomes an async method in the target language. BoltFFI has no built-in executor. You choose your Rust async runtime (Tokio, async-std, etc.), and the target language's async system coordinates with it automatically. See [Async](/docs/async) for more.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl HttpClient {
+    pub fn new() -> Self {
+        HttpClient { client: reqwest::Client::new() }
+    }
+    
+    pub async fn get(&self, url: &str) -> Result<String, HttpError> {
+        let resp = self.client.get(url).send().await?;
+        let body = resp.text().await?;
+        Ok(body)
+    }
+    
+    pub async fn post(
+        &self,
+        url: &str,
+        body: &str
+    ) -> Result<String, HttpError> {
+        let resp = self.client
+            .post(url)
+            .body(body.to_string())
+            .send()
+            .await?;
+        Ok(resp.text().await?)
+    }
+}`}
+  swift={`public class HttpClient {
+    public init()
+    public func get(url: String) async throws -> String
+    public func post(url: String, body: String) async throws -> String
+}
+
+let client = HttpClient()
+let data = try await client.get(url: "https://api.example.com")`}
+  kotlin={`class HttpClient {
+    constructor()
+    suspend fun get(url: String): String
+    suspend fun post(url: String, body: String): String
+}
+
+val client = HttpClient()
+val data = client.get("https://api.example.com")`}
+  java={`public final class HttpClient
+    implements AutoCloseable {
+    public HttpClient()
+
+    // Java 21+ (virtual threads)
+    public String get(String url)
+        // throws HttpErrorException
+    public String post(String url, String body)
+        // throws HttpErrorException
+
+    // Java 8+ (CompletableFuture)
+    public CompletableFuture<String> get(
+        String url)
+    public CompletableFuture<String> post(
+        String url, String body)
+}
+
+HttpClient client = new HttpClient();
+String data = client.get(
+    "https://api.example.com");`}
+  csharp={`public sealed class HttpClient : IDisposable
+{
+    public HttpClient()
+    public Task<string> Get(string url)
+    public Task<string> Post(string url, string body)
+}
+
+using HttpClient client = new HttpClient();
+string data = await client.Get(
+    "https://api.example.com");`}
+  typescript={`declare class HttpClient {
+    private constructor()
+    static new(): HttpClient
+    async get(url: string): Promise<string>
+    async post(url: string, body: string): Promise<string>
+    dispose(): void
+}
+
+const client = HttpClient.new()
+const data = await client.get("https://api.example.com")`}
+  python={`class HttpClient:
+    def __init__(self) -> None: ...
+    async def get(self, url: str) -> str: ...
+    async def post(self, url: str, body: str) -> str: ...
+
+client = HttpClient()
+data = await client.get("https://api.example.com")`}
+/>
+
+### Methods that take or return classes
+
+Methods can accept or return other class instances.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl Session {
+    pub fn new(user: &User) -> Self {
+        Session { user_id: user.id() }
+    }
+    
+    pub fn user(&self) -> User {
+        User::find(self.user_id)
+    }
+}
+
+#[export]
+impl User {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+}`}
+  swift={`public class Session {
+    public init(user: User)
+    public func user() -> User
+}
+
+let user = User(name: "alice")
+let session = Session(user: user)
+let u = session.user()`}
+  kotlin={`class Session {
+    constructor(user: User)
+    fun user(): User
+}
+
+val user = User("alice")
+val session = Session(user)
+val u = session.user()`}
+  java={`public final class Session
+    implements AutoCloseable {
+    public Session(User user)
+    public User user()
+}
+
+User user = new User("alice");
+Session session = new Session(user);
+User u = session.user();`}
+  csharp={`public sealed class Session : IDisposable
+{
+    public Session(User user)
+    public User User()
+}
+
+using User user = new User("alice");
+using Session session = new Session(user);
+User u = session.User();`}
+  typescript={`declare class Session {
+    private constructor()
+    static new(user: User): Session
+    user(): User
+    dispose(): void
+}
+
+declare class User {
+    private constructor()
+    id(): bigint
+}
+
+const user = User.new("alice")
+const session = Session.new(user)
+const u = session.user()`}
+  python={`class Session:
+    def __init__(self, user: User) -> None: ...
+    def user(self) -> User: ...
+
+class User:
+    def __init__(self, name: str) -> None: ...
+    def id(self) -> int: ...
+
+user = User("alice")
+session = Session(user)
+u = session.user()`}
+/>
+
+## Skipping methods
+
+Use `#[skip]` to exclude a method from FFI export. The method stays in Rust but isn't exposed to the target language. The skipped method is still callable from Rust, just not from the target language.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+impl MyClass {
+    pub fn exported(&self) -> i32 {
+        self.helper() * 2
+    }
+    
+    #[skip]
+    pub fn helper(&self) -> i32 {
+        42
+    }
+}`}
+  swift={`public class MyClass {
+    public func exported() -> Int32
+    // helper() is not exposed
+}
+
+let obj = MyClass()
+print(obj.exported()) // 84`}
+  kotlin={`class MyClass {
+    fun exported(): Int
+    // helper() is not exposed
+}
+
+val obj = MyClass()
+println(obj.exported()) // 84`}
+  java={`public final class MyClass
+    implements AutoCloseable {
+    public int exported()
+    // helper() is not exposed
+}
+
+MyClass obj = new MyClass();
+System.out.println(obj.exported()); // 84`}
+  csharp={`public sealed class MyClass : IDisposable
+{
+    public int Exported()
+    // Helper() is not exposed
+}
+
+using MyClass obj = new MyClass();
+Console.WriteLine(obj.Exported()); // 84`}
+  typescript={`declare class MyClass {
+    private constructor()
+    exported(): number
+    // helper() is not exposed
+    dispose(): void
+}
+
+const obj = MyClass.new()
+console.log(obj.exported()) // 84`}
+  python={`class MyClass:
+    def exported(self) -> int: ...
+
+obj = MyClass()
+print(obj.exported())  # 84`}
+/>
+
+## Thread safety
+
+BoltFFI requires exported classes to be `Send + Sync` by default. This is a compile-time check. If your struct isn't thread-safe, compilation fails.
+
+If your struct contains types that aren't thread-safe (like `RefCell`, `Rc`, or raw pointers), you have two options:
+
+1. Make it thread-safe using synchronization primitives like `Mutex`, `RwLock`, or atomics. For shared ownership across threads, combine with `Arc` (e.g., `Arc<Mutex<T>>`).
+
+2. Add `#[export(single_threaded)]`. This disables the `Send + Sync` check, but you're responsible for ensuring the class is only used from a single thread.
+
+<CodeComparison
+  title=""
+  rust={`use std::sync::atomic::{AtomicI32, Ordering};
+
+pub struct SafeCounter {
+    value: AtomicI32,
+}
+
+#[export]
+impl SafeCounter {
+    pub fn new() -> Self {
+        SafeCounter {
+            value: AtomicI32::new(0)
+        }
+    }
+    
+    pub fn increment(&self) {
+        self.value.fetch_add(1, Ordering::SeqCst);
+    }
+    
+    pub fn get(&self) -> i32 {
+        self.value.load(Ordering::SeqCst)
+    }
+}`}
+  swift={`public class SafeCounter {
+    public init()
+    public func increment()
+    public func get() -> Int32
+}
+
+let counter = SafeCounter()
+DispatchQueue.concurrentPerform(iterations: 100) { _ in
+    counter.increment()
+}`}
+  kotlin={`class SafeCounter {
+    constructor()
+    fun increment()
+    fun get(): Int
+}
+
+val counter = SafeCounter()
+repeat(100) {
+    thread { counter.increment() }
+}`}
+  java={`public final class SafeCounter
+    implements AutoCloseable {
+    public SafeCounter()
+    public void increment()
+    public int get()
+}
+
+SafeCounter counter = new SafeCounter();
+for (int i = 0; i < 100; i++) {
+    new Thread(counter::increment).start();
+}`}
+  csharp={`public sealed class SafeCounter : IDisposable
+{
+    public SafeCounter()
+    public void Increment()
+    public int Get()
+}
+
+using SafeCounter counter = new SafeCounter();
+Parallel.For(0, 100, _ => counter.Increment());`}
+  typescript={`declare class SafeCounter {
+    private constructor()
+    static new(): SafeCounter
+    increment(): void
+    get(): number
+    dispose(): void
+}
+
+const counter = SafeCounter.new()
+await Promise.all(
+    Array(100).fill(0).map(() => counter.increment())
+)`}
+  python={`class SafeCounter:
+    def __init__(self) -> None: ...
+    def increment(self) -> None: ...
+    def get(self) -> int: ...
+
+counter = SafeCounter()
+threads = [
+    threading.Thread(target=counter.increment)
+    for _ in range(100)
+]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()`}
+/>
+
+## Single-threaded mode
+
+By default, BoltFFI enforces two safety rules:
+
+1. Classes must be `Send + Sync`
+2. Methods cannot take `&mut self`
+
+Both rules exist because the target language can call your methods from any thread. Without synchronization, concurrent `&mut self` calls cause undefined behavior.
+
+But synchronization has a cost. If you control thread access in the target language - for example, you only use the object from the main thread, or you wrap it in your own synchronization - you're paying for locks you don't need.
+
+`#[export(single_threaded)]` disables both checks:
+
+```rust
+pub struct FastCounter {
+    value: i32,
+}
+
+#[export(single_threaded)]
+impl FastCounter {
+    pub fn new() -> Self {
+        FastCounter { value: 0 }
+    }
+    
+    pub fn increment(&mut self) {
+        self.value += 1;
+    }
+    
+    pub fn get(&self) -> i32 {
+        self.value
+    }
+}
+```
+
+No synchronization overhead. The tradeoff is that thread safety is now your responsibility. If two threads call methods on this object at the same time, that's undefined behavior.
+
+### When to use single_threaded
+
+Use `single_threaded` when:
+
+- The object is only accessed from the main thread (UI components, view models)
+- You wrap the object in your own synchronization in the target language
+- You're building a single-threaded application (WASM, embedded)
+- Profiling shows synchronization is a bottleneck and you can guarantee single-threaded access
+
+Don't use it just to avoid writing thread-safe code. The default (`&self` + `Mutex`) is safer and the overhead is often negligible.
+
+### Performance comparison
+
+In benchmarks, `single_threaded` mode is roughly 4x faster for method calls that would otherwise need mutex locks:
+
+| Mode | Time per 1000 increments |
+|------|--------------------------|
+| `&self` + `Mutex` | ~5 μs |
+| `&mut self` + `single_threaded` | ~1 μs |
+
+The difference matters in tight loops. For most applications, 5 microseconds per thousand calls is not a bottleneck.
+
+## Memory management
+
+The Rust struct lives in Rust's heap. The target language holds a reference to it. When the target language's object is deallocated (garbage collected, reference count hits zero, etc.), BoltFFI drops the Rust struct.
+
+You don't need to manually free anything. But be aware: the Rust object stays alive as long as the target language holds a reference. If you store a class instance in a long-lived collection, the Rust memory stays allocated.

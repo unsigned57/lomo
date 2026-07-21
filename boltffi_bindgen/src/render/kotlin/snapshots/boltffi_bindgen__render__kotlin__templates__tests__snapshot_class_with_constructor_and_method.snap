@@ -1,0 +1,30 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 1536
+expression: template.render().unwrap()
+---
+class Database internal constructor(internal val handle: Long) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+
+    constructor(path: String) : this(
+        kotlin.run {
+            val pathWire = WireWriterPool.acquire(BoltFFIWire.sizeString(path))
+        kotlin.run {
+            val wire = pathWire.writer
+            BoltFFIWire.writeString(path)
+        }
+            try {
+                Native.boltffi_database_open(pathWire.ptr, pathWire.len)
+            } finally {
+                pathWire.close()
+            }
+        }
+    )
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        Native.boltffi_database_free(handle)
+    }
+
+    fun query(sql: String): String { /* impl */ }
+}

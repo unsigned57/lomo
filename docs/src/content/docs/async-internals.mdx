@@ -1,0 +1,107 @@
+---
+title: "Async Internals"
+description: "Understand how BoltFFI bridges Rust futures across the FFI boundary, including polling, handles, and completion signaling in generated bindings."
+---
+
+# Async Internals
+
+This page explains how BoltFFI bridges Rust futures to target language async systems. You don't need to understand this to use async functions, but it helps when debugging or optimizing async code.
+
+## The Polling Model
+
+BoltFFI wraps each Rust future in a `RustFuture<T>` that exposes a C-compatible interface. The bindings call `poll` with a continuation callback. If the future is pending, Rust stores that callback and returns; when the future wakes, Rust invokes the callback with `MaybeReady`, and bindings poll again. When the callback reports `Ready`, bindings exit the cycle, then run `complete` and `free`.
+
+### Who does what, and when
+
+1. **Bindings pull**: call `entry` to create a handle.
+2. **Bindings pull**: call `poll(handle, continuation)` once.
+3. **Rust polls once**:
+   - if ready, Rust immediately invokes continuation with `Ready`;
+   - if pending, Rust stores continuation and returns.
+4. **Rust pushes wake signal**: when the underlying future wakes, Rust invokes continuation with `MaybeReady`.
+5. **Bindings pull again**: on that callback, bindings call `poll` again.
+6. Repeat steps 3-5 until callback is `Ready`.
+7. **Bindings finalize**: call `complete`, then `free`.
+
+There is no busy polling loop in user code. Between polls, bindings wait for Rust to invoke the continuation.
+
+<svg viewBox="0 0 940 700" class="w-full my-8" style="max-width: 940px;">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#6b7280" />
+    </marker>
+    <marker id="arrow-dashed" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#6b7280" />
+    </marker>
+  </defs>
+
+  <rect x="35" y="20" width="130" height="36" rx="4" fill="#1e1e2e" stroke="#89b4fa" stroke-width="1.5" />
+  <text x="100" y="43" text-anchor="middle" fill="#cdd6f4" font-size="13" font-family="system-ui">User Code</text>
+
+  <rect x="340" y="20" width="180" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1" stroke-width="1.5" />
+  <text x="430" y="43" text-anchor="middle" fill="#cdd6f4" font-size="13" font-family="system-ui">Generated Bindings</text>
+
+  <rect x="705" y="20" width="170" height="36" rx="4" fill="#1e1e2e" stroke="#fab387" stroke-width="1.5" />
+  <text x="790" y="43" text-anchor="middle" fill="#cdd6f4" font-size="13" font-family="system-ui">Rust Scaffolding</text>
+
+  <line x1="100" y1="56" x2="100" y2="660" stroke="#89b4fa" stroke-width="1" stroke-dasharray="4,4" />
+  <line x1="430" y1="56" x2="430" y2="660" stroke="#a6e3a1" stroke-width="1" stroke-dasharray="4,4" />
+  <line x1="790" y1="56" x2="790" y2="660" stroke="#fab387" stroke-width="1" stroke-dasharray="4,4" />
+
+  <line x1="100" y1="110" x2="422" y2="110" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="261" y="98" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">call async function</text>
+
+  <line x1="430" y1="165" x2="782" y2="165" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="606" y="153" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">call scaffolding function</text>
+
+  <line x1="790" y1="220" x2="438" y2="220" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-dashed)" />
+  <text x="606" y="208" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">return RustFuture handle</text>
+
+  <rect x="300" y="280" width="540" height="180" rx="6" fill="transparent" stroke="#89b4fa" stroke-width="1.5" stroke-dasharray="4,4" />
+  <text x="320" y="302" fill="#89b4fa" font-size="11" font-family="system-ui">callback-driven wait/re-poll cycle</text>
+
+  <line x1="430" y1="325" x2="782" y2="325" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="606" y="313" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">bindings call RustFuture poll fn</text>
+
+  <line x1="790" y1="395" x2="438" y2="395" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="606" y="383" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">Rust invokes continuation callback</text>
+
+  <text x="606" y="431" text-anchor="middle" fill="#6b7280" font-size="10" font-family="system-ui">MaybeReady → bindings poll again</text>
+  <text x="606" y="448" text-anchor="middle" fill="#6b7280" font-size="10" font-family="system-ui">Ready → exit cycle</text>
+
+  <line x1="430" y1="510" x2="782" y2="510" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="606" y="498" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">call RustFuture complete fn</text>
+
+  <line x1="790" y1="560" x2="438" y2="560" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-dashed)" />
+  <text x="606" y="548" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">return result</text>
+
+  <line x1="430" y1="605" x2="782" y2="605" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="606" y="593" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">call RustFuture free fn</text>
+
+  <line x1="430" y1="650" x2="108" y2="650" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-dashed)" />
+  <text x="261" y="638" text-anchor="middle" fill="#cdd6f4" font-size="11" font-family="system-ui">return from async function</text>
+</svg>
+
+## Generated FFI Functions
+
+For each async function, BoltFFI generates five FFI functions:
+
+- **entry** - Creates the `RustFuture` and returns a handle
+- **poll** - Polls the future with a continuation callback
+- **complete** - Extracts the result once the future is ready
+- **cancel** - Marks the future as cancelled
+- **free** - Deallocates the future
+
+The bindings use a callback handshake: entry creates the handle, poll registers/waits, callback returns `MaybeReady` or `Ready`, `MaybeReady` triggers another poll, and `Ready` ends polling before `complete`/`free`.
+
+## Continuation Callbacks
+
+When bindings call `poll`, they pass a continuation callback plus callback data. If the future is pending, BoltFFI stores that continuation. When the future wakes (I/O completes, timer fires, etc.), BoltFFI invokes the stored callback with `MaybeReady`; bindings then poll again. A `Ready` callback means polling is finished and the call should finalize.
+
+## Lock-Free Implementation
+
+Continuation scheduling uses atomic state tags and compare-and-swap transitions. Future execution state and result storage are still guarded by a mutex.
+
+## Cancellation
+
+When the target language cancels an async operation, bindings call `cancel`. BoltFFI marks the future as cancelled and wakes any stored continuation with a `Ready` signal so waiting bindings can stop polling promptly. Cleanup then runs through `free`, and cancellation is surfaced by the target runtime's wrapper.

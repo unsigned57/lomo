@@ -1,0 +1,28 @@
+---
+import CodeComparison from './CodeComparison';
+
+interface Props {
+  rust: string;
+  swift: string;
+  kotlin: string;
+  java?: string;
+  csharp?: string;
+  typescript?: string;
+  python?: string;
+  title?: string;
+}
+
+const { rust, swift, kotlin, java, csharp, typescript, python, title } = Astro.props;
+---
+
+<CodeComparison
+  rust={rust}
+  swift={swift}
+  kotlin={kotlin}
+  java={java}
+  csharp={csharp}
+  typescript={typescript}
+  python={python}
+  title={title}
+  client:load
+/>

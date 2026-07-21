@@ -1,0 +1,166 @@
+---
+source: boltffi_backend/tests/jni/direct_vector.rs
+expression: "rendered_fixture(\"direct_vector/callback_vector_parameter\")"
+---
+===== jni/demo.h =====
+<c abi support declarations>
+typedef struct {
+    void (*free)(uint64_t);
+    uint64_t (*clone)(uint64_t);
+    void (*on_values)(uint64_t, const int32_t *, uintptr_t);
+} ___CollectorVTable;
+void boltffi_register_callback_demo_collector(const ___CollectorVTable *vtable);
+BoltFFICallbackHandle boltffi_create_callback_demo_collector(uint64_t handle);
+
+===== jni/jni_glue.c =====
+<jni source includes>
+<jni thread runtime>
+<jni exception helpers>
+static jclass g____CollectorVTable_class = NULL;
+static jmethodID g____CollectorVTable_free_method = NULL;
+static jmethodID g____CollectorVTable_clone_method = NULL;
+static jmethodID g____CollectorVTable_on_values_method = NULL;
+
+static void ___CollectorVTable_free(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+    (*env)->CallStaticVoidMethod(env, g____CollectorVTable_class, g____CollectorVTable_free_method, (jlong)handle);
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+}
+
+static uint64_t ___CollectorVTable_clone(uint64_t handle) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+    jlong result = (*env)->CallStaticLongMethod(env, g____CollectorVTable_class, g____CollectorVTable_clone_method, (jlong)handle);
+    if (boltffi_jni_clear_exception(env)) {
+        boltffi_jni_exit(env, attached);
+        return 0;
+    }
+    boltffi_jni_exit(env, attached);
+    return (uint64_t)result;
+}
+
+static void ___CollectorVTable_on_values(uint64_t handle, const int32_t *values_ptr, uintptr_t values_len) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+
+    jintArray values = NULL;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+
+    if (values_len > (uintptr_t)INT32_MAX) {
+        boltffi_jni_throw_runtime(env, "BoltFFI vector argument too large for Java array");
+        goto __boltffi_fail;
+    }
+    values = (*env)->NewIntArray(env, (jsize)values_len);
+    if (values == NULL) {
+        goto __boltffi_fail;
+    }
+    (*env)->SetIntArrayRegion(env, values, 0, (jsize)values_len, (const jint *)values_ptr);
+    if ((*env)->ExceptionCheck(env)) {
+        goto __boltffi_fail;
+    }
+
+    (*env)->CallStaticVoidMethod(env, g____CollectorVTable_class, g____CollectorVTable_on_values_method, (jlong)handle, values);
+    if (boltffi_jni_clear_exception(env)) {
+        goto __boltffi_fail;
+    }
+
+    if (values != NULL) {
+        (*env)->DeleteLocalRef(env, values);
+        values = NULL;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return;
+__boltffi_fail:
+
+    if (values != NULL) {
+        (*env)->DeleteLocalRef(env, values);
+        values = NULL;
+    }
+
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+
+    return;
+}
+
+static ___CollectorVTable g____CollectorVTable_vtable = {
+    .free = ___CollectorVTable_free,
+    .clone = ___CollectorVTable_clone,
+    .on_values = ___CollectorVTable_on_values,
+};
+
+static bool boltffi_jni_load____CollectorVTable_callbacks(JNIEnv *env) {
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/CollectorCallbacks", "com/boltffi/demo/CollectorCallbacks", &g____CollectorVTable_class)) {
+        return false;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____CollectorVTable_class, "com/boltffi/demo/CollectorCallbacks", "free", "free", "(J)V", "(J)V", &g____CollectorVTable_free_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____CollectorVTable_class, "com/boltffi/demo/CollectorCallbacks", "clone", "clone", "(J)J", "(J)J", &g____CollectorVTable_clone_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____CollectorVTable_class, "com/boltffi/demo/CollectorCallbacks", "on_values", "on_values", "(J[I)V", "(J[I)V", &g____CollectorVTable_on_values_method)) {
+        goto fail;
+    }
+    boltffi_register_callback_demo_collector(&g____CollectorVTable_vtable);
+    return true;
+fail:
+    (*env)->DeleteGlobalRef(env, g____CollectorVTable_class);
+    g____CollectorVTable_class = NULL;
+    return false;
+}
+
+static void boltffi_jni_unload____CollectorVTable_callbacks(JNIEnv *env) {
+    if (g____CollectorVTable_class != NULL) {
+        (*env)->DeleteGlobalRef(env, g____CollectorVTable_class);
+    }
+    g____CollectorVTable_class = NULL;
+    g____CollectorVTable_free_method = NULL;
+    g____CollectorVTable_clone_method = NULL;
+    g____CollectorVTable_on_values_method = NULL;
+}
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    jint env_result = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
+    if (env_result != JNI_OK) {
+        fprintf(stderr, "BoltFFI JNI_OnLoad failed: GetEnv(JNI_VERSION_1_6) returned %d\n", (int)env_result);
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/Native", "com/boltffi/demo/Native", &boltffi_jni_native_class)) {
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_load____CollectorVTable_callbacks(env)) {
+        boltffi_jni_unload____CollectorVTable_callbacks(env);
+        (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        boltffi_jni_native_class = NULL;
+        return JNI_ERR;
+    }
+    boltffi_jni_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) {
+        boltffi_jni_unload____CollectorVTable_callbacks(env);
+        if (boltffi_jni_native_class != NULL) {
+            (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        }
+    }
+    boltffi_jni_vm = NULL;
+    boltffi_jni_native_class = NULL;
+}

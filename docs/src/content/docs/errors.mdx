@@ -1,0 +1,686 @@
+---
+title: "Errors"
+description: "Map Rust Result<T, E> into native error handling in Swift, Kotlin, Java, C#, TypeScript, and Python with BoltFFI using string errors and structured error types."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Errors
+
+Rust represents fallible operations with `Result<T, E>`. Target languages have different conventions: Swift uses `throws`, Kotlin, Java, and C# use exceptions, and TypeScript uses try/catch. BoltFFI converts `Result` return types into the native error handling mechanism of each platform. When a function returns `Err`, it becomes a thrown error or exception in the target language.
+
+## Supported Error Types
+
+The error type in `Result<T, E>` can be:
+
+- `String` or `&'static str` - becomes a generic error with a message
+- A struct marked with `#[error]` - becomes a structured error type
+- An enum marked with `#[error]` - becomes an error enum
+
+The `#[error]` attribute marks types as error types. Generated bindings expose them through each target's native error model:
+
+- Swift: error types conform to `Error`
+- Kotlin: error types extend `Exception`
+- Java: error enums and classes include a nested `Exception` type that extends `RuntimeException`
+- C#: generated methods throw `BoltException` for string errors or typed `*Exception` wrappers that expose the original error value
+
+## String Errors
+
+String errors use generic wrapper types:
+
+- Swift: `FfiError`
+- Kotlin: `FfiException`
+- Java: `RuntimeException`
+- C#: `BoltException`
+- TypeScript: `FfiException`
+
+Custom error types are thrown directly or wrapped as the native target requires.
+
+The simplest approach is returning `Result<T, String>` or `Result<T, &'static str>`. The error message is captured in a generic error type.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn parse_int(s: &str) -> Result<i32, String> {
+    s.parse()
+        .map_err(|e| format!("parse failed: {}", e))
+}`}
+  swift={`public struct FfiError: Error {
+    public let message: String
+}
+
+func parseInt(s: String) throws -> Int32
+
+do {
+    let n = try parseInt(s: "42")
+} catch let error as FfiError {
+    print(error.message)
+}`}
+  kotlin={`class FfiException(
+    val code: Int,
+    message: String
+) : Exception(message)
+
+@Throws(FfiException::class)
+fun parseInt(s: String): Int
+
+try {
+    val n = parseInt("42")
+} catch (e: FfiException) {
+    println(e.message)
+}`}
+  java={`// String errors become RuntimeException
+static int parseInt(String s)
+
+try {
+    int n = parseInt("42");
+} catch (RuntimeException e) {
+    System.out.println(e.getMessage());
+}`}
+  csharp={`// String errors become BoltException
+static int ParseInt(string s)
+
+try {
+    int n = MyLib.ParseInt("42");
+} catch (BoltException e) {
+    Console.WriteLine(e.Message);
+}`}
+  typescript={`class FfiException extends Error {
+    readonly message: string
+}
+
+function parseInt(s: string): number
+
+try {
+    const n = parseInt("42")
+} catch (e) {
+    if (e instanceof FfiException) {
+        console.log(e.message)
+    }
+}`}
+  python={`def parse_int(s: str) -> int: ...
+
+try:
+    n = parse_int("42")
+except RuntimeError as error:
+    print(error)`}
+/>
+
+## Struct Errors
+
+For structured error information, define a struct with `#[error]`. The struct becomes a throwable error type in both languages.
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub struct ParseError {
+    pub line: u32,
+    pub column: u32,
+    pub message: String,
+}
+
+#[export]
+pub fn parse_config(
+    input: &str
+) -> Result<Config, ParseError> {
+    Err(ParseError {
+        line: 10,
+        column: 5,
+        message: "unexpected token".into(),
+    })
+}`}
+  swift={`public struct ParseError: Error {
+    public let line: UInt32
+    public let column: UInt32
+    public let message: String
+}
+
+func parseConfig(input: String) throws -> Config
+
+do {
+    let config = try parseConfig(input: src)
+} catch let error as ParseError {
+    print("\\(error.line):\\(error.column): \\(error.message)")
+}`}
+  kotlin={`data class ParseError(
+    val line: UInt,
+    val column: UInt,
+    val message: String
+) : Exception()
+
+@Throws(ParseError::class)
+fun parseConfig(input: String): Config
+
+try {
+    val config = parseConfig(src)
+} catch (e: ParseError) {
+    println("\${e.line}:\${e.column}: \${e.message}")
+}`}
+  java={`// Java 16+
+public record ParseError(
+    int line, int column, String message) {
+    public static final class Exception
+        extends RuntimeException {
+        public ParseError getError()
+    }
+}
+
+// Java 8+
+public final class ParseError {
+    public final int line;
+    public final int column;
+    public final String message;
+    public static final class Exception
+        extends RuntimeException {
+        public ParseError getError()
+    }
+}
+
+static Config parseConfig(String input)
+
+try {
+    Config config = parseConfig(src);
+} catch (ParseError.Exception e) {
+    ParseError err = e.getError();
+    System.out.println(
+        err.line() + ":" + err.column()
+        + ": " + err.message());
+}`}
+  csharp={`public readonly record struct ParseError(
+    uint Line,
+    uint Column,
+    string Message
+);
+
+public sealed class ParseErrorException : Exception
+{
+    public ParseError Error { get; }
+}
+
+static Config ParseConfig(string input)
+
+try {
+    Config config = MyLib.ParseConfig(src);
+} catch (ParseErrorException e) {
+    ParseError err = e.Error;
+    Console.WriteLine(
+        err.Line + ":" + err.Column + ": "
+        + err.Message);
+}`}
+  typescript={`interface ParseError {
+    readonly line: number
+    readonly column: number
+    readonly message: string
+}
+
+class ParseErrorException extends Error {
+    readonly error: ParseError
+}
+
+function parseConfig(input: string): Config
+
+try {
+    const config = parseConfig(src)
+} catch (e) {
+    if (e instanceof ParseErrorException) {
+        console.log(\`\${e.error.line}:\${e.error.column}: \${e.error.message}\`)
+    }
+}`}
+  python={`@dataclass(frozen=True, slots=True)
+class ParseError:
+    line: int
+    column: int
+    message: str
+
+class ParseErrorException(RuntimeError):
+    error: ParseError
+
+def parse_config(input: str) -> Config: ...
+
+try:
+    config = parse_config(src)
+except ParseErrorException as error:
+    details = error.error
+    print(f"{details.line}:{details.column}: {details.message}")`}
+/>
+
+## Enum Errors
+
+Error enums let you represent distinct failure cases. Simple enums (no associated data) become native enums. Enums with payloads become sealed types.
+
+### Simple Enums
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub enum AuthError {
+    InvalidCredentials,
+    SessionExpired,
+    AccountLocked,
+}
+
+#[export]
+pub fn login(
+    user: &str, pass: &str
+) -> Result<Session, AuthError> {
+    Err(AuthError::InvalidCredentials)
+}`}
+  swift={`public enum AuthError: Error {
+    case invalidCredentials
+    case sessionExpired
+    case accountLocked
+}
+
+func login(user: String, pass: String) throws -> Session
+
+do {
+    let session = try login(user: u, pass: p)
+} catch let error as AuthError {
+    switch error {
+    case .invalidCredentials:
+        print("Wrong username or password")
+    case .sessionExpired:
+        print("Please log in again")
+    case .accountLocked:
+        print("Account is locked")
+    }
+}`}
+  kotlin={`enum class AuthError : Exception() {
+    InvalidCredentials,
+    SessionExpired,
+    AccountLocked;
+}
+
+@Throws(AuthError::class)
+fun login(user: String, pass: String): Session
+
+try {
+    val session = login(u, p)
+} catch (e: AuthError) {
+    when (e) {
+        AuthError.InvalidCredentials ->
+            println("Wrong username or password")
+        AuthError.SessionExpired ->
+            println("Please log in again")
+        AuthError.AccountLocked ->
+            println("Account is locked")
+    }
+}`}
+  java={`public enum AuthError {
+    INVALID_CREDENTIALS,
+    SESSION_EXPIRED,
+    ACCOUNT_LOCKED;
+
+    public static final class Exception
+        extends RuntimeException {
+        public AuthError getError()
+    }
+}
+
+static Session login(String user, String pass)
+
+try {
+    Session session = login(u, p);
+} catch (AuthError.Exception e) {
+    switch (e.getError()) {
+        case INVALID_CREDENTIALS:
+            System.out.println("Wrong credentials");
+            break;
+        case SESSION_EXPIRED:
+            System.out.println("Please log in again");
+            break;
+        case ACCOUNT_LOCKED:
+            System.out.println("Account is locked");
+            break;
+    }
+}`}
+  csharp={`public enum AuthError
+{
+    InvalidCredentials,
+    SessionExpired,
+    AccountLocked,
+}
+
+public sealed class AuthErrorException : Exception
+{
+    public AuthError Error { get; }
+}
+
+static Session Login(string user, string pass)
+
+try {
+    Session session = MyLib.Login(u, p);
+} catch (AuthErrorException e) {
+    switch (e.Error) {
+        case AuthError.InvalidCredentials:
+            Console.WriteLine("Wrong credentials");
+            break;
+        case AuthError.SessionExpired:
+            Console.WriteLine("Please log in again");
+            break;
+        case AuthError.AccountLocked:
+            Console.WriteLine("Account is locked");
+            break;
+    }
+}`}
+  typescript={`enum AuthError {
+    InvalidCredentials = 0,
+    SessionExpired = 1,
+    AccountLocked = 2
+}
+
+class AuthErrorException extends Error {
+    readonly code: AuthError
+}
+
+function login(user: string, pass: string): Session
+
+try {
+    const session = login(u, p)
+} catch (e) {
+    if (e instanceof AuthErrorException) {
+        switch (e.code) {
+            case AuthError.InvalidCredentials:
+                console.log("Wrong username or password")
+                break
+            case AuthError.SessionExpired:
+                console.log("Please log in again")
+                break
+            case AuthError.AccountLocked:
+                console.log("Account is locked")
+                break
+        }
+    }
+}`}
+  python={`from enum import IntEnum
+
+class AuthError(IntEnum):
+    INVALID_CREDENTIALS = 0
+    SESSION_EXPIRED = 1
+    ACCOUNT_LOCKED = 2
+
+class AuthErrorException(RuntimeError):
+    error: AuthError
+
+def login(user: str, pass_: str) -> Session: ...
+
+try:
+    session = login(u, p)
+except AuthErrorException as error:
+    match error.error:
+        case AuthError.INVALID_CREDENTIALS:
+            print("Wrong username or password")
+        case AuthError.SESSION_EXPIRED:
+            print("Please log in again")
+        case AuthError.ACCOUNT_LOCKED:
+            print("Account is locked")`}
+/>
+
+### Enums with Payloads
+
+When enum variants carry associated data, the error becomes a sealed type hierarchy.
+
+<CodeComparison
+  title=""
+  rust={`#[error]
+pub enum ApiError {
+    Network { message: String },
+    NotFound,
+    RateLimited { retry_after: u32 },
+}
+
+#[export]
+pub fn fetch_user(id: u64) -> Result<User, ApiError> {
+    Err(ApiError::RateLimited { retry_after: 30 })
+}`}
+  swift={`public enum ApiError: Error {
+    case network(message: String)
+    case notFound
+    case rateLimited(retryAfter: UInt32)
+}
+
+func fetchUser(id: UInt64) throws -> User
+
+do {
+    let user = try fetchUser(id: 42)
+} catch let error as ApiError {
+    switch error {
+    case .network(let message):
+        print("Network error: \\(message)")
+    case .notFound:
+        print("User not found")
+    case .rateLimited(let seconds):
+        print("Try again in \\(seconds)s")
+    }
+}`}
+  kotlin={`sealed class ApiError : Exception() {
+    data class Network(
+        val message: String) : ApiError()
+    data object NotFound : ApiError()
+    data class RateLimited(
+        val retryAfter: UInt) : ApiError()
+}
+
+@Throws(ApiError::class)
+fun fetchUser(id: ULong): User
+
+try {
+    val user = fetchUser(42u)
+} catch (e: ApiError) {
+    when (e) {
+        is ApiError.Network ->
+            println("Network error: \${e.message}")
+        is ApiError.NotFound ->
+            println("User not found")
+        is ApiError.RateLimited ->
+            println("Try again in \${e.retryAfter}s")
+    }
+}`}
+  java={`// Java 17+
+public sealed interface ApiError {
+    record Network(String message)
+        implements ApiError {}
+    record NotFound() implements ApiError {}
+    record RateLimited(int retryAfter)
+        implements ApiError {}
+
+    public static final class Exception
+        extends RuntimeException {
+        public ApiError getError()
+    }
+}
+
+// Java 8+
+public abstract class ApiError {
+    public static final class Network
+        extends ApiError {
+        public final String message;
+    }
+    public static final class NotFound
+        extends ApiError {}
+    public static final class RateLimited
+        extends ApiError {
+        public final int retryAfter;
+    }
+
+    public static final class Exception
+        extends RuntimeException {
+        public ApiError getError()
+    }
+}
+
+static User fetchUser(long id)
+
+try {
+    User user = fetchUser(42L);
+} catch (ApiError.Exception e) {
+    ApiError err = e.getError();
+    if (err instanceof ApiError.Network n)
+        System.out.println(n.message());
+    else if (err instanceof ApiError.RateLimited r)
+        System.out.println(r.retryAfter());
+}`}
+  csharp={`public abstract record ApiError
+{
+    public sealed record Network(
+        string Message) : ApiError;
+    public sealed record NotFound : ApiError;
+    public sealed record RateLimited(
+        uint RetryAfter) : ApiError;
+}
+
+public sealed class ApiErrorException : Exception
+{
+    public ApiError Error { get; }
+}
+
+static User FetchUser(ulong id)
+
+try {
+    User user = MyLib.FetchUser(42);
+} catch (ApiErrorException e) {
+    if (e.Error is ApiError.Network n)
+        Console.WriteLine(n.Message);
+    else if (e.Error is ApiError.RateLimited r)
+        Console.WriteLine(r.RetryAfter);
+}`}
+  typescript={`type ApiError =
+    | { readonly tag: "Network";
+        readonly message: string }
+    | { readonly tag: "NotFound" }
+    | { readonly tag: "RateLimited";
+        readonly retryAfter: number }
+
+class ApiErrorException extends Error {
+    readonly error: ApiError
+}
+
+function fetchUser(id: bigint): User
+
+try {
+    const user = fetchUser(42n)
+} catch (e) {
+    if (e instanceof ApiErrorException) {
+        switch (e.error.tag) {
+            case "Network":
+                console.log(e.error.message)
+                break
+            case "NotFound":
+                console.log("Not found")
+                break
+            case "RateLimited":
+                console.log(e.error.retryAfter)
+                break
+        }
+    }
+}`}
+  python={`class ApiError:
+    pass
+
+@dataclass(frozen=True, slots=True)
+class ApiErrorNetwork(ApiError):
+    message: str
+
+@dataclass(frozen=True, slots=True)
+class ApiErrorNotFound(ApiError):
+    pass
+
+@dataclass(frozen=True, slots=True)
+class ApiErrorRateLimited(ApiError):
+    retry_after: int
+
+class ApiErrorException(RuntimeError):
+    error: ApiError
+
+def fetch_user(id: int) -> User: ...
+
+try:
+    user = fetch_user(42)
+except ApiErrorException as error:
+    details = error.error
+    if isinstance(details, ApiErrorNetwork):
+        print(f"Network error: {details.message}")
+    elif isinstance(details, ApiErrorNotFound):
+        print("User not found")
+    elif isinstance(details, ApiErrorRateLimited):
+        print(f"Try again in {details.retry_after}s")`}
+/>
+
+## Async Errors
+
+Async functions that return `Result` work the same way. The error is delivered through the target language's native error handling when the async operation completes.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn fetch_data(
+    url: &str
+) -> Result<Vec<u8>, FetchError> {
+    let response = client.get(url).await?;
+    Ok(response.bytes().await?)
+}`}
+  swift={`func fetchData(url: String) async throws -> Data
+
+do {
+    let data = try await fetchData(url: endpoint)
+    process(data)
+} catch let error as FetchError {
+    handle(error)
+}`}
+  kotlin={`@Throws(FetchError::class)
+suspend fun fetchData(url: String): ByteArray
+
+try {
+    val data = fetchData(endpoint)
+    process(data)
+} catch (e: FetchError) {
+    handle(e)
+}`}
+  java={`// Java 21+ (virtual threads)
+static byte[] fetchData(String url)
+    // throws FetchError.Exception
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<byte[]> fetchData(
+    String url)
+
+try {
+    byte[] data = fetchData(endpoint);
+    process(data);
+} catch (FetchError.Exception e) {
+    handle(e);
+}`}
+  csharp={`static Task<byte[]> FetchData(string url)
+
+try {
+    byte[] data = await MyLib.FetchData(endpoint);
+    Process(data);
+} catch (FetchErrorException e) {
+    Handle(e);
+}`}
+  typescript={`async function fetchData(
+    url: string): Promise<Uint8Array>
+
+try {
+    const data = await fetchData(endpoint)
+    process(data)
+} catch (e) {
+    if (e instanceof FetchErrorException) {
+        handle(e)
+    }
+}`}
+  python={`class FetchError:
+    pass
+
+class FetchErrorException(RuntimeError):
+    error: FetchError
+
+async def fetch_data(url: str) -> bytes: ...
+
+try:
+    data = await fetch_data(endpoint)
+    process(data)
+except FetchErrorException as error:
+    handle(error)`}
+/>

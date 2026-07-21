@@ -1,0 +1,42 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+sealed class ApiError : kotlin.Exception() {
+
+    data class NetworkError(override val message: String) : ApiError()
+
+    data object NotFound : ApiError()
+
+    companion object {
+        fun decode(reader: WireReader): ApiError {
+            val tag = reader.readI32()
+            return when (tag) {
+                0 -> {
+                    NetworkError(
+                        reader.readString()
+                    )
+                }
+                1 -> {
+                    NotFound
+                }
+                else -> throw FfiException(-1, "Unknown ApiError tag: $tag")
+            }
+        }
+    }
+
+    fun wireEncodedSize(): Int = 4 + when (this) {
+        is NetworkError -> reader.sizeString(message)
+        is NotFound -> 0
+    }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        when (this) {
+            is NetworkError -> {
+                wire.writeI32(0)
+                wire.writeString(message)
+            }
+            is NotFound -> wire.writeI32(1)
+        }
+    }
+}

@@ -1,0 +1,50 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture(\"exports/encoded_closure_parameter\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_install(callback: Long): Unit
+}
+
+fun interface ClosureStringToString {
+    fun invoke(arg0: String): String
+}
+
+private object ClosureStringToStringCallbacks {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, ClosureStringToString>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: ClosureStringToString): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    @JvmStatic
+    fun free(handle: Long) {
+        map.remove(handle)
+    }
+
+    @JvmStatic
+    fun call(handle: Long, arg0: ByteArray): ByteArray {
+        val impl = map[handle] ?: error("ClosureStringToStringCallbacks: invalid handle $handle")
+        val __boltffi_arg0_reader = WireReader(arg0)
+        val __boltffi_arg0_value = __boltffi_arg0_reader.readString()
+        val __boltffi_closure_result = impl.invoke(__boltffi_arg0_value)
+        val __boltffi_closure_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(__boltffi_closure_result))
+        val __boltffi_closure_writer = __boltffi_closure_wire.writer
+        __boltffi_closure_writer.writeString(__boltffi_closure_result)
+        val __boltffi_closure_bytes = __boltffi_closure_wire.bytes()
+        __boltffi_closure_wire.close()
+        return __boltffi_closure_bytes
+    }
+}
+
+fun install(callback: ClosureStringToString) {
+    Native.boltffi_function_demo_install(ClosureStringToStringCallbacks.insert(callback))
+}

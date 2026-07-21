@@ -1,0 +1,361 @@
+---
+title: "Async"
+description: "Export async Rust functions and methods with BoltFFI and bridge futures to native async APIs in Swift, Kotlin, Java, C#, TypeScript, and Python."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Async
+
+Rust async functions can be exported just like regular functions. Add `async` to the function signature and BoltFFI handles bridging the future to the target language's async model. The generated bindings let callers await the result using native syntax, with no manual callback wiring or polling logic on either side. Cancellation propagates from the caller back to Rust, and errors work the same as synchronous functions.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn fetch_user(id: i32) -> User {
+    db.query_user(id).await
+}`}
+  swift={`// Generated
+func fetchUser(id: Int32) async -> User
+
+// Usage
+let user = await fetchUser(id: 42)`}
+  kotlin={`// Generated
+suspend fun fetchUser(id: Int): User
+
+// Usage
+val user = fetchUser(42)`}
+  java={`// Java 21+ (virtual threads)
+static User fetchUser(int id)
+
+User user = fetchUser(42);
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<User> fetchUser(
+    int id)
+
+User user = fetchUser(42).join();`}
+  csharp={`// Generated
+static Task<User> FetchUser(int id)
+static Task<User> FetchUser(
+    int id,
+    CancellationToken cancellationToken)
+
+// Usage
+User user = await MyLib.FetchUser(42);`}
+  typescript={`// Generated
+async function fetchUser(id: number): Promise<User>
+
+// Usage
+const user = await fetchUser(42)`}
+  python={`# Generated
+async def fetch_user(id: int) -> User: ...
+
+# Usage
+user = await fetch_user(42)`}
+/>
+
+## How It Works
+
+BoltFFI uses continuation-based polling to bridge Rust futures to target languages. When you call an async function, BoltFFI creates a handle to the future and returns it immediately. The target language's async runtime then polls this handle, passing a continuation callback. When the Rust future makes progress or completes, the callback fires and the target language resumes execution. This approach is lock-free with no busy-waiting, and the target language drives the entire polling lifecycle.
+
+See [Async Internals](/docs/async-internals) for the full implementation details including the FFI protocol and sequence diagram.
+
+## Standalone Functions
+
+Standalone async functions work like regular exported functions with the `async` keyword added. The function runs on the target language's async context and returns when the Rust future completes. Parameters are captured when the function is called, and the result is delivered through the native async mechanism.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn load_config(path: &str) -> Config {
+    read_file(path).await
+}`}
+  swift={`// Generated
+func loadConfig(path: String) async -> Config
+
+// Usage
+let config = await loadConfig(path: "settings.json")`}
+  kotlin={`// Generated
+suspend fun loadConfig(path: String): Config
+
+// Usage
+val config = loadConfig("settings.json")`}
+  java={`// Java 21+ (virtual threads)
+static Config loadConfig(String path)
+
+Config config = loadConfig("settings.json");
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<Config> loadConfig(
+    String path)
+
+Config config =
+    loadConfig("settings.json").join();`}
+  csharp={`// Generated
+static Task<Config> LoadConfig(string path)
+static Task<Config> LoadConfig(
+    string path,
+    CancellationToken cancellationToken)
+
+// Usage
+Config config =
+    await MyLib.LoadConfig("settings.json");`}
+  typescript={`// Generated
+async function loadConfig(path: string): Promise<Config>
+
+// Usage
+const config = await loadConfig("settings.json")`}
+  python={`# Generated
+async def load_config(path: str) -> Config: ...
+
+# Usage
+config = await load_config("settings.json")`}
+/>
+
+## Methods
+
+Methods on classes can be async. The object reference is captured along with any parameters when the method is called. Both `&self` and `&mut self` methods can be async, but the same thread safety rules apply: `&mut self` requires `#[export(single_threaded)]` since the target language can call from any thread. See [Classes - &self vs &mut self](/docs/classes#self-vs-mut-self) for details.
+
+<CodeComparison
+  title=""
+  rust={`pub struct Database {
+    connection: Connection,
+}
+
+#[export]
+impl Database {
+    pub fn connect(url: &str) -> Self {
+        Database {
+            connection: Connection::new(url)
+        }
+    }
+    
+    pub async fn query(&self, sql: &str) -> Vec<Row> {
+        self.connection.execute(sql).await
+    }
+}`}
+  swift={`// Generated
+public class Database {
+    public static func connect(url: String) -> Database
+    public func query(sql: String) async -> [Row]
+}
+
+// Usage
+let db = Database.connect(url: "postgres://...")
+let rows = await db.query(sql: "SELECT * FROM users")`}
+  kotlin={`// Generated
+class Database {
+    companion object {
+        fun connect(url: String): Database
+    }
+    suspend fun query(sql: String): List<Row>
+}
+
+// Usage
+val db = Database.connect("postgres://...")
+val rows = db.query("SELECT * FROM users")`}
+  java={`// Java 21+ (virtual threads)
+public final class Database
+    implements AutoCloseable {
+    public static Database connect(String url)
+    public java.util.List<Row> query(String sql)
+}
+
+Database db = Database.connect("postgres://...");
+java.util.List<Row> rows =
+    db.query("SELECT * FROM users");
+
+// Java 8+ (CompletableFuture)
+public CompletableFuture<java.util.List<Row>>
+    query(String sql)
+
+db.query("SELECT * FROM users")
+    .thenAccept(rows ->
+        System.out.println(rows.size()));`}
+  csharp={`// Generated
+public sealed class Database : IDisposable
+{
+    public static Database Connect(string url)
+    public Task<Row[]> Query(string sql)
+}
+
+// Usage
+using Database db =
+    Database.Connect("postgres://...");
+Row[] rows =
+    await db.Query("SELECT * FROM users");`}
+  typescript={`// Generated
+declare class Database {
+    private constructor()
+    static connect(url: string): Database
+    async query(sql: string): Promise<Row[]>
+    dispose(): void
+}
+
+// Usage
+const db = Database.connect("postgres://...")
+const rows = await db.query("SELECT * FROM users")`}
+  python={`# Generated
+class Database:
+    @classmethod
+    def connect(cls, url: str) -> "Database": ...
+    async def query(self, sql: str) -> list[Row]: ...
+    def close(self) -> None: ...
+
+# Usage
+db = Database.connect("postgres://...")
+rows = await db.query("SELECT * FROM users")`}
+/>
+
+## Error Handling
+
+Async functions can return `Result` just like synchronous functions. The error is delivered through the target language's native error handling mechanism when the async operation completes. The same error types and conversion rules apply as described in [Errors](/docs/errors).
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn fetch_user(id: i32) -> Result<User, DbError> {
+    db.query_user(id).await
+}`}
+  swift={`// Generated
+func fetchUser(id: Int32) async throws -> User
+
+// Usage
+do {
+    let user = try await fetchUser(id: 42)
+} catch {
+    print("Failed: \\(error)")
+}`}
+  kotlin={`// Generated
+@Throws(FfiException::class)
+suspend fun fetchUser(id: Int): User
+
+// Usage
+try {
+    val user = fetchUser(42)
+} catch (e: FfiException) {
+    println("Failed: \${e.message}")
+}`}
+  java={`// Java 21+ (virtual threads)
+static User fetchUser(int id)
+    // throws DbError.Exception
+
+try {
+    User user = fetchUser(42);
+} catch (DbError.Exception e) {
+    System.out.println("Failed: "
+        + e.getError());
+}
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<User> fetchUser(
+    int id)
+
+fetchUser(42)
+    .exceptionally(e -> {
+        System.out.println("Failed: " + e);
+        return null;
+    });`}
+  csharp={`// Generated
+static Task<User> FetchUser(int id)
+
+// Usage
+try {
+    User user = await MyLib.FetchUser(42);
+} catch (DbErrorException e) {
+    Console.WriteLine("Failed: " + e.Error);
+}`}
+  typescript={`// Generated
+async function fetchUser(id: number): Promise<User>  // throws
+
+// Usage
+try {
+    const user = await fetchUser(42)
+} catch (e) {
+    console.log("Failed:", e)
+}`}
+  python={`# Generated
+async def fetch_user(id: int) -> User: ...
+
+# Usage
+try:
+    user = await fetch_user(42)
+except DbErrorException as error:
+    print("Failed:", error)`}
+/>
+
+## Cancellation
+
+Cancellation in the target language propagates back to Rust. When a caller cancels an async operation, the future is marked as cancelled, and the next poll returns immediately without running more of the future's code. This is cooperative cancellation, not preemption. The future is not forcibly aborted mid-execution, so any cleanup code after an await point may not run if cancellation happens before reaching it.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub async fn sync_all() -> SyncResult {
+    // sync work
+}`}
+  swift={`// Generated
+func syncAll() async -> SyncResult
+
+// Usage
+let task = Task {
+    await syncAll()
+}
+// later
+task.cancel()`}
+  kotlin={`// Generated
+suspend fun syncAll(): SyncResult
+
+// Usage
+val job = scope.launch {
+    syncAll()
+}
+// later
+job.cancel()`}
+  java={`// Java 21+ (virtual threads)
+static SyncResult syncAll()
+
+Thread thread = Thread.startVirtualThread(
+    () -> syncAll());
+// later
+thread.interrupt();
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<SyncResult> syncAll()
+
+CompletableFuture<SyncResult> future =
+    syncAll();
+// later
+future.cancel(true);`}
+  csharp={`// Generated
+static Task<SyncResult> SyncAll()
+static Task<SyncResult> SyncAll(
+    CancellationToken cancellationToken)
+
+// Usage
+using var cts = new CancellationTokenSource();
+Task<SyncResult> task = MyLib.SyncAll(cts.Token);
+// later
+cts.Cancel();`}
+  typescript={`// Generated
+async function syncAll(): Promise<SyncResult>
+
+// Usage
+const promise = syncAll()
+const result = await promise`}
+  python={`# Generated
+async def sync_all() -> SyncResult: ...
+
+# Usage
+task = asyncio.create_task(sync_all())
+# later
+task.cancel()`}
+/>
+
+## Runtime
+
+BoltFFI wraps your future and lets the target language drive polling. BoltFFI itself does not require a Rust async runtime. The polling mechanism is built into the generated bindings and works without tokio, async-std, or any other executor.
+
+However, if your async code uses libraries that depend on a runtime, that runtime must be available. Pure computation and channel-based async works without any runtime. Libraries like `reqwest` or `tokio::fs` require tokio's reactor to be running because they rely on it for I/O. If you use such libraries, you need to ensure a tokio runtime is active when your async functions execute.

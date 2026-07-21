@@ -1,0 +1,67 @@
+---
+title: "Installation"
+description: "Install the BoltFFI CLI and crate dependencies, configure Cargo outputs, and prepare a Rust project for cross-language bindings."
+---
+
+# Installation
+
+## Prerequisites
+
+- **Rust 1.70+** - Install from [rustup.rs](https://rustup.rs)
+- **For iOS**: Xcode 15+ with command line tools
+- **For Android**: Android Studio with NDK installed
+- **For Java**: JDK 8+ with `javac` and a C compiler for the JNI bridge
+- **For C#**: .NET SDK 10.0+ for the current C# demo and generated binding tests
+- **For Python**: Python 3.10+ with pip
+
+## Install the CLI
+
+```bash
+cargo install boltffi_cli
+```
+
+## Add to your project
+
+Add BoltFFI to your library crate:
+
+```bash
+cargo add boltffi
+cargo add --build boltffi
+```
+
+Then configure your library crate:
+
+```toml
+[package]
+name = "mylib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+```
+
+Add `cdylib` if you also need a standalone Rust shared library outside BoltFFI packaging, including the current C# generate-and-integrate flow:
+
+```toml
+[lib]
+crate-type = ["staticlib", "cdylib"]
+```
+
+## Create build.rs
+
+Create a `build.rs` file in your project root:
+
+```rust
+fn main() {
+    boltffi::build::generate();
+}
+```
+
+## Verify installation
+
+```bash
+boltffi check
+```
+
+This verifies you have the required tools and Rust targets installed. Run `boltffi check --fix` to auto-install missing targets.

@@ -1,0 +1,301 @@
+---
+title: "Tutorial"
+description: "Build a complete counter library with BoltFFI from Rust code to Swift, Kotlin, and C# usage, including exports, records, classes, and packaging."
+---
+
+# Tutorial
+
+This tutorial walks through building a counter library in Rust and using it from Swift, Kotlin, and C#.
+
+## Create the Rust library
+
+```bash
+cargo new --lib counter
+cd counter
+```
+
+Add BoltFFI to `Cargo.toml`:
+
+```toml
+[package]
+name = "counter"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+```
+
+Install BoltFFI:
+
+```bash
+cargo add boltffi
+```
+
+## Write the Rust code
+
+Create `src/lib.rs`:
+
+```rust
+use boltffi::*;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+pub struct Counter {
+    value: AtomicI64,
+}
+
+#[export]
+impl Counter {
+    pub fn new(initial: i64) -> Self {
+        Counter {
+            value: AtomicI64::new(initial),
+        }
+    }
+
+    pub fn increment(&self) -> i64 {
+        self.value.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn decrement(&self) -> i64 {
+        self.value.fetch_sub(1, Ordering::SeqCst) - 1
+    }
+
+    pub fn get(&self) -> i64 {
+        self.value.load(Ordering::SeqCst)
+    }
+
+    pub fn reset(&self) {
+        self.value.store(0, Ordering::SeqCst);
+    }
+}
+```
+
+The `#[export]` attribute tells BoltFFI to generate bindings for `Counter`. The struct uses `AtomicI64` for thread-safe access without locks.
+
+## Generate bindings
+
+For Apple (Swift):
+
+```bash
+boltffi pack apple
+```
+
+For Android (Kotlin):
+
+```bash
+boltffi pack android
+```
+
+For C#:
+
+```bash
+boltffi pack csharp
+```
+
+This produces a `.nupkg` in `dist/csharp/packages/` that you can reference from your .NET project as a local NuGet feed. The package bundles the bindings and the native runtime assets together.
+
+## Use from Swift
+
+```swift
+import Counter
+
+let counter = Counter(initial: 0)
+
+print(counter.increment())  // 1
+print(counter.increment())  // 2
+print(counter.get())        // 2
+print(counter.decrement())  // 1
+counter.reset()
+print(counter.get())        // 0
+```
+
+## Use from Kotlin
+
+```kotlin
+import com.example.counter.Counter
+
+val counter = Counter(initial = 0)
+
+println(counter.increment())  // 1
+println(counter.increment())  // 2
+println(counter.get())        // 2
+println(counter.decrement())  // 1
+counter.reset()
+println(counter.get())        // 0
+```
+
+## Use from C#
+
+```csharp
+using Counter counter = new Counter(0);
+
+Console.WriteLine(counter.Increment());  // 1
+Console.WriteLine(counter.Increment());  // 2
+Console.WriteLine(counter.Get());        // 2
+Console.WriteLine(counter.Decrement());  // 1
+counter.Reset();
+Console.WriteLine(counter.Get());        // 0
+```
+
+## Adding error handling
+
+Extend the counter to reject negative values:
+
+```rust
+use boltffi::*;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+#[error]
+pub struct CounterError {
+    pub message: String,
+}
+
+pub struct Counter {
+    value: AtomicI64,
+    min: i64,
+}
+
+#[export]
+impl Counter {
+    pub fn new(initial: i64, min: i64) -> Result<Self, CounterError> {
+        if initial < min {
+            return Err(CounterError {
+                message: format!("initial {} below minimum {}", initial, min),
+            });
+        }
+        Ok(Counter {
+            value: AtomicI64::new(initial),
+            min,
+        })
+    }
+
+    pub fn decrement(&self) -> Result<i64, CounterError> {
+        let current = self.value.load(Ordering::SeqCst);
+        if current <= self.min {
+            return Err(CounterError {
+                message: format!("cannot go below {}", self.min),
+            });
+        }
+        Ok(self.value.fetch_sub(1, Ordering::SeqCst) - 1)
+    }
+}
+```
+
+In Swift, the error becomes a thrown exception:
+
+```swift
+do {
+    let counter = try Counter(initial: 0, min: 0)
+    try counter.decrement()  // throws CounterError
+} catch let error as CounterError {
+    print(error.message)
+}
+```
+
+In Kotlin:
+
+```kotlin
+try {
+    val counter = Counter(initial = 0, min = 0)
+    counter.decrement()  // throws CounterError
+} catch (e: CounterError) {
+    println(e.message)
+}
+```
+
+In C#:
+
+```csharp
+try {
+    using Counter counter = new Counter(0, 0);
+    counter.Decrement();  // throws CounterErrorException
+} catch (CounterErrorException e) {
+    Console.WriteLine(e.Error.Message);
+}
+```
+
+## Adding async
+
+Make the counter persist to a file asynchronously:
+
+```rust
+use boltffi::*;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::path::PathBuf;
+
+pub struct PersistentCounter {
+    value: AtomicI64,
+    path: PathBuf,
+}
+
+#[export]
+impl PersistentCounter {
+    pub fn new(path: String) -> Self {
+        PersistentCounter {
+            value: AtomicI64::new(0),
+            path: PathBuf::from(path),
+        }
+    }
+
+    pub fn increment(&self) -> i64 {
+        self.value.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub async fn save(&self) -> Result<(), String> {
+        let value = self.value.load(Ordering::SeqCst);
+        tokio::fs::write(&self.path, value.to_string().as_bytes())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn load(&self) -> Result<i64, String> {
+        let contents = tokio::fs::read_to_string(&self.path)
+            .await
+            .map_err(|e| e.to_string())?;
+        let value: i64 = contents.trim().parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+        self.value.store(value, Ordering::SeqCst);
+        Ok(value)
+    }
+}
+```
+
+In Swift, async methods use structured concurrency:
+
+```swift
+let counter = PersistentCounter(path: "/tmp/counter.txt")
+counter.increment()
+counter.increment()
+
+try await counter.save()
+let loaded = try await counter.load()
+print(loaded)  // 2
+```
+
+In Kotlin, they become suspend functions:
+
+```kotlin
+val counter = PersistentCounter(path = "/tmp/counter.txt")
+counter.increment()
+counter.increment()
+
+counter.save()
+val loaded = counter.load()
+println(loaded)  // 2
+```
+
+In C#, they return `Task`:
+
+```csharp
+using PersistentCounter counter =
+    new PersistentCounter("/tmp/counter.txt");
+counter.Increment();
+counter.Increment();
+
+await counter.Save();
+long loaded = await counter.Load();
+Console.WriteLine(loaded);  // 2
+```
+
+## Next steps
+
+See [Types](/docs/types) for the full list of supported types, [Async](/docs/async) for async patterns, and [Streaming](/docs/streaming) for real-time data.

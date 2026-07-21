@@ -1,0 +1,2 @@
+#[data]
+pub struct Marker;

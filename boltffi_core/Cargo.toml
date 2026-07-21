@@ -1,0 +1,30 @@
+[package]
+name = "boltffi_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core runtime types for BoltFFI - high-performance FFI bindings generator"
+keywords = ["ffi", "runtime", "bindings", "interop"]
+categories = ["development-tools::ffi"]
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["uuid", "url"]
+fast-alloc = ["mimalloc"]
+uuid = ["dep:uuid"]
+chrono = ["dep:chrono"]
+url = ["dep:url"]
+
+[dependencies]
+boltffi_macros.workspace = true
+mimalloc = { version = "0.1", default-features = false, optional = true }
+uuid = { version = "1.10.0", default-features = false, features = ["std"], optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
+url = { version = "2.5.4", default-features = false, features = ["std"], optional = true }
+
+[lints]
+workspace = true

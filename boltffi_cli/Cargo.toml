@@ -1,0 +1,47 @@
+[package]
+name = "boltffi_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI for BoltFFI - generate Swift, Kotlin, and WASM bindings from Rust"
+homepage = "https://boltffi.dev"
+readme = "../README.md"
+keywords = ["ffi", "cli", "codegen", "swift", "kotlin"]
+categories = ["development-tools::ffi", "development-tools::build-utils", "command-line-utilities"]
+
+[[bin]]
+name = "boltffi"
+path = "src/main.rs"
+
+[dependencies]
+askama = "0.16"
+boltffi_bindgen.workspace = true
+boltffi_backend.workspace = true
+boltffi_binding.workspace = true
+boltffi_verify.workspace = true
+cap-fs-ext = "=4.0.2"
+cap-std = "=4.0.2"
+clap = { version = "4.4", features = ["derive"] }
+serde.workspace = true
+toml = "1.0"
+thiserror.workspace = true
+which = "8.0"
+sha2 = "0.11"
+hex = "0.4"
+zip = "8.1"
+walkdir.workspace = true
+serde_json.workspace = true
+console = "0.16"
+indicatif = "0.18"
+object.workspace = true
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
+[target.'cfg(windows)'.dependencies]
+dunce = "1.0"
+
+[lints]
+workspace = true

@@ -1,0 +1,972 @@
+// ignore_for_file: camel_case_types, non_constant_identifier_names, unused_element, unused_local_variable, library_prefixes, library_private_types_in_public_api, no_leading_underscores_for_local_identifiers
+
+import 'dart:async' as $$async;
+import 'dart:convert' as $$convert;
+import 'dart:typed_data' as $$typed_data;
+import 'dart:ffi' as $$ffi;
+import 'package:ffi/ffi.dart' as $$extffi;
+
+final class _$$FFIStatus extends $$ffi.Struct {
+  @$$ffi.Int32()
+  external int code;
+}
+
+final class _$$FFIString extends $$ffi.Struct {
+  external $$ffi.Pointer<$$ffi.Uint8> ptr;
+
+  @$$ffi.UintPtr()
+  external int len;
+
+  @$$ffi.UintPtr()
+  external int cap;
+}
+
+final class _$$FFIBuf extends $$ffi.Struct {
+  external $$ffi.Pointer<$$ffi.Uint8> ptr;
+
+  @$$ffi.UintPtr()
+  external int len;
+
+  @$$ffi.UintPtr()
+  external int cap;
+
+  @$$ffi.UintPtr()
+  external int align;
+}
+
+final class _$$FFIError extends $$ffi.Struct {
+  external _$$FFIString message;
+}
+
+final class _$$BoltFFICallbackHandle extends $$ffi.Struct {
+  @$$ffi.Uint64()
+  external int handle;
+
+  external $$ffi.Pointer<$$ffi.Void> vtable;
+}
+
+final class _$$FFIException implements Exception {
+  final int code;
+  final String message;
+
+  const _$$FFIException(this.code, this.message);
+
+  @override
+  String toString() {
+    return 'FFIException ($code): $message';
+  }
+}
+
+sealed class BoltFFIResult<Ok, Err extends Exception> {
+  const BoltFFIResult();
+
+  factory BoltFFIResult.ok(Ok value) = BoltFFIResult$Ok;
+
+  factory BoltFFIResult.err(Err value) = BoltFFIResult$Err;
+
+  Ok okOrThrow() {
+    return switch (this) {
+      BoltFFIResult$Ok<Ok, Err>(:final value) => value,
+      BoltFFIResult$Err<Ok, Err>(:final value) => throw value,
+    };
+  }
+
+  BoltFFIResult<Ok, MErr> mapError<MErr extends Exception>(
+    MErr Function(Err) m,
+  ) {
+    return switch (this) {
+      BoltFFIResult$Ok<Ok, Err>(:final value) => BoltFFIResult.ok(value),
+      BoltFFIResult$Err<Ok, Err>(:final value) => BoltFFIResult.err(m(value)),
+    };
+  }
+}
+
+final class BoltFFIResult$Ok<Ok, Err extends Exception>
+    extends BoltFFIResult<Ok, Err> {
+  final Ok value;
+
+  const BoltFFIResult$Ok(this.value);
+}
+
+final class BoltFFIResult$Err<Ok, Err extends Exception>
+    extends BoltFFIResult<Ok, Err> {
+  final Err value;
+
+  const BoltFFIResult$Err(this.value);
+}
+
+final class _$$WireWriter {
+  final $$ffi.Pointer<$$ffi.Uint8> _ptr;
+  final $$typed_data.Uint8List _buf;
+  int _offset;
+
+  _$$WireWriter._(this._ptr, this._buf, this._offset);
+
+  factory _$$WireWriter([int initialCapacity = 256]) {
+    final ptr = $$extffi.calloc.allocate<$$ffi.Uint8>(initialCapacity);
+    final data = ptr.asTypedList(
+      initialCapacity,
+      finalizer: $$extffi.calloc.nativeFree,
+      token: ptr.cast(),
+    );
+
+    final obj = _$$WireWriter._(ptr, data, 0);
+    return obj;
+  }
+
+  $$ffi.Pointer<$$ffi.Uint8> get ptr => _ptr;
+
+  int get len => _offset;
+
+  void clear() {
+    _offset = 0;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeU8(int v) {
+    (_ptr + _offset).value = v;
+    _offset += 1;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeI8(int v) {
+    (_ptr + _offset).cast<$$ffi.Int8>().value = v;
+    _offset += 1;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeU16(int v) {
+    (_ptr + _offset).cast<$$ffi.Uint16>().value = v;
+    _offset += 2;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeI16(int v) {
+    (_ptr + _offset).cast<$$ffi.Int16>().value = v;
+    _offset += 2;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeU32(int v) {
+    (_ptr + _offset).cast<$$ffi.Uint32>().value = v;
+    _offset += 4;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeI32(int v) {
+    (_ptr + _offset).cast<$$ffi.Int32>().value = v;
+    _offset += 4;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeU64(int v) {
+    (_ptr + _offset).cast<$$ffi.Uint64>().value = v;
+    _offset += 8;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeI64(int v) {
+    (_ptr + _offset).cast<$$ffi.Int64>().value = v;
+    _offset += 8;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeF32(double v) {
+    (_ptr + _offset).cast<$$ffi.Float>().value = v;
+    _offset += 4;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeF64(double v) {
+    (_ptr + _offset).cast<$$ffi.Double>().value = v;
+    _offset += 8;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$ffi.Pointer<T> getCurrPtr<T extends $$ffi.NativeType>() {
+    return (_ptr + _offset).cast<T>();
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeBool(bool v) => writeU8(v ? 1 : 0);
+
+  @pragma('vm:prefer-inline')
+  void writeTypedList($$typed_data.TypedData v) {
+    final byteLength = v.lengthInBytes;
+    _buf.setRange(
+      _offset,
+      _offset + byteLength,
+      v.buffer.asUint8List(v.offsetInBytes, byteLength),
+    );
+    _offset += byteLength;
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeList<T>(
+    List<T> v,
+    void Function(T item, _$$WireWriter writer) onItem,
+  ) {
+    writeU32(v.length);
+    for (final item in v) {
+      onItem(item, this);
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeString(String v) {
+    final bytes = $$convert.utf8.encode(v);
+    writeU32(bytes.length);
+    writeTypedList(bytes);
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeUri(Uri v) => writeString(v.toString());
+
+  @pragma('vm:prefer-inline')
+  void writeDuration(Duration v) {
+    final micros = v.inMicroseconds;
+    final seconds = micros ~/ 1000000;
+    final nanos = (micros % 1000000) * 1000;
+    writeU64(seconds);
+    writeU32(nanos);
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeInstant(DateTime v) {}
+
+  @pragma('vm:prefer-inline')
+  void writeOptional<T>(
+    T? value,
+    void Function(T value, _$$WireWriter writer) onSome,
+  ) {
+    if (value == null) {
+      writeU8(0);
+    } else {
+      writeU8(1);
+      onSome(value, this);
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  void writeResult<T, E extends Exception>(
+    BoltFFIResult<T, E> value,
+    void Function(T value, _$$WireWriter writer) onOk,
+    void Function(E value, _$$WireWriter writer) onErr,
+  ) {
+    switch (value) {
+      case BoltFFIResult$Ok<T, E>(:final value):
+        writeU8(0);
+        onOk(value, this);
+      case BoltFFIResult$Err<T, E>(:final value):
+        writeU8(1);
+        onErr(value, this);
+    }
+  }
+}
+
+class _$$WireReader {
+  final $$ffi.Pointer<$$ffi.Uint8> _ptr;
+  final int _cap;
+
+  int _offset = 0;
+
+  _$$WireReader(this._ptr, this._cap);
+
+
+  @pragma('vm:prefer-inline')
+  void ensureCapacity(int additionalBytes) {
+    if (_offset + additionalBytes > _cap) {
+      throw StateError(
+        "Buffer overflow: requested ${_offset + additionalBytes} bytes, but capacity is $_cap",
+      );
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  int readU8() {
+    ensureCapacity(1);
+    final value = (_ptr + _offset).value;
+    _offset += 1;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readI8() {
+    ensureCapacity(1);
+    final value = (_ptr + _offset).cast<$$ffi.Int8>().value;
+    _offset += 1;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readU16() {
+    ensureCapacity(2);
+    final value = (_ptr + _offset).cast<$$ffi.Uint16>().value;
+    _offset += 2;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readI16() {
+    ensureCapacity(2);
+    final value = (_ptr + _offset).cast<$$ffi.Int16>().value;
+    _offset += 2;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readU32() {
+    ensureCapacity(4);
+    final value = (_ptr + _offset).cast<$$ffi.Uint32>().value;
+    _offset += 4;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readI32() {
+    ensureCapacity(4);
+    final value = (_ptr + _offset).cast<$$ffi.Int32>().value;
+    _offset += 4;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readU64() {
+    ensureCapacity(8);
+    final value = (_ptr + _offset).cast<$$ffi.Uint64>().value;
+    _offset += 8;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  int readI64() {
+    ensureCapacity(8);
+    final value = (_ptr + _offset).cast<$$ffi.Int64>().value;
+    _offset += 8;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  double readF32() {
+    ensureCapacity(4);
+    final value = (_ptr + _offset).cast<$$ffi.Float>().value;
+    _offset += 4;
+    return value;
+  }
+  @pragma('vm:prefer-inline')
+  double readF64() {
+    ensureCapacity(8);
+    final value = (_ptr + _offset).cast<$$ffi.Double>().value;
+    _offset += 8;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$ffi.Pointer<T> getCurrPtr<T extends $$ffi.NativeType>() {
+    return (_ptr + _offset).cast<T>();
+  }
+
+  @pragma('vm:prefer-inline')
+  bool readBool() {
+    final b = readU8();
+
+    return switch (b) {
+      0 => false,
+      1 => true,
+      _ => throw _$$FFIException(-1, "Invalid bool value: $b"),
+    };
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint8List readUint8List() {
+    final len = readU32();
+
+    ensureCapacity(len);
+    final dst = $$typed_data.Uint8List(len);
+    dst.setRange(0, len, (_ptr + _offset).asTypedList(len));
+    _offset += len;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int8List readInt8List() {
+    final len = readU32();
+
+    ensureCapacity(len);
+    final dst = $$typed_data.Int8List(len);
+    dst.setRange(0, len, (_ptr + _offset).asTypedList(len));
+    _offset += len;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint16List readUint16List() {
+    final len = readU32();
+    final size = len * 2;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint16List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int16List readInt16List() {
+    final len = readU32();
+    final size = len * 2;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int16List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint32List readUint32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint32List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int32List readInt32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int32List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint64List readUint64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint64List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int64List readInt64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int64List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Float32List readFloat32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Float32List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Float64List readFloat64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Float64List(len);
+    dst.buffer.asUint8List().setRange(0, size, (_ptr + _offset).asTypedList(size));
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  List<T> readList<T>(T Function(_$$WireReader) readValue) {
+    final len = readU32();
+
+    return List.generate(len, (_) => readValue(this));
+  }
+
+  @pragma('vm:prefer-inline')
+  String readString() => $$convert.utf8.decode(readUint8List());
+
+  @pragma('vm:prefer-inline')
+  T? readOptional<T>(T Function(_$$WireReader) onSome) {
+    final tag = readU8();
+
+    return switch (tag) {
+      0 => null,
+      1 => onSome(this),
+      _ => throw _$$FFIException(-1, "Invalid Optional tag: $tag"),
+    };
+  }
+
+  @pragma('vm:prefer-inline')
+  BoltFFIResult<T, E> readResult<T, E extends Exception>(
+    T Function(_$$WireReader) onOk,
+    E Function(_$$WireReader) onErr
+  ) {
+    final tag = readU8();
+
+    return switch (tag) {
+      0 => BoltFFIResult.ok(onOk(this)),
+      1 => BoltFFIResult.err(onErr(this)),
+      _ => throw _$$FFIException(-1, "Invalid Result tag: $tag"),
+    };
+  }
+}
+
+class _$$BytesReader {
+  final $$typed_data.Uint8List buf;
+  final $$typed_data.ByteData data;
+
+  int _offset = 0;
+
+  _$$BytesReader(this.buf) : data = $$typed_data.ByteData.sublistView(buf);
+
+  @pragma('vm:prefer-inline')
+  void ensureCapacity(int additionalBytes) {
+    if (_offset + additionalBytes > buf.lengthInBytes) {
+      throw StateError(
+        "Buffer overflow: requested ${_offset + additionalBytes} bytes, but capacity is ${buf.lengthInBytes}",
+      );
+    }
+  }
+
+  @pragma('vm:prefer-inline')
+  int readU8() {
+    ensureCapacity(1);
+    final value = data.getUint8(_offset);
+    _offset += 1;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readI8() {
+    ensureCapacity(1);
+    final value = data.getInt8(_offset);
+    _offset += 1;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readU16() {
+    ensureCapacity(2);
+    final value = data.getUint16(_offset, $$typed_data.Endian.little);
+    _offset += 2;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readI16() {
+    ensureCapacity(2);
+    final value = data.getInt16(_offset, $$typed_data.Endian.little);
+    _offset += 2;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readU32() {
+    ensureCapacity(4);
+    final value = data.getUint32(_offset, $$typed_data.Endian.little);
+    _offset += 4;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readI32() {
+    ensureCapacity(4);
+    final value = data.getInt32(_offset, $$typed_data.Endian.little);
+    _offset += 4;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readU64() {
+    ensureCapacity(8);
+    final value = data.getUint64(_offset, $$typed_data.Endian.little);
+    _offset += 8;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  int readI64() {
+    ensureCapacity(8);
+    final value = data.getInt64(_offset, $$typed_data.Endian.little);
+    _offset += 8;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  double readF32() {
+    ensureCapacity(4);
+    final value = data.getFloat32(_offset, $$typed_data.Endian.little);
+    _offset += 4;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  double readF64() {
+    ensureCapacity(8);
+    final value = data.getFloat64(_offset, $$typed_data.Endian.little);
+    _offset += 8;
+    return value;
+  }
+
+  @pragma('vm:prefer-inline')
+  bool readBool() {
+    final b = readU8();
+
+    return switch (b) {
+      0 => false,
+      1 => true,
+      _ => throw _$$FFIException(-1, "Invalid bool value: $b"),
+    };
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint8List readUint8List() {
+    final len = readU32();
+
+    ensureCapacity(len);
+    final dst = $$typed_data.Uint8List(len);
+    dst.setRange(0, len, buf.buffer.asUint8List(_offset, _offset + len));
+    _offset += len;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int8List readInt8List() {
+    final len = readU32();
+
+    ensureCapacity(len);
+    final dst = $$typed_data.Int8List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + len),
+    );
+    _offset += len;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint16List readUint16List() {
+    final len = readU32();
+    final size = len * 2;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint16List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int16List readInt16List() {
+    final len = readU32();
+    final size = len * 2;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int16List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint32List readUint32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint32List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int32List readInt32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int32List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Uint64List readUint64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Uint64List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Int64List readInt64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Int64List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Float32List readFloat32List() {
+    final len = readU32();
+    final size = len * 4;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Float32List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  $$typed_data.Float64List readFloat64List() {
+    final len = readU32();
+    final size = len * 8;
+
+    ensureCapacity(size);
+    final dst = $$typed_data.Float64List(len);
+    dst.buffer.asUint8List().setRange(
+      0,
+      len,
+      buf.buffer.asUint8List(_offset, _offset + size),
+    );
+    _offset += size;
+    return dst;
+  }
+
+  @pragma('vm:prefer-inline')
+  List<T> readList<T>(T Function(_$$BytesReader) readValue) {
+    final len = readU32();
+
+    return List.generate(len, (_) => readValue(this));
+  }
+
+  @pragma('vm:prefer-inline')
+  String readString() => $$convert.utf8.decode(readUint8List());
+
+  @pragma('vm:prefer-inline')
+  T? readOptional<T>(T Function(_$$BytesReader) onSome) {
+    final tag = readU8();
+
+    return switch (tag) {
+      0 => null,
+      1 => onSome(this),
+      _ => throw _$$FFIException(-1, "Invalid Optional tag: $tag"),
+    };
+  }
+
+  @pragma('vm:prefer-inline')
+  BoltFFIResult<T, E> readResult<T, E extends Exception>(
+    T Function(_$$BytesReader) onOk,
+    E Function(_$$BytesReader) onErr,
+  ) {
+    final tag = readU8();
+
+    return switch (tag) {
+      0 => BoltFFIResult.ok(onOk(this)),
+      1 => BoltFFIResult.err(onErr(this)),
+      _ => throw _$$FFIException(-1, "Invalid Result tag: $tag"),
+    };
+  }
+}
+
+final class _$$BoltFFIAsync {
+  static const int _k$RustFuturePoll$Ready = 0;
+  static const int _k$RustFuturePoll$MaybeReady = 1;
+
+  static Future<R> create<R>({
+    required $$ffi.Pointer<$$ffi.Void> Function() createFuture,
+    required void Function(
+      $$ffi.Pointer<$$ffi.Void> handle,
+      int callback_data,
+      $$ffi.Pointer<
+        $$ffi.NativeFunction<$$ffi.Void Function($$ffi.Uint64, $$ffi.Int8)>
+      >
+      callback,
+    )
+    pollFuture,
+    required R Function($$ffi.Pointer<$$ffi.Void> handle) completeFuture,
+    required void Function($$ffi.Pointer<$$ffi.Void> handle) freeFuture,
+    required void Function($$ffi.Pointer<$$ffi.Void> handle) cancelFuture,
+  }) async {
+    final handle = createFuture();
+    final completer = $$async.Completer<R>();
+    late final $$ffi.NativeCallable<
+      $$ffi.Void Function($$ffi.Uint64, $$ffi.Int8)
+    >
+    completerCallbackCallable;
+
+    void completerCallback(int data, int res) {
+      switch (res) {
+        case _k$RustFuturePoll$Ready:
+          completerCallbackCallable.close();
+
+          try {
+            completer.complete(completeFuture(handle));
+          } catch (err) {
+            completer.completeError(err);
+          } finally {
+            freeFuture(handle);
+          }
+        case _k$RustFuturePoll$MaybeReady:
+          pollFuture(handle, data, completerCallbackCallable.nativeFunction);
+        case _:
+          throw _$$FFIException(-1, "Unexpected poll result: $res");
+      }
+    }
+
+    completerCallbackCallable = $$ffi.NativeCallable.listener(
+      completerCallback,
+    );
+
+    pollFuture(handle, 0, completerCallbackCallable.nativeFunction);
+
+    return completer.future;
+  }
+}
+
+final class $$BoltFFIStreamPopBatchHandle<O> {
+  List<O> Function(int batchSize) popBatch;
+  void Function() cancel;
+
+  $$BoltFFIStreamPopBatchHandle({required this.popBatch, required this.cancel});
+}
+
+final class _$$BoltFFIStreamCtx<T extends $$ffi.SizedNativeType> {
+  static const _k$StreamPollResult$Ready = 0;
+  static const _k$StreamPollResult$Closed = 1;
+
+  static const _k$defaultBatchSize = 16;
+
+  late final $$ffi.Pointer<$$ffi.Void> Function() subscribe;
+  late final void Function(
+    $$ffi.Pointer<$$ffi.Void>,
+    int,
+    $$ffi.Pointer<
+      $$ffi.NativeFunction<$$ffi.Void Function($$ffi.Uint64, $$ffi.Int8)>
+    >,
+  )
+  pollFn;
+  late final int Function($$ffi.Pointer<$$ffi.Void>, int) waitFn;
+  late final void Function($$ffi.Pointer<$$ffi.Void>) unsubscribeFn;
+  late final void Function($$ffi.Pointer<$$ffi.Void>) freeFn;
+  late final int? itemSize;
+
+  _$$BoltFFIStreamCtx({
+    required this.subscribe,
+    required this.pollFn,
+    required this.waitFn,
+    required this.unsubscribeFn,
+    required this.freeFn,
+    this.itemSize,
+  });
+
+  Stream<O> stream<O>(
+    void Function(
+      $$ffi.Pointer<$$ffi.Void> handle,
+      int batchSize,
+      int? itemSize,
+      $$async.StreamController<O> controller,
+    )
+    onReady,
+  ) {
+    final handle = subscribe();
+    late final $$ffi.NativeCallable<
+      $$ffi.Void Function($$ffi.Uint64, $$ffi.Int8)
+    >
+    streamCallbackCallable;
+
+    final controller = $$async.StreamController<O>(
+      onCancel: () {
+        freeFn(handle);
+      },
+    );
+
+    void streamCallback(int data, int res) {
+      switch (res) {
+        case _k$StreamPollResult$Ready:
+          onReady(handle, _k$defaultBatchSize, itemSize, controller);
+          pollFn(handle, 0, streamCallbackCallable.nativeFunction);
+        case _k$StreamPollResult$Closed:
+          streamCallbackCallable.close();
+          controller.close();
+      }
+    }
+
+    streamCallbackCallable = $$ffi.NativeCallable.listener(streamCallback);
+
+    pollFn(handle, 0, streamCallbackCallable.nativeFunction);
+
+    return controller.stream;
+  }
+
+  $$BoltFFIStreamPopBatchHandle<O> batch<O>(
+    List<O> Function($$ffi.Pointer<$$ffi.Void>, int, int?) mapper,
+  ) {
+    var handle = subscribe();
+
+    return $$BoltFFIStreamPopBatchHandle(
+      popBatch: (batchSize) {
+        if (handle == $$ffi.nullptr) {
+          return [];
+        }
+        return mapper(handle, batchSize, itemSize);
+      },
+      cancel: () {
+        freeFn(handle);
+        handle = $$ffi.nullptr;
+      },
+    );
+  }
+}

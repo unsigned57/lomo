@@ -1,0 +1,63 @@
+---
+source: boltffi_backend/tests/kotlin/direct_vector.rs
+expression: "rendered_fixture(\"direct_vector/record_vector_return\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_points(): ByteArray?
+}
+
+
+data class Point(
+    val x: Double,
+    val y: Double
+) {
+    internal fun toByteArray(): ByteArray {
+        val buffer = java.nio.ByteBuffer
+            .allocate(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer.array()
+    }
+
+    internal fun toDirectBuffer(): java.nio.ByteBuffer {
+        val buffer = java.nio.ByteBuffer
+            .allocateDirect(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer
+    }
+
+    internal fun writeTo(buffer: java.nio.ByteBuffer, offset: Int) {
+        buffer.putDouble(offset, x)
+        buffer.putDouble(offset + 8, y)
+    }
+
+    companion object {
+        internal const val STRUCT_SIZE: Int = 16
+
+        internal fun fromByteArray(bytes: ByteArray): Point {
+            require(bytes.size == STRUCT_SIZE)
+            val buffer = java.nio.ByteBuffer
+                .wrap(bytes)
+                .order(java.nio.ByteOrder.nativeOrder())
+            return fromBuffer(buffer, 0)
+        }
+
+        internal fun fromBuffer(buffer: java.nio.ByteBuffer, offset: Int): Point {
+            return Point(
+                buffer.getDouble(offset),
+                buffer.getDouble(offset + 8)
+            )
+        }
+    }
+}
+
+fun points(): List<Point> {
+    val __boltffi_result = Native.boltffi_function_demo_points() ?: throw IllegalStateException("null buffer returned")
+    return DirectVectorCodec.readRecordList(__boltffi_result, 16, { buffer, offset -> Point.fromBuffer(buffer, offset) })
+}

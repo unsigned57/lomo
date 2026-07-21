@@ -1,0 +1,15 @@
+{
+  "name": "demo-wasm",
+  "type": "module",
+  "scripts": {
+    "build:ts": "tsc",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "@boltffi/runtime": "file:../../../runtime/typescript",
+    "@boltffi/demo": "file:./dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

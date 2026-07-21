@@ -1,0 +1,90 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture(\"exports/closure_callback_handle_return\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_install(callback: Long): Unit
+}
+
+fun interface ClosureToListener {
+    fun invoke(): Listener
+}
+
+private object ClosureToBoxDemoListenerCallbacks {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, ClosureToListener>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: ClosureToListener): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    @JvmStatic
+    fun free(handle: Long) {
+        map.remove(handle)
+    }
+
+    @JvmStatic
+    fun call(handle: Long): Long {
+        val impl = map[handle] ?: error("ClosureToBoxDemoListenerCallbacks: invalid handle $handle")
+        return ListenerBridge.create(impl.invoke())
+    }
+}
+
+fun interface Listener {
+    fun onValue(value: UInt): UInt
+}
+
+private object ListenerMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, Listener>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: Listener): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): Listener? = map[handle]
+
+    fun remove(handle: Long): Listener? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object ListenerCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        ListenerMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return ListenerMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun on_value(handle: Long, value: Int): Int {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        return impl.onValue(value.toUInt()).toInt()
+    }
+}
+
+object ListenerBridge {
+    fun create(value: Listener): Long {
+        return ListenerMap.insert(value)
+    }
+}
+
+fun install(callback: ClosureToListener) {
+    Native.boltffi_function_demo_install(ClosureToBoxDemoListenerCallbacks.insert(callback))
+}

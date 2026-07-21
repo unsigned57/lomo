@@ -1,0 +1,124 @@
+---
+source: boltffi_backend/tests/jni/native_methods.rs
+expression: "rendered_fixture(\"exports/c_style_enum_closure_return\")"
+---
+===== jni/demo.h =====
+<c abi support declarations>
+typedef uint8_t ___Mode;
+#define MODE_FAST ((___Mode)1)
+#define MODE_SLOW ((___Mode)2)
+FfiStatus boltffi_function_demo_install(___Mode (*callback_call)(void *), void *callback_context, void (*callback_release)(void *));
+
+===== jni/jni_glue.c =====
+<jni source includes>
+<jni thread runtime>
+<jni exception helpers>
+<jni status helper>
+static ___Mode boltffi_jni____closure__to_demo_mode_call(void *user_data);
+static void boltffi_jni____closure__to_demo_mode_release(void *user_data);
+
+static jclass g____closure__to_demo_mode_class = NULL;
+static jmethodID g____closure__to_demo_mode_call_method = NULL;
+static jmethodID g____closure__to_demo_mode_free_method = NULL;
+static ___Mode boltffi_jni____closure__to_demo_mode_call(void *user_data) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return 0;
+    }
+    jlong handle = (jlong)(uintptr_t)user_data;
+
+    ___Mode result = (___Mode)(*env)->CallStaticByteMethod(env, g____closure__to_demo_mode_class, g____closure__to_demo_mode_call_method, handle);
+    if (boltffi_jni_clear_exception(env)) {
+
+        boltffi_jni_exit(env, attached);
+        return 0;
+    }
+
+    boltffi_jni_exit(env, attached);
+    return result;
+}
+
+static void boltffi_jni____closure__to_demo_mode_release(void *user_data) {
+    JNIEnv *env = NULL;
+    int attached = 0;
+    if (!boltffi_jni_enter(&env, &attached)) {
+        return;
+    }
+    (*env)->CallStaticVoidMethod(env, g____closure__to_demo_mode_class, g____closure__to_demo_mode_free_method, (jlong)(uintptr_t)user_data);
+    boltffi_jni_clear_exception(env);
+    boltffi_jni_exit(env, attached);
+}
+
+static bool boltffi_jni_load____closure__to_demo_mode(JNIEnv *env) {
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/ClosureToDemoModeCallbacks", "com/boltffi/demo/ClosureToDemoModeCallbacks", &g____closure__to_demo_mode_class)) {
+        return false;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____closure__to_demo_mode_class, "com/boltffi/demo/ClosureToDemoModeCallbacks", "call", "call", "(J)B", "(J)B", &g____closure__to_demo_mode_call_method)) {
+        goto fail;
+    }
+    if (!boltffi_jni_lookup_static_method_with_diagnostic(env, g____closure__to_demo_mode_class, "com/boltffi/demo/ClosureToDemoModeCallbacks", "free", "free", "(J)V", "(J)V", &g____closure__to_demo_mode_free_method)) {
+        goto fail;
+    }
+    return true;
+fail:
+    (*env)->DeleteGlobalRef(env, g____closure__to_demo_mode_class);
+    g____closure__to_demo_mode_class = NULL;
+    return false;
+}
+
+static void boltffi_jni_unload____closure__to_demo_mode(JNIEnv *env) {
+    if (g____closure__to_demo_mode_class != NULL) {
+        (*env)->DeleteGlobalRef(env, g____closure__to_demo_mode_class);
+    }
+    g____closure__to_demo_mode_class = NULL;
+    g____closure__to_demo_mode_call_method = NULL;
+    g____closure__to_demo_mode_free_method = NULL;
+}
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    jint env_result = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
+    if (env_result != JNI_OK) {
+        fprintf(stderr, "BoltFFI JNI_OnLoad failed: GetEnv(JNI_VERSION_1_6) returned %d\n", (int)env_result);
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_lookup_global_class_with_diagnostic(env, "com/boltffi/demo/Native", "com/boltffi/demo/Native", &boltffi_jni_native_class)) {
+        return JNI_ERR;
+    }
+    if (!boltffi_jni_load____closure__to_demo_mode(env)) {
+        boltffi_jni_unload____closure__to_demo_mode(env);
+        (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        boltffi_jni_native_class = NULL;
+        return JNI_ERR;
+    }
+    boltffi_jni_vm = vm;
+    return JNI_VERSION_1_6;
+}
+
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) {
+        boltffi_jni_unload____closure__to_demo_mode(env);
+        if (boltffi_jni_native_class != NULL) {
+            (*env)->DeleteGlobalRef(env, boltffi_jni_native_class);
+        }
+    }
+    boltffi_jni_vm = NULL;
+    boltffi_jni_native_class = NULL;
+}
+
+JNIEXPORT void JNICALL Java_com_boltffi_demo_Native_boltffi_1function_1demo_1install(JNIEnv *env, jclass cls, jlong callback) {
+    (void)cls;
+
+    FfiStatus __boltffi_status = boltffi_function_demo_install(boltffi_jni____closure__to_demo_mode_call, (void *)callback, boltffi_jni____closure__to_demo_mode_release);
+
+    if (__boltffi_status.code != 0) {
+        boltffi_jni_throw_status(env, __boltffi_status);
+        return;
+    }
+
+    return;
+}

@@ -1,0 +1,34 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 1801
+expression: template.render().unwrap()
+---
+
+suspend fun sendRequest(url: String, body: ByteArray, timeout: Int): ByteArray = boltffiCallAsync(
+    createFuture = {
+        val urlWire = WireWriterPool.acquire(BoltFFIWire.sizeString(url))
+        kotlin.run {
+            val wire = urlWire.writer
+            BoltFFIWire.writeString(url)
+        }
+        val bodyWire = WireWriterPool.acquire(BoltFFIWire.sizeBytes(body))
+        kotlin.run {
+            val wire = bodyWire.writer
+            BoltFFIWire.writeBytes(body)
+        }
+        try {
+            Native.boltffi_send_request(urlWire.ptr, urlWire.len, bodyWire.ptr, bodyWire.len, timeout)
+        } finally {
+            urlWire.close()
+            bodyWire.close()
+        }
+    },
+    poll = { future, contHandle -> Native.boltffi_send_request_poll(future, contHandle) },
+    complete = { future ->
+        val buf = Native.boltffi_send_request_complete(future) ?: throw FfiException(-1, "Null buffer returned")
+        val reader = WireReader(buf)
+        reader.readBytes()
+    },
+    free = { future -> Native.boltffi_send_request_free(future) },
+    cancel = { future -> Native.boltffi_send_request_cancel(future) }
+)

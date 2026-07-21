@@ -1,0 +1,79 @@
+---
+source: boltffi_backend/tests/kotlin/exports.rs
+expression: "rendered_fixture(\"exports/direct_records_and_c_style_enums\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_echo_point(point: java.nio.ByteBuffer): ByteArray?
+    @JvmStatic external fun boltffi_function_demo_echo_mode(mode: Byte): Byte
+}
+
+
+data class Point(
+    val x: Int,
+    val y: Int
+) {
+    internal fun toByteArray(): ByteArray {
+        val buffer = java.nio.ByteBuffer
+            .allocate(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer.array()
+    }
+
+    internal fun toDirectBuffer(): java.nio.ByteBuffer {
+        val buffer = java.nio.ByteBuffer
+            .allocateDirect(STRUCT_SIZE)
+            .order(java.nio.ByteOrder.nativeOrder())
+        writeTo(buffer, 0)
+        return buffer
+    }
+
+    internal fun writeTo(buffer: java.nio.ByteBuffer, offset: Int) {
+        buffer.putInt(offset, x)
+        buffer.putInt(offset + 4, y)
+    }
+
+    companion object {
+        internal const val STRUCT_SIZE: Int = 8
+
+        internal fun fromByteArray(bytes: ByteArray): Point {
+            require(bytes.size == STRUCT_SIZE)
+            val buffer = java.nio.ByteBuffer
+                .wrap(bytes)
+                .order(java.nio.ByteOrder.nativeOrder())
+            return fromBuffer(buffer, 0)
+        }
+
+        internal fun fromBuffer(buffer: java.nio.ByteBuffer, offset: Int): Point {
+            return Point(
+                buffer.getInt(offset),
+                buffer.getInt(offset + 4)
+            )
+        }
+    }
+}
+
+
+enum class Mode(val value: Byte) {
+    FAST(1.toByte()),
+    SLOW(2.toByte());
+
+    companion object {
+        fun fromValue(value: Byte): Mode =
+            entries.first { it.value == value }
+    }
+}
+
+fun echoPoint(point: Point): Point {
+    val __boltffi_result = Native.boltffi_function_demo_echo_point(point.toDirectBuffer()) ?: throw IllegalStateException("null buffer returned")
+    return Point.fromByteArray(__boltffi_result)
+}
+
+fun echoMode(mode: Mode): Mode {
+    return Mode.fromValue(Native.boltffi_function_demo_echo_mode(mode.value.toByte()))
+}

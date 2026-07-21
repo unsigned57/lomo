@@ -1,0 +1,233 @@
+---
+title: "Getting Started"
+description: "Set up a BoltFFI Rust library, install prerequisites, configure packaging, and generate bindings for Apple, Android, Java, C#, WASM, and Python targets."
+---
+
+# Getting Started
+
+This guide walks you through creating a Rust library and packaging it for use in other languages.
+
+## Prerequisites
+
+- Rust 1.70+ ([rustup.rs](https://rustup.rs))
+- For Apple: Xcode 15+ with command line tools
+- For Android: Android Studio with NDK
+- For Java: JDK 8+ with `javac` and a C compiler for the JNI bridge
+- For C#: .NET SDK 10.0+ for the current C# demo and generated binding tests
+- For WASM: Node.js 18+ and wasm-pack (`cargo install wasm-pack`)
+- For Python, Python 3.10+ with pip
+
+## Install BoltFFI
+
+```bash
+cargo install boltffi_cli
+```
+
+## Create a Rust library
+
+```bash
+cargo new --lib mylib
+cd mylib
+```
+
+Edit `Cargo.toml`:
+
+```toml
+[package]
+name = "mylib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+```
+
+Install BoltFFI:
+
+```bash
+cargo add boltffi
+```
+
+## Write your code
+
+Two attributes do most of the work:
+
+- `#[data]` marks a struct or enum as a record (value type, copied across the boundary)
+- `#[export]` exposes a function or impl block to the target language
+
+Replace `src/lib.rs`:
+
+```rust
+use boltffi::*;
+
+#[data]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[export]
+pub fn distance(a: Point, b: Point) -> f64 {
+    ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+}
+```
+
+## Build, package, or generate
+
+```bash
+boltffi init              # creates boltffi.toml
+boltffi pack all --release    # packages all enabled packaged targets
+```
+
+This creates:
+- `dist/apple/` - XCFramework + Swift bindings
+- `dist/android/` - JNI libraries + Kotlin bindings
+- `dist/java/` - JNI library + Java bindings
+- `dist/csharp/` - NuGet package + native runtime assets
+- `dist/wasm/` - WASM module + TypeScript bindings
+- `dist/python/` - Python source package + wheels
+
+To build for a single platform:
+
+```bash
+boltffi pack apple 
+boltffi pack android
+boltffi pack java
+boltffi pack csharp
+boltffi pack wasm
+boltffi pack python
+```
+
+## Use in Swift
+
+Add the package to Xcode (File → Add Package Dependencies → local path to `dist/apple`), then:
+
+```swift
+import MyLib
+
+let p1 = Point(x: 0, y: 0)
+let p2 = Point(x: 3, y: 4)
+print(distance(a: p1, b: p2))  // 5.0
+```
+
+## Use in Kotlin
+
+Copy `dist/android` into your Android project, then:
+
+```kotlin
+import com.example.mylib.*
+
+val p1 = Point(0.0, 0.0)
+val p2 = Point(3.0, 4.0)
+println(distance(p1, p2))  // 5.0
+```
+
+## Use in Java
+
+Add the generated sources and JNI library to your project, then:
+
+```java
+import com.example.mylib.*;
+
+Point p1 = new Point(0.0, 0.0);
+Point p2 = new Point(3.0, 4.0);
+System.out.println(distance(p1, p2));  // 5.0
+```
+
+On Java 16+ with `min_version = 16` in `boltffi.toml`, records are used instead of classes. On Java 8+, the same API works with generated final classes.
+
+## Use in C#
+
+Build the NuGet package and add it to your .NET project from a local package source:
+
+```bash
+boltffi pack csharp
+```
+
+This produces a `.nupkg` under `dist/csharp/packages/` with the bindings and the native runtime
+assets bundled under `runtimes/<rid>/native/`. Reference it from your project just like any other
+NuGet dependency, then:
+
+```csharp
+using MyLib;
+
+var p1 = new Point(0.0, 0.0);
+var p2 = new Point(3.0, 4.0);
+Console.WriteLine(MyLib.Distance(p1, p2));  // 5.0
+```
+
+## Use in TypeScript
+
+The WASM package works in bundlers, Node.js, and browsers.
+
+### With a Bundler (Vite, webpack)
+
+Import directly - your bundler handles WASM loading:
+
+```typescript
+import { Point, distance } from 'mylib';
+
+const p1: Point = { x: 0, y: 0 };
+const p2: Point = { x: 3, y: 4 };
+console.log(distance(p1, p2));  // 5.0
+```
+
+### In Node.js
+
+Await initialization before calling functions:
+
+```typescript
+import { initialized, Point, distance } from 'mylib';
+
+await initialized;
+
+const p1: Point = { x: 0, y: 0 };
+const p2: Point = { x: 3, y: 4 };
+console.log(distance(p1, p2));  // 5.0
+```
+
+### In a Browser (no bundler)
+
+Use the web entrypoint and call `init()`:
+
+```html
+<script type="module">
+  import init, { distance } from './pkg/web.js';
+  
+  await init();
+  
+  const p1 = { x: 0, y: 0 };
+  const p2 = { x: 3, y: 4 };
+  console.log(distance(p1, p2));  // 5.0
+</script>
+```
+
+## Use in Python
+
+Install the wheel from `dist/python/wheelhouse`, then import the generated package.
+
+```bash
+python -m pip install dist/python/wheelhouse/mylib-0.1.0-*.whl
+```
+
+```python
+import mylib
+
+p1 = mylib.Point(0, 0)
+p2 = mylib.Point(3, 4)
+print(mylib.distance(p1, p2))  # 5.0
+```
+
+## What you learned
+
+- `#[data]` creates records (value types)
+- `#[export]` exposes functions
+- `boltffi pack` handles build, codegen, and packaging in one step
+
+## Next steps
+
+- [Types](/docs/types) - how Rust types map to target languages
+- [Records](/docs/records) - structs, enums, default values
+- [Classes](/docs/classes) - stateful objects with methods
+- [Functions](/docs/functions) - parameters, return types, errors
+- [Async](/docs/async) - async functions and methods

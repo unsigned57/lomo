@@ -1,0 +1,58 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+/**
+ * The result of an operation.
+ */
+sealed class Result {
+    /**
+     * Operation succeeded.
+     */
+
+    data class Success(val value: String) : Result()
+    /**
+     * Operation failed.
+     */
+
+    data class Error(val code: Int, val message: String) : Result()
+
+    companion object {
+        fun decode(reader: WireReader): Result {
+            val tag = reader.readI32()
+            return when (tag) {
+                0 -> {
+                    Success(
+                        reader.readString()
+                    )
+                }
+                1 -> {
+                    Error(
+                        reader.readI32(),
+                        reader.readString()
+                    )
+                }
+                else -> throw FfiException(-1, "Unknown Result tag: $tag")
+            }
+        }
+    }
+
+    fun wireEncodedSize(): Int = 4 + when (this) {
+        is Success -> reader.sizeString(value)
+        is Error -> 4 + reader.sizeString(message)
+    }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        when (this) {
+            is Success -> {
+                wire.writeI32(0)
+                wire.writeString(value)
+            }
+            is Error -> {
+                wire.writeI32(1)
+                wire.writeI32(code)
+                wire.writeString(message)
+            }
+        }
+    }
+}

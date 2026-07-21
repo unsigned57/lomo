@@ -1,0 +1,576 @@
+---
+title: "Callbacks & Traits"
+description: "Pass closures and trait callbacks between Rust and target languages in BoltFFI for events, progress reporting, and extensible integrations."
+---
+
+import CodeComparison from "../../components/CodeComparisonWrapper.astro";
+import TypeTable from "../../components/TypeTableWrapper.astro";
+
+# Callbacks & Traits
+
+Target language code can flow into Rust through closures and traits. Pass a closure and the target language provides a lambda. Define a trait and the target language implements it as a protocol or interface. Both enable patterns like event handling, progress reporting, data providers, and transformation functions. BoltFFI generates the appropriate bindings for each form, handling the FFI boundary so implementations on either side can call each other safely.
+
+## Closures
+
+Use closures when you need a single callback function. Accept `impl Fn`, `impl FnMut`, or `impl FnOnce` as a parameter, and BoltFFI generates a function type in the target language. The caller passes a lambda or closure, and Rust invokes it during execution. This works for iteration, mapping, filtering, and simple event handlers. Closures work in both standalone functions and class methods.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn foreach_item(
+    items: &[i32],
+    mut callback: impl FnMut(i32)
+) {
+    items.iter().for_each(|&x| callback(x));
+}`}
+  swift={`func foreachItem(
+    items: [Int32],
+    callback: (Int32) -> Void
+)
+
+var sum: Int32 = 0
+foreachItem(items: [1, 2, 3]) { value in
+    sum += value
+}`}
+  kotlin={`fun foreachItem(
+    items: IntArray,
+    callback: (Int) -> Unit
+)
+
+var sum = 0
+foreachItem(intArrayOf(1, 2, 3)) { value ->
+    sum += value
+}`}
+  java={`@FunctionalInterface
+public interface ForeachItemCallback {
+    void invoke(int value);
+}
+
+static void foreachItem(
+    int[] items,
+    ForeachItemCallback callback)
+
+int[] sum = {0};
+foreachItem(
+    new int[]{1, 2, 3},
+    v -> sum[0] += v);`}
+  csharp={`public delegate void ForeachItemCallback(int value);
+
+static void ForeachItem(
+    int[] items,
+    ForeachItemCallback callback)
+
+int sum = 0;
+MyLib.ForeachItem(
+    new[] {1, 2, 3},
+    value => sum += value);`}
+  typescript={`type ForeachCallback = (value: number) => void
+
+function foreachItem(
+    items: number[],
+    callback: ForeachCallback
+): void
+
+let sum = 0
+foreachItem([1, 2, 3], (value) => {
+    sum += value
+})`}
+  python={`from collections.abc import Callable
+
+ForeachCallback = Callable[[int], None]
+
+def foreach_item(
+    items: list[int],
+    callback: ForeachCallback
+) -> None: ...
+
+total = 0
+def add_value(value: int) -> None:
+    global total
+    total += value
+
+foreach_item([1, 2, 3], add_value)`}
+/>
+
+### Return Values
+
+Closures can return values. The return type becomes part of the generated function signature.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn transform(
+    items: &[i32],
+    f: impl Fn(i32) -> i32
+) -> Vec<i32> {
+    items.iter().map(|&x| f(x)).collect()
+}`}
+  swift={`func transform(
+    items: [Int32],
+    f: (Int32) -> Int32
+) -> [Int32]
+
+let doubled = transform(items: [1, 2, 3]) { $0 * 2 }`}
+  kotlin={`fun transform(
+    items: IntArray,
+    f: (Int) -> Int
+): IntArray
+
+val doubled = transform(intArrayOf(1, 2, 3)) { it * 2 }`}
+  java={`@FunctionalInterface
+public interface TransformF {
+    int invoke(int value);
+}
+
+static int[] transform(
+    int[] items, TransformF f)
+
+int[] doubled = transform(
+    new int[]{1, 2, 3}, v -> v * 2);`}
+  csharp={`public delegate int TransformF(int value);
+
+static int[] Transform(
+    int[] items, TransformF f)
+
+int[] doubled = MyLib.Transform(
+    new[] {1, 2, 3}, v => v * 2);`}
+  typescript={`type TransformFn = (value: number) => number
+
+function transform(
+    items: number[],
+    f: TransformFn
+): number[]
+
+const doubled = transform([1, 2, 3], (v) => v * 2)`}
+  python={`def transform(
+    items: Sequence[int],
+    f: Callable[..., object]
+) -> list[int]: ...
+
+doubled = transform([1, 2, 3], lambda value: value * 2)`}
+/>
+
+## Traits
+
+Use traits when you need multiple related callback methods. Define a trait with `#[export]` and BoltFFI generates a protocol or interface in the target language. The target language implements this protocol, and Rust receives an object that can call any of its methods. This pattern works well for progress handlers, event listeners, and delegate protocols. Like closures, trait callbacks work in both standalone functions and class methods.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub trait ProgressHandler {
+    fn on_progress(&self, percent: f64);
+    fn on_complete(&self, result: &str);
+    fn on_error(&self, error: &str);
+}
+
+#[export]
+pub fn download(
+    url: &str,
+    handler: Box<dyn ProgressHandler>
+) {
+    handler.on_progress(0.0);
+    // ... work ...
+    handler.on_complete("Done");
+}`}
+  swift={`protocol ProgressHandler {
+    func onProgress(percent: Double)
+    func onComplete(result: String)
+    func onError(error: String)
+}
+
+func download(
+    url: String,
+    handler: ProgressHandler
+)
+
+class MyHandler: ProgressHandler {
+    func onProgress(percent: Double) {
+        print("Progress: \\(percent)%")
+    }
+    func onComplete(result: String) {
+        print("Done: \\(result)")
+    }
+    func onError(error: String) {
+        print("Error: \\(error)")
+    }
+}
+
+download(url: "https://example.com",
+    handler: MyHandler())`}
+  kotlin={`interface ProgressHandler {
+    fun onProgress(percent: Double)
+    fun onComplete(result: String)
+    fun onError(error: String)
+}
+
+fun download(
+    url: String,
+    handler: ProgressHandler
+)
+
+val handler = object : ProgressHandler {
+    override fun onProgress(percent: Double) {
+        println("Progress: $percent%")
+    }
+    override fun onComplete(result: String) {
+        println("Done: $result")
+    }
+    override fun onError(error: String) {
+        println("Error: $error")
+    }
+}
+
+download("https://example.com", handler)`}
+  java={`public interface ProgressHandler {
+    void onProgress(double percent);
+    void onComplete(String result);
+    void onError(String error);
+}
+
+static void download(
+    String url, ProgressHandler handler)
+
+download("https://example.com",
+    new ProgressHandler() {
+        public void onProgress(double percent) {
+            System.out.println(percent + "%");
+        }
+        public void onComplete(String result) {
+            System.out.println("Done: " + result);
+        }
+        public void onError(String error) {
+            System.out.println("Error: " + error);
+        }
+    });`}
+  csharp={`public interface ProgressHandler
+{
+    void OnProgress(double percent);
+    void OnComplete(string result);
+    void OnError(string error);
+}
+
+static void Download(
+    string url, ProgressHandler handler)
+
+public sealed class MyHandler : ProgressHandler
+{
+    public void OnProgress(double percent) {
+        Console.WriteLine("Progress: " + percent + "%");
+    }
+    public void OnComplete(string result) {
+        Console.WriteLine("Done: " + result);
+    }
+    public void OnError(string error) {
+        Console.WriteLine("Error: " + error);
+    }
+}
+
+MyLib.Download(
+    "https://example.com",
+    new MyHandler());`}
+  typescript={`interface ProgressHandler {
+    onProgress(percent: number): void
+    onComplete(result: string): void
+    onError(error: string): void
+}
+
+function download(
+    url: string,
+    handler: ProgressHandler
+): void
+
+download("https://example.com", {
+    onProgress(percent) {
+        console.log(\`Progress: \${percent}%\`)
+    },
+    onComplete(result) {
+        console.log(\`Done: \${result}\`)
+    },
+    onError(error) {
+        console.log(\`Error: \${error}\`)
+    }
+})`}
+  python={`def download(url: str, handler: object) -> None: ...
+
+class MyHandler:
+    def on_progress(self, percent: float) -> None:
+        print(f"Progress: {percent}%")
+
+    def on_complete(self, result: str) -> None:
+        print(f"Done: {result}")
+
+    def on_error(self, error: str) -> None:
+        print(f"Error: {error}")
+
+download("https://example.com", MyHandler())`}
+/>
+
+### Ownership
+
+Trait callbacks can be passed as `Box<dyn Trait>` or `Arc<dyn Trait>`. Use `Box` when the callback is used once or owned by a single call. Use `Arc` when the callback needs to be shared across multiple calls or stored for later use. The choice affects how the target language object is retained.
+
+<CodeComparison
+  title=""
+  rust={`#[export]
+pub fn single_use(handler: Box<dyn ProgressHandler>) {
+    handler.on_complete("done");
+}
+
+#[export]
+pub fn shared_use(handler: Arc<dyn ProgressHandler>) {
+    let h = handler.clone();
+    // can store h for later, pass to threads, etc.
+    handler.on_progress(50.0);
+}`}
+  swift={`// Both accept the same protocol
+func singleUse(handler: ProgressHandler)
+func sharedUse(handler: ProgressHandler)
+
+singleUse(handler: MyHandler())
+sharedUse(handler: MyHandler())`}
+  kotlin={`// Both accept the same interface
+fun singleUse(handler: ProgressHandler)
+fun sharedUse(handler: ProgressHandler)
+
+singleUse(MyHandler())
+sharedUse(MyHandler())`}
+  java={`// Both accept the same interface
+static void singleUse(ProgressHandler handler)
+static void sharedUse(ProgressHandler handler)
+
+singleUse(myHandler);
+sharedUse(myHandler);`}
+  csharp={`// Both accept the same interface
+static void SingleUse(ProgressHandler handler)
+static void SharedUse(ProgressHandler handler)
+
+MyLib.SingleUse(new MyHandler());
+MyLib.SharedUse(new MyHandler());`}
+  typescript={`// Both accept the same interface
+function singleUse(handler: ProgressHandler): void
+function sharedUse(handler: ProgressHandler): void
+
+singleUse(handler)
+sharedUse(handler)`}
+  python={`def single_use(handler: object) -> None: ...
+def shared_use(handler: object) -> None: ...
+
+handler = MyHandler()
+single_use(handler)
+shared_use(handler)`}
+/>
+
+### Async Methods
+
+Trait methods can be async. Mark the trait with `#[async_trait]` and use `async fn` for methods that need to perform async work on the target language side. When Rust calls an async method, it awaits the result before continuing.
+
+<CodeComparison
+  title=""
+  rust={`use async_trait::async_trait;
+
+#[async_trait]
+#[export]
+pub trait DataProvider {
+    async fn fetch(&self, key: &str) -> String;
+}
+
+#[export]
+pub async fn process(
+    provider: Box<dyn DataProvider>
+) -> String {
+    let data = provider.fetch("config").await;
+    format!("Got: {}", data)
+}`}
+  swift={`protocol DataProvider {
+    func fetch(key: String) async -> String
+}
+
+func process(
+    provider: DataProvider
+) async -> String
+
+class MyProvider: DataProvider {
+    func fetch(key: String) async -> String {
+        return "value for \\(key)"
+    }
+}
+
+let result = await process(
+    provider: MyProvider())`}
+  kotlin={`interface DataProvider {
+    suspend fun fetch(key: String): String
+}
+
+suspend fun process(
+    provider: DataProvider
+): String
+
+class MyProvider : DataProvider {
+    override suspend fun fetch(
+        key: String
+    ): String {
+        return "value for $key"
+    }
+}
+
+val result = process(MyProvider())`}
+  java={`public interface DataProvider {
+    // Java 8+
+    CompletableFuture<String> fetch(
+        String key);
+}
+
+// Java 21+ (virtual threads)
+static String process(DataProvider provider)
+
+// Java 8+ (CompletableFuture)
+static CompletableFuture<String> process(
+    DataProvider provider)
+
+String result = process(key ->
+    CompletableFuture.completedFuture(
+        "value for " + key));`}
+  csharp={`public interface DataProvider
+{
+    Task<string> Fetch(string key);
+}
+
+static Task<string> Process(
+    DataProvider provider)
+
+public sealed class MyProvider : DataProvider
+{
+    public Task<string> Fetch(string key) =>
+        Task.FromResult("value for " + key);
+}
+
+string result =
+    await MyLib.Process(new MyProvider());`}
+  typescript={`interface DataProvider {
+    fetch(key: string): Promise<string>
+}
+
+async function process(
+    provider: DataProvider
+): Promise<string>
+
+const result = await process({
+    async fetch(key) {
+        return \`value for \${key}\`
+    }
+})`}
+  python={`async def process(provider: object) -> str: ...
+
+class MyProvider:
+    def fetch(self, key: str) -> str:
+        return f"value for {key}"
+
+result = await process(MyProvider())`}
+/>
+
+### Storing Traits
+
+Trait objects can be stored in class fields for later use. The target language object remains alive as long as the Rust class holds the reference.
+
+<CodeComparison
+  title=""
+  rust={`pub struct Engine {
+    logger: Box<dyn Logger>,
+}
+
+#[export]
+impl Engine {
+    pub fn new(logger: Box<dyn Logger>) -> Self {
+        Engine { logger }
+    }
+    
+    pub fn do_work(&self) {
+        self.logger.log("Working...");
+    }
+}`}
+  swift={`public class Engine {
+    public init(logger: Logger)
+    public func doWork()
+}
+
+let engine = Engine(logger: MyLogger())
+engine.doWork()`}
+  kotlin={`class Engine(logger: Logger) {
+    fun doWork()
+}
+
+val engine = Engine(MyLogger())
+engine.doWork()`}
+  java={`public final class Engine
+    implements AutoCloseable {
+    public Engine(Logger logger)
+    public void doWork()
+}
+
+Engine engine = new Engine(myLogger);
+engine.doWork();
+engine.close();`}
+  csharp={`public interface Logger
+{
+    void Log(string message);
+}
+
+public sealed class Engine : IDisposable
+{
+    public Engine(Logger logger)
+    public void DoWork()
+}
+
+using Engine engine = new Engine(myLogger);
+engine.DoWork();`}
+  typescript={`interface Logger {
+    log(message: string): void
+}
+
+class Engine {
+    static new(logger: Logger): Engine
+    doWork(): void
+    dispose(): void
+}
+
+const engine = Engine.new({
+    log(message) { console.log(message) }
+})
+engine.doWork()
+engine.dispose()`}
+  python={`class Engine:
+    def __init__(self, logger: object) -> None: ...
+    def do_work(self) -> None: ...
+
+class MyLogger:
+    def log(self, message: str) -> None:
+        print(message)
+
+engine = Engine(MyLogger())
+engine.do_work()`}
+/>
+
+### Thread Safety
+
+For traits that will be called from multiple threads, add `Send + Sync` bounds. This ensures the target language implementation can be safely shared across threads.
+
+```rust
+#[export]
+pub trait ThreadSafeLogger: Send + Sync {
+    fn log(&self, message: &str);
+}
+```
+
+### Limitations
+
+Trait callbacks have some restrictions:
+
+- Generic traits are not supported
+- Associated types are not supported
+- Default method implementations are ignored
+
+## How It Works
+
+Closures are passed as function pointers with an associated context. When the target language calls a function that accepts a closure, it packages the lambda and any captured state into a handle. Rust receives this handle and invokes the closure through a generated wrapper that unpacks arguments, calls the target language function, and returns the result.
+
+Trait callbacks use a vtable mechanism. When the target language passes a callback object, BoltFFI creates a handle that pairs the object reference with a vtable of function pointers. Each method in the trait has a corresponding entry in the vtable. When Rust calls a method, it invokes the function pointer with the handle, which dispatches to the target language implementation. The handle tracks ownership so the object stays alive as long as Rust holds a reference.

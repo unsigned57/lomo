@@ -1,0 +1,56 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: "rendered_fixture(\"callback/callback_direct_vector_parameter\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+
+fun interface Listener {
+    fun process(values: IntArray): IntArray
+}
+
+private object ListenerMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, Listener>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: Listener): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): Listener? = map[handle]
+
+    fun remove(handle: Long): Listener? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object ListenerCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        ListenerMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return ListenerMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun process(handle: Long, values: IntArray): ByteArray {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        return DirectVectorCodec.writeIntArray(impl.process(values))
+    }
+}
+
+object ListenerBridge {
+    fun create(value: Listener): Long {
+        return ListenerMap.insert(value)
+    }
+}

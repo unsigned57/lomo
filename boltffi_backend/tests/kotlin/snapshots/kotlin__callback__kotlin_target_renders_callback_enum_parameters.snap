@@ -1,0 +1,75 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: "rendered_fixture(\"callback/callback_enum_parameter\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_function_demo_map_status(mapper: Long, status: Byte): Byte
+}
+
+
+enum class Status(val value: Byte) {
+    READY(1.toByte()),
+    BUSY(2.toByte());
+
+    companion object {
+        fun fromValue(value: Byte): Status =
+            entries.first { it.value == value }
+    }
+}
+
+fun interface StatusMapper {
+    fun mapStatus(status: Status): Status
+}
+
+private object StatusMapperMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, StatusMapper>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: StatusMapper): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): StatusMapper? = map[handle]
+
+    fun remove(handle: Long): StatusMapper? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object StatusMapperCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        StatusMapperMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return StatusMapperMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun map_status(handle: Long, status: Byte): Byte {
+        val impl = StatusMapperMap.get(handle) ?: error("StatusMapperMap: invalid handle $handle")
+        return impl.mapStatus(Status.fromValue(status)).value.toByte()
+    }
+}
+
+object StatusMapperBridge {
+    fun create(value: StatusMapper): Long {
+        return StatusMapperMap.insert(value)
+    }
+}
+
+fun mapStatus(mapper: StatusMapper, status: Status): Status {
+    return Status.fromValue(Native.boltffi_function_demo_map_status(StatusMapperBridge.create(mapper), status.value.toByte()))
+}

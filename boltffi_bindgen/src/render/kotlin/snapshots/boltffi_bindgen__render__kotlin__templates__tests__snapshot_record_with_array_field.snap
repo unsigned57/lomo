@@ -1,0 +1,24 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+data class Team(
+    val name: String,
+    val members: List<String>
+) {
+    companion object {
+        fun decode(reader: WireReader): Team = Team(
+            reader.readString(),
+            reader.readList { it.readString() }
+        )
+    }
+    fun wireEncodedSize(): Int =
+        wire.sizeString(name) +
+        wire.sizeList(members) { w, v -> w.sizeString(v) }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        wire.writeString(name)
+        wire.writeList(members) { w, v -> w.writeString(v) }
+    }
+}

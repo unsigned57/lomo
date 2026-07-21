@@ -1,0 +1,62 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: "rendered_fixture(\"callback/callback_optional_scalar_return\")"
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+
+fun interface Listener {
+    fun next(): UInt?
+}
+
+private object ListenerMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, Listener>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: Listener): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): Listener? = map[handle]
+
+    fun remove(handle: Long): Listener? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object ListenerCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        ListenerMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return ListenerMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun next(handle: Long): ByteArray {
+        val impl = ListenerMap.get(handle) ?: error("ListenerMap: invalid handle $handle")
+        val __boltffi_next_result = impl.next()
+        val __boltffi_next_wire = WireWriterPool.acquire(if (__boltffi_next_result == null) 1 else 5)
+        val __boltffi_next_writer = __boltffi_next_wire.writer
+        __boltffi_next_writer.writeOptionalU32(__boltffi_next_result)
+        val __boltffi_next_bytes = __boltffi_next_wire.bytes()
+        __boltffi_next_wire.close()
+        return __boltffi_next_bytes
+    }
+}
+
+object ListenerBridge {
+    fun create(value: Listener): Long {
+        return ListenerMap.insert(value)
+    }
+}

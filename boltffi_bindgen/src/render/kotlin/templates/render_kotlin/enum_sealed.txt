@@ -1,0 +1,96 @@
+{{ self::kdoc_block(doc, "") }}sealed class {{ class_name }}{% if is_error %} : kotlin.Exception(){% endif %} {
+{%- for variant in variants %}
+{{ self::kdoc_block(variant.doc, "    ") }}{%- if variant.fields.is_empty() %}
+    data object {{ variant.name }} : {{ class_name }}()
+{%- else %}
+    data class {{ variant.name }}({% for field in variant.fields %}{% if field.overrides_message %}override {% endif %}val {{ field.name }}: {{ field.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}) : {{ class_name }}()
+{%- endif %}
+{%- endfor %}
+
+    companion object {
+        fun decode(reader: WireReader): {{ class_name }} {
+            val tag = reader.readI32()
+            return when (tag) {
+{%- for variant in variants %}
+                {{ variant.tag }} -> {
+{%- if variant.fields.is_empty() %}
+                    {{ variant.name }}
+{%- else %}
+                    {{ variant.name }}(
+{%- for field in variant.fields %}
+                        {{ field.wire_decode_expr }}{% if !loop.last %},{% endif %}
+{%- endfor %}
+                    )
+{%- endif %}
+                }
+{%- endfor %}
+                else -> throw FfiException(-1, "Unknown {{ class_name }} tag: $tag")
+            }
+        }
+{%- for ctor in constructors %}
+
+{{ self::kdoc_block(ctor.doc, "        ") }}{%- if ctor.throws %}
+        @Throws({{ ctor.err_type }}::class)
+{%- endif %}
+        fun {{ ctor.name }}({% for param in ctor.signature_params %}{{ param.name }}: {{ param.kotlin_type }}{% if !loop.last %}, {% endif %}{% endfor %}){% if let Some(ret) = ctor.return_type %}: {{ ret }}{% endif %} {
+{%- if ctor.wire_writers.is_empty() %}
+{%- if ctor.return_is_direct %}
+            return Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ ctor.return_cast }}
+{%- else %}
+            val buf = Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+                ?: throw FfiException(-1, "Null buffer returned")
+            val reader = WireReader(buf)
+            return {{ ctor.decode_expr }}
+{%- endif %}
+{%- else %}
+{%- for binding in ctor.wire_writers %}
+            {{ binding.setup_code() }}
+{%- endfor %}
+            try {
+{%- if ctor.return_is_direct %}
+                return Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %}){{ ctor.return_cast }}
+{%- else %}
+                val buf = Native.{{ ctor.ffi_name }}({% for arg in ctor.native_args %}{{ arg }}{% if !loop.last %}, {% endif %}{% endfor %})
+                    ?: throw FfiException(-1, "Null buffer returned")
+                val reader = WireReader(buf)
+                return {{ ctor.decode_expr }}
+{%- endif %}
+            } finally {
+{%- for close_code in ctor.wire_writer_closes %}
+                {{ close_code }}
+{%- endfor %}
+            }
+{%- endif %}
+        }
+{%- endfor %}
+{%- include "_companion_methods.txt" %}
+    }
+
+    fun wireEncodedSize(): Int = 4 + when (this) {
+{%- for variant in variants %}
+{%- if variant.fields.is_empty() %}
+        is {{ variant.name }} -> 0
+{%- else %}
+        is {{ variant.name }} -> {% for field in variant.fields %}{{ field.wire_size_expr }}{% if !loop.last %} + {% endif %}{% endfor %}
+{%- endif %}
+{%- endfor %}
+    }
+
+    fun wireEncodeTo(wire: WireWriter) {
+        when (this) {
+{%- for variant in variants %}
+{%- if variant.fields.is_empty() %}
+            is {{ variant.name }} -> wire.writeI32({{ variant.tag }})
+{%- else %}
+            is {{ variant.name }} -> {
+                wire.writeI32({{ variant.tag }})
+{%- for field in variant.fields %}
+                {{ field.wire_encode }}
+{%- endfor %}
+            }
+{%- endif %}
+{%- endfor %}
+        }
+    }
+{%- include "_instance_methods.txt" %}
+}

@@ -1,0 +1,189 @@
+@$$ffi.Native<
+  $$ffi.Void Function($$ffi.Pointer<$$ffi.Void>)
+>(symbol: '{{ class.free_symbol }}', isLeaf: true)
+external void _f${{ class.free_symbol }}($$ffi.Pointer<$$ffi.Void> handle);
+{% for ctor in class.constructors %}
+@$$ffi.Native<
+  {{ ctor.native.return_type.native_type() }} Function(
+{%- for param in ctor.native.params %}
+    {{ param.native_type.native_type() }},
+{%- endfor %}
+  )
+>(symbol: '{{ ctor.native.symbol }}'{%if ctor.native.is_leaf %}, isLeaf: true{% endif %})
+external {{ ctor.native.return_type.dart_sub_type() }} _f${{ ctor.native.symbol }}(
+{%- for param in ctor.native.params %}
+  {{ param.native_type.dart_sub_type() }} {{ param.name }},
+{%- endfor %}
+);
+{%- endfor %}
+{%- for stream in class.streams %}
+{% let cfunc = stream.subscribe_fn %}
+{% include "native_function.txt" %}
+{% let cfunc = stream.poll_fn %}
+{% include "native_function.txt" %}
+{% let cfunc = stream.pop_batch_fn %}
+{% include "native_function.txt" %}
+{% let cfunc = stream.wait_fn %}
+{% include "native_function.txt" %}
+{% let cfunc = stream.unsubscribe_fn %}
+{% include "native_function.txt" %}
+{% let cfunc = stream.free_fn %}
+{% include "native_function.txt" %}
+{%- endfor %}
+final class {{ class.name }} implements $$ffi.Finalizable {
+  static final _finalizer = $$ffi.NativeFinalizer(
+    $$ffi.Native.addressOf(_f${{ class.free_symbol }})
+  );
+
+  final $$ffi.Pointer<$$ffi.Void> _handle;
+
+  {{ class.name }}._(this._handle) {
+    _finalizer.attach(this, _handle, detach: this);
+  }
+{% for ctor in class.constructors %}
+{%- match ctor.kind %}
+{% when super::DartConstructorKind::Default %}
+  factory {{ class.name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% when super::DartConstructorKind::Named with { name: ctor_name } %}
+  factory {{ class.name }}.{{ ctor_name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% endmatch -%}
+{% endfor -%}
+{%- for meth in class.methods %}
+  {% if meth.is_static() %}static {% endif %}{{ meth.ret_ty.dart_type() }} {{ meth.name }}(
+{%- for param in meth.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% endfor -%}
+{% for stream in class.streams %}
+{%- match stream.mode %}
+{% when crate::ir::StreamMode::Async %}
+  Stream<{{ stream.item_ty.dart_type() }}> {{ stream.name }}() {
+    final ctx = _$$BoltFFIStreamCtx(
+      subscribe: () => _f${{ stream.subscribe_fn.symbol }}(_handle),
+      pollFn: _f${{ stream.poll_fn.symbol }},
+      waitFn: _f${{ stream.wait_fn.symbol }},
+      unsubscribeFn: _f${{ stream.unsubscribe_fn.symbol }},
+      freeFn: _f${{ stream.free_fn.symbol }},
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      itemSize: {{ size }}
+{% when None %}
+{%- endmatch %}
+    );
+
+    return ctx.stream((handle, batchSize, itemSize, controller) {
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      final l$buf = $$typed_data.Uint8List(batchSize * itemSize!);
+      final l$count = _f${{ stream.pop_batch_fn.symbol }}(handle, l$buf.address.cast(), batchSize);
+      if (l$count == 0) {
+        return;
+      }
+      final List<{{ stream.item_ty.dart_type() }}> l$items = [];
+{% when None %}
+      final l$buf = _f${{ stream.pop_batch_fn.symbol }}(handle, batchSize);
+      if (l$buf.len == 0) {
+        return;
+      }
+      final l$bufReader = _$$WireReader(l$buf.ptr, l$buf.len);
+      final List<{{ stream.item_ty.dart_type() }}> l$items = l$bufReader.readList((l$bufReader) => {{ stream.item_wire_decode_expr("l$bufReader") }});
+      if (l$items.isEmpty) {
+        return;
+      }
+      _f$boltffi_free_buf(l$buf);
+{%- endmatch %}
+      controller.addStream(Stream.fromIterable(l$items));
+    });
+  }
+{% when crate::ir::StreamMode::Callback %}
+  $$async.StreamSubscription<{{ stream.item_ty.dart_type() }}> {{ stream.name }}(void Function({{ stream.item_ty.dart_type() }}) cb) {
+    final ctx = _$$BoltFFIStreamCtx(
+      subscribe: () => _f${{ stream.subscribe_fn.symbol }}(_handle),
+      pollFn: _f${{ stream.poll_fn.symbol }},
+      waitFn: _f${{ stream.wait_fn.symbol }},
+      unsubscribeFn: _f${{ stream.unsubscribe_fn.symbol }},
+      freeFn: _f${{ stream.free_fn.symbol }},
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      itemSize: {{ size }}
+{% when None %}
+{%- endmatch %}
+    );
+
+    final Stream<{{ stream.item_ty.dart_type() }}> stream = ctx.stream((handle, batchSize, itemSize, controller) {
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      final l$buf = $$typed_data.Uint8List(batchSize * itemSize!);
+      final l$count = _f${{ stream.pop_batch_fn.symbol }}(handle, l$buf.address.cast(), batchSize);
+      if (l$count == 0) {
+        return;
+      }
+      final List<{{ stream.item_ty.dart_type() }}> l$items = [];
+{% when None %}
+      final l$buf = _f${{ stream.pop_batch_fn.symbol }}(handle, batchSize);
+      if (l$buf.len == 0) {
+        return;
+      }
+      final l$bufReader = _$$WireReader(l$buf.ptr, l$buf.len);
+      final List<{{ stream.item_ty.dart_type() }}> l$items = l$bufReader.readList((l$bufReader) => {{ stream.item_wire_decode_expr("l$bufReader") }});
+      if (l$items.isEmpty) {
+        return;
+      }
+      _f$boltffi_free_buf(l$buf);
+{%- endmatch %}
+      controller.addStream(Stream.fromIterable(l$items));
+    });
+
+    return stream.listen(cb);
+  }
+{% when crate::ir::StreamMode::Batch %}
+  $$BoltFFIStreamPopBatchHandle<{{ stream.item_ty.dart_type() }}> {{ stream.name }}() {
+    final ctx = _$$BoltFFIStreamCtx(
+      subscribe: () => _f${{ stream.subscribe_fn.symbol }}(_handle),
+      pollFn: _f${{ stream.poll_fn.symbol }},
+      waitFn: _f${{ stream.wait_fn.symbol }},
+      unsubscribeFn: _f${{ stream.unsubscribe_fn.symbol }},
+      freeFn: _f${{ stream.free_fn.symbol }},
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      itemSize: {{ size }}
+{% when None %}
+{%- endmatch %}
+    );
+
+    return ctx.batch((handle, batchSize, itemSize) {
+{%- match stream.ffi_item_size %}
+{% when Some with (size) %}
+      final l$buf = $$typed_data.Uint8List(batchSize * itemSize!);
+      final l$count = _f${{ stream.pop_batch_fn.symbol }}(handle, l$buf.address.cast(), batchSize);
+      if (l$count == 0) {
+        return [];
+      }
+      final List<{{ stream.item_ty.dart_type() }}> l$items = [];
+{% when None %}
+      final l$buf = _f${{ stream.pop_batch_fn.symbol }}(handle, batchSize);
+      if (l$buf.len == 0) {
+        return;
+      }
+      final l$bufReader = _$$WireReader(l$buf.ptr, l$buf.len);
+      final List<{{ stream.item_ty.dart_type() }}> l$items = l$bufReader.readList((l$bufReader) => {{ stream.item_wire_decode_expr("l$bufReader") }});
+      if (l$items.isEmpty) {
+        return [];
+      }
+      _f$boltffi_free_buf(l$buf);
+{%- endmatch %}
+      return l$items;
+    });
+  }
+{% endmatch -%}
+{% endfor -%}
+}

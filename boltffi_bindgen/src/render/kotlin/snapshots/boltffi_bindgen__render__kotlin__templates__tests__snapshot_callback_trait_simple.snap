@@ -1,0 +1,67 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+assertion_line: 1263
+expression: template.render().unwrap()
+---
+/**
+ * ### Thread Safety
+ *
+ * Callback methods may be invoked from any thread and the thread is not guaranteed to be
+ * the same between calls. **Your implementation must be thread-safe.**
+ * Use `BoltFFIScope.launchOnMain` if updating UI.
+ */
+interface DataHandler {
+    fun onData(data: ByteArray)
+}
+
+private object DataHandlerMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, DataHandler>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(obj: DataHandler): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = obj
+        return handle
+    }
+
+    fun get(handle: Long): DataHandler? = map[handle]
+
+    fun remove(handle: Long): DataHandler? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val obj = map[handle] ?: return 0L
+        return insert(obj)
+    }
+}
+
+object DataHandlerCallbacks {
+
+    @JvmStatic
+    fun free(handle: Long) {
+        DataHandlerMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return DataHandlerMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun on_data(handle: Long, data: ByteArray) {
+        val impl = DataHandlerMap.get(handle) ?: error("DataHandlerMap: invalid handle $handle")
+        impl.onData(data)
+    }
+}
+
+object DataHandlerBridge {
+    private val registered = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun register() {
+        if (!registered.compareAndSet(false, true)) return
+    }
+
+    fun create(impl: DataHandler): Long {
+        register()
+        return DataHandlerMap.insert(impl)
+    }
+}

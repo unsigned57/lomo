@@ -1,0 +1,29 @@
+private object {{ writer_name }} {
+    const val STRUCT_SIZE = {{ struct_size }}
+{%- for field in fields %}
+    const val OFFSET_{{ field.const_name }} = {{ field.offset }}
+{%- endfor %}
+
+    fun pack(items: List<{{ class_name }}>): ByteBuffer {
+        val buf = ByteBuffer.allocateDirect(items.size * STRUCT_SIZE).order(ByteOrder.nativeOrder())
+        items.forEachIndexed { index, item ->
+            val base = index * STRUCT_SIZE
+{%- for field in fields %}
+            buf.{{ field.putter }}(base + OFFSET_{{ field.const_name }}, {{ field.value_expr }})
+{%- endfor %}
+        }
+        return buf
+    }
+
+    fun writeAllToWire(wire: WireWriter, items: List<{{ class_name }}>) {
+        val bytes = items.size * STRUCT_SIZE
+        wire.writeRawBytes(bytes) { buf, baseOffset ->
+            items.forEachIndexed { index, item ->
+                val base = baseOffset + index * STRUCT_SIZE
+{%- for field in fields %}
+                buf.{{ field.putter }}(base + OFFSET_{{ field.const_name }}, {{ field.value_expr }})
+{%- endfor %}
+            }
+        }
+    }
+}

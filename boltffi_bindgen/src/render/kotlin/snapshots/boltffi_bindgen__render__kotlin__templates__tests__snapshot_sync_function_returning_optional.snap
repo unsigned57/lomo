@@ -1,0 +1,11 @@
+---
+source: boltffi_bindgen/src/render/kotlin/templates.rs
+expression: template.render().unwrap()
+---
+
+fun findUser(id: Int): String? {
+    val buf = Native.boltffi_find_user(id)
+        ?: throw FfiException(-1, "Null buffer returned")
+    val reader = WireReader(buf)
+    return reader.readOption { it.readString() }
+}

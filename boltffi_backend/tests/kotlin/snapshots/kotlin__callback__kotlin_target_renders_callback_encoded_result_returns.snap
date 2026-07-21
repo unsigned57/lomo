@@ -1,0 +1,60 @@
+---
+source: boltffi_backend/tests/kotlin/callback.rs
+expression: rendered
+---
+===== com/boltffi/demo/Demo.kt =====
+@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)
+
+package com.boltffi.demo
+@Suppress("FunctionName")
+private object Native {
+    @JvmStatic external fun boltffi_success_bytes(returnOut: Long, value: ByteArray): Unit
+}
+
+fun interface MessageMapper {
+    fun mapMessage(key: Int): String
+}
+
+private object MessageMapperMap {
+    private val map = java.util.concurrent.ConcurrentHashMap<Long, MessageMapper>()
+    private val counter = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun insert(value: MessageMapper): Long {
+        val handle = counter.getAndAdd(2L)
+        map[handle] = value
+        return handle
+    }
+
+    fun get(handle: Long): MessageMapper? = map[handle]
+
+    fun remove(handle: Long): MessageMapper? = map.remove(handle)
+
+    fun clone(handle: Long): Long {
+        val value = map[handle] ?: return 0L
+        return insert(value)
+    }
+}
+
+object MessageMapperCallbacks {
+    @JvmStatic
+    fun free(handle: Long) {
+        MessageMapperMap.remove(handle)
+    }
+
+    @JvmStatic
+    fun clone(handle: Long): Long {
+        return MessageMapperMap.clone(handle)
+    }
+
+    @JvmStatic
+    fun map_message(handle: Long, return_out: Long, key: Int): ByteArray {
+        val impl = MessageMapperMap.get(handle) ?: error("MessageMapperMap: invalid handle $handle")
+        return try { run { val __boltffi_mapMessage_result = impl.mapMessage(key); val __boltffi_mapMessage_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(__boltffi_mapMessage_result)); val __boltffi_mapMessage_writer = __boltffi_mapMessage_wire.writer; __boltffi_mapMessage_writer.writeString(__boltffi_mapMessage_result); Native.boltffi_success_bytes(return_out, __boltffi_mapMessage_wire.bytes()); __boltffi_mapMessage_wire.close(); ByteArray(0) } } catch (__boltffi_mapMessage_error: Throwable) { run { val __boltffi_mapMessage_wire = WireWriterPool.acquire(4 + Utf8Codec.maxBytes(__boltffi_mapMessage_error.message ?: __boltffi_mapMessage_error.toString())); val __boltffi_mapMessage_writer = __boltffi_mapMessage_wire.writer; __boltffi_mapMessage_writer.writeString(__boltffi_mapMessage_error.message ?: __boltffi_mapMessage_error.toString()); val __boltffi_mapMessage_error_bytes = __boltffi_mapMessage_wire.bytes(); __boltffi_mapMessage_wire.close(); __boltffi_mapMessage_error_bytes } }
+    }
+}
+
+object MessageMapperBridge {
+    fun create(value: MessageMapper): Long {
+        return MessageMapperMap.insert(value)
+    }
+}

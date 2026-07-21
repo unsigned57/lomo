@@ -1,0 +1,16 @@
+name: demo_dart
+description: A simple command-line application.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.8
+
+
+dependencies:
+  test: ^1.31.0
+  demo:
+    path: pkgs/demo
+
+dev_dependencies:
+  lints: ^6.0.0

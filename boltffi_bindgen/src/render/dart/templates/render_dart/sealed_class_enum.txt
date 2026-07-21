@@ -1,0 +1,100 @@
+sealed class {{ dart_enum.name }}{% if dart_enum.is_error %} implements Exception{% endif %} {
+  const {{ dart_enum.name }}();
+{% for variant in dart_enum.variants %}
+  factory {{ dart_enum.name }}.{{ variant.name }}(
+{%- if variant.fields.len() > 0 -%}
+  {
+{%- for field in variant.fields %}
+    required {{ field.dart_type.dart_type() }} {{ field.name }},
+{%- endfor %}
+  }
+{%- endif -%}
+  ) = {{ variant.class_name }};
+{% endfor %}
+{%- for ctor in dart_enum.constructors %}
+{%- match ctor.kind %}
+{% when super::DartConstructorKind::Default %}
+  factory {{ dart_enum.name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% when super::DartConstructorKind::Named with { name: ctor_name } %}
+  factory {{ dart_enum.name }}.{{ ctor_name }}(
+{%- for param in ctor.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{% endmatch -%}
+{%- endfor %}
+{%- for meth in dart_enum.methods %}
+  {{ meth.ret_ty.dart_type() }} {{ meth.name }}(
+{%- for param in meth.params %}
+    {{ param.ty.dart_type() }} {{ param.name }},
+{%- endfor %}
+  ) {}
+{%- endfor %}
+  factory {{ dart_enum.name }}._m$wireDecode(_$$WireReader _p$reader) {
+    final tag = {{ dart_enum.tag_reader_read("_p$reader") }};
+
+    return switch (tag) {
+{%- for variant in dart_enum.variants %}
+      {{ variant.tag }} => {{ dart_enum.name }}.{{ variant.name }}(
+{%- for field in variant.fields %}
+        {{ field.name }}: {{ field.wire_decode_expr("_p$reader") }},
+{%- endfor %}
+      ),
+{%- endfor %}
+      _ => throw ArgumentError('Unknown {{ dart_enum.name }} tag: $tag'),
+    };
+  }
+
+  int _m$wireEncodedSize() => 4 + switch (this) {
+{%- for variant in dart_enum.variants %}
+    {{ variant.class_name }}(
+{%- if variant.fields.len() > 0 %}
+{%- for field in variant.fields %}
+      :final {{ field.name }},
+{%- endfor %}
+{%- endif %}
+    ) => {% if variant.fields.len() > 0 %}
+{%- for field in variant.fields -%}
+   {{ field.wire_encoded_size_expr() }}{% if !loop.last %} + {% endif %}
+{%- endfor -%},{%- else -%}0,{%- endif -%}
+{%- endfor %}
+  };
+
+  void _m$wireEncode(_$$WireWriter _p$writer) {
+    switch (this) {
+{%- for variant in dart_enum.variants %}
+      case {{ variant.class_name }}(
+{%- for field in variant.fields -%}
+        :final {{ field.name }}{% if !loop.last %}, {% endif %}
+{%- endfor -%}
+      ):
+        {{ dart_enum.tag_writer_write(variant, "_p$writer") }}
+{%- for field in variant.fields %}
+        {{ field.wire_encode_expr("_p$writer")|indent(8)|trim }}
+{%- endfor %}
+{%- endfor %}
+    }
+  }
+}
+{% for variant in dart_enum.variants %}
+final class {{ variant.class_name }} extends {{ dart_enum.name }} {
+  {%- for field in variant.fields %}
+  final {{ field.dart_type.dart_type() }} {{ field.name }};
+  {%- endfor %}
+
+  const {{ variant.class_name }}({%- if variant.fields.len() > 0 %}{
+{%- for field in variant.fields %}
+    required this.{{ field.name }},
+{%- endfor %}
+  }{%- endif %});
+
+  @override
+  String toString() {
+    return "{{ dart_enum.name }}.{{ variant.name }} { {% for field in variant.fields %}{{ field.name }}=${{ field.name }}{%if !loop.last %}, {% endif %}{% endfor %} }";
+  }
+}
+{% endfor %}
