@@ -7,6 +7,7 @@ mod deps;
 mod native;
 mod perf;
 mod quality;
+mod rust_pin;
 mod tools;
 mod util;
 mod workspace;

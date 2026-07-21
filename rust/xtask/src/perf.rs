@@ -55,7 +55,7 @@ pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
 
     emit_quick_corpus(workspace)?;
     // Prove candidate dep graph compiles for four ABIs without shipping into production SO.
-    native::verify_feasibility_android_targets(workspace, &native::Abi::ALL)?;
+    native::verify_feasibility_android_targets(workspace, &Abi::ALL)?;
     emit_baseline_report(workspace)?;
     Ok(())
 }
@@ -72,16 +72,16 @@ fn emit_quick_corpus(workspace: &Workspace) -> Result<()> {
     let digest = manifest
         .canonical_digest()
         .context("quick corpus digest failed")?;
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: quick corpus ready at {} (digest={digest})",
         output_dir.display()
-    );
+    ));
     Ok(())
 }
 
 fn report_native_so_sizes(workspace: &Workspace) -> Result<()> {
     let readelf = native::ndk_tool(workspace, "llvm-size")?;
-    eprintln!("xtask: native release library sizes");
+    crate::util::emit_stderr(format_args!("xtask: native release library sizes"));
     for abi in Abi::ALL {
         let path = workspace
             .root
@@ -125,9 +125,9 @@ fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
     // Migration measurements write a separate report so `just perf` never rewrites Stage-0 facts.
     write_migration_size_report(&report, &report_dir)?;
 
-    eprintln!("xtask: wrote {}", json_path.display());
-    eprintln!("xtask: wrote {}", summary_path.display());
-    eprintln!("{summary}");
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", json_path.display()));
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", summary_path.display()));
+    crate::util::emit_stderr(format_args!("{summary}"));
 
     // Product-pass contract: recipe exit 0 means required host metrics are established.
     // Inconclusive/Fail must not look like GREEN to stage evidence.
@@ -217,7 +217,7 @@ fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> 
         .context("failed to serialize boltffi migration size report")?;
     fs::write(&path, format!("{pretty}\n"))
         .with_context(|| format!("failed to write {}", path.display()))?;
-    eprintln!("xtask: wrote {}", path.display());
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", path.display()));
     Ok(())
 }
 
@@ -246,7 +246,9 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
     // 100k/sqlite measurements when interleaved between required rounds.
     // Scale is measured in its own consecutive dual-round path so planner/sqlite/fixture
     // work cannot thrash page cache between the two 100k p50 observations.
-    eprintln!("xtask: measuring required non-scale host baselines (two quiet rounds)");
+    crate::util::emit_stderr(format_args!(
+        "xtask: measuring required non-scale host baselines (two quiet rounds)"
+    ));
     let required_round1 = measure_required_non_scale_metrics(workspace)?;
     let required_round2 = measure_required_non_scale_metrics(workspace)?;
     let (mut metrics, mut stability_notes) = stabilize_metrics(&required_round1, &required_round2);
@@ -255,18 +257,18 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
             .to_owned(),
     );
 
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: measuring markdown_scale_100k_memo_parse (consecutive isolated rounds, full_samples={SCALE_MARKDOWN_SAMPLES}, max_attempts={SCALE_STABILITY_ATTEMPTS})"
-    );
+    ));
     let (scale_metric, scale_notes) = measure_scale_metric_stable(workspace)?;
     if let Some(metric) = scale_metric {
         metrics.push(metric);
     }
     stability_notes.extend(scale_notes);
 
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: measuring optional I/O baselines (two rounds; exclusion does not invent Pass)"
-    );
+    ));
     let optional_round1 = measure_optional_metrics(workspace)?;
     let optional_round2 = measure_optional_metrics(workspace)?;
     let (optional_metrics, optional_notes) = stabilize_metrics(&optional_round1, &optional_round2);
@@ -434,7 +436,7 @@ fn baseline_conclusion(
     metrics: &[BaselineMetricV1],
     notes: &mut Vec<String>,
 ) -> BaselineConclusion {
-    let established: std::collections::BTreeMap<&str, &BaselineMetricV1> = metrics
+    let established: BTreeMap<&str, &BaselineMetricV1> = metrics
         .iter()
         .map(|metric| (metric.name.as_str(), metric))
         .collect();
@@ -528,13 +530,26 @@ fn measure_planner_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1
         if columns.len() < 5 {
             continue;
         }
-        let scenario = columns[0];
-        let size = columns[1];
-        let iterations: u32 = columns[2]
+        let scenario = columns.first().copied().unwrap_or("");
+        let size = columns.get(1).copied().unwrap_or("");
+        let iterations: u32 = columns
+            .get(2)
+            .copied()
+            .unwrap_or("0")
             .parse()
             .context("planner iterations from benchmark CSV")?;
-        let p50: f64 = columns[3].parse().context("planner p50")?;
-        let p95: f64 = columns[4].parse().context("planner p95")?;
+        let p50: f64 = columns
+            .get(3)
+            .copied()
+            .unwrap_or("0")
+            .parse()
+            .context("planner p50")?;
+        let p95: f64 = columns
+            .get(4)
+            .copied()
+            .unwrap_or("0")
+            .parse()
+            .context("planner p95")?;
         metrics.push(BaselineMetricV1 {
             name: format!("planner_{scenario}_{size}"),
             unit: "ms".to_owned(),
@@ -826,18 +841,24 @@ fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
 
 fn measure_device_smoke_cold_start() -> Result<Option<BaselineMetricV1>> {
     if !adb_has_device() {
-        eprintln!("xtask: no adb device; skipping native-smoke cold-start metric");
+        crate::util::emit_stderr(format_args!(
+            "xtask: no adb device; skipping native-smoke cold-start metric"
+        ));
         return Ok(None);
     }
     if !adb_package_installed("com.lomo.nativesmoke") {
-        eprintln!("xtask: native-smoke not installed; skipping cold-start metric");
+        crate::util::emit_stderr(format_args!(
+            "xtask: native-smoke not installed; skipping cold-start metric"
+        ));
         return Ok(None);
     }
 
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
     // warm launch (discard failures so missing UI readiness does not abort host baselines)
     if let Err(error) = force_stop_and_start() {
-        eprintln!("xtask: warm native-smoke launch skipped: {error}");
+        crate::util::emit_stderr(format_args!(
+            "xtask: warm native-smoke launch skipped: {error}"
+        ));
     }
     for _ in 0..SAMPLE_COUNT {
         samples.push(force_stop_and_start()?);
@@ -944,7 +965,7 @@ fn percentile(samples: &[f64], percentile: usize) -> f64 {
         return 0.0;
     }
     let index = ((samples.len() - 1) * percentile) / 100;
-    samples[index]
+    *samples.get(index).unwrap_or(&0.0)
 }
 
 fn duration_ms(duration: Duration) -> f64 {

@@ -31,12 +31,25 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "bootstrap-rust" => no_args(rest, || tools::bootstrap_rust(workspace)),
         "ci-native" => ci_native(workspace, rest),
         "ci-android" => ci_android(workspace, rest),
+        "rust-toolchain-bump" => rust_toolchain_bump(workspace, rest),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
         }
         unknown => bail!("unknown xtask command `{unknown}`; run `just --list`"),
     }
+}
+
+fn rust_toolchain_bump(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    let Some((channel, rest)) = arguments.split_first() else {
+        bail!("usage: just rust-toolchain-bump <channel> [--dry-run]");
+    };
+    let dry_run = match rest {
+        [] => false,
+        [flag] if flag == "--dry-run" => true,
+        _ => bail!("usage: just rust-toolchain-bump <channel> [--dry-run]"),
+    };
+    crate::rust_pin::bump(workspace, channel, dry_run)
 }
 
 fn native_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
@@ -55,7 +68,10 @@ fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         _ => bail!("usage: just android [debug|release]"),
     };
     let apk = android::build(workspace, variant)?;
-    eprintln!("xtask: Android artifact ready: {}", apk.display());
+    crate::util::emit_stderr(format_args!(
+        "xtask: Android artifact ready: {}",
+        apk.display()
+    ));
     Ok(())
 }
 
@@ -124,7 +140,7 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 }
 
 fn print_help() {
-    eprintln!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  deps [check|update]\n  perf\n  cache [audit|clean]"
-    );
+    crate::util::emit_stderr(format_args!(
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  deps [check|update]\n  perf\n  cache [audit|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+    ));
 }

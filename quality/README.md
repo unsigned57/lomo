@@ -98,7 +98,10 @@ immutable in `fixtures/baseline/ffi-transport-baseline.v1.json` and
 per [BOLTFFI-MIGRATION-PLAN.md](../BOLTFFI-MIGRATION-PLAN.md) and
 `fixtures/baseline/STAGE1-EVIDENCE.md`; UniFFI is not restored for any open residual product work.
 
-- Rust: `1.96`, Edition 2024, components `rustfmt`, `clippy`, `llvm-tools-preview`, `rust-src`.
+- Rust: channel from `rust/rust-toolchain.toml` (currently `1.97`), matching
+  `workspace.package.rust-version`, Edition 2024, components `rustfmt`, `clippy`,
+  `llvm-tools-preview`, `rust-src`. Bump with `just rust-toolchain-bump <x.y|x.y.z>`
+  then `just bootstrap` and quality gates (the bump recipe rewrites pin sites only).
 - Android NDK: `29.0.14206865`; native API/minSdk: `26`.
 - Android ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`.
 - Native facade: `lomo-native` (`staticlib` + `rlib`); packaged library: `liblomo_native_jni.so`.

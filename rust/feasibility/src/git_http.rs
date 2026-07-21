@@ -33,7 +33,7 @@ fn io_err(error: impl std::fmt::Display) -> GitProbeError {
 
 /// Smart-HTTP Git evidence report.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "stage-0 probe report is a flat checklist of independent evidence flags"
 )]
@@ -135,7 +135,7 @@ impl SmartHttpGitFixture {
 impl Drop for SmartHttpGitFixture {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
-        let nudge: Result<TcpStream, std::io::Error> = TcpStream::connect(self.addr);
+        let nudge: Result<TcpStream, io::Error> = TcpStream::connect(self.addr);
         drop(nudge);
         if let Some(join) = self.join.take() {
             let joined: thread::Result<()> = join.join();
@@ -211,7 +211,7 @@ fn probe_transfer_cancel(
             detail: "cancel work has no parent".to_owned(),
         })?
         .join("cancel-work");
-    let removed: Result<(), std::io::Error> = fs::remove_dir_all(&cancel_root);
+    let removed: Result<(), io::Error> = fs::remove_dir_all(&cancel_root);
     drop(removed);
 
     let username = fixture.username().to_owned();
@@ -340,7 +340,7 @@ fn probe_certificate_rejection(fixture: &SmartHttpGitFixture) -> Result<bool, Gi
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.remote_callbacks(callbacks);
     let tmp = fixture.project_root.join("cert-reject");
-    let removed: Result<(), std::io::Error> = fs::remove_dir_all(&tmp);
+    let removed: Result<(), io::Error> = fs::remove_dir_all(&tmp);
     drop(removed);
     let result = RepoBuilder::new()
         .fetch_options(fetch_opts)
@@ -388,7 +388,7 @@ fn probe_certificate_pin_mismatch(fixture: &SmartHttpGitFixture) -> Result<bool,
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.remote_callbacks(callbacks);
     let tmp = fixture.project_root.join("cert-pin-mismatch");
-    let removed: Result<(), std::io::Error> = fs::remove_dir_all(&tmp);
+    let removed: Result<(), io::Error> = fs::remove_dir_all(&tmp);
     drop(removed);
     match RepoBuilder::new()
         .fetch_options(fetch_opts)
@@ -432,7 +432,7 @@ fn clone_with_credentials(
     fixture: &SmartHttpGitFixture,
     work: &Path,
 ) -> Result<Repository, GitProbeError> {
-    let removed: Result<(), std::io::Error> = fs::remove_dir_all(work);
+    let removed: Result<(), io::Error> = fs::remove_dir_all(work);
     drop(removed);
     let callbacks = trusted_callbacks(fixture);
     let mut fetch_opts = FetchOptions::new();
@@ -791,7 +791,9 @@ fn read_http_request(
         if read == 0 {
             break;
         }
-        buffer.extend_from_slice(&chunk[..read]);
+        if let Some(slice) = chunk.get(..read) {
+            buffer.extend_from_slice(slice);
+        }
         if find_header_end(&buffer).is_some() {
             break;
         }
@@ -800,7 +802,7 @@ fn read_http_request(
         }
     }
     let header_end = find_header_end(&buffer).unwrap_or(buffer.len());
-    let headers = String::from_utf8_lossy(&buffer[..header_end]).into_owned();
+    let headers = String::from_utf8_lossy(buffer.get(..header_end).unwrap_or(&[])).into_owned();
     let expect_continue = header_value(&headers, "expect")
         .is_some_and(|value| value.eq_ignore_ascii_case("100-continue"));
     if expect_continue {
@@ -812,7 +814,7 @@ fn read_http_request(
         .is_some_and(|value| value.to_ascii_lowercase().contains("chunked"));
     let content_length = content_length_of(headers.as_bytes());
     let mut body = if header_end < buffer.len() {
-        buffer[header_end..].to_vec()
+        buffer.get(header_end..).unwrap_or(&[]).to_vec()
     } else {
         Vec::new()
     };
@@ -827,7 +829,9 @@ fn read_http_request(
                 body = try_decode_chunked(&body).unwrap_or_else(|_decode| body.clone());
                 break;
             }
-            body.extend_from_slice(&chunk[..read]);
+            if let Some(slice) = chunk.get(..read) {
+                body.extend_from_slice(slice);
+            }
             if body.len() > 64 * 1024 * 1024 {
                 break;
             }
@@ -838,7 +842,9 @@ fn read_http_request(
             if read == 0 {
                 break;
             }
-            body.extend_from_slice(&chunk[..read]);
+            if let Some(slice) = chunk.get(..read) {
+                body.extend_from_slice(slice);
+            }
         }
         body.truncate(content_length);
     }
@@ -975,10 +981,9 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
 /// Workspace forbids [`Result::ok`] via `clippy::disallowed_methods`. This helper is the
 /// intentional Option boundary for optional HTTP/CGI numbers rather than erasing errors at
 /// call sites with a bare `.ok()`.
-#[allow(
+#[expect(
     clippy::manual_ok_err,
     clippy::option_if_let_else,
-    clippy::result_map_or_into_option,
     reason = "Result::ok is workspace-disallowed; optional header parse maps Err to None deliberately"
 )]
 fn optional_parse<T: std::str::FromStr>(value: &str) -> Option<T> {
@@ -1005,21 +1010,21 @@ fn try_decode_chunked(input: &[u8]) -> Result<Vec<u8>, ChunkError> {
         let Some(line_end) = rest.windows(2).position(|window| window == b"\r\n") else {
             return Err(ChunkError::Incomplete);
         };
-        let size_line =
-            std::str::from_utf8(&rest[..line_end]).map_err(|_utf8| ChunkError::InvalidUtf8)?;
+        let size_line = std::str::from_utf8(rest.get(..line_end).ok_or(ChunkError::Incomplete)?)
+            .map_err(|_utf8| ChunkError::InvalidUtf8)?;
         let size = usize::from_str_radix(size_line.trim(), 16)
             .map_err(|_radix| ChunkError::InvalidSize)?;
-        rest = &rest[line_end + 2..];
+        rest = rest.get(line_end + 2..).ok_or(ChunkError::Incomplete)?;
         if size == 0 {
             return Ok(out);
         }
         if rest.len() < size + 2 {
             return Err(ChunkError::Incomplete);
         }
-        out.extend_from_slice(&rest[..size]);
-        rest = &rest[size..];
+        out.extend_from_slice(rest.get(..size).ok_or(ChunkError::Incomplete)?);
+        rest = rest.get(size..).ok_or(ChunkError::Incomplete)?;
         if rest.starts_with(b"\r\n") {
-            rest = &rest[2..];
+            rest = rest.get(2..).ok_or(ChunkError::Incomplete)?;
         } else {
             return Err(ChunkError::MissingCrlf);
         }
@@ -1045,16 +1050,17 @@ fn split_cgi(cgi: &[u8]) -> (String, &[u8]) {
                         || (String::new(), cgi),
                         |index| {
                             (
-                                String::from_utf8_lossy(&cgi[..index]).into_owned(),
-                                &cgi[index + 2..],
+                                String::from_utf8_lossy(cgi.get(..index).unwrap_or(&[]))
+                                    .into_owned(),
+                                cgi.get(index + 2..).unwrap_or(&[]),
                             )
                         },
                     )
             },
             |index| {
                 (
-                    String::from_utf8_lossy(&cgi[..index]).into_owned(),
-                    &cgi[index + 4..],
+                    String::from_utf8_lossy(cgi.get(..index).unwrap_or(&[])).into_owned(),
+                    cgi.get(index + 4..).unwrap_or(&[]),
                 )
             },
         )

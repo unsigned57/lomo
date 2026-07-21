@@ -1,13 +1,8 @@
 # Add project specific ProGuard rules here.
 # You can use the generated configuration.txt contents to check for missing rules.
 
-# Room
--keep class * extends androidx.room.RoomDatabase
--keep class * extends androidx.room.RoomDatabase$Builder
--keep @androidx.room.Entity class *
--keep @androidx.room.Dao class * { *; }
-
-# Domain models and Room entities do not require blanket field-name keeps in release.
+# Room is absent from the production graph after P3-10; do not keep androidx.room.* types.
+# Domain models do not require blanket field-name keeps in release.
 
 # Generic Compose Rules (Usually handled by R8 automatically but safe to add)
 # Generic Compose Rules (Handled by R8 automatically)

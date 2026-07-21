@@ -1,8 +1,21 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# Pinned rustup channel from rust/rust-toolchain.toml (evaluated when Justfile loads).
+rust_channel := `awk '
+  /^\[toolchain\]/ { in_tc = 1; next }
+  /^\[/ { in_tc = 0 }
+  in_tc && $1 == "channel" {
+    gsub(/"/, "", $3)
+    print $3
+    exit
+  }
+' rust/rust-toolchain.toml`
+
 # Repository-local cargo home + absolute target dir so nested boltffi/cargo never inherits a
 # relative CARGO_TARGET_DIR into rust/native/rust/target (multi-GB accidental trees).
-xtask := "CARGO_HOME=\"$PWD/.cache/cargo-home\" CARGO_TARGET_DIR=\"$PWD/rust/target/xtask-host\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
+# RUSTUP_TOOLCHAIN is forced from the pin because this invocation runs from the repository root
+# (rustup would otherwise ignore rust/rust-toolchain.toml and use the host default).
+xtask := "CARGO_HOME=\"$PWD/.cache/cargo-home\" CARGO_TARGET_DIR=\"$PWD/rust/target/xtask-host\" RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
 
 # Show the canonical Lomo command surface.
 default:
@@ -11,6 +24,11 @@ default:
 # Install the pinned Rust tools, targets, and Android NDK.
 bootstrap:
     {{xtask}} bootstrap
+
+# Rewrite the repository Rust pin (channel + msrv + docs/CI keys). Does not claim gates green.
+# Example: `just rust-toolchain-bump 1.97` or `just rust-toolchain-bump 1.97 --dry-run`
+rust-toolchain-bump channel *flags:
+    {{xtask}} rust-toolchain-bump {{channel}} {{flags}}
 
 # Format staged/all sources or verify formatting.
 fmt mode="staged":

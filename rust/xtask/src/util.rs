@@ -1,11 +1,20 @@
 use std::ffi::OsStr;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{Context, Result, bail};
 
 use crate::workspace::Workspace;
+
+/// Write one stderr status line for operator-facing xtask progress (CLI surface).
+pub fn emit_stderr(args: std::fmt::Arguments<'_>) {
+    match writeln!(io::stderr(), "{args}") {
+        Ok(()) => {}
+        Err(_write_error) => {}
+    }
+}
 
 pub fn run(command: &mut Command) -> Result<()> {
     announce(command);
@@ -154,7 +163,7 @@ fn gradle_options(workspace: &Workspace) -> String {
 }
 
 fn announce(command: &Command) {
-    eprintln!("xtask: {}", describe(command));
+    emit_stderr(format_args!("xtask: {}", describe(command)));
 }
 
 fn describe(command: &Command) -> String {

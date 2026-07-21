@@ -11,10 +11,8 @@
 //! Excludes: large corpus generation, remote fixture bytes, production storage.
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "feasibility contract harness fails closed with panics on missing probe facts"
 )]
 mod tests {
@@ -77,7 +75,7 @@ mod tests {
     #[test]
     fn absolute_path_entries_are_rejected() {
         let mut manifest = sample_manifest();
-        manifest.files[0].relative_path = "/tmp/escape.md".to_owned();
+        manifest.files.first_mut().expect("item").relative_path = "/tmp/escape.md".to_owned();
         assert_eq!(
             manifest.validate(),
             Err(ReportValidationError::InvalidField {
@@ -89,7 +87,7 @@ mod tests {
     #[test]
     fn parent_directory_escape_is_rejected() {
         let mut manifest = sample_manifest();
-        manifest.files[0].relative_path = "../secret.md".to_owned();
+        manifest.files.first_mut().expect("item").relative_path = "../secret.md".to_owned();
         assert_eq!(
             manifest.validate(),
             Err(ReportValidationError::InvalidField {

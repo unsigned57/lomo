@@ -88,12 +88,19 @@ fn redact_absolute_paths(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut rest = input;
     while let Some(start) = rest.find('/') {
-        output.push_str(&rest[..start]);
-        let candidate = &rest[start..];
+        let Some(prefix) = rest.get(..start) else {
+            break;
+        };
+        output.push_str(prefix);
+        let Some(candidate) = rest.get(start..) else {
+            break;
+        };
         let end = candidate
             .find(|ch: char| ch.is_whitespace() || ch == '"' || ch == '\'')
             .unwrap_or(candidate.len());
-        let path = &candidate[..end];
+        let Some(path) = candidate.get(..end) else {
+            break;
+        };
         if path.starts_with("/home/")
             || path.starts_with("/Users/")
             || path.starts_with("/tmp/")
@@ -104,7 +111,11 @@ fn redact_absolute_paths(input: &str) -> String {
         } else {
             output.push_str(path);
         }
-        rest = &candidate[end..];
+        let Some(next) = candidate.get(end..) else {
+            rest = "";
+            break;
+        };
+        rest = next;
     }
     output.push_str(rest);
     output
@@ -115,13 +126,16 @@ fn redact_body_markers(input: &str) -> String {
     let mut output = input.to_owned();
     for marker in MARKERS {
         let mut search_from = 0;
-        while let Some(relative) = output[search_from..].find(marker) {
+        while let Some(relative) = output.get(search_from..).and_then(|tail| tail.find(marker)) {
             let start = search_from + relative;
             let after = start + marker.len();
-            let end = output[after..]
-                .find(|ch: char| ch.is_whitespace())
+            let end = output
+                .get(after..)
+                .and_then(|tail| tail.find(|ch: char| ch.is_whitespace()))
                 .map_or(output.len(), |offset| after + offset);
-            output.replace_range(after..end, "[REDACTED_BODY]");
+            if after <= end && end <= output.len() {
+                output.replace_range(after..end, "[REDACTED_BODY]");
+            }
             search_from = after + "[REDACTED_BODY]".len();
         }
     }

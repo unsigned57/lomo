@@ -118,7 +118,7 @@ pub fn validate_built_apk(
             }
         }
     }
-    eprintln!("xtask: validated {}", apk.display());
+    crate::util::emit_stderr(format_args!("xtask: validated {}", apk.display()));
     Ok(apk)
 }
 
@@ -138,7 +138,9 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
         build_dir.to_string_lossy().as_ref(),
     ]);
     run(&mut build)?;
-    let apk = find_apk(&build_dir, false)?;
+    // Fail closed before install: stale Amper/Gradle jni merge can produce a dex-only APK that
+    // boots then dies with UnsatisfiedLinkError (not authentic smoke GREEN).
+    let apk = validate_built_apk(workspace, &build_dir, false)?;
     let adb = adb(workspace);
 
     let mut devices = Command::new(&adb);
@@ -171,7 +173,7 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
         logs.args(["logcat", "-d", "-s", "LomoNativeSmoke:I", "*:S"]);
         let logs = text_output(&mut logs)?;
         if logs.contains("PASS") {
-            eprintln!("xtask: device smoke passed");
+            crate::util::emit_stderr(format_args!("xtask: device smoke passed"));
             return Ok(());
         }
         if logs.contains("FAIL") {
@@ -182,9 +184,9 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
         if restart_markers > seen_restart_marker && restart_count < 4 {
             seen_restart_marker = restart_markers;
             restart_count += 1;
-            eprintln!(
+            crate::util::emit_stderr(format_args!(
                 "xtask: relaunching native-smoke for durable recovery (restart {restart_count})"
-            );
+            ));
             thread::sleep(Duration::from_millis(500));
             launch_native_smoke(&adb)?;
         }
@@ -225,7 +227,9 @@ fn require_device_api_and_abi(adb: &Path) -> Result<()> {
     if !supported {
         bail!("device ABI {abi:?} is not a packaged Android ABI");
     }
-    eprintln!("xtask: device smoke target API {api_level} abi {abi}");
+    crate::util::emit_stderr(format_args!(
+        "xtask: device smoke target API {api_level} abi {abi}"
+    ));
     Ok(())
 }
 
@@ -338,7 +342,7 @@ fn sign_release(workspace: &Workspace, apk: &Path, signing: &SigningConfig) -> R
     let mut verify = Command::new(apksigner);
     verify.args(["verify", "--verbose"]).arg(&signed);
     run(&mut verify)?;
-    eprintln!("xtask: signed {}", signed.display());
+    crate::util::emit_stderr(format_args!("xtask: signed {}", signed.display()));
     Ok(signed)
 }
 

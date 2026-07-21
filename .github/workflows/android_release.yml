@@ -46,7 +46,7 @@ jobs:
             .kotlin-cli
             rust/target
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: release-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+          key: release-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

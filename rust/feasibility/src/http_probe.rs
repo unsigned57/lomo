@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 use std::error::Error as _;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -125,7 +125,7 @@ impl HttpsFixture {
                             );
                         });
                     }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
                     }
                     Err(_) => break,
@@ -160,8 +160,7 @@ impl HttpsFixture {
         let failed_stream_ids = self
             .failed_stream_ids
             .lock()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
+            .map_or_else(|_| BTreeSet::new(), |guard| guard.clone());
         HttpFixtureStats {
             requests: self.requests.load(Ordering::SeqCst),
             bytes_sent: self.bytes_sent.load(Ordering::SeqCst),
@@ -183,7 +182,7 @@ impl Drop for HttpsFixture {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         // Nudge the accept loop.
-        let _nudge: Result<TcpStream, std::io::Error> = TcpStream::connect(self.addr);
+        let _nudge: Result<TcpStream, io::Error> = TcpStream::connect(self.addr);
         if let Some(join) = self.join.take() {
             let _joined: thread::Result<()> = join.join();
         }
@@ -509,12 +508,14 @@ struct ChunkedUploadSource {
 }
 
 impl Read for ChunkedUploadSource {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
         }
         let n = self.remaining.min(self.chunk).min(buf.len());
-        buf[..n].fill(b'U');
+        if let Some(slot) = buf.get_mut(..n) {
+            slot.fill(b'U');
+        }
         self.remaining -= n;
         Ok(n)
     }
@@ -801,16 +802,21 @@ fn handle_connection(
         if read == 0 {
             break;
         }
-        buffer.extend_from_slice(&chunk[..read]);
+        if let Some(slice) = chunk.get(..read) {
+            buffer.extend_from_slice(slice);
+        }
         if let Some(header_end) = find_header_end(&buffer) {
-            let content_length = content_length_of(&buffer[..header_end]).unwrap_or(0);
+            let content_length =
+                content_length_of(buffer.get(..header_end).unwrap_or(&[])).unwrap_or(0);
             let total = header_end + content_length;
             while buffer.len() < total {
                 let read = tls.read(&mut chunk).map_err(fixture_err)?;
                 if read == 0 {
                     break;
                 }
-                buffer.extend_from_slice(&chunk[..read]);
+                if let Some(slice) = chunk.get(..read) {
+                    buffer.extend_from_slice(slice);
+                }
             }
             break;
         }
@@ -819,12 +825,8 @@ fn handle_connection(
         }
     }
     let header_end = find_header_end(&buffer).unwrap_or(buffer.len());
-    let header_bytes = &buffer[..header_end];
-    let body_bytes = if header_end < buffer.len() {
-        &buffer[header_end..]
-    } else {
-        &[]
-    };
+    let header_bytes = buffer.get(..header_end).unwrap_or(&[]);
+    let body_bytes = buffer.get(header_end..).unwrap_or(&[]);
     let request = String::from_utf8_lossy(header_bytes);
     let first_line = request.lines().next().unwrap_or("");
     requests.fetch_add(1, Ordering::SeqCst);
@@ -887,10 +889,9 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
 /// Workspace forbids [`Result::ok`] via `clippy::disallowed_methods`. This helper is the
 /// intentional Option boundary for optional HTTP numbers rather than erasing errors at call
 /// sites with a bare `.ok()`.
-#[allow(
+#[expect(
     clippy::manual_ok_err,
     clippy::option_if_let_else,
-    clippy::result_map_or_into_option,
     reason = "Result::ok is workspace-disallowed; optional header parse maps Err to None deliberately"
 )]
 fn optional_parse<T: std::str::FromStr>(value: &str) -> Option<T> {
@@ -901,10 +902,9 @@ fn optional_parse<T: std::str::FromStr>(value: &str) -> Option<T> {
 }
 
 /// Optional `HeaderValue` to str: invalid UTF-8 is absence for probe header reads.
-#[allow(
+#[expect(
     clippy::manual_ok_err,
     clippy::option_if_let_else,
-    clippy::result_map_or_into_option,
     reason = "Result::ok is workspace-disallowed; invalid header UTF-8 is treated as missing"
 )]
 fn optional_header_str(value: &reqwest::header::HeaderValue) -> Option<&str> {
@@ -960,12 +960,15 @@ fn route(first_line: &str, raw: &str, body: &[u8]) -> (&'static str, String, Str
         return ("200 OK", id, String::new());
     }
     if first_line.starts_with("DELETE /s3/bucket/multi.bin?uploadId=") {
-        let upload_id = query_value(first_line, "uploadId").unwrap_or_default();
-        forget_upload(&upload_id);
+        if let Some(upload_id) = query_value(first_line, "uploadId") {
+            forget_upload(&upload_id);
+        }
         return ("204 No Content", String::new(), String::new());
     }
     if first_line.starts_with("POST /s3/bucket/multi.bin?uploadId=") {
-        let upload_id = query_value(first_line, "uploadId").unwrap_or_default();
+        let Some(upload_id) = query_value(first_line, "uploadId") else {
+            return ("400 Bad Request", String::new(), String::new());
+        };
         if upload_exists(&upload_id) {
             forget_upload(&upload_id);
             return ("200 OK", "completed".to_owned(), String::new());
@@ -1182,7 +1185,7 @@ fn sign_s3_get_with_payload_hash(
     )
 }
 
-#[allow(
+#[expect(
     clippy::too_many_arguments,
     reason = "SigV4 inputs are independent credentials and scope fields"
 )]
@@ -1196,7 +1199,7 @@ fn sign_s3_get_with_keys(
     region: &str,
     service: &str,
 ) -> String {
-    let date_stamp = &amz_date[..8];
+    let date_stamp = amz_date.get(..8).unwrap_or("");
     let credential_scope = format!("{date_stamp}/{region}/{service}/aws4_request");
     let canonical_headers =
         format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n");
@@ -1228,15 +1231,21 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     let mut key_block = [0_u8; BLOCK];
     if key.len() > BLOCK {
         let digested = Sha256::digest(key);
-        key_block[..32].copy_from_slice(&digested);
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
+        if let Some(dst) = key_block.get_mut(..32) {
+            dst.copy_from_slice(&digested);
+        }
+    } else if let Some(dst) = key_block.get_mut(..key.len()) {
+        dst.copy_from_slice(key);
     }
     let mut ipad = [0x36_u8; BLOCK];
     let mut opad = [0x5c_u8; BLOCK];
     for index in 0..BLOCK {
-        ipad[index] ^= key_block[index];
-        opad[index] ^= key_block[index];
+        if let (Some(i), Some(k)) = (ipad.get_mut(index), key_block.get(index)) {
+            *i ^= *k;
+        }
+        if let (Some(o), Some(k)) = (opad.get_mut(index), key_block.get(index)) {
+            *o ^= *k;
+        }
     }
     let mut inner = Sha256::new();
     inner.update(ipad);
@@ -1260,8 +1269,10 @@ fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
     let bytes = bytes.as_ref();
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        out.push(char::from(HEX[usize::from(byte >> 4)]));
-        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        let high = HEX.get(usize::from(byte >> 4)).copied().unwrap_or(b'?');
+        let low = HEX.get(usize::from(byte & 0x0f)).copied().unwrap_or(b'?');
+        out.push(char::from(high));
+        out.push(char::from(low));
     }
     out
 }
@@ -1276,8 +1287,7 @@ fn set_object_exists(value: bool) {
 
 static OBJECT_EXISTS: AtomicBool = AtomicBool::new(false);
 static UPLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
-static ACTIVE_UPLOADS: Mutex<std::collections::BTreeSet<String>> =
-    Mutex::new(std::collections::BTreeSet::new());
+static ACTIVE_UPLOADS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 static WEBDAV_STORE: Mutex<std::collections::BTreeMap<String, Vec<u8>>> =
     Mutex::new(std::collections::BTreeMap::new());
 

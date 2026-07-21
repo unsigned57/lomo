@@ -45,7 +45,7 @@ jobs:
             .kotlin-cli
             rust/target
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: nightly-coverage-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+          key: nightly-coverage-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Bootstrap pinned toolchain
         run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Rust coverage gate

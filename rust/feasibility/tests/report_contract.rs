@@ -12,10 +12,8 @@
 //! Excludes: real device measurement, dependency probe execution, production DI.
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "feasibility contract harness fails closed with panics on missing probe facts"
 )]
 mod tests {
@@ -23,7 +21,7 @@ mod tests {
 
     use lomo_feasibility::{
         BaselineConclusion, BaselineMetricV1, BaselineReportV1, BaselineSizesV1,
-        DeviceFingerprintV1, ReportValidationError, ToolchainFingerprintV1,
+        DeviceFingerprintV1, FeasibilityExitCode, ReportValidationError, ToolchainFingerprintV1,
     };
 
     fn complete_report() -> BaselineReportV1 {
@@ -91,7 +89,7 @@ mod tests {
     #[test]
     fn missing_unit_is_rejected() {
         let mut report = complete_report();
-        report.metrics[0].unit.clear();
+        report.metrics.first_mut().expect("item").unit.clear();
         assert_eq!(
             report.validate(),
             Err(ReportValidationError::MissingField {
@@ -103,7 +101,12 @@ mod tests {
     #[test]
     fn missing_workload_summary_is_rejected() {
         let mut report = complete_report();
-        report.metrics[0].workload_summary.clear();
+        report
+            .metrics
+            .first_mut()
+            .expect("item")
+            .workload_summary
+            .clear();
         assert_eq!(
             report.validate(),
             Err(ReportValidationError::MissingField {
@@ -122,5 +125,20 @@ mod tests {
                 field: "sample_count",
             })
         );
+    }
+
+    #[test]
+    fn feasibility_exit_codes_are_stable_integers() {
+        assert_eq!(FeasibilityExitCode::Success.as_i32(), 0);
+        assert_eq!(FeasibilityExitCode::ValidationFailed.as_i32(), 1);
+        assert_eq!(FeasibilityExitCode::ProbeFailed.as_i32(), 2);
+        assert_eq!(FeasibilityExitCode::EnvironmentIncomplete.as_i32(), 3);
+        assert_eq!(FeasibilityExitCode::ReportIncomplete.as_i32(), 4);
+        assert_eq!(FeasibilityExitCode::Success, FeasibilityExitCode::Success);
+        assert_ne!(
+            FeasibilityExitCode::Success,
+            FeasibilityExitCode::ProbeFailed
+        );
+        assert!(format!("{:?}", FeasibilityExitCode::ProbeFailed).contains("ProbeFailed"));
     }
 }

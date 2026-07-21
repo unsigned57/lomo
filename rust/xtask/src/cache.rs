@@ -28,7 +28,7 @@ pub fn parse_mode(value: &str) -> Result<CacheMode> {
 }
 
 fn audit(workspace: &Workspace) -> Result<()> {
-    eprintln!("Lomo generated-state audit");
+    crate::util::emit_stderr(format_args!("Lomo generated-state audit"));
     for relative in [
         ".cache",
         ".gradle",
@@ -45,9 +45,9 @@ fn audit(workspace: &Workspace) -> Result<()> {
     ] {
         let path = workspace.root.join(relative);
         if path.exists() {
-            eprintln!("{relative}: {} bytes", directory_size(&path)?);
+            crate::util::emit_stderr(format_args!("{relative}: {} bytes", directory_size(&path)?));
         } else {
-            eprintln!("{relative}: absent");
+            crate::util::emit_stderr(format_args!("{relative}: absent"));
         }
     }
     Ok(())
@@ -66,7 +66,7 @@ fn clean(workspace: &Workspace) -> Result<()> {
         ".cache/native",
     ] {
         let path = workspace.root.join(relative);
-        eprintln!("xtask: removing {}", path.display());
+        crate::util::emit_stderr(format_args!("xtask: removing {}", path.display()));
         remove_if_exists(&path)?;
     }
     Ok(())

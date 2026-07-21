@@ -73,7 +73,26 @@ pub fn probe_markdown_text(text: &str, byte_length: usize) -> MarkdownProbeRepor
                 pulldown_cmark::Tag::Image { .. } => {
                     image_count = image_count.saturating_add(1);
                 }
-                _ => {}
+                pulldown_cmark::Tag::Paragraph
+                | pulldown_cmark::Tag::BlockQuote(_)
+                | pulldown_cmark::Tag::CodeBlock(_)
+                | pulldown_cmark::Tag::HtmlBlock
+                | pulldown_cmark::Tag::List(_)
+                | pulldown_cmark::Tag::Item
+                | pulldown_cmark::Tag::FootnoteDefinition(_)
+                | pulldown_cmark::Tag::DefinitionList
+                | pulldown_cmark::Tag::DefinitionListTitle
+                | pulldown_cmark::Tag::DefinitionListDefinition
+                | pulldown_cmark::Tag::Table(_)
+                | pulldown_cmark::Tag::TableHead
+                | pulldown_cmark::Tag::TableRow
+                | pulldown_cmark::Tag::TableCell
+                | pulldown_cmark::Tag::Emphasis
+                | pulldown_cmark::Tag::Strong
+                | pulldown_cmark::Tag::Strikethrough
+                | pulldown_cmark::Tag::Superscript
+                | pulldown_cmark::Tag::Subscript
+                | pulldown_cmark::Tag::MetadataBlock(_) => {}
             }
         }
     }

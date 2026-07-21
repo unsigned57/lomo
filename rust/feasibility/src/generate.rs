@@ -505,9 +505,11 @@ fn stream_digest_full(seed: u64, logical_bytes: u64) -> String {
             let value = rng.next_u64().to_le_bytes();
             let end = (offset + 8).min(chunk);
             let copy = end - offset;
-            block[offset..end].copy_from_slice(&value[..copy]);
+            if let (Some(dst), Some(src)) = (block.get_mut(offset..end), value.get(..copy)) {
+                dst.copy_from_slice(src);
+            }
         }
-        hasher.update(&block[..chunk]);
+        hasher.update(block.get(..chunk).unwrap_or(&[]));
         remaining -= chunk as u64;
     }
     hex_digest(&hasher.finalize())

@@ -5,9 +5,9 @@ set -euo pipefail
 # Capability: prove xtask is the only public Rust/Kotlin/native/Android quality orchestrator.
 # Scenarios:
 # - Given public commands, when Justfile and hooks are inspected, then they call only lomo-xtask.
-# - Given native inputs, when configuration is inspected, then Rust 1.96, NDK 29, BoltFFI JNI
-#   library identity, four Android ABIs, and ignored generated outputs are fixed at the owning
-#   boundary.
+# - Given native inputs, when configuration is inspected, then the Rust channel pin
+#   (rust-toolchain.toml + matching rust-version), NDK 29, BoltFFI JNI library identity,
+#   four Android ABIs, and ignored generated outputs are fixed at the owning boundary.
 # - Given old workflow tails, when the repository is inspected, then none remain.
 # Observable outcomes: missing canonical wiring or retained legacy orchestration fails this script.
 # TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained.
@@ -45,16 +45,42 @@ for file in \
 done
 
 require_text Justfile 'cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --'
-for command in bootstrap fmt test preflight check native android ci device-smoke deps perf cache; do
+for command in bootstrap fmt test preflight check native android ci device-smoke deps perf cache rust-toolchain-bump; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
 
-require_text rust/Cargo.toml 'rust-version = "1.96"'
+channel="$(
+  awk '
+    /^\[toolchain\]/ { in_tc = 1; next }
+    /^\[/ { in_tc = 0 }
+    in_tc && $1 == "channel" {
+      gsub(/"/, "", $3)
+      print $3
+      exit
+    }
+  ' rust/rust-toolchain.toml
+)"
+[ -n "${channel}" ] || fail "rust/rust-toolchain.toml missing channel"
+msrv="$(printf '%s' "${channel}" | awk -F. '{ print $1 "." $2 }')"
+[ -n "${msrv}" ] || fail "unable to derive msrv from channel ${channel}"
+case "${channel}" in
+  stable|beta|nightly|stable-*|beta-*|nightly-*)
+    fail "floating Rust channel is forbidden: ${channel}"
+    ;;
+esac
+
+require_text rust/Cargo.toml "rust-version = \"${msrv}\""
 require_text rust/Cargo.toml 'license = "GPL-3.0-only"'
 require_text rust/Cargo.toml 'warnings = "deny"'
 require_text rust/Cargo.toml 'pedantic = "deny"'
 require_text rust/Cargo.toml '[profile.release-ci]'
-require_text rust/rust-toolchain.toml 'channel = "1.96"'
+require_text rust/rust-toolchain.toml "channel = \"${channel}\""
+require_text rust/xtask/src/rust_pin.rs 'rust-toolchain.toml'
+require_text rust/xtask/src/rust_pin.rs 'pub fn bump'
+require_text rust/xtask/src/tools.rs 'rust_pin::load'
+if grep -Eq 'command\.args\(\[[[:space:]]*"\+[0-9]' rust/xtask/src/tools.rs; then
+  fail "rust/xtask/src/tools.rs must not hard-code cargo +channel literals"
+fi
 require_text rust/xtask/src/workspace.rs '29.0.14206865'
 require_text rust/xtask/src/native.rs 'liblomo_native_jni.so'
 require_text rust/xtask/src/native.rs 'Abi::ALL'

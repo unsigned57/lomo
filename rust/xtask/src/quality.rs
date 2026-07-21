@@ -28,7 +28,7 @@ pub enum CoverageMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "orthogonal path-class flags for gate selection"
 )]
@@ -70,14 +70,14 @@ pub fn test(workspace: &Workspace) -> Result<()> {
 pub fn preflight(workspace: &Workspace) -> Result<()> {
     tools::ensure_quality(workspace)?;
     let changes = classify_changes(workspace, ChangeSource::Staged)?;
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: preflight rust={} kotlin={} native={} quality_infra={} docs_only={}",
         changes.rust, changes.kotlin, changes.native, changes.quality_infra, changes.docs_only
-    );
+    ));
 
     if changes.docs_only && !changes.quality_infra {
         run_shell_contracts(workspace)?;
-        eprintln!("xtask: preflight complete (docs-only)");
+        crate::util::emit_stderr(format_args!("xtask: preflight complete (docs-only)"));
         return Ok(());
     }
 
@@ -105,7 +105,7 @@ pub fn preflight(workspace: &Workspace) -> Result<()> {
         run_shell_contracts(workspace)?;
     }
 
-    eprintln!("xtask: preflight complete");
+    crate::util::emit_stderr(format_args!("xtask: preflight complete"));
     Ok(())
 }
 
@@ -121,7 +121,7 @@ pub fn check(workspace: &Workspace) -> Result<()> {
             build_dir: ".kotlin/toolchain-build/check",
         },
     )?;
-    eprintln!("xtask: check complete");
+    crate::util::emit_stderr(format_args!("xtask: check complete"));
     Ok(())
 }
 
@@ -138,7 +138,7 @@ pub fn ci(workspace: &Workspace) -> Result<()> {
         },
     )?;
     crate::android::validate_built_apk(workspace, ".kotlin/toolchain-build/ci", false)?;
-    eprintln!("xtask: ci complete");
+    crate::util::emit_stderr(format_args!("xtask: ci complete"));
     Ok(())
 }
 

@@ -13,10 +13,8 @@
 //! Excludes: Lomo time-header product parse, formal `RenderDocument` wire schema, Compose.
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::too_many_lines,
     reason = "feasibility contract harness fails closed with panics on missing probe facts"
 )]
 mod tests {

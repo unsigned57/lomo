@@ -130,8 +130,10 @@ pub fn hex_digest(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(64);
     for byte in digest {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
+        let high = HEX.get((byte >> 4) as usize).copied().unwrap_or(b'?');
+        let low = HEX.get((byte & 0x0f) as usize).copied().unwrap_or(b'?');
+        out.push(char::from(high));
+        out.push(char::from(low));
     }
     out
 }

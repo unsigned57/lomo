@@ -112,13 +112,13 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
     let target = workspace.generated_bindings().join(GENERATED_OWNER);
     fs::write(&target, &canonical)
         .with_context(|| format!("failed to write {}", target.display()))?;
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: generated {} ({} bytes, {} lines, warm generate {} ms)",
         target.display(),
         canonical.len(),
         canonical.lines().count(),
         elapsed_ms
-    );
+    ));
     Ok(())
 }
 
@@ -142,16 +142,16 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     publish_selected_abis(&jni_source, &smoke_jni, abis)?;
     verify_native_tree(workspace, abis, profile)?;
     verify_smoke_native_tree(workspace, abis)?;
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: packaged {NATIVE_LIBRARY} for {} ABI(s) in {elapsed_ms} ms",
         abis.len()
-    );
+    ));
     Ok(())
 }
 
 /// Build the linked `lomo-feasibility-device` cdylib for all Android ABIs, ELF-verify, and
 /// record per-ABI sizes. Not packaged into production `app/jniLibs`.
-#[allow(
+#[expect(
     clippy::too_many_lines,
     reason = "packaging + ELF + evidence write is a single audit trail"
 )]
@@ -305,8 +305,8 @@ pub fn verify_feasibility_android_targets(workspace: &Workspace, abis: &[Abi]) -
         ),
     )
     .with_context(|| format!("write {}", size_json.display()))?;
-    eprintln!("xtask: wrote {}", evidence.display());
-    eprintln!("xtask: wrote {}", size_json.display());
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", evidence.display()));
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", size_json.display()));
     Ok(())
 }
 
@@ -382,10 +382,10 @@ fn run_boltffi_pack_android(
     if !matches!(profile, NativeProfile::Dev) {
         strip_packaged_native_libraries(workspace, &jni_out, abis)?;
     }
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: boltffi pack android published into {}",
         jni_out.display()
-    );
+    ));
     Ok(())
 }
 
@@ -538,10 +538,10 @@ fn prepare_ndk_clang_glue_wrappers(workspace: &Workspace, pack_root: &Path) -> R
         }
     }
 
-    eprintln!(
+    crate::util::emit_stderr(format_args!(
         "xtask: NDK clang wrappers ready at {} (jni_glue callback helper inject)",
         wrap_root.display()
-    );
+    ));
     Ok(wrap_root)
 }
 
@@ -933,33 +933,34 @@ pub fn verify_native_tree(
             .with_context(|| format!("stat {}", path.display()))?
             .len();
         total_bytes = total_bytes.saturating_add(bytes);
-        eprintln!(
+        crate::util::emit_stderr(format_args!(
             "xtask: verify {} {} bytes profile={profile:?} ({})",
             abi.android_name(),
             bytes,
             path.display()
-        );
+        ));
     }
     // Shipping honesty only for release-class packs. Dev packs intentionally leave unstripped
     // libraries for faster host iteration and must not be cited as shipping GREEN.
     let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
     if shipping && abis.len() == Abi::ALL.len() {
-        // Stage-2 workspace owner + document jobs expand the shipping surface beyond the
-        // pre-cutover UniFFI+JNA baseline (~2.4 MiB). Observed stripped release four-ABI total is
-        // ~3.28 MiB; keep a small headroom for non-semantic native churn without absorbing Dev packs.
-        const MAX_FOUR_ABI_BYTES: u64 = 3_600_000;
+        // Stage-3 `lomo-store` (SQLite FTS + durable `.lomo` + rebuild + reminder) expands the
+        // shipping surface beyond the stage-2 workspace owner total (~3.28 MiB / 3.6 MiB ceiling).
+        // Observed stripped `release-android` four-ABI total after store cutover is ~8.38 MiB; keep
+        // modest headroom for non-semantic native churn without absorbing Dev packs.
+        const MAX_FOUR_ABI_BYTES: u64 = 9_000_000;
         if total_bytes > MAX_FOUR_ABI_BYTES {
             bail!(
-                "shipping four-ABI native total {total_bytes} exceeds UniFFI+JNA baseline ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
+                "shipping four-ABI native total {total_bytes} exceeds stage-3 store shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
             );
         }
-        eprintln!(
+        crate::util::emit_stderr(format_args!(
             "xtask: four-ABI shipping size gate GREEN ({total_bytes} <= {MAX_FOUR_ABI_BYTES})"
-        );
+        ));
     } else if !shipping {
-        eprintln!(
+        crate::util::emit_stderr(format_args!(
             "xtask: skipping four-ABI shipping size gate for Dev pack (total={total_bytes});              not shipping evidence"
-        );
+        ));
     }
     Ok(())
 }
@@ -1180,11 +1181,11 @@ fn strip_helper_function(text: &str, helper_name: &str) -> String {
         return text.to_owned();
     };
     // Walk backwards to include any KDoc/annotations immediately above the helper.
-    let prefix = &text[..start];
+    let prefix = text.get(..start).unwrap_or("");
     let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
-    let rest = &text[start..];
+    let rest = text.get(start..).unwrap_or("");
     // Nursery `option_if_let_else` would force a less readable map_or_else over brace matching.
-    #[allow(
+    #[expect(
         clippy::option_if_let_else,
         reason = "brace-depth scan is clearer than map_or_else nesting"
     )]
@@ -1194,13 +1195,13 @@ fn strip_helper_function(text: &str, helper_name: &str) -> String {
         let mut cursor = start + brace;
         let bytes = text.as_bytes();
         while cursor < bytes.len() {
-            match bytes[cursor] {
-                b'{' => depth += 1,
-                b'}' => {
+            match bytes.get(cursor).copied() {
+                Some(b'{') => depth += 1,
+                Some(b'}') => {
                     depth -= 1;
                     if depth == 0 {
                         cursor += 1;
-                        if cursor < bytes.len() && bytes[cursor] == b'\n' {
+                        if bytes.get(cursor) == Some(&b'\n') {
                             cursor += 1;
                         }
                         break;
@@ -1218,8 +1219,8 @@ fn strip_helper_function(text: &str, helper_name: &str) -> String {
         text.len()
     };
     let mut out = String::new();
-    out.push_str(&text[..line_start]);
-    out.push_str(&text[end..]);
+    out.push_str(text.get(..line_start).unwrap_or(""));
+    out.push_str(text.get(end..).unwrap_or(""));
     out
 }
 

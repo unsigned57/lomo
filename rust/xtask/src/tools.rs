@@ -4,6 +4,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use crate::rust_pin;
 use crate::util::{repository_command, run, text_output};
 use crate::workspace::{NDK_VERSION, Workspace};
 
@@ -24,7 +25,7 @@ struct BoltffiPin {
 pub fn bootstrap(workspace: &Workspace) -> Result<()> {
     bootstrap_rust(workspace)?;
     install_ndk(workspace)?;
-    eprintln!("xtask: bootstrap complete");
+    crate::util::emit_stderr(format_args!("xtask: bootstrap complete"));
     Ok(())
 }
 
@@ -35,7 +36,7 @@ pub fn bootstrap_rust(workspace: &Workspace) -> Result<()> {
         install_tool(workspace, &tool)?;
     }
     install_boltffi(workspace)?;
-    eprintln!("xtask: Rust tool bootstrap complete");
+    crate::util::emit_stderr(format_args!("xtask: Rust tool bootstrap complete"));
     Ok(())
 }
 
@@ -117,9 +118,11 @@ pub fn boltffi_binary(workspace: &Workspace) -> Result<PathBuf> {
 
 fn install_boltffi(workspace: &Workspace) -> Result<()> {
     let pin = boltffi_pin(workspace)?;
+    let rust = rust_pin::load(workspace)?;
+    let plus = rust.cargo_plus_toolchain();
     let mut command = repository_command(workspace, "cargo");
     command.args([
-        "+1.96",
+        plus.as_str(),
         "install",
         "--locked",
         "--root",
@@ -201,12 +204,13 @@ fn boltffi_pin(workspace: &Workspace) -> Result<BoltffiPin> {
 }
 
 fn install_rust_components(workspace: &Workspace) -> Result<()> {
+    let rust = rust_pin::load(workspace)?;
     let mut components = repository_command(workspace, "rustup");
     components.args([
         "component",
         "add",
         "--toolchain",
-        "1.96",
+        rust.channel.as_str(),
         "rustfmt",
         "clippy",
         "llvm-tools-preview",
@@ -218,7 +222,7 @@ fn install_rust_components(workspace: &Workspace) -> Result<()> {
         "target",
         "add",
         "--toolchain",
-        "1.96",
+        rust.channel.as_str(),
         "aarch64-linux-android",
         "armv7-linux-androideabi",
         "i686-linux-android",
@@ -231,9 +235,11 @@ fn install_tool(workspace: &Workspace, tool: &Tool) -> Result<()> {
     if ensure_tool(workspace, tool).is_ok() {
         return Ok(());
     }
+    let rust = rust_pin::load(workspace)?;
+    let plus = rust.cargo_plus_toolchain();
     let mut command = repository_command(workspace, "cargo");
     command.args([
-        "+1.96",
+        plus.as_str(),
         "install",
         "--locked",
         "--root",
@@ -290,14 +296,16 @@ fn installed_version(binary: &PathBuf, package: &str) -> Result<String> {
 }
 
 fn ensure_rust_version(workspace: &Workspace) -> Result<()> {
+    let rust = rust_pin::load(workspace)?;
     let mut command = repository_command(workspace, "rustc");
     command.arg("--version");
     let version = text_output(&mut command)?;
-    if !version
-        .split_whitespace()
-        .any(|token| token.starts_with("1.96"))
-    {
-        bail!("Rust 1.96 is required, found {}", version.trim());
+    if !rust.matches_rustc_version_line(&version) {
+        bail!(
+            "Rust {} is required, found {}",
+            rust.channel,
+            version.trim()
+        );
     }
     Ok(())
 }

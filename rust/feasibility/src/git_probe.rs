@@ -30,7 +30,7 @@ pub enum GitProbeError {
 ///
 /// Each field is an independent evidence checklist bit, not a multi-state machine.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "stage-0 probe report is a flat checklist of independent evidence flags"
 )]

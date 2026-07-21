@@ -133,7 +133,7 @@ jobs:
             .cache/cargo-home
             .cache/cargo-tools
             rust/target
-          key: rust-host-1.96-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'rust/rust-toolchain.toml') }}
+          key: rust-host-1.97-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'rust/rust-toolchain.toml') }}
       - name: Bootstrap pinned Rust tools
         run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Run Rust host gate (no coverage)
@@ -160,7 +160,7 @@ jobs:
             .cache/cargo-tools
             rust/target
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: native-1.96-ndk29-${{ matrix.abi }}-release-ci-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
+          key: native-1.97-ndk29-${{ matrix.abi }}-release-ci-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
       - name: Bootstrap pinned native toolchain
         run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Build and verify ${{ matrix.abi }} (release-ci)
@@ -200,7 +200,7 @@ jobs:
             .kotlin-cli
             rust/target
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: android-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+          key: android-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Download arm64-v8a
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -267,7 +267,7 @@ jobs:
             .kotlin-cli
             rust/target
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
-          key: smoke-api26-x86_64-1.96-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
+          key: smoke-api26-x86_64-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Bootstrap pinned toolchain
         run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run API 26 x86_64 smoke

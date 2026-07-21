@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -42,7 +43,10 @@ fn run(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
             Ok(())
         }
         unknown => {
-            eprintln!("unknown command `{unknown}`");
+            match writeln!(io::stderr(), "unknown command `{unknown}`") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             print_help();
             Err(FeasibilityExitCode::ValidationFailed)
         }
@@ -50,13 +54,17 @@ fn run(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
 }
 
 /// Isolated process benchmark for 100k markdown corpus (peak RSS is this process only).
+#[expect(
+    clippy::too_many_lines,
+    reason = "CLI scale bench parser and measurement loop stay in one command path"
+)]
 fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
     let mut corpus = PathBuf::from("build/corpora/scale-perf");
     let mut full_samples = 3_usize;
     let mut warm_samples = 21_usize;
     let mut index = 0;
     while index < arguments.len() {
-        match arguments[index].as_str() {
+        match arguments.get(index).map_or("", String::as_str) {
             "--corpus" => {
                 let value = arguments
                     .get(index + 1)
@@ -83,7 +91,10 @@ fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode>
                 index += 2;
             }
             other => {
-                eprintln!("unknown scale-markdown-bench flag `{other}`");
+                match writeln!(io::stderr(), "unknown scale-markdown-bench flag `{other}`") {
+                    Ok(()) => {}
+                    Err(_write_error) => {}
+                }
                 return Err(FeasibilityExitCode::ValidationFailed);
             }
         }
@@ -93,10 +104,14 @@ fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode>
     let mut memo_paths = collect_memo_paths(&memo_dir)?;
     memo_paths.sort();
     if memo_paths.len() != 100_000 {
-        eprintln!(
+        match writeln!(
+            io::stderr(),
             "scale-markdown-bench: expected 100000 memos, got {}",
             memo_paths.len()
-        );
+        ) {
+            Ok(()) => {}
+            Err(_write_error) => {}
+        }
         return Err(FeasibilityExitCode::ValidationFailed);
     }
 
@@ -109,7 +124,10 @@ fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode>
         let mut ok = 0_u64;
         for path in &memo_paths {
             let report = probe_markdown_file(path).map_err(|error| {
-                eprintln!("scale-markdown-bench: {error}");
+                match writeln!(io::stderr(), "scale-markdown-bench: {error}") {
+                    Ok(()) => {}
+                    Err(_write_error) => {}
+                }
                 FeasibilityExitCode::ProbeFailed
             })?;
             events = events.saturating_add(report.event_count as u64);
@@ -124,12 +142,17 @@ fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode>
     let full_p95 = percentile(&full_ms, 0.95);
 
     // Single-memo warm path (first file, after full corpus has warmed caches).
-    let warm_path = &memo_paths[0];
+    let warm_path = memo_paths
+        .first()
+        .ok_or(FeasibilityExitCode::EnvironmentIncomplete)?;
     let mut warm_ms = Vec::with_capacity(warm_samples);
     for _ in 0..warm_samples {
         let started = Instant::now();
         let report = probe_markdown_file(warm_path).map_err(|error| {
-            eprintln!("scale-markdown-bench warm: {error}");
+            match writeln!(io::stderr(), "scale-markdown-bench warm: {error}") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             FeasibilityExitCode::ProbeFailed
         })?;
         std::hint::black_box(report.event_count);
@@ -139,30 +162,50 @@ fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode>
     let warm_p50 = percentile(&warm_ms, 0.50);
 
     let peak_rss = read_peak_rss_bytes().ok_or_else(|| {
-        eprintln!("scale-markdown-bench: failed to read /proc/self/status VmHWM");
+        match writeln!(
+            io::stderr(),
+            "scale-markdown-bench: failed to read /proc/self/status VmHWM"
+        ) {
+            Ok(()) => {}
+            Err(_write_error) => {}
+        }
         FeasibilityExitCode::EnvironmentIncomplete
     })?;
 
     // Machine-readable single line for xtask to parse.
-    println!(
+    match writeln!(
+        io::stdout(),
         "SCALE_MARKDOWN_BENCH full_p50_ms={full_p50:.6} full_p95_ms={full_p95:.6} \
          warm_p50_ms={warm_p50:.6} result_count={result_count} total_events={total_events} \
          peak_rss_bytes={peak_rss} full_samples={full_samples} warm_samples={warm_samples} \
          memo_files={}",
         memo_paths.len()
-    );
+    ) {
+        Ok(()) => {}
+        Err(_write_error) => {}
+    }
     Ok(())
 }
 
 fn collect_memo_paths(memo_dir: &Path) -> Result<Vec<PathBuf>, FeasibilityExitCode> {
     let mut paths = Vec::new();
     let entries = fs::read_dir(memo_dir).map_err(|error| {
-        eprintln!("scale-markdown-bench: read {}: {error}", memo_dir.display());
+        match writeln!(
+            io::stderr(),
+            "scale-markdown-bench: read {}: {error}",
+            memo_dir.display()
+        ) {
+            Ok(()) => {}
+            Err(_write_error) => {}
+        }
         FeasibilityExitCode::EnvironmentIncomplete
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            eprintln!("scale-markdown-bench: dir entry: {error}");
+            match writeln!(io::stderr(), "scale-markdown-bench: dir entry: {error}") {
+                Ok(()) => {}
+                Err(_write_error) => {}
+            }
             FeasibilityExitCode::ProbeFailed
         })?;
         let path = entry.path();
@@ -178,7 +221,7 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
         return 0.0;
     }
     let last = sorted.len().saturating_sub(1);
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss,
@@ -188,7 +231,7 @@ fn percentile(sorted: &[f64], q: f64) -> f64 {
         let scaled = (last as f64) * q;
         scaled.round() as usize
     };
-    sorted[idx.min(last)]
+    *sorted.get(idx.min(last)).unwrap_or(&0.0)
 }
 
 fn read_peak_rss_bytes() -> Option<u64> {
@@ -214,7 +257,7 @@ fn generate(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
     let mut fixture_root = PathBuf::from("fixtures");
     let mut index = 0;
     while index < arguments.len() {
-        match arguments[index].as_str() {
+        match arguments.get(index).map_or("", String::as_str) {
             "--seed" => {
                 let value = arguments
                     .get(index + 1)
@@ -246,7 +289,10 @@ fn generate(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
                 index += 2;
             }
             other => {
-                eprintln!("unknown generate flag `{other}`");
+                match writeln!(io::stderr(), "unknown generate flag `{other}`") {
+                    Ok(()) => {}
+                    Err(_write_error) => {}
+                }
                 return Err(FeasibilityExitCode::ValidationFailed);
             }
         }
@@ -262,17 +308,24 @@ fn generate(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
     let digest = manifest
         .canonical_digest()
         .map_err(|_report| FeasibilityExitCode::ReportIncomplete)?;
-    eprintln!(
+    match writeln!(
+        io::stderr(),
         "lomo-feasibility: wrote {} (seed={}, mode={}, digest={digest})",
         request.output_dir.join("corpus-manifest.v1.json").display(),
         request.seed,
         request.mode.as_str()
-    );
+    ) {
+        Ok(()) => {}
+        Err(_write_error) => {}
+    }
     Ok(())
 }
 
 fn map_generate_error(error: &GenerateError) -> FeasibilityExitCode {
-    eprintln!("lomo-feasibility: {error}");
+    match writeln!(io::stderr(), "lomo-feasibility: {error}") {
+        Ok(()) => {}
+        Err(_write_error) => {}
+    }
     match error {
         GenerateError::UnknownMode { .. }
         | GenerateError::PathEscapesRoot { .. }
@@ -285,10 +338,14 @@ fn map_generate_error(error: &GenerateError) -> FeasibilityExitCode {
 }
 
 fn print_help() {
-    eprintln!(
+    match writeln!(
+        io::stderr(),
         "lomo-feasibility\n\nCommands:\n  \
          generate --mode quick|scale|capacity --seed N --out DIR [--fixtures DIR]\n  \
          scale-markdown-bench --corpus DIR [--full-samples N] [--warm-samples N]\n  \
          help"
-    );
+    ) {
+        Ok(()) => {}
+        Err(_write_error) => {}
+    }
 }

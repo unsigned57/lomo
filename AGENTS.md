@@ -125,7 +125,7 @@ Do **not**:
 
 ## 6. Repository Facts
 
-- `minSdk` and native Android API are `26`; Rust is `1.96`; Android NDK is `29.0.14206865`.
+- `minSdk` and native Android API are `26`; Rust is `1.97`; Android NDK is `29.0.14206865`.
 - i18n changes update both `values` and `values-zh-rCN`.
 - Version-controlled Kotlin modules use Amper roots such as `src/`, `test/`, `resources/`, and
   Android/Compose resource roots. Never add Maven/Java source hierarchies or common package-root
