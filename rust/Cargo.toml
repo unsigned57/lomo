@@ -6,6 +6,7 @@ members = [
     "core",
     "feasibility",
     "feasibility-device",
+    "media",
     "native",
     "store",
     "sync-core",
@@ -44,6 +45,7 @@ git2 = { version = "=0.21.0", default-features = false, features = ["vendored-li
 boltffi = { path = "boltffi-facade" }
 boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "a2ad920ba39179effcc9e33f13661d038f7cdeea", default-features = false }
 tempfile = "=3.27.0"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 warnings = "deny"
