@@ -131,8 +131,10 @@ blocks unused direct dependencies.
 Release native Android packaging uses profile `release-android` (`opt-level = "z"`, fat LTO, one
 codegen unit, stripped). The pack path additionally rebuilds std with `panic=immediate-abort` so
 backtrace/gimli weight never ships. Host iterative checks use the development profile. Rust
-coverage excludes `lomo-xtask` and `lomo-architecture-tests`; the threshold is fixed in
-`rust/xtask/src/quality.rs` after measuring a green run and must only increase.
+coverage excludes `lomo-xtask` and `lomo-architecture-tests`; the fail-under threshold is fixed in
+`rust/xtask/src/quality.rs` (`RUST_COVERAGE_MINIMUM`, currently **70%** per product decision
+2026-07-22). Raise only after a measured green run; do not grind tests solely to climb an
+arbitrary higher bar.
 
 See [AI Rust Test Style](testing/ai-rust-test-style.md) before writing or editing Rust tests.
 

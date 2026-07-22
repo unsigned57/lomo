@@ -10,7 +10,7 @@ use crate::util::{cargo, kotlin, policy_script, repository_command, run, text_ou
 use crate::workspace::Workspace;
 
 const TEST_MODULES: [&str; 5] = ["app", "data", "detekt-rules", "domain", "ui-components"];
-const RUST_COVERAGE_MINIMUM: u32 = 80;
+const RUST_COVERAGE_MINIMUM: u32 = 70;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FormatMode {

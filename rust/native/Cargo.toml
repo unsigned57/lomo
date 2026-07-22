@@ -15,6 +15,7 @@ boltffi.workspace = true
 lomo-core = { path = "../core" }
 lomo-workspace = { path = "../workspace" }
 lomo-store = { path = "../store" }
+lomo-media = { path = "../media" }
 lomo-sync-core = { path = "../sync-core" }
 serde_json.workspace = true
 
@@ -22,6 +23,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 lomo-workspace = { path = "../workspace" }
+lomo-media = { path = "../media" }
 
 [lints]
 workspace = true

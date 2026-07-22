@@ -1399,6 +1399,553 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stage_four_contract_and_evidence_files_exist() {
+        let contract = repository_root().join("fixtures/baseline/STAGE4-CONTRACT.md");
+        let evidence = repository_root().join("fixtures/baseline/STAGE4-EVIDENCE.md");
+        assert!(
+            contract.exists(),
+            "stage 4 requires versioned fixtures/baseline/STAGE4-CONTRACT.md"
+        );
+        assert!(
+            evidence.exists(),
+            "stage 4 requires versioned fixtures/baseline/STAGE4-EVIDENCE.md"
+        );
+
+        let contract_text = read("fixtures/baseline/STAGE4-CONTRACT.md");
+        for required in [
+            "Capability",
+            "Given",
+            "When",
+            "Then",
+            "Observable outcomes",
+            "Excludes",
+            "RED",
+            "GREEN",
+            "lomo-media",
+            "digest",
+            "sha256",
+            "magic",
+            "stage",
+            "orphan",
+            "media-trash",
+            "ArchiveManifestV2",
+            "zip-slip",
+            "dual-stack",
+            "dark-build",
+            "API ≥ 26",
+            "arm64",
+            "operation-id",
+            "no full media bytes",
+            "stage-3 store cutover",
+        ] {
+            assert!(
+                contract_text.contains(required),
+                "STAGE4-CONTRACT.md is missing required lock text: {required}"
+            );
+        }
+
+        let evidence_text = read("fixtures/baseline/STAGE4-EVIDENCE.md");
+        for required in [
+            "P4-00",
+            "RED command",
+            "GREEN command",
+            "First principles",
+            "pending_env",
+            "P3-10",
+        ] {
+            assert!(
+                evidence_text.contains(required),
+                "STAGE4-EVIDENCE.md is missing required evidence text: {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn stage_four_requires_lomo_media_owner() {
+        let workspace = read("rust/Cargo.toml");
+        let owner_manifest = repository_root().join("rust/media/Cargo.toml");
+        assert!(
+            owner_manifest.exists(),
+            "stage 4 requires the real lomo-media owner crate"
+        );
+        let owner = read("rust/media/Cargo.toml");
+        assert!(
+            workspace.contains("\"media\""),
+            "lomo-media is not a workspace member"
+        );
+        assert!(
+            owner.contains("name = \"lomo-media\""),
+            "media crate has the wrong identity"
+        );
+        assert!(
+            owner.contains("publish = false"),
+            "lomo-media must not be published"
+        );
+        assert!(
+            owner.contains("lomo-core") || owner.contains("lomo_core"),
+            "lomo-media must depend inward on lomo-core"
+        );
+        assert!(
+            owner.contains("lomo-workspace") || owner.contains("lomo_workspace"),
+            "lomo-media must depend inward on lomo-workspace for path policy"
+        );
+        assert!(
+            !owner.contains("boltffi")
+                && !owner.contains("reqwest")
+                && !owner.contains("git2")
+                && !owner.contains("lomo-sync-core")
+                && !owner.contains("lomo-feasibility")
+                && !owner.contains("lomo-xtask")
+                && !owner.contains("lomo-native")
+                && !owner.contains("lomo-store"),
+            "lomo-media must stay free of platform, store, sync-wire, facade, and tooling dependencies"
+        );
+
+        let lib = repository_root().join("rust/media/src/lib.rs");
+        assert!(
+            lib.exists(),
+            "lomo-media must expose real production sources (not an empty marker)"
+        );
+        let lib_text = read("rust/media/src/lib.rs");
+        assert!(
+            !lib_text.trim().is_empty(),
+            "lomo-media lib.rs must not be empty"
+        );
+        assert!(
+            lib_text.contains("MEDIA_CRATE_NAME")
+                || lib_text.contains("MediaOwnerIdentity")
+                || lib_text.contains("ContentDigest"),
+            "lomo-media must expose owner-identity or content-digest surface"
+        );
+
+        let tests_root = repository_root().join("rust/media/tests");
+        assert!(
+            tests_root.exists(),
+            "lomo-media must ship behavior tests under tests/"
+        );
+
+        let mut test_sources = String::new();
+        let mut test_file_count = 0usize;
+        for entry in fs::read_dir(&tests_root).expect("media tests") {
+            let entry = entry.expect("tests entry");
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                test_file_count += 1;
+                test_sources.push_str(&fs::read_to_string(&path).expect("utf-8 test"));
+                test_sources.push('\n');
+            }
+        }
+        assert!(
+            test_file_count >= 1,
+            "lomo-media must ship at least one external behavior test file, found {test_file_count}"
+        );
+        assert!(
+            test_sources.contains("#[test]"),
+            "external media tests must contain real #[test] cases"
+        );
+        assert!(
+            test_sources.contains("ContentDigest")
+                || test_sources.contains("MediaOwnerIdentity")
+                || test_sources.contains("MEDIA_CRATE_NAME"),
+            "external media tests must exercise the shipped public identity surface"
+        );
+    }
+
+    #[test]
+    fn stage_three_store_cutover_is_recorded_before_stage_four_green_claims() {
+        let stage3 = read("fixtures/baseline/STAGE3-EVIDENCE.md");
+        assert!(
+            stage3.contains("P3-10")
+                && (stage3.contains("cutover GREEN")
+                    || stage3.contains("production store cutover GREEN")
+                    || stage3.contains("P3-10 production store cutover GREEN")),
+            "STAGE3-EVIDENCE.md must record P3-10 store cutover before stage-4 GREEN claims"
+        );
+
+        let stage4_evidence = repository_root().join("fixtures/baseline/STAGE4-EVIDENCE.md");
+        if stage4_evidence.exists() {
+            let evidence = read("fixtures/baseline/STAGE4-EVIDENCE.md");
+            if evidence.contains("GREEN result") || evidence.contains("GREEN command") {
+                assert!(
+                    evidence.contains("P3-10")
+                        || evidence.contains("stage-3 store cutover")
+                        || evidence.contains("STAGE3-EVIDENCE"),
+                    "stage-4 evidence must cite stage-3 store cutover as entry prerequisite"
+                );
+            }
+            if stage_four_media_cutover_complete() {
+                for claim in [
+                    "Status: stage 4 closed",
+                    "stage 4 is closed",
+                    "stage 4 closed for stage 5",
+                ] {
+                    assert!(
+                        !evidence.contains(claim),
+                        "stage-4 evidence must not claim full stage close before P4-11 exit: {claim}"
+                    );
+                }
+            } else {
+                for claim in [
+                    "production dual-stack media GREEN",
+                    "P4-10A GREEN",
+                    "P4-10B GREEN",
+                    "Status: stage 4 closed",
+                    "stage 4 is closed",
+                    "Wave A cutover GREEN",
+                    "Wave B cutover GREEN",
+                ] {
+                    assert!(
+                        !evidence.contains(claim),
+                        "stage-4 evidence must not claim production media/archive cutover or stage close early: {claim}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// True when Kotlin media identity / archive ZIP production owners are deleted (P4-10A/B).
+    fn stage_four_media_cutover_complete() -> bool {
+        let root = repository_root();
+        !root
+            .join("data/src/repository/MediaRepositoryImpl.kt")
+            .exists()
+            && !root
+                .join("data/src/repository/MigrationArchiveRepositoryImpl.kt")
+                .exists()
+            && !root
+                .join("data/src/repository/AttachmentOrphanCleaner.kt")
+                .exists()
+    }
+
+    #[test]
+    fn stage_four_dark_build_must_not_wire_production_dual_stack() {
+        // Production Kotlin must not import Rust media crate names or dual-write feature flags.
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                assert!(
+                    !text.contains("lomo_media") && !text.contains("lomo-media"),
+                    "production Kotlin must not import Rust media crate names: {}",
+                    source.display()
+                );
+                for forbidden in [
+                    "use_rust_media",
+                    "USE_RUST_MEDIA",
+                    "dualWriteMedia",
+                    "dual_write_media",
+                    "RustAndKotlinMedia",
+                    "rustMediaEnabled",
+                    "use_rust_archive",
+                    "USE_RUST_ARCHIVE",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "production dual-stack / feature-flag media path forbidden: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+
+        if stage_four_media_cutover_complete() {
+            return;
+        }
+
+        // Pre-cutover dark-build: Kotlin remains sole live production media/archive authority.
+        assert!(
+            repository_root()
+                .join("data/src/repository/MediaRepositoryImpl.kt")
+                .exists(),
+            "production MediaRepositoryImpl must remain until P4-10A cutover"
+        );
+        assert!(
+            repository_root()
+                .join("data/src/repository/MigrationArchiveRepositoryImpl.kt")
+                .exists(),
+            "production MigrationArchiveRepositoryImpl must remain until P4-10B cutover"
+        );
+    }
+
+    #[test]
+    fn stage_four_forbids_full_media_byte_public_api() {
+        let media_root = repository_root().join("rust/media/src");
+        if !media_root.exists() {
+            return;
+        }
+        for source in rust_sources(&media_root) {
+            let text = fs::read_to_string(&source).expect("utf-8 media source");
+            // Public API must not accept ownership of full media bodies for stage/import.
+            for forbidden in [
+                "pub fn stage_media_bytes",
+                "pub fn import_media_bytes",
+                "pub fn digest_all_bytes(bytes: Vec<u8>",
+                "pub fn stage_media(bytes: Vec<u8>",
+                "pub fn stage_media(bytes: &[u8]",
+            ] {
+                assert!(
+                    !text.contains(forbidden),
+                    "lomo-media public surface must not take full media bytes: {forbidden} in {}",
+                    source.display()
+                );
+            }
+        }
+
+        let native = repository_root().join("rust/native/src/lib.rs");
+        if native.exists() {
+            let text = read("rust/native/src/lib.rs");
+            for forbidden in [
+                "fn stage_media_bytes",
+                "fn import_media_bytes",
+                "media_bytes: Vec<u8>",
+                "media_bytes: ByteArray",
+            ] {
+                assert!(
+                    !text.contains(forbidden),
+                    "native FFI must not expose full media-byte import surfaces: {forbidden}"
+                );
+            }
+        }
+
+        // Dark media/archive conversion module (P4-09) is path-only when present.
+        let media_ffi = repository_root().join("rust/native/src/media_ffi.rs");
+        if media_ffi.exists() {
+            let text = read("rust/native/src/media_ffi.rs");
+            for forbidden in [
+                "fn stage_media_bytes",
+                "fn import_media_bytes",
+                "media_bytes: Vec<u8>",
+                "media_bytes: ByteArray",
+                "body: Vec<u8>",
+            ] {
+                assert!(
+                    !text.contains(forbidden),
+                    "media_ffi must not expose full media-byte surfaces: {forbidden}"
+                );
+            }
+            for required in [
+                "ffi_stage_media",
+                "ffi_finalize_recording",
+                "ffi_promote_media",
+                "ffi_query_media_manifest",
+                "ffi_media_orphan_sweep",
+                "ffi_archive_export",
+                "ffi_archive_inspect",
+                "ffi_archive_import",
+                "ffi_archive_activate",
+            ] {
+                assert!(
+                    text.contains(required),
+                    "P4-09 media_ffi dark surface missing {required}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stage_four_production_media_owner_is_unique_after_cutover() {
+        if !stage_four_media_cutover_complete() {
+            return;
+        }
+
+        let forbidden_sources = [
+            "data/src/repository/MediaRepositoryImpl.kt",
+            "data/src/repository/AttachmentOrphanCleaner.kt",
+            "data/src/repository/MigrationArchiveRepositoryImpl.kt",
+            "data/src/repository/MigrationArchiveStagingWorkspace.kt",
+            "data/src/repository/MigrationArchiveDryRunPlanner.kt",
+            "data/src/repository/MigrationArchiveSupport.kt",
+            "domain/src/usecase/DiscardMemoDraftAttachmentsUseCase.kt",
+        ];
+        for relative in forbidden_sources {
+            assert!(
+                !repository_root().join(relative).exists(),
+                "legacy media/archive owner remains after P4-10 cutover: {relative}"
+            );
+        }
+
+        // Wave A depth: production media edge must not dual-own magic or invent digest basenames.
+        let edge = fs::read_to_string(
+            repository_root().join("data/src/repository/MediaEdgeRepository.kt"),
+        )
+        .expect("MediaEdgeRepository is UTF-8");
+        for forbidden in [
+            "ImageMagicByteValidator",
+            "basenameForStaged",
+            "media_$short",
+            "digest.take(",
+        ] {
+            assert!(
+                !edge.contains(forbidden),
+                "MediaEdgeRepository dual media-identity residual `{forbidden}` remains after Wave A"
+            );
+        }
+        assert!(
+            edge.contains("suggestedFinalRelativePath"),
+            "MediaEdgeRepository must promote Rust-suggested final relative paths"
+        );
+        // D6 delete law: committed media must not be permanently deleted via host File.delete.
+        // Stage temps may still delete; permanent reclaim is mediaOrphanSweep / media-trash.
+        assert!(
+            edge.contains("mediaOrphanSweep") || edge.contains("runOrphanSweepAtOperationBoundary"),
+            "MediaEdgeRepository must call orphan sweep at delete/maintenance boundary"
+        );
+        // Reject permanent delete of media/$basename or media/${...} patterns.
+        let permanent_committed_delete = edge.lines().any(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                return false;
+            }
+            let deletes = trimmed.contains(".delete()") || trimmed.contains(".deleteRecursively()");
+            if !deletes {
+                return false;
+            }
+            // Allow temp stage discard and File.createTempFile cleanup only.
+            let is_temp = trimmed.contains("temp.")
+                || trimmed.contains("staged")
+                || trimmed.contains("MEDIA_STAGE")
+                || trimmed.contains("listFiles");
+            !is_temp && (trimmed.contains("media/") || trimmed.contains("\"media\""))
+        });
+        assert!(
+            !permanent_committed_delete,
+            "MediaEdgeRepository must not File.delete committed media/ paths; use media-trash orphan sweep"
+        );
+
+        // D6 history keep-set: edge must project store history attachment refs into orphan sweep.
+        assert!(
+            edge.contains("listHistoryAttachmentRefs"),
+            "MediaEdgeRepository must collect history attachment refs for orphan keep-set"
+        );
+        assert!(
+            edge.contains("\"history\"") || edge.contains("source = \"history\""),
+            "MediaEdgeRepository must wire HistoryVersion source=history on orphan refs"
+        );
+        let store_history = repository_root().join("rust/store/src/history_refs.rs");
+        assert!(
+            store_history.exists(),
+            "lomo-store must own history_refs projection for D6 orphan keep-set"
+        );
+
+        assert_wave_a_media_delete_law();
+        assert_wave_a_sync_delete_reclaim();
+        assert_wave_a_history_retention_modeled();
+    }
+
+    fn assert_wave_a_media_delete_law() {
+        // Broader production scan: committed media delete tails outside MediaEdge must fail closed.
+        let media_delete_owners = [
+            "data/src/source/DirectMediaStorageBackendDelegate.kt",
+            "data/src/source/SafMediaStorageBackendDelegate.kt",
+            "data/src/source/FileMediaStorageDataSourceDelegate.kt",
+            "data/src/webdav/LocalMediaSyncStore.kt",
+            "data/src/repository/WorkspaceMediaAccess.kt",
+            "data/src/repository/WorkspaceMediaDirectAccess.kt",
+            "data/src/repository/WorkspaceMediaSafAccess.kt",
+        ];
+        for relative in media_delete_owners {
+            let text = read(relative);
+            assert!(
+                text.contains("retired after P4-10A")
+                    || text.contains("media-trash")
+                    || text.contains("UnsupportedOperationException"),
+                "{relative} must fail-closed permanent media delete (D6 media-trash law)"
+            );
+            let active_hard_delete = text.lines().any(|line| {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//") || trimmed.starts_with('*') {
+                    return false;
+                }
+                (trimmed.contains(".delete()") || trimmed.contains("?.delete()"))
+                    && (trimmed.contains("filename")
+                        || trimmed.contains("located.")
+                        || trimmed.contains("target.")
+                        || trimmed.contains("findFile"))
+                    && !trimmed.contains("throw")
+            });
+            assert!(
+                !active_hard_delete,
+                "{relative} still permanently deletes committed media outside orphan/trash law"
+            );
+        }
+
+        // Breadth scan: every production data/src .kt for DocumentsContract.delete / File.delete
+        // against committed media/ paths (excluding stage temps).
+        for source in kotlin_sources(&repository_root().join("data/src")) {
+            let text = fs::read_to_string(&source)
+                .unwrap_or_else(|e| panic!("failed to read {}: {e}", source.display()));
+            let rel = source
+                .strip_prefix(repository_root())
+                .unwrap_or(&source)
+                .display()
+                .to_string();
+            let is_media_edge = rel.contains("MediaEdgeRepository.kt");
+            for (line_no, line) in text.lines().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//")
+                    || trimmed.starts_with('*')
+                    || trimmed.starts_with("/*")
+                {
+                    continue;
+                }
+                let deletes_doc = trimmed.contains("DocumentsContract.delete")
+                    && (trimmed.contains("media") || trimmed.contains("Media"));
+                let deletes_committed_media = (trimmed.contains(".delete()")
+                    || trimmed.contains("?.delete()"))
+                    && (trimmed.contains("media/")
+                        || trimmed.contains("\"media/\"")
+                        || trimmed.contains("'/media/")
+                        || trimmed.contains("mediaRoot")
+                        || trimmed.contains("committed media"));
+                if !deletes_doc && !deletes_committed_media {
+                    continue;
+                }
+                let is_temp = trimmed.contains("temp")
+                    || trimmed.contains("staged")
+                    || trimmed.contains("MEDIA_STAGE")
+                    || trimmed.contains("createTempFile")
+                    || trimmed.contains("cacheDir");
+                if is_media_edge && is_temp {
+                    continue;
+                }
+                if is_temp && !deletes_doc {
+                    continue;
+                }
+                panic!(
+                    "production {rel}:{} hard-deletes committed media outside D6 media-trash law: {trimmed}",
+                    line_no + 1
+                );
+            }
+        }
+    }
+
+    fn assert_wave_a_sync_delete_reclaim() {
+        let webdav_applier = read("data/src/repository/WebDavSyncOperationRepositoryImpl.kt");
+        assert!(
+            webdav_applier.contains("runOrphanSweepAtOperationBoundary"),
+            "WebDavSyncActionApplier must orphan-sweep after media delete journal"
+        );
+        assert!(
+            webdav_applier.contains("mediaBytesChanged")
+                || webdav_applier.contains("localChanged = mediaBytesChanged"),
+            "WebDav media delete must report localChanged from store delete Boolean, not hard-coded true"
+        );
+        let s3_applier = read("data/src/repository/S3SyncActionApplier.kt");
+        assert!(
+            s3_applier.contains("runOrphanSweepAtOperationBoundary"),
+            "S3SyncActionApplier must orphan-sweep after media delete journal"
+        );
+    }
+
+    fn assert_wave_a_history_retention_modeled() {
+        let history_refs = read("rust/store/src/history_refs.rs");
+        assert!(
+            history_refs.contains("DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS")
+                && history_refs.contains("list_history_attachment_refs_with_retention"),
+            "history_refs must expose explicit retention window for D6 keep-set"
+        );
+    }
+
     /// Blocks infinite device-side migration archaeology (Room `Migration_*` / dao / legacy trees).
     #[test]
     fn store_forbids_room_style_migration_layout() {

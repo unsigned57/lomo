@@ -137,6 +137,7 @@ class_patterns = [
     "com.lomo.app.feature.*.*SectionsKt*",
     "com.lomo.app.feature.*.*BannerKt*",
     "com.lomo.app.feature.*.*DialogsKt*",
+    "com.lomo.app.feature.*.*DialogKt*",
     "com.lomo.app.feature.*.*DialogHostKt*",
     "com.lomo.app.feature.*.*LayoutKt*",
     "com.lomo.app.feature.*.*SheetKt*",

@@ -944,14 +944,14 @@ pub fn verify_native_tree(
     // libraries for faster host iteration and must not be cited as shipping GREEN.
     let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
     if shipping && abis.len() == Abi::ALL.len() {
-        // Stage-3 `lomo-store` (SQLite FTS + durable `.lomo` + rebuild + reminder) expands the
-        // shipping surface beyond the stage-2 workspace owner total (~3.28 MiB / 3.6 MiB ceiling).
-        // Observed stripped `release-android` four-ABI total after store cutover is ~8.38 MiB; keep
-        // modest headroom for non-semantic native churn without absorbing Dev packs.
-        const MAX_FOUR_ABI_BYTES: u64 = 9_000_000;
+        // Stage-3 `lomo-store` + stage-4 `lomo-media`/archive path-only FFI expand the shipping surface
+        // beyond the stage-2 workspace owner total (~3.28 MiB / 3.6 MiB ceiling). Observed stripped
+        // `release-android` four-ABI total after media cutover is ~9.2 MiB; keep modest headroom for
+        // non-semantic native churn without absorbing Dev packs.
+        const MAX_FOUR_ABI_BYTES: u64 = 10_500_000;
         if total_bytes > MAX_FOUR_ABI_BYTES {
             bail!(
-                "shipping four-ABI native total {total_bytes} exceeds stage-3 store shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
+                "shipping four-ABI native total {total_bytes} exceeds stage-4 media shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
             );
         }
         crate::util::emit_stderr(format_args!(

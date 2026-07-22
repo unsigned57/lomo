@@ -84,6 +84,7 @@ mod tests {
                 content: Some("hello store ffi".to_owned()),
                 tags: vec!["tag/a".to_owned()],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("create");
         assert!(!commit.scopes.is_empty(), "commit must publish scopes");
@@ -204,6 +205,7 @@ mod tests {
                 content: Some("seed\n- [ ] task\nhttps://lomo.example".to_owned()),
                 tags: vec!["k".to_owned()],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("create");
         assert!(!create.idempotent_replay);
@@ -219,6 +221,7 @@ mod tests {
                 content: Some("updated body\n- [x] task\nhttps://lomo.example/x".to_owned()),
                 tags: vec!["k".to_owned(), "u".to_owned()],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("update");
         assert_eq!(update.content_revision, create.content_revision + 1);
@@ -234,6 +237,7 @@ mod tests {
                 content: None,
                 tags: vec![],
                 pin: Some(true),
+                pending_promotes: vec![],
             })
             .test_ok("pin");
         assert!(pin.scopes.iter().any(|s| s == "pin"));
@@ -273,6 +277,7 @@ mod tests {
                 content: None,
                 tags: vec![],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("delete");
         assert!(deleted.scopes.iter().any(|s| s == "trash"));
@@ -308,6 +313,7 @@ mod tests {
                 content: None,
                 tags: vec![],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("restore");
         assert!(restored.scopes.iter().any(|s| s == "trash"));
@@ -322,6 +328,7 @@ mod tests {
                 content: None,
                 tags: vec![],
                 pin: Some(false),
+                pending_promotes: vec![],
             })
             .test_ok("unpin");
 
@@ -335,6 +342,7 @@ mod tests {
                 content: Some("history via ffi".to_owned()),
                 tags: vec!["h".to_owned()],
                 pin: None,
+                pending_promotes: vec![],
             })
             .test_ok("history restore");
         assert_eq!(hist.content_revision, update.content_revision + 1);
@@ -362,6 +370,7 @@ mod tests {
                     content: Some(format!("body {i}")),
                     tags: vec![],
                     pin: None,
+                    pending_promotes: vec![],
                 })
                 .test_ok("create page memo");
         }

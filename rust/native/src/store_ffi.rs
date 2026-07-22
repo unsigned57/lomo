@@ -80,6 +80,16 @@ pub struct StoreMemoSnapshot {
     pub body: String,
 }
 
+/// Attachment path still referenced by a durable history revision (D6 orphan keep-set).
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreHistoryAttachmentRef {
+    pub memo_id: String,
+    pub revision: u64,
+    pub relative_path: String,
+    pub owner_key: String,
+}
+
 #[data]
 #[derive(Clone, Copy, Debug)]
 pub enum StoreMemoCommandKind {
@@ -103,6 +113,8 @@ pub struct StoreMemoCommand {
     pub content: Option<String>,
     pub tags: Vec<String>,
     pub pin: Option<bool>,
+    /// Path-only promote plans under the same operation-id (P4-09 dark wire).
+    pub pending_promotes: Vec<crate::media_ffi::MediaPromotePlanDto>,
 }
 
 #[data]
@@ -356,6 +368,26 @@ impl StoreHandle {
         }))
     }
 
+    /// D6 history-window attachment paths for media orphan refcount.
+    ///
+    /// # Errors
+    ///
+    /// Store history list errors.
+    pub fn list_history_attachment_refs(
+        &self,
+    ) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
+        let refs = self.with_store(Store::list_history_attachment_refs)?;
+        Ok(refs
+            .into_iter()
+            .map(|r| StoreHistoryAttachmentRef {
+                memo_id: r.memo_id,
+                revision: r.revision,
+                relative_path: r.relative_path,
+                owner_key: r.owner_key,
+            })
+            .collect())
+    }
+
     /// See plan `apply_memo_command` (dark-build returns commit facts synchronously).
     ///
     /// # Errors
@@ -375,6 +407,8 @@ impl StoreHandle {
             StoreMemoCommandKind::HistoryRestore => MemoCommandKind::HistoryRestore,
         };
         let operation_id = OperationId::parse(&command.operation_id).map_err(EngineError::from)?;
+        let pending_promotes =
+            crate::media_ffi::pending_promotes_from_ffi(&command.pending_promotes)?;
         let inner = MemoCommand {
             operation_id,
             kind,
@@ -384,6 +418,7 @@ impl StoreHandle {
             content: command.content,
             tags: command.tags,
             pin: command.pin,
+            pending_promotes,
         };
         let result = self.with_store_mut(|store| store.apply_memo_command(&inner, None))?;
         Ok(StoreMemoCommit {

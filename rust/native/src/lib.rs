@@ -20,13 +20,20 @@ use lomo_core as core;
 use lomo_sync_core::plan_envelope;
 use lomo_workspace::{self as workspace, workspace_driver_registry};
 
+// Public so BoltFFI type resolution can name `crate::media_ffi::*` wire DTOs from store_ffi.
+pub mod media_ffi;
 mod store_ffi;
+pub use media_ffi::{
+    ArchiveExportResultDto, ArchiveInspectResultDto, MediaAttachmentRefDto, MediaCommittedEntryDto,
+    MediaManifestDto, MediaOrphanSweepResultDto, MediaPromotePlanDto, MediaPromoteResultDto,
+    MediaSourceKind, MediaStagedDto, MediaTrashEntryDto, pending_promotes_from_ffi,
+};
 pub use store_ffi::{
-    StoreHandle, StoreMemoCommand, StoreMemoCommandKind, StoreMemoCommit, StoreMemoFilters,
-    StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSummary, StorePageCursor,
-    StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand, StoreReminderCommandKind,
-    StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery, StoreReminderSession,
-    StoreTimeZoneContext, StoreZoneTransition,
+    StoreHandle, StoreHistoryAttachmentRef, StoreMemoCommand, StoreMemoCommandKind,
+    StoreMemoCommit, StoreMemoFilters, StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot,
+    StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
+    StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
+    StoreReminderSession, StoreTimeZoneContext, StoreZoneTransition,
 };
 
 #[data]
@@ -893,6 +900,17 @@ impl LomoEngine {
         self.store_handle()?.get_memo(&memo_id)
     }
 
+    /// Dark-build history attachment paths for D6 orphan keep-set.
+    ///
+    /// # Errors
+    ///
+    /// Missing Direct store handle, or store history list errors.
+    pub fn list_history_attachment_refs(
+        &self,
+    ) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
+        self.store_handle()?.list_history_attachment_refs()
+    }
+
     /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
     ///
     /// # Errors
@@ -936,6 +954,216 @@ impl LomoEngine {
     /// Missing Direct store handle, or rebuild errors.
     pub fn start_rebuild(&self, batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
         self.store_handle()?.start_rebuild(batch_size)
+    }
+
+    /// Dark-build path-only media stage (P4-09). No full media bytes.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn stage_media(
+        &self,
+        media_root: String,
+        source_kind: MediaSourceKind,
+        source_path: String,
+        human_name_hint: String,
+    ) -> Result<MediaStagedDto, EngineError> {
+        media_ffi::ffi_stage_media(&media_root, source_kind, &source_path, &human_name_hint)
+    }
+
+    /// Dark-build allocate recording target path under stage dir.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn allocate_recording_target(
+        &self,
+        media_root: String,
+        extension: String,
+    ) -> Result<String, EngineError> {
+        media_ffi::ffi_allocate_recording_target(&media_root, &extension)
+    }
+
+    /// Dark-build finalize recording path into staged media.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn finalize_recording(
+        &self,
+        media_root: String,
+        recording_path: String,
+        human_name_hint: String,
+    ) -> Result<MediaStagedDto, EngineError> {
+        media_ffi::ffi_finalize_recording(&media_root, &recording_path, &human_name_hint)
+    }
+
+    /// Dark-build promote staged media to final relative path (path-only).
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn promote_media(
+        &self,
+        workspace_root: String,
+        plan: MediaPromotePlanDto,
+    ) -> Result<MediaPromoteResultDto, EngineError> {
+        media_ffi::ffi_promote_media(&workspace_root, plan)
+    }
+
+    /// Dark-build media manifest listing (paths + digests only).
+    ///
+    /// # Errors
+    ///
+    /// Storage walk errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn query_media_manifest(
+        &self,
+        workspace_root: String,
+    ) -> Result<MediaManifestDto, EngineError> {
+        media_ffi::ffi_query_media_manifest(&workspace_root)
+    }
+
+    /// Dark-build media orphan sweep (path-only host maps).
+    ///
+    /// # Errors
+    ///
+    /// Media storage/validation errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn media_orphan_sweep(
+        &self,
+        media_root: String,
+        committed: Vec<MediaCommittedEntryDto>,
+        refs: Vec<MediaAttachmentRefDto>,
+        existing_trash: Vec<MediaTrashEntryDto>,
+        now_ms: Option<u64>,
+        recovery_window_ms: u64,
+    ) -> Result<MediaOrphanSweepResultDto, EngineError> {
+        media_ffi::ffi_media_orphan_sweep(
+            &media_root,
+            committed,
+            refs,
+            existing_trash,
+            now_ms,
+            recovery_window_ms,
+        )
+    }
+
+    /// Dark-build archive v2 export (path-only).
+    ///
+    /// # Errors
+    ///
+    /// Archive export errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn archive_export(
+        &self,
+        workspace_root: String,
+        archive_path: String,
+    ) -> Result<ArchiveExportResultDto, EngineError> {
+        media_ffi::ffi_archive_export(&workspace_root, &archive_path)
+    }
+
+    /// Dark-build archive inspect into staging (does not touch live).
+    ///
+    /// # Errors
+    ///
+    /// Archive inspect errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn archive_inspect(
+        &self,
+        archive_path: String,
+        staging_root: String,
+    ) -> Result<ArchiveInspectResultDto, EngineError> {
+        media_ffi::ffi_archive_inspect(&archive_path, &staging_root)
+    }
+
+    /// Dark-build archive import (inspect alias) into staging.
+    ///
+    /// # Errors
+    ///
+    /// Archive import errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn archive_import(
+        &self,
+        archive_path: String,
+        staging_root: String,
+    ) -> Result<ArchiveInspectResultDto, EngineError> {
+        media_ffi::ffi_archive_import(&archive_path, &staging_root)
+    }
+
+    /// Dark-build atomic archive activate.
+    ///
+    /// # Errors
+    ///
+    /// Activate validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn archive_activate(
+        &self,
+        staging_root: String,
+        live_root: String,
+        backup_root: String,
+    ) -> Result<(), EngineError> {
+        media_ffi::ffi_archive_activate(&staging_root, &live_root, &backup_root)
+    }
+
+    /// Dark-build import → activate → rebuild on activated live root.
+    ///
+    /// # Errors
+    ///
+    /// Import, activate, or rebuild errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn archive_import_activate_rebuild(
+        &self,
+        archive_path: String,
+        staging_root: String,
+        live_root: String,
+        backup_root: String,
+        batch_size: u32,
+    ) -> Result<StoreRebuildResult, EngineError> {
+        media_ffi::ffi_archive_import_activate_rebuild(
+            &archive_path,
+            &staging_root,
+            &live_root,
+            &backup_root,
+            batch_size,
+        )
     }
 
     fn store_handle(&self) -> Result<&StoreHandle, EngineError> {
