@@ -654,6 +654,7 @@ class WebDavSyncActionApplier
 constructor(
         private val runtime: WebDavSyncRepositoryContext,
         private val fileBridge: WebDavSyncFileBridge,
+        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
     ) {
         internal suspend fun applyAction(
             action: WebDavSyncAction,
@@ -760,10 +761,16 @@ constructor(
                     MemoDirectoryType.MAIN,
                     extractWebDavMemoFilename(action.path, layout),
                 )
-            } else {
-                runtime.localMediaSyncStore.delete(action.path, layout)
+                return ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
             }
-            return ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
+            // D6: journal only — LocalMediaSyncStore never hard-deletes committed media.
+            val mediaBytesChanged = runtime.localMediaSyncStore.delete(action.path, layout)
+            // Operation-boundary reclaim: orphan sweep may move zero-ref digests to media-trash.
+            mediaRepository.runOrphanSweepAtOperationBoundary()
+            return ActionExecutionState.Applied(
+                localChanged = mediaBytesChanged,
+                remoteChanged = false,
+            )
         }
         private fun deleteRemoteAction(
             action: WebDavSyncAction,

@@ -78,12 +78,91 @@ internal class RustEngineAdapter(
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
 
+    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
+        native.listHistoryAttachmentRefs()
+
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
     ): com.lomo.nativebridge.StoreMemoCommit = native.applyMemoCommand(command)
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         native.startRebuild(batchSize)
+
+    override fun stageMedia(
+        mediaRoot: String,
+        sourceKind: com.lomo.nativebridge.MediaSourceKind,
+        sourcePath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        native.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
+
+    override fun allocateRecordingTarget(
+        mediaRoot: String,
+        extension: String,
+    ): String = native.allocateRecordingTarget(mediaRoot, extension)
+
+    override fun finalizeRecording(
+        mediaRoot: String,
+        recordingPath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        native.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
+
+    override fun promoteMedia(
+        workspaceRoot: String,
+        plan: com.lomo.nativebridge.MediaPromotePlanDto,
+    ): com.lomo.nativebridge.MediaPromoteResultDto = native.promoteMedia(workspaceRoot, plan)
+
+    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        native.queryMediaManifest(workspaceRoot)
+
+    override fun mediaOrphanSweep(
+        mediaRoot: String,
+        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
+        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+        nowMs: ULong?,
+        recoveryWindowMs: ULong,
+    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
+        native.mediaOrphanSweep(mediaRoot, committed, refs, existingTrash, nowMs, recoveryWindowMs)
+
+    override fun archiveExport(
+        workspaceRoot: String,
+        archivePath: String,
+    ): com.lomo.nativebridge.ArchiveExportResultDto = native.archiveExport(workspaceRoot, archivePath)
+
+    override fun archiveInspect(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto = native.archiveInspect(archivePath, stagingRoot)
+
+    override fun archiveImport(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto = native.archiveImport(archivePath, stagingRoot)
+
+    override fun archiveActivate(
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+    ) {
+        native.archiveActivate(stagingRoot, liveRoot, backupRoot)
+    }
+
+    override fun archiveImportActivateRebuild(
+        archivePath: String,
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+        rebuildBatchSize: UInt,
+    ): com.lomo.nativebridge.StoreRebuildResult =
+        native.archiveImportActivateRebuild(
+            archivePath,
+            stagingRoot,
+            liveRoot,
+            backupRoot,
+            rebuildBatchSize,
+        )
 
     @Synchronized
     private fun onNativeEvent(event: NativeCoreEvent) {

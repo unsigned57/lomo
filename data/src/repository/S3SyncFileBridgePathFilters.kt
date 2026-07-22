@@ -87,35 +87,22 @@ private fun hasSystemFileName(relativePath: String): Boolean {
 
 internal fun legacyMemoRemotePrefix(layout: SyncDirectoryLayout): String = "$S3_ROOT/${layout.memoFolder}/"
 
-internal val IMAGE_CONTENT_TYPES =
-    mapOf(
-        "png" to "image/png",
-        "gif" to "image/gif",
-        "webp" to "image/webp",
-        "bmp" to "image/bmp",
-        "heic" to "image/heic",
-        "heif" to "image/heif",
-        "avif" to "image/avif",
-        "jpg" to "image/jpeg",
-        "jpeg" to "image/jpeg",
-    )
+// Presentation Content-Type only (AndroidPresentationMimeTypes). Not media identity.
+internal fun imageContentTypeForExtension(extension: String): String =
+    com.lomo.data.media.AndroidPresentationMimeTypes.imageMimeForExtension(extension)
 
-internal val VOICE_CONTENT_TYPES =
-    mapOf(
-        "m4a" to "audio/mp4",
-        "mp3" to "audio/mpeg",
-        "aac" to "audio/aac",
-        "wav" to "audio/wav",
-        "ogg" to "audio/ogg",
-    )
+internal fun voiceContentTypeForExtension(extension: String): String =
+    com.lomo.data.media.AndroidPresentationMimeTypes.audioMimeForExtension(extension)
 
 internal val S3_SYNC_IMAGE_EXTENSIONS = MediaFileExtensions.IMAGE
 
 internal val S3_SYNC_VOICE_EXTENSIONS = MediaFileExtensions.AUDIO
 
-internal const val DEFAULT_IMAGE_CONTENT_TYPE = "image/jpeg"
-internal const val DEFAULT_VOICE_CONTENT_TYPE = "audio/mp4"
-internal const val OCTET_STREAM = "application/octet-stream"
+internal const val DEFAULT_IMAGE_CONTENT_TYPE =
+    com.lomo.data.media.AndroidPresentationMimeTypes.DEFAULT_IMAGE
+internal const val DEFAULT_VOICE_CONTENT_TYPE =
+    com.lomo.data.media.AndroidPresentationMimeTypes.DEFAULT_AUDIO
+internal const val OCTET_STREAM = com.lomo.data.media.AndroidPresentationMimeTypes.OCTET_STREAM
 
 private val SYSTEM_DIRECTORY_SEGMENTS =
     setOf(

@@ -1,7 +1,7 @@
 package com.lomo.app.di
 
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
-import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
+import com.lomo.domain.usecase.DiscardDraftMediaUseCase
 import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
@@ -29,6 +29,6 @@ val domainWorkspaceModule = module {
     single { ExportEncryptedSettingsUseCase(get()) }
     single { ImportEncryptedSettingsUseCase(get()) }
     single { SaveImageUseCase(get()) }
-    single { DiscardMemoDraftAttachmentsUseCase(get()) }
+    single { DiscardDraftMediaUseCase(get()) }
     single { StartupMaintenanceUseCase(get(), get(), get(), get(), get(), get()) }
 }

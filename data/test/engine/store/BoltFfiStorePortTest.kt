@@ -6,7 +6,8 @@ package com.lomo.data.engine.store
  * - Owning layer: data
  * - Priority tier: P0
  * - Capability: map domain StorePort requests/results to/from native bridge DTOs; blank operationId
- *   is filled; null getMemo remains null; command kinds map bijectively.
+ *   is filled only when no pendingPromotes; promotes require non-blank matching operationId (D4);
+ *   null getMemo remains null; command kinds map bijectively.
  *
  * Scenarios:
  * - Given a bridge page with one summary and next cursor, when queryMemos runs, then filters/search
@@ -15,7 +16,10 @@ package com.lomo.data.engine.store
  * - Given bridge getMemo returns a snapshot, when getMemo runs, then body and summary map.
  * - Given each StoreMemoCommandKind, when applyMemoCommand runs, then bridge receives the matching
  *   kind and commit fields map.
- * - Given blank operationId, when applyMemoCommand runs, then a non-blank operationId is sent.
+ * - Given blank operationId and empty pendingPromotes, when applyMemoCommand runs, then a non-blank
+ *   operationId is minted for the memo-only command.
+ * - Given blank operationId with non-empty pendingPromotes, when applyMemoCommand runs, then fail
+ *   closed without calling the bridge (no UUID mint under promote).
  * - Given a rebuild result, when startRebuild runs, then counters map to domain longs.
  *
  * Observable outcomes: domain StoreMemoPage / Snapshot / Commit / RebuildResult; last bridge
@@ -27,6 +31,15 @@ package com.lomo.data.engine.store
  *
  * Excludes:
  * - Real BoltFFI/JNI handle lifecycle (device-smoke / native contracts).
+ *
+ * Test Change Justification:
+ * - Reason category: production media promote wiring on store memo commands (stage-4 cutover).
+ * - Old behavior/assertion being replaced: blank operationId always minted; no pendingPromotes field.
+ * - Why old assertion is no longer correct: promotes must share a non-blank caller operation-id;
+ *   minting under promote would dual-author identity and break same-operation atomicity.
+ * - Coverage preserved by: page/get/rebuild mapping and memo-only blank-id mint scenarios remain.
+ * - Why this is not fitting the test to the implementation: locks the D4 operation-id boundary, not
+ *   internal UUID helper details.
  */
 
 import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
@@ -38,10 +51,14 @@ import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
 import com.lomo.nativebridge.StoreMemoSummary as BridgeMemoSummary
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
+import com.lomo.data.engine.media.MediaPromotePlan
+import com.lomo.data.engine.media.MediaStagedFacts
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotBeBlank
 
 private class RecordingStoreNativeBridge : StoreNativeBridge {
@@ -92,6 +109,9 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
         lastPageSize = pageSize
         return page
     }
+
+    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
+        emptyList()
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? {
         lastGetMemoId = memoId
@@ -252,7 +272,7 @@ class BoltFfiStorePortTest : FunSpec({
         }
     }
 
-    test("blank operationId is replaced before bridge apply") {
+    test("blank operationId without promotes is replaced before bridge apply") {
         val bridge = RecordingStoreNativeBridge()
         BoltFfiStorePort(bridge).applyMemoCommand(
             StoreMemoCommand(
@@ -264,6 +284,39 @@ class BoltFfiStorePortTest : FunSpec({
             ),
         )
         bridge.lastCommand?.operationId.shouldNotBeNull().shouldNotBeBlank()
+    }
+
+    test("blank operationId with pendingPromotes fails closed without minting UUID") {
+        val bridge = RecordingStoreNativeBridge()
+        val plan =
+            MediaPromotePlan(
+                operationId = "  ",
+                staged =
+                    MediaStagedFacts(
+                        digest = "d".repeat(64),
+                        size = 1L,
+                        mime = "image/png",
+                        stagingPath = "/tmp/stage",
+                        humanNameHint = "a.png",
+                        suggestedFinalRelativePath = "media/a.png",
+                    ),
+                finalRelativePath = "media/a.png",
+            )
+        val error =
+            shouldThrow<IllegalStateException> {
+                BoltFfiStorePort(bridge).applyMemoCommand(
+                    StoreMemoCommand(
+                        operationId = "",
+                        kind = StoreMemoCommandKind.Create,
+                        memoId = "",
+                        expectedRevision = 0L,
+                        content = "![i](media/a.png)",
+                        pendingPromotes = listOf(plan),
+                    ),
+                )
+            }
+        error.message.shouldNotBeNull().shouldContain("non-blank operationId")
+        bridge.lastCommand.shouldBeNull()
     }
 
     test("startRebuild maps counters digests and batch size") {

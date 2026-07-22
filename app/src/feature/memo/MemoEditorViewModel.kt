@@ -7,7 +7,7 @@ import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
-import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
+import com.lomo.domain.usecase.DiscardDraftMediaUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -25,12 +25,13 @@ class MemoEditorViewModel(
     private val createMemoUseCase: CreateMemoUseCase,
     private val updateMemoContentUseCase: UpdateMemoContentUseCase,
     private val saveImageUseCase: SaveImageUseCase,
-    private val discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase,
+    private val discardDraftMediaUseCase: DiscardDraftMediaUseCase,
     private val appWidgetRepository: AppWidgetRepository,
     private val observeDraftTextUseCase: ObserveDraftTextUseCase,
     private val setDraftTextUseCase: SetDraftTextUseCase,
 ) : ViewModel() {
-        private val trackedImageFilenames = mutableSetOf<String>()
+        /** Staged draft media destinations (image + voice relative paths) for discard. */
+        private val trackedStagedMedia = mutableSetOf<String>()
         private var hasLocalDraftMutation = false
 
         private val _errorMessage = MutableStateFlow<String?>(null)
@@ -78,7 +79,7 @@ class MemoEditorViewModel(
                         geoLocation = geoLocation,
                     )
                     onSuccess?.invoke()
-                    clearTrackedImages()
+                    clearTrackedStagedMedia()
                     clearDraft()
                     viewModelScope.launch(Dispatchers.IO) {
                         runCatching { appWidgetRepository.updateAllWidgets() }
@@ -100,7 +101,7 @@ class MemoEditorViewModel(
                 runCatching {
                     updateMemoContentUseCase(memo, newContent)
                     appWidgetRepository.updateAllWidgets()
-                    clearTrackedImages()
+                    clearTrackedStagedMedia()
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -127,7 +128,7 @@ class MemoEditorViewModel(
                             is SaveImageResult.SavedAndCacheSynced -> result.location.raw
                             is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
                         }
-                    trackedImageFilenames += path
+                    trackStagedMedia(path)
                     onResult(path)
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
@@ -139,12 +140,31 @@ class MemoEditorViewModel(
             }
         }
 
+        /**
+         * Records a staged media destination (image or voice) so draft discard can drop the stage.
+         * Call with the markdown destination path (e.g. `media/voice_….m4a`), not the full markdown.
+         */
+        fun trackStagedMedia(destination: String) {
+            val key = destination.trim()
+            if (key.isNotEmpty()) {
+                trackedStagedMedia += key
+            }
+        }
+
+        /**
+         * Tracks voice markdown inserted after finalize (`![voice](dest)`). Extracts dest only.
+         */
+        fun trackVoiceMarkdown(markdown: String) {
+            val dest = extractMarkdownDestination(markdown) ?: return
+            trackStagedMedia(dest)
+        }
+
         fun discardInputs() {
             viewModelScope.launch {
                 runCatching {
-                    val toDelete = trackedImageFilenames.toList()
-                    trackedImageFilenames.clear()
-                    discardMemoDraftAttachmentsUseCase(toDelete)
+                    val toDelete = trackedStagedMedia.toList()
+                    trackedStagedMedia.clear()
+                    discardDraftMediaUseCase(toDelete)
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -158,7 +178,21 @@ class MemoEditorViewModel(
             _errorMessage.value = null
         }
 
-        private fun clearTrackedImages() {
-            trackedImageFilenames.clear()
+        private fun clearTrackedStagedMedia() {
+            trackedStagedMedia.clear()
+        }
+
+        companion object {
+            /** Best-effort `![alt](dest)` / `[alt](dest)` destination extract for draft tracking. */
+            internal fun extractMarkdownDestination(markdown: String): String? {
+                val open = markdown.indexOf('(')
+                val close = markdown.lastIndexOf(')')
+                if (open < 0 || close <= open) return null
+                return markdown
+                    .substring(open + 1, close)
+                    .trim()
+                    .trim('<', '>')
+                    .takeIf { it.isNotEmpty() }
+            }
         }
     }

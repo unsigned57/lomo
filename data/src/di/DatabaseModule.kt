@@ -1,7 +1,6 @@
 package com.lomo.data.di
 
 import com.lomo.data.local.FileBackedSyncDatabase
-import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.dao.PendingSyncReviewDao
 import com.lomo.data.local.dao.RawS3SyncMetadataDao
@@ -35,7 +34,6 @@ val databaseModule =
     module {
         single { FileBackedSyncDatabase(androidContext()) }
 
-        single<ImageLocationCacheDao> { get<FileBackedSyncDatabase>().imageLocationCacheDao }
         single<PendingSyncConflictDao> { get<FileBackedSyncDatabase>().pendingSyncConflictDao }
         single<PendingSyncReviewDao> { get<FileBackedSyncDatabase>().pendingSyncReviewDao }
         single<S3LocalChangeJournalDao> { get<FileBackedSyncDatabase>().s3LocalChangeJournalDao }

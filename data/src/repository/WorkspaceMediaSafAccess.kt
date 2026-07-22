@@ -69,9 +69,12 @@ internal suspend fun deleteWorkspaceSafFile(
     rootUriString: String,
     filename: String,
 ) {
-    withContext(Dispatchers.IO) {
-        resolveWorkspaceSafRoot(context, rootUriString)?.findFile(filename)?.delete()
-    }
+    // D6: permanent reclaim is Rust media-trash / orphan sweep only.
+    throw UnsupportedOperationException(
+        "deleteWorkspaceSafFile is retired after P4-10A " +
+            "(pkg=${context.packageName}, root=$rootUriString, file=$filename); " +
+            "use MediaRepository.removeImage/removeVoiceCapture",
+    )
 }
 
 internal fun isContentUriRoot(value: String): Boolean =

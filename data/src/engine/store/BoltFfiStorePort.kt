@@ -1,5 +1,7 @@
 package com.lomo.data.engine.store
 
+import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
+import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
 import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
 import com.lomo.nativebridge.StoreMemoCommandKind as BridgeMemoCommandKind
 import com.lomo.nativebridge.StoreMemoFilters as BridgeMemoFilters
@@ -54,11 +56,33 @@ internal class BoltFfiStorePort(
         return StoreMemoSnapshot(summary = snap.summary.toSummary(), body = snap.body)
     }
 
+    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> =
+        bridge.listHistoryAttachmentRefs().map { ref ->
+            StoreHistoryAttachmentRef(
+                memoId = ref.memoId,
+                revision = ref.revision.toLong(),
+                relativePath = ref.relativePath,
+                ownerKey = ref.ownerKey,
+            )
+        }
+
     override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit {
+        // D4: same-operation promote requires a real operationId. Never mint when promotes are
+        // present (blank mint would desync plan.operationId from the memo command).
+        val operationId =
+            command.operationId.trim().ifEmpty {
+                if (command.pendingPromotes.isNotEmpty()) {
+                    error(
+                        "applyMemoCommand requires non-blank operationId when pendingPromotes " +
+                            "are present (D4; never mint UUID under promote)",
+                    )
+                }
+                UUID.randomUUID().toString()
+            }
         val result =
             bridge.applyMemoCommand(
                 BridgeMemoCommand(
-                    operationId = command.operationId.ifBlank { UUID.randomUUID().toString() },
+                    operationId = operationId,
                     kind = command.kind.toBridge(),
                     memoId = command.memoId,
                     expectedRevision = command.expectedRevision.toULong(),
@@ -66,6 +90,30 @@ internal class BoltFfiStorePort(
                     content = command.content,
                     tags = command.tags,
                     pin = command.pin,
+                    pendingPromotes =
+                        command.pendingPromotes.map { plan ->
+                            val planOp = plan.operationId.trim()
+                            require(planOp.isNotEmpty()) {
+                                "pendingPromote.operationId must be non-blank (D4; never mint UUID)"
+                            }
+                            require(planOp == operationId) {
+                                "pendingPromote.operationId must match memo command operationId (D4)"
+                            }
+                            BridgePromotePlan(
+                                operationId = planOp,
+                                staged =
+                                    BridgeStaged(
+                                        digest = plan.staged.digest,
+                                        size = plan.staged.size.toULong(),
+                                        mime = plan.staged.mime,
+                                        stagingPath = plan.staged.stagingPath,
+                                        humanNameHint = plan.staged.humanNameHint,
+                                        suggestedFinalRelativePath =
+                                            plan.staged.suggestedFinalRelativePath,
+                                    ),
+                                finalRelativePath = plan.finalRelativePath,
+                            )
+                        },
                 ),
             )
         return StoreMemoCommit(

@@ -7,7 +7,7 @@
  *
  * Scenarios:
  * - Given Idle, when startRecording, then state becomes Recording(filename, startedAtMillis) and foreground service starts.
- * - Given Recording, when stopRecording, then state returns to Idle, markdown is ![voice](filename), foreground service stops.
+ * - Given Recording, when stopRecording, then state returns to Idle, markdown is ![voice](finalize dest), foreground service stops, finalizeVoiceCapture is called.
  * - Given the recorder fails to stop, when stopRecording, then no markdown is returned and the error is surfaced.
  * - Given Recording, when cancelRecording, then state returns to Idle, foreground service stops, no markdown produced.
  * - Given Idle, when stopRecording, then returns null without side effects (idempotent).
@@ -25,6 +25,16 @@
  * - GREEN symptom: BUILD SUCCESSFUL with stop failures surfaced without markdown and concurrent starts serialized to one recorder-backed session.
  *
  * Excludes: MediaRecorder platform behavior, foreground service lifecycle, notification building, VoiceRecordingRepository call counts (coverage instrumentation can double-call suspend functions; service controller call counts are stable as they are non-suspend).
+ *
+ * Test Change Justification:
+ * - Reason category: voice finalize routes through Rust stage registry (no immediate promote).
+ * - Old behavior/assertion being replaced: stop markdown assumed Kotlin-owned final media path layout.
+ * - Why old assertion is no longer correct: allocate/finalize stages only; suggested final relative
+ *   path comes from MediaPort; promote is memo-bound under pendingPromotes.
+ * - Coverage preserved by: Idle/Recording transitions, service start/stop, concurrent start, and
+ *   stop-failure without markdown remain asserted.
+ * - Why this is not fitting the test to the implementation: still locks session state machine and
+ *   observable markdown/service side effects, not JNI stage details.
  */
 
 package com.lomo.data.recording
@@ -81,7 +91,9 @@ class RecordingSessionImplTest : DataFunSpec() {
                 val markdown = fixture.session.stopRecording()
                 advanceUntilIdle()
 
-                markdown shouldBe "![voice](${recordingState.filename})"
+                // Markdown dest is finalizeVoiceCapture result (D4 stage path), not raw capture basename alone.
+                markdown shouldBe "![voice](media/${recordingState.filename})"
+                fixture.mediaRepository.finalizeCallCount shouldBe 1
                 fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
                 fixture.session.durationMillis.value shouldBe 0L
                 fixture.session.amplitude.value shouldBe 0
@@ -207,6 +219,7 @@ private data class RecordingSessionFixture(
     val session: RecordingSessionImpl,
     val voiceRecordingRepository: FakeVoiceRecordingRepository,
     val serviceController: FakeRecordingServiceController,
+    val mediaRepository: RecordingMediaRepository,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -216,11 +229,12 @@ private fun createFixture(
 ): RecordingSessionFixture {
     val voiceRecordingRepository = FakeVoiceRecordingRepository()
     val serviceController = FakeRecordingServiceController()
+    val mediaRepository = RecordingMediaRepository()
     val session =
         RecordingSessionImpl(
             appScope = appScope,
             voiceRecordingRepository = voiceRecordingRepository,
-            mediaRepository = RecordingMediaRepository(),
+            mediaRepository = mediaRepository,
             serviceController = serviceController,
         ).also {
             it.recordingTimerDispatcher = StandardTestDispatcher(scheduler)
@@ -229,6 +243,7 @@ private fun createFixture(
         session = session,
         voiceRecordingRepository = voiceRecordingRepository,
         serviceController = serviceController,
+        mediaRepository = mediaRepository,
     )
 }
 

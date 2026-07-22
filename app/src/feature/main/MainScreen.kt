@@ -656,7 +656,10 @@ private fun rememberMainScreenInteractionCallbacks(
             },
             onStopRecording = {
                 dependencies.recordingViewModel.stopRecording { markdown ->
-                    markdown?.let(editorController::appendMarkdownBlock)
+                    markdown?.let { block ->
+                        editorController.appendMarkdownBlock(block)
+                        dependencies.editorViewModel.trackVoiceMarkdown(block)
+                    }
                 }
             },
             onVersionHistory = { state ->

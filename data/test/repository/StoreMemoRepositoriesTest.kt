@@ -29,6 +29,16 @@ package com.lomo.data.repository
  *
  * Excludes:
  * - Real BoltFFI, Room dual-stack (deleted), full history list FFI (StoreMemoVersionRepository stub).
+ *
+ * Test Change Justification:
+ * - Reason category: memo mutations accept pending media promotes after stage-4 cutover.
+ * - Old behavior/assertion being replaced: fake StorePort / command fixtures without promote fields.
+ * - Why old assertion is no longer correct: production StoreMemoCommand carries pendingPromotes and
+ *   history attachment refs for media lifecycle.
+ * - Coverage preserved by: query/mutate/stats, write-authority fail-closed, and invalidation/reminder
+ *   side effects remain asserted.
+ * - Why this is not fitting the test to the implementation: still locks observable domain Memo and
+ *   command-kind outcomes, not media digest algorithms.
  */
 
 import app.cash.turbine.test
@@ -39,6 +49,7 @@ import com.lomo.data.engine.store.StoreMemoPage
 import com.lomo.data.engine.store.StoreMemoQuery
 import com.lomo.data.engine.store.StoreMemoSnapshot
 import com.lomo.data.engine.store.StoreMemoSummary
+import com.lomo.data.engine.store.StoreHistoryAttachmentRef
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreRebuildResult
@@ -108,6 +119,8 @@ private class RecordingStorePort : StorePort {
     }
 
     override fun getMemo(memoId: String): StoreMemoSnapshot? = memos[memoId]
+
+    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
 
     override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit {
         commands += command

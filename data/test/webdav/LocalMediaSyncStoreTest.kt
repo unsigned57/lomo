@@ -37,10 +37,15 @@ import io.kotest.matchers.booleans.shouldBeFalse
 /*
  * Behavior Contract:
  * - Unit under test: LocalMediaSyncStore
- * - Behavior focus: direct-root media discovery, read or write routing, deletion, and media-path classification.
- * - Observable outcomes: configured category sets, listed relative paths, file byte content, thrown IOException messages, and content-type classification.
+ * - Behavior focus: direct-root media discovery, read or write routing, D6 retain-on-delete
+ *   (no hard-delete of committed media; delete returns bytes_unchanged=false), and media-path
+ *   classification.
+ * - Observable outcomes: configured category sets, listed relative paths, file byte content,
+ *   delete() Boolean (always false under media-trash law), thrown IOException messages, and
+ *   content-type classification.
  * - TDD proof: Fails before behavior changes or migration are applied.
- * - Excludes: SAF DocumentFile behavior, Android ContentResolver streams, and WebDAV transport.
+ * - Excludes: SAF DocumentFile behavior, Android ContentResolver streams, WebDAV transport,
+ *   and MediaEdge orphan sweep (invoked by sync applier after journal).
  */
 class LocalMediaSyncStoreTest : DataFunSpec() {
     init {
@@ -54,7 +59,9 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
 
         test("configuredCategories and listFiles include only accepted direct media files") { `configuredCategories and listFiles include only accepted direct media files`() }
 
-        test("direct roots support write read delete and folder-based media classification") { `direct roots support write read delete and folder-based media classification`() }
+        test("direct roots support write read retain-delete and folder-based media classification") {
+            `direct roots support write read retain-delete and folder-based media classification`()
+        }
 
         test("writeBytes fails closed when no media root is configured for the path") { `writeBytes fails closed when no media root is configured for the path`() }
     }
@@ -88,7 +95,7 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
             files.keys shouldBe setOf("images/cover.PNG", "voice/clip.MP3")
         }
 
-    private fun `direct roots support write read delete and folder-based media classification`() =
+    private fun `direct roots support write read retain-delete and folder-based media classification`() =
         runTest {
             val imageRoot = tempFolder.newFolder("images-root")
             val voiceRoot = tempFolder.newFolder("voice-root")
@@ -107,9 +114,12 @@ class LocalMediaSyncStoreTest : DataFunSpec() {
             store.contentTypeForPath("voice/clip.bin", layout) shouldBe "audio/mp4"
             store.contentTypeForPath("memo/note.md", layout) shouldBe "application/octet-stream"
 
-            store.delete("lomo/images/photo.PNG", layout)
+            val localChanged = store.delete("lomo/images/photo.PNG", layout)
 
-            (File(imageRoot, "photo.PNG").exists()).shouldBeFalse()
+            // D6: local hard-delete retired; file remains for media-trash/orphan reclaim.
+            (File(imageRoot, "photo.PNG").exists()).shouldBeTrue()
+            // Bytes unchanged → callers must not report Applied(localChanged=true).
+            localChanged.shouldBeFalse()
         }
 
     private fun `writeBytes fails closed when no media root is configured for the path`() =

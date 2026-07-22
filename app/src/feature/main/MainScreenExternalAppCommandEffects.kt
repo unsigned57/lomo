@@ -73,6 +73,7 @@ private fun executeExternalAppCommandPlan(
                 dependencies.recordingViewModel.stopRecording { markdown ->
                     if (markdown != null) {
                         editorController.appendMarkdownBlock(markdown)
+                        dependencies.editorViewModel.trackVoiceMarkdown(markdown)
                         dependencies.mainViewModel.completeExternalAppCommand(
                             command.id,
                             ExternalAppCommandTerminalResult.Executed,

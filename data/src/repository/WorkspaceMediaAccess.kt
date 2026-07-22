@@ -103,13 +103,10 @@ class DefaultWorkspaceMediaAccess(
             filename: String,
         ) {
             writeAuthority.requireWritable()
-            val safeFilename = requireWorkspaceMediaFilename(filename)
-            val root = workspaceMediaRoot(workspaceConfigSource, category) ?: return
-            if (isContentUriRoot(root)) {
-                deleteWorkspaceSafFile(context, root, safeFilename)
-            } else {
-                deleteWorkspaceDirectFile(File(root), safeFilename)
-            }
+            // D6: permanent committed-media reclaim is media-trash / orphan sweep only.
+            throw UnsupportedOperationException(
+                "WorkspaceMediaAccess.deleteFile is retired after P4-10A; use MediaRepository remove paths",
+            )
         }
     }
 

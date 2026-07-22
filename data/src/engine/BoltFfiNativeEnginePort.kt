@@ -111,6 +111,9 @@ internal class BoltFfiNativeEnginePort(
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withReadLease { engine -> engine.getMemo(memoId) }
 
+    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
+        withReadLease { engine -> engine.listHistoryAttachmentRefs() }
+
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
     ): com.lomo.nativebridge.StoreMemoCommit =
@@ -118,6 +121,97 @@ internal class BoltFfiNativeEnginePort(
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         withReadLease { engine -> engine.startRebuild(batchSize) }
+
+    override fun stageMedia(
+        mediaRoot: String,
+        sourceKind: com.lomo.nativebridge.MediaSourceKind,
+        sourcePath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        withReadLease { engine -> engine.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint) }
+
+    override fun allocateRecordingTarget(
+        mediaRoot: String,
+        extension: String,
+    ): String = withReadLease { engine -> engine.allocateRecordingTarget(mediaRoot, extension) }
+
+    override fun finalizeRecording(
+        mediaRoot: String,
+        recordingPath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        withReadLease { engine -> engine.finalizeRecording(mediaRoot, recordingPath, humanNameHint) }
+
+    override fun promoteMedia(
+        workspaceRoot: String,
+        plan: com.lomo.nativebridge.MediaPromotePlanDto,
+    ): com.lomo.nativebridge.MediaPromoteResultDto =
+        withReadLease { engine -> engine.promoteMedia(workspaceRoot, plan) }
+
+    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        withReadLease { engine -> engine.queryMediaManifest(workspaceRoot) }
+
+    override fun mediaOrphanSweep(
+        mediaRoot: String,
+        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
+        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+        nowMs: ULong?,
+        recoveryWindowMs: ULong,
+    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
+        withReadLease { engine ->
+            engine.mediaOrphanSweep(
+                mediaRoot,
+                committed,
+                refs,
+                existingTrash,
+                nowMs,
+                recoveryWindowMs,
+            )
+        }
+
+    override fun archiveExport(
+        workspaceRoot: String,
+        archivePath: String,
+    ): com.lomo.nativebridge.ArchiveExportResultDto =
+        withReadLease { engine -> engine.archiveExport(workspaceRoot, archivePath) }
+
+    override fun archiveInspect(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto =
+        withReadLease { engine -> engine.archiveInspect(archivePath, stagingRoot) }
+
+    override fun archiveImport(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto =
+        withReadLease { engine -> engine.archiveImport(archivePath, stagingRoot) }
+
+    override fun archiveActivate(
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+    ) {
+        withReadLease { engine -> engine.archiveActivate(stagingRoot, liveRoot, backupRoot) }
+    }
+
+    override fun archiveImportActivateRebuild(
+        archivePath: String,
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+        rebuildBatchSize: UInt,
+    ): com.lomo.nativebridge.StoreRebuildResult =
+        withReadLease { engine ->
+            engine.archiveImportActivateRebuild(
+                archivePath,
+                stagingRoot,
+                liveRoot,
+                backupRoot,
+                rebuildBatchSize,
+            )
+        }
 
     override fun subscribe(listener: (NativeCoreEvent) -> Unit): NativeEngineSubscription {
         listenerRef.set(listener)

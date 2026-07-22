@@ -54,6 +54,11 @@ internal object ThrowingMediaRepository : MediaRepository {
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
         unexpected("allocateVoiceCaptureTarget")
 
+    override suspend fun finalizeVoiceCapture(
+        recordingLocation: StorageLocation,
+        humanNameHint: String,
+    ): StorageLocation = unexpected("finalizeVoiceCapture")
+
     override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
         unexpected("removeVoiceCapture")
     }
@@ -95,6 +100,9 @@ internal class RecordingMediaRepository : MediaRepository {
     var refreshImageLocationsCallCount: Int = 0
         private set
 
+    var finalizeCallCount: Int = 0
+        private set
+
     override suspend fun importImage(source: StorageLocation): StorageLocation = source
 
     override suspend fun removeImage(entryId: MediaEntryId) {
@@ -110,7 +118,16 @@ internal class RecordingMediaRepository : MediaRepository {
     override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? = null
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
-        StorageLocation(entryId.raw)
+        StorageLocation("file:///tmp/stage/${entryId.raw}")
+
+    override suspend fun finalizeVoiceCapture(
+        recordingLocation: StorageLocation,
+        humanNameHint: String,
+    ): StorageLocation {
+        finalizeCallCount += 1
+        val name = humanNameHint.ifBlank { "voice.m4a" }
+        return StorageLocation("media/$name")
+    }
 
     override suspend fun removeVoiceCapture(entryId: MediaEntryId) = Unit
 }

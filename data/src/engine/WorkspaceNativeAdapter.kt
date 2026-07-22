@@ -109,7 +109,10 @@ internal sealed interface WorkspaceNativeCommandSpec {
  *
  * Implementations hold the generated engine handle only through [NativeEnginePort] + lease rules.
  */
-internal interface WorkspaceNativeAdapter : com.lomo.data.engine.store.StoreNativeBridge {
+internal interface WorkspaceNativeAdapter :
+    com.lomo.data.engine.store.StoreNativeBridge,
+    com.lomo.data.engine.media.MediaNativeBridge,
+    com.lomo.data.engine.archive.ArchiveNativeBridge {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt = MarkdownRenderDocument.SCHEMA_VERSION,
@@ -141,10 +144,12 @@ internal interface WorkspaceNativeAdapter : com.lomo.data.engine.store.StoreNati
     }
 }
 
-/** One native handle carrying both engine lifecycle and workspace/store capabilities. */
+/** One native handle carrying engine lifecycle and workspace/store/media/archive capabilities. */
 internal interface WorkspaceNativeEnginePort :
     NativeEnginePort,
-    com.lomo.data.engine.store.StoreNativeBridge {
+    com.lomo.data.engine.store.StoreNativeBridge,
+    com.lomo.data.engine.media.MediaNativeBridge,
+    com.lomo.data.engine.archive.ArchiveNativeBridge {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt,

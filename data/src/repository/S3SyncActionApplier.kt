@@ -12,6 +12,7 @@ constructor(
         private val objectKeyPolicy: S3RemoteObjectKeyPolicy,
         fileBridge: S3SyncFileBridge,
         private val transferWorkspace: S3SyncTransferWorkspace,
+        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
     ) {
         internal suspend fun applyAction(
             action: S3SyncAction,
@@ -275,11 +276,18 @@ constructor(
             if (!knownMissing && client.getObjectMetadata(remoteKey.value) != null) {
                 return S3ActionExecutionState.Skipped
             }
+            // Memo hard-delete still changes local bytes; media journals only under D6.
+            val isMemo = isMemoPath(action.path, layout, mode)
             fileBridgeScope.deleteLocalFile(action.path, layout)
+            if (!isMemo) {
+                // Operation-boundary reclaim after remote/local media delete journal.
+                mediaRepository.runOrphanSweepAtOperationBoundary()
+            }
             return S3ActionExecutionState.Applied(
-                localChanged = true,
+                // Media path: LocalMediaSyncStore.delete never removes bytes → localChanged=false.
+                localChanged = isMemo,
                 remoteChanged = false,
-                deletedLocalPath = action.path,
+                deletedLocalPath = if (isMemo) action.path else null,
                 memoRefreshPlan = buildDeleteMemoRefreshPlan(action.path, layout, mode),
             )
         }

@@ -239,6 +239,9 @@ internal class ManagedEngineSession(
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
 
+    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
+        withActiveWorkspaceAdapter { adapter -> adapter.listHistoryAttachmentRefs() }
+
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
     ): com.lomo.nativebridge.StoreMemoCommit =
@@ -246,6 +249,102 @@ internal class ManagedEngineSession(
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         withActiveWorkspaceAdapter { adapter -> adapter.startRebuild(batchSize) }
+
+    override fun stageMedia(
+        mediaRoot: String,
+        sourceKind: com.lomo.nativebridge.MediaSourceKind,
+        sourcePath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
+        }
+
+    override fun allocateRecordingTarget(
+        mediaRoot: String,
+        extension: String,
+    ): String =
+        withActiveWorkspaceAdapter { adapter -> adapter.allocateRecordingTarget(mediaRoot, extension) }
+
+    override fun finalizeRecording(
+        mediaRoot: String,
+        recordingPath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
+        }
+
+    override fun promoteMedia(
+        workspaceRoot: String,
+        plan: com.lomo.nativebridge.MediaPromotePlanDto,
+    ): com.lomo.nativebridge.MediaPromoteResultDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.promoteMedia(workspaceRoot, plan) }
+
+    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.queryMediaManifest(workspaceRoot) }
+
+    override fun mediaOrphanSweep(
+        mediaRoot: String,
+        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
+        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+        nowMs: ULong?,
+        recoveryWindowMs: ULong,
+    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.mediaOrphanSweep(
+                mediaRoot,
+                committed,
+                refs,
+                existingTrash,
+                nowMs,
+                recoveryWindowMs,
+            )
+        }
+
+    override fun archiveExport(
+        workspaceRoot: String,
+        archivePath: String,
+    ): com.lomo.nativebridge.ArchiveExportResultDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.archiveExport(workspaceRoot, archivePath) }
+
+    override fun archiveInspect(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.archiveInspect(archivePath, stagingRoot) }
+
+    override fun archiveImport(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.archiveImport(archivePath, stagingRoot) }
+
+    override fun archiveActivate(
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+    ) {
+        withActiveWorkspaceAdapter { adapter -> adapter.archiveActivate(stagingRoot, liveRoot, backupRoot) }
+    }
+
+    override fun archiveImportActivateRebuild(
+        archivePath: String,
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+        rebuildBatchSize: UInt,
+    ): com.lomo.nativebridge.StoreRebuildResult =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.archiveImportActivateRebuild(
+                archivePath,
+                stagingRoot,
+                liveRoot,
+                backupRoot,
+                rebuildBatchSize,
+            )
+        }
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceDocumentCommandResult(jobId) }

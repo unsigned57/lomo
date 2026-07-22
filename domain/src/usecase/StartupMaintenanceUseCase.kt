@@ -44,6 +44,12 @@ class StartupMaintenanceUseCase
             } catch (_: Exception) {
                 // Best-effort image map warm-up.
             }
+            // D6: deterministic orphan reclaim at maintenance boundary (media-trash / expiry).
+            try {
+                mediaRepository.runOrphanSweepAtOperationBoundary()
+            } catch (_: Exception) {
+                // Best-effort orphan sweep; missing Direct root is a no-op.
+            }
         }
 
         private suspend fun processSyncInboxOnStartup() {

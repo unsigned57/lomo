@@ -21,5 +21,22 @@ interface MediaRepository {
 
     suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation
 
+    /**
+     * D4 voice finalize: stop-side path only stages+verifies via Rust finalizeRecording.
+     * Holds staged facts for memo save promote under the same operation-id.
+     * Returns the markdown destination (suggested final relative path or basename).
+     * Never promotes; never journals sync.
+     */
+    suspend fun finalizeVoiceCapture(
+        recordingLocation: StorageLocation,
+        humanNameHint: String,
+    ): StorageLocation
+
     suspend fun removeVoiceCapture(entryId: MediaEntryId)
+
+    /**
+     * Deterministic D6 orphan reclaim at operation/maintenance boundary.
+     * Default no-op for fakes; production edge runs media-trash / permanent-delete sweep.
+     */
+    suspend fun runOrphanSweepAtOperationBoundary() = Unit
 }

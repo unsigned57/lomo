@@ -2,10 +2,8 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import timber.log.Timber
 import java.io.File
 import java.io.IOException
 
@@ -30,13 +28,18 @@ internal class DirectMediaStorageBackendDelegate(
     override suspend fun getImageLocation(filename: String): String? = directGetImageLocation(rootDir, filename)
 
     override suspend fun deleteImage(filename: String) {
-        directDeleteMediaFile(rootDir, filename, "image")
+        // D6: permanent committed-media reclaim is Rust media-trash / orphan sweep only.
+        throw UnsupportedOperationException(
+            "deleteImage is retired after P4-10A; use MediaRepository.removeImage (media-trash law)",
+        )
     }
 
     override suspend fun createVoiceFile(filename: String): Uri = directCreateVoiceFile(rootDir, filename)
 
     override suspend fun deleteVoiceFile(filename: String) {
-        directDeleteMediaFile(rootDir, filename, "voice")
+        throw UnsupportedOperationException(
+            "deleteVoiceFile is retired after P4-10A; use MediaRepository.removeVoiceCapture (media-trash law)",
+        )
     }
 }
 
@@ -66,22 +69,6 @@ private suspend fun directGetImageLocation(
             null
         }
     }
-
-private suspend fun directDeleteMediaFile(
-    rootDir: File,
-    filename: String,
-    mediaType: String,
-) = withContext(Dispatchers.IO) {
-    runNonFatalCatching {
-        val file = File(rootDir, filename)
-        if (file.exists()) {
-            file.delete()
-        }
-    }.onFailure { error ->
-        Timber.e(error, "Failed to delete %s file: %s", mediaType, filename)
-    }
-    Unit
-}
 
 private suspend fun directCreateVoiceFile(
     rootDir: File,

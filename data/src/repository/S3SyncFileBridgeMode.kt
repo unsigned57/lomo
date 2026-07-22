@@ -131,10 +131,8 @@ internal fun contentTypeForRelativePath(relativePath: String): String {
     val extension = relativePath.substringAfterLast('.', "").lowercase(Locale.ROOT)
     return when {
         relativePath.endsWith(S3_MEMO_SUFFIX) -> S3_MARKDOWN_CONTENT_TYPE
-        extension in IMAGE_CONTENT_TYPES -> IMAGE_CONTENT_TYPES.getValue(extension)
-        extension in VOICE_CONTENT_TYPES -> VOICE_CONTENT_TYPES.getValue(extension)
-        extension in S3_SYNC_IMAGE_EXTENSIONS -> DEFAULT_IMAGE_CONTENT_TYPE
-        extension in S3_SYNC_VOICE_EXTENSIONS -> DEFAULT_VOICE_CONTENT_TYPE
+        extension in S3_SYNC_IMAGE_EXTENSIONS -> imageContentTypeForExtension(extension)
+        extension in S3_SYNC_VOICE_EXTENSIONS -> voiceContentTypeForExtension(extension)
         else -> OCTET_STREAM
     }
 }

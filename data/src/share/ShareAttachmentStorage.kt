@@ -7,21 +7,26 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.util.runNonFatalCatching
-
+import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 
-
 class ShareAttachmentStorage(
     private val context: Context,
     private val dataSource: MediaStorageDataSource,
     private val dataStore: LomoDataStore,
+    private val mediaRepository: MediaRepository,
 ) {
         /**
          * Saves a received attachment and returns the stored filename for memo remapping.
+         *
+         * Images and audio go through [MediaRepository.importImage] (Rust media owner via MediaEdge
+         * stage→promote). Product markdown still uses basename destinations for both kinds.
          */
         suspend fun saveAttachmentFile(
             name: String,
@@ -32,22 +37,9 @@ class ShareAttachmentStorage(
             return runNonFatalCatching {
                 val tempUri = Uri.fromFile(payloadFile)
                 when (type) {
-                    "image" -> {
-                        dataSource.saveImage(tempUri)
-                    }
-
-                    "audio" -> {
-                        val availableName = resolveAvailableAttachmentFilename(type, safeName)
-                        val voiceUri = dataSource.createVoiceFile(availableName)
-                        val output =
-                            context.contentResolver.openOutputStream(voiceUri)
-                                ?: throw IllegalStateException("Cannot open voice output stream")
-                        payloadFile.inputStream().buffered().use { input ->
-                            output.use { out ->
-                                input.copyTo(out)
-                            }
-                        }
-                        availableName
+                    "image", "audio" -> {
+                        // Shared Rust stage/promote path (magic/mime/digest owned by media owner).
+                        mediaRepository.importImage(StorageLocation(tempUri.toString())).raw
                     }
 
                     else -> {
@@ -71,8 +63,7 @@ class ShareAttachmentStorage(
                     .trim()
             if (filename.isBlank()) return
             when (type) {
-                "image" -> dataSource.deleteImage(filename)
-                "audio" -> dataSource.deleteVoiceFile(filename)
+                "image", "audio" -> mediaRepository.removeImage(MediaEntryId(filename))
                 else -> Unit
             }
         }
@@ -115,46 +106,35 @@ class ShareAttachmentStorage(
             }
 
         private fun fileExistsInDirectory(
-            directory: String?,
+            directoryPath: String?,
             filename: String,
         ): Boolean {
-            if (directory.isNullOrBlank()) return false
-            val file = File(directory, filename)
-            return file.exists() && file.isFile
+            if (directoryPath.isNullOrBlank()) return false
+            return File(directoryPath, filename).exists()
         }
 
         private fun fileExistsInTree(
-            treeUriString: String?,
+            treeUri: String?,
             filename: String,
-        ): Boolean =
-            treeUriString
-                ?.takeIf(String::isNotBlank)
-                ?.let {
-                    // behavior-contract: silent-result-ok: revoked SAF yields null; chain treats as "file not found"
-                    runCatching { DocumentFile.fromTreeUri(context, it.toUri()) }.getOrNull()
-                }
-                ?.findFile(filename)
-                ?.isFile == true
+        ): Boolean {
+            if (treeUri.isNullOrBlank()) return false
+            val root = DocumentFile.fromTreeUri(context, treeUri.toUri()) ?: return false
+            return root.findFile(filename)?.exists() == true
+        }
 
         private fun sanitizeAttachmentFilename(name: String): String {
-            val base =
-                name
-                    .substringAfterLast('/')
-                    .substringAfterLast('\\')
-                    .trim()
-            val sanitized =
-                base
-                    .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    .take(MAX_SANITIZED_FILENAME_CHARS)
-            return if (sanitized.isBlank()) {
-                "attachment_${System.currentTimeMillis()}"
-            } else {
-                sanitized
+            val trimmed = name.trim()
+            if (trimmed.isBlank()) {
+                return "attachment_${System.currentTimeMillis()}"
             }
+            return trimmed
+                .substringAfterLast('/')
+                .substringAfterLast('\\')
+                .replace(Regex("""[^\w.\-]+"""), "_")
+                .ifBlank { "attachment_${System.currentTimeMillis()}" }
         }
 
-        private companion object {
-            private const val MAX_SANITIZED_FILENAME_CHARS = 96
+        companion object {
             private const val TAG = "ShareAttachmentStorage"
         }
-    }
+}

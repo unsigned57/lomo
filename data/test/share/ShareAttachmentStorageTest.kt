@@ -23,6 +23,8 @@ import android.content.Context
 import android.net.Uri
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MediaStorageDataSource
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.repository.MediaRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -57,15 +59,11 @@ class ShareAttachmentStorageTest : DataFunSpec() {
             tearDown()
         }
 
-        test("saveAttachmentFile delegates image attachments to saveImage") { `saveAttachmentFile delegates image attachments to saveImage`() }
+        test("saveAttachmentFile delegates image attachments to MediaRepository.importImage") { `saveAttachmentFile delegates image attachments to MediaRepository importImage`() }
 
-        test("saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes") { `saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes`() }
-
-        test("saveAttachmentFile falls back to generated attachment name when source name is blank") { `saveAttachmentFile falls back to generated attachment name when source name is blank`() }
+        test("saveAttachmentFile routes audio through MediaRepository.importImage") { `saveAttachmentFile routes audio through MediaRepository importImage`() }
 
         test("saveAttachmentFile returns null for unsupported attachment type") { `saveAttachmentFile returns null for unsupported attachment type`() }
-
-        test("saveAttachmentFile returns null when audio output stream cannot be opened") { `saveAttachmentFile returns null when audio output stream cannot be opened`() }
     }
 
 
@@ -73,6 +71,7 @@ class ShareAttachmentStorageTest : DataFunSpec() {
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val dataSource = mockk<MediaStorageDataSource>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
+    private val mediaRepository = mockk<MediaRepository>(relaxed = true)
     private val uriCache = linkedMapOf<String, Uri>()
 
     private lateinit var storage: ShareAttachmentStorage
@@ -85,7 +84,7 @@ class ShareAttachmentStorageTest : DataFunSpec() {
         every { dataStore.rootDirectory } returns flowOf(null)
         every { dataStore.voiceUri } returns flowOf(null)
         every { dataStore.rootUri } returns flowOf(null)
-        storage = ShareAttachmentStorage(context, dataSource, dataStore)
+        storage = ShareAttachmentStorage(context, dataSource, dataStore, mediaRepository)
     }
 
     private fun tearDown() {
@@ -93,47 +92,34 @@ class ShareAttachmentStorageTest : DataFunSpec() {
         uriCache.clear()
     }
 
-    private fun `saveAttachmentFile delegates image attachments to saveImage`() =
+    private fun `saveAttachmentFile delegates image attachments to MediaRepository importImage`() =
         runBlocking {
             val payloadFile = tempFile("share-image", ".png", "image-bytes")
             val payloadUri = fileUri(payloadFile)
-            coEvery { dataSource.saveImage(payloadUri) } returns "images/cover.png"
+            coEvery { mediaRepository.importImage(any()) } returns StorageLocation("cover.png")
 
             val result = storage.saveAttachmentFile("cover.png", "image", payloadFile)
 
-            result shouldBe "images/cover.png"
-            coVerify(exactly = 1) { dataSource.saveImage(payloadUri) }
+            result shouldBe "cover.png"
+            coVerify(exactly = 1) {
+                mediaRepository.importImage(StorageLocation(payloadUri.toString()))
+            }
+            coVerify(exactly = 0) { dataSource.saveImage(any()) }
         }
 
-    private fun `saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes`() =
+    private fun `saveAttachmentFile routes audio through MediaRepository importImage`() =
         runBlocking {
-            val voiceDir = Files.createTempDirectory("share-voice").toFile()
-            File(voiceDir, "voice_note.m4a").writeText("existing")
-            every { dataStore.voiceDirectory } returns flowOf(voiceDir.absolutePath)
             val payloadFile = tempFile("share-audio", ".m4a", "audio-payload")
-            val output = ByteArrayOutputStream()
-            val createdUri = mockk<Uri>(relaxed = true)
-            every { contentResolver.openOutputStream(createdUri) } returns output
-            coEvery { dataSource.createVoiceFile("voice_note_1.m4a") } returns createdUri
+            val payloadUri = fileUri(payloadFile)
+            coEvery { mediaRepository.importImage(any()) } returns StorageLocation("voice_note.m4a")
 
             val result = storage.saveAttachmentFile("../voice note.m4a", "audio", payloadFile)
 
-            result shouldBe "voice_note_1.m4a"
-            output.toString(Charsets.UTF_8) shouldBe "audio-payload"
-        }
-
-    private fun `saveAttachmentFile falls back to generated attachment name when source name is blank`() =
-        runBlocking {
-            val payloadFile = tempFile("share-blank", ".bin", "voice")
-            val output = ByteArrayOutputStream()
-            val createdUri = mockk<Uri>(relaxed = true)
-            every { contentResolver.openOutputStream(createdUri) } returns output
-            coEvery { dataSource.createVoiceFile(match { it.startsWith("attachment_") }) } returns createdUri
-
-            val result = storage.saveAttachmentFile("   ", "audio", payloadFile)
-
-            (result != null && result.startsWith("attachment_")).shouldBeTrue()
-            output.toString(Charsets.UTF_8) shouldBe "voice"
+            result shouldBe "voice_note.m4a"
+            coVerify(exactly = 1) {
+                mediaRepository.importImage(StorageLocation(payloadUri.toString()))
+            }
+            coVerify(exactly = 0) { dataSource.createVoiceFile(any()) }
         }
 
     private fun `saveAttachmentFile returns null for unsupported attachment type`() =
@@ -145,18 +131,7 @@ class ShareAttachmentStorageTest : DataFunSpec() {
             result.shouldBeNull()
             coVerify(exactly = 0) { dataSource.saveImage(any()) }
             coVerify(exactly = 0) { dataSource.createVoiceFile(any()) }
-        }
-
-    private fun `saveAttachmentFile returns null when audio output stream cannot be opened`() =
-        runBlocking {
-            val payloadFile = tempFile("share-error", ".m4a", "voice")
-            val createdUri = mockk<Uri>(relaxed = true)
-            every { contentResolver.openOutputStream(createdUri) } returns null
-            coEvery { dataSource.createVoiceFile("voice.m4a") } returns createdUri
-
-            val result = storage.saveAttachmentFile("voice.m4a", "audio", payloadFile)
-
-            result.shouldBeNull()
+            coVerify(exactly = 0) { mediaRepository.importImage(any()) }
         }
 
     private fun tempFile(

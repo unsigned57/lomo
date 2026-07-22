@@ -87,6 +87,8 @@ data class StoreMemoCommand(
     val content: String? = null,
     val tags: List<String> = emptyList(),
     val pin: Boolean? = null,
+    /** Committed promote plans only; empty means no media promote in this operation. */
+    val pendingPromotes: List<com.lomo.data.engine.media.MediaPromotePlan> = emptyList(),
 )
 
 data class StoreRebuildResult(
@@ -97,6 +99,14 @@ data class StoreRebuildResult(
     val storeDigest: String,
     val corruptLomoIsolated: Long,
     val highWaterRevision: Long,
+)
+
+/** History-window attachment path for D6 orphan keep-set (store-owned projection). */
+data class StoreHistoryAttachmentRef(
+    val memoId: String,
+    val revision: Long,
+    val relativePath: String,
+    val ownerKey: String,
 )
 
 data class StorePlannedAlarm(
@@ -119,6 +129,9 @@ interface StorePort {
     ): StoreMemoPage
 
     fun getMemo(memoId: String): StoreMemoSnapshot?
+
+    /** Attachment paths still referenced by durable history revision bodies. */
+    fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef>
 
     fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit
 

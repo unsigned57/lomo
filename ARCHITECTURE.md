@@ -91,15 +91,34 @@ This document is the stable architecture entrypoint for the repository. It descr
   semantic regex authorities. Presentation spacing helpers may collapse plain text; they must not
   re-parse Markdown structure or invent link markup before owner render.
 
+### `rust/media` (package `lomo-media`)
+
+- Pure platform-independent media identity and lifecycle owner for stage 4 (**dark-build until
+  Wave A cutover P4-10A**).
+- Owns streaming `sha256` content digests, self-held magic-byte MIME table (extension is hint only;
+  conflict rejects), workspace-relative media path validation via `lomo-workspace` path policy,
+  stage→verify→commit (paths only; no full media-byte public APIs), attachment refcount across
+  {current, trash, history}, deterministic orphan sweep + media-trash recovery window, and
+  recording allocate/finalize targets.
+- Depends inward on `lomo-core` + `lomo-workspace` only. Must not depend on `lomo-store`, native,
+  BoltFFI, Android, sync-v1, or tooling crates.
+- Disk filenames remain human/timestamp schemes (never hash-named). Dedup identity is digest.
+- **P4-10A cutover (2026-07-21):** production media edge is `MediaEdgeRepository` + `MediaPort` /
+  `MediaSyncEdgeAdapter` (path-only). Kotlin no longer owns identity/orphan/index.
+- Production dual-stack with Kotlin `MediaRepositoryImpl` / orphan cleaners is forbidden after
+  Wave A; dark-build must not wire feature-flag dual-write.
+
 ### `rust/store` (package `lomo-store`)
 
 - Pure platform-independent local data-loop owner for stage 3 (**production sole owner after P3-10
   cutover**).
 - Owns SQLite query projections, FTS5 + pure-Rust CJK tokenizer, memo transaction recovery,
-  `.lomo/` durable state/history/operations projections, rebuild (P3-01..P3-06), and reminder
+  `.lomo/` durable state/history/operations projections, rebuild (P3-01..P3-06), reminder
   business state (P3-07: recurrence/fired/done/next-trigger, floating local + DST policy,
-  catch-up ≤1/session, app-private snooze). Depends inward on `lomo-core` + `lomo-workspace`
-  (token facts/mutation plan) (+ `rusqlite` bundled/`backup`, `sha2`, `serde`/`serde_json`).
+  catch-up ≤1/session, app-private snooze), and **archive v2 orchestration** (P4-06..P4-08:
+  `ArchiveManifestV2` export/inspect/import/activate using `lomo-workspace` path/markdown facts and
+  `lomo-media` media validation). Depends inward on `lomo-core` + `lomo-workspace` + (stage 4)
+  `lomo-media` (+ `rusqlite` bundled/`backup`, `sha2`, `serde`/`serde_json`, trimmed `zip` deflate).
   Must not depend on Android, BoltFFI, UniFFI, JNI, networking backends, sync-v1 wire, or tooling
   crates. SQLite files live under workspace `.lomo-sqlite/` (never under `.lomo/`). Snooze is
   app-private only (never under `.lomo`/sync/archive).
@@ -252,3 +271,11 @@ shipping proof after cutover.
   and signing documentation; language-specific test rules live under `quality/testing`.
 - Concrete paths, APIs, and implementation details are code facts. Verify them against the tree
   instead of maintaining module file inventories.
+
+## Architecture Impact (P4-10A/B, 2026-07-21)
+
+- Owner: `lomo-media` (identity/lifecycle) + `lomo-store` archive v2 orchestration; Kotlin
+  `MediaEdgeRepository` / `WorkspaceArchiveEdgeRepository` are path-only adapters.
+- Boundary effect: production DI wires `MediaPort`/`ArchivePort` through `ManagedEngineSession`;
+  sync edge journals only committed media (D8). No dual-write flags.
+- Exception: none. Settings/credentials encryption remains independent Kotlin surface.

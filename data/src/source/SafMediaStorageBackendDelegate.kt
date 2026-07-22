@@ -3,9 +3,7 @@ package com.lomo.data.source
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
-import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.withContext
-import timber.log.Timber
 import java.io.IOException
 
 internal class SafMediaStorageBackendDelegate(
@@ -32,13 +30,18 @@ internal class SafMediaStorageBackendDelegate(
     override suspend fun getImageLocation(filename: String): String? = safGetImageLocation(documentAccess, filename)
 
     override suspend fun deleteImage(filename: String) {
-        safDeleteMediaFile(documentAccess, filename, "image")
+        // D6: permanent committed-media reclaim is Rust media-trash / orphan sweep only.
+        throw UnsupportedOperationException(
+            "deleteImage is retired after P4-10A; use MediaRepository.removeImage (media-trash law)",
+        )
     }
 
     override suspend fun createVoiceFile(filename: String): Uri = safCreateVoiceFile(documentAccess, filename)
 
     override suspend fun deleteVoiceFile(filename: String) {
-        safDeleteMediaFile(documentAccess, filename, "voice")
+        throw UnsupportedOperationException(
+            "deleteVoiceFile is retired after P4-10A; use MediaRepository.removeVoiceCapture (media-trash law)",
+        )
     }
 }
 
@@ -68,19 +71,6 @@ private suspend fun safGetImageLocation(
     withContext(SAF_IO_DISPATCHER) {
         documentAccess.root()?.findFile(filename)?.takeIf { it.isFile }?.uri?.toString()
     }
-
-private suspend fun safDeleteMediaFile(
-    documentAccess: SafDocumentAccess,
-    filename: String,
-    mediaType: String,
-) = withContext(SAF_IO_DISPATCHER) {
-    runNonFatalCatching {
-        documentAccess.root()?.findFile(filename)?.delete()
-    }.onFailure { error ->
-        Timber.e(error, "Failed to delete %s: %s", mediaType, filename)
-    }
-    Unit
-}
 
 private fun requireImageRoot(documentAccess: SafDocumentAccess): DocumentFile =
     documentAccess.root() ?: throw IOException("Cannot access image directory")

@@ -6,13 +6,17 @@ import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
 import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
 import com.lomo.data.repository.DataStoreMigrationSettingsStore
 import com.lomo.data.repository.DataStoreWorkspaceSyncGenerationProvider
-import com.lomo.data.repository.FileMigrationArchiveStagingWorkspaceFactory
-import com.lomo.data.repository.MediaRepositoryImpl
-import com.lomo.data.repository.MigrationArchiveRepositoryImpl
-import com.lomo.data.repository.MigrationArchiveStagingWorkspaceFactory
+import com.lomo.data.engine.ManagedEngineSession
+import com.lomo.data.engine.archive.ArchivePort
+import com.lomo.data.engine.archive.BoltFfiArchivePort
+import com.lomo.data.engine.media.BoltFfiMediaPort
+import com.lomo.data.engine.media.MediaPort
+import com.lomo.data.engine.media.MediaSyncEdgeAdapter
+import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.repository.MediaEdgeRepository
 import com.lomo.data.repository.MigrationSettingsStore
-import com.lomo.data.repository.MigrationArchiveImportBudgets
 import com.lomo.data.repository.SettingsRepositoryImpl
+import com.lomo.data.repository.WorkspaceArchiveEdgeRepository
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
@@ -113,7 +117,35 @@ val coreDataRepositoryModule = module {
 
     singleOf(::SyncStateResetRepositoryImpl) bind SyncStateResetRepository::class
     singleOf(::DataStoreWorkspaceSyncGenerationProvider) bind WorkspaceSyncGenerationProvider::class
-    singleOf(::MediaRepositoryImpl) bind MediaRepository::class
+
+    // P4-10A/B: path-only media/archive ports over ManagedEngineSession; settings stay Kotlin.
+    single<WorkspaceFilesystemRoot> {
+        WorkspaceFilesystemRoot {
+            val raw = get<ManagedEngineSession>().activeWorkspaceLocation.value?.raw
+            if (raw.isNullOrBlank() || raw.startsWith("content:", ignoreCase = true)) {
+                null
+            } else {
+                java.io.File(raw).absolutePath
+            }
+        }
+    }
+    single { com.lomo.data.engine.media.PendingMediaStageRegistry() }
+    single<MediaPort> { BoltFfiMediaPort(bridge = get<ManagedEngineSession>()) }
+    single { MediaSyncEdgeAdapter(s3LocalChangeRecorder = get(), webDavLocalChangeRecorder = get()) }
+    single {
+        MediaEdgeRepository(
+            context = androidContext(),
+            workspaceConfigSource = get(),
+            mediaStorageDataSource = get(),
+            mediaPort = get(),
+            workspaceRoot = get(),
+            syncEdge = get(),
+            writeAuthority = get(),
+            storePort = get(),
+            pendingStages = get(),
+        )
+    } bind MediaRepository::class
+    single<ArchivePort> { BoltFfiArchivePort(bridge = get<ManagedEngineSession>()) }
 
     // Credentials / Security
     single { GitCredentialStore(get<Context>()) }
@@ -123,11 +155,16 @@ val coreDataRepositoryModule = module {
         SecuritySessionController::class
     )
 
-    // Migration
-    single { MigrationArchiveImportBudgets() }
+    // Migration (workspace archive v2 via Rust; encrypted settings remain Kotlin)
     singleOf(::DataStoreMigrationSettingsStore) bind MigrationSettingsStore::class
-    singleOf(::FileMigrationArchiveStagingWorkspaceFactory) bind MigrationArchiveStagingWorkspaceFactory::class
-    singleOf(::MigrationArchiveRepositoryImpl) bind MigrationArchiveRepository::class
+    single {
+        WorkspaceArchiveEdgeRepository(
+            context = androidContext(),
+            archivePort = get(),
+            workspaceRoot = get(),
+            settingsStore = get(),
+        )
+    } bind MigrationArchiveRepository::class
 
     // Inbox
     singleOf(::SyncInboxRepositoryImpl) bind SyncInboxRepository::class

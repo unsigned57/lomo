@@ -270,6 +270,10 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     override fun observeImageLocations() = delegateMedia.observeImageLocations()
                     override suspend fun ensureCategoryWorkspace(category: MediaCategory) = delegateMedia.ensureCategoryWorkspace(category)
                     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) = delegateMedia.allocateVoiceCaptureTarget(entryId)
+                    override suspend fun finalizeVoiceCapture(
+                        recordingLocation: StorageLocation,
+                        humanNameHint: String,
+                    ) = delegateMedia.finalizeVoiceCapture(recordingLocation, humanNameHint)
                     override suspend fun removeVoiceCapture(entryId: MediaEntryId) = delegateMedia.removeVoiceCapture(entryId)
 
                     override suspend fun refreshImageLocations() {

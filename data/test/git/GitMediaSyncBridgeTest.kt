@@ -183,8 +183,10 @@ class GitMediaSyncBridgeTest : DataFunSpec() {
             val result = bridge.reconcile(repoRoot, defaultLayout)
 
             (result.repoChanged).shouldBeFalse()
-            (result.localChanged).shouldBeTrue()
-            (localFile.exists()).shouldBeFalse()
+            // D6: LocalMediaSyncStore retains committed media bytes; journal only → localChanged=false.
+            // Orphan reclaim is MediaEdge runOrphanSweepAtOperationBoundary (not this bridge).
+            (result.localChanged).shouldBeFalse()
+            (localFile.exists()).shouldBeTrue()
             (stateStore.read().isEmpty()).shouldBeTrue()
         }
 

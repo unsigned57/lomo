@@ -68,6 +68,9 @@ class ShareServiceManagerTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
+    @MockK(relaxed = true)
+    private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
+
     private lateinit var attachmentStorage: ShareAttachmentStorage
 
     private fun setUp() {
@@ -78,7 +81,7 @@ class ShareServiceManagerTest : DataFunSpec() {
         every { dataStore.voiceDirectory } returns flowOf(null)
         every { dataStore.rootUri } returns flowOf(null)
         every { dataStore.voiceUri } returns flowOf(null)
-        attachmentStorage = ShareAttachmentStorage(context, dataSource, dataStore)
+        attachmentStorage = ShareAttachmentStorage(context, dataSource, dataStore, mediaRepository)
     }
 
     private fun `resolveAvailableAttachmentFilename appends suffix for existing audio file`() =

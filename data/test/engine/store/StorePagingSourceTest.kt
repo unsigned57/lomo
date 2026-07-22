@@ -20,6 +20,15 @@ package com.lomo.data.engine.store
  *
  * Excludes:
  * - Real BoltFFI handle lifecycle and device UI scrolling.
+ *
+ * Test Change Justification:
+ * - Reason category: StorePort surface grew history attachment and media-adjacent methods.
+ * - Old behavior/assertion being replaced: fake StorePort without listHistoryAttachmentRefs stub.
+ * - Why old assertion is no longer correct: production StorePort requires history attachment refs
+ *   after stage-4 media refcount wiring; fakes must compile against the expanded port.
+ * - Coverage preserved by: first/next page keys and LoadResult.Error still asserted.
+ * - Why this is not fitting the test to the implementation: still locks observable paging results,
+ *   not media orphan sweep internals.
  */
 
 import androidx.paging.PagingSource
@@ -47,6 +56,8 @@ private class FakeStorePort : StorePort {
     }
 
     override fun getMemo(memoId: String): StoreMemoSnapshot? = null
+
+    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
 
     override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit =
         error("not used")

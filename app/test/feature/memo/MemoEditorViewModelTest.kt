@@ -23,7 +23,7 @@ import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
-import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
+import com.lomo.domain.usecase.DiscardDraftMediaUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -64,7 +64,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
     private val createMemoUseCase = FakeCreateMemoUseCase()
     private val updateMemoContentUseCase = FakeUpdateMemoContentUseCase()
     private val saveImageUseCase = FakeSaveImageUseCase()
-    private val discardMemoDraftAttachmentsUseCase = FakeDiscardMemoDraftAttachmentsUseCase()
+    private val discardDraftMediaUseCase = FakeDiscardDraftMediaUseCase()
     private val appWidgetRepository = FakeAppWidgetRepository()
     private val observeDraftTextUseCase = FakeObserveDraftTextUseCase(sharedDraftTextFlow)
     private val setDraftTextUseCase = FakeSetDraftTextUseCase(sharedDraftTextFlow)
@@ -77,7 +77,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             createMemoUseCase.reset()
             updateMemoContentUseCase.reset()
             saveImageUseCase.reset()
-            discardMemoDraftAttachmentsUseCase.reset()
+            discardDraftMediaUseCase.reset()
             appWidgetRepository.reset()
             observeDraftTextUseCase.reset()
             setDraftTextUseCase.reset()
@@ -157,7 +157,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.draftText.value shouldBe ""
                 createMemoUseCase.createMemoCalledWithContent shouldBe "new memo"
                 setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
-                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe emptyList()
+                discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
             }
         }
 
@@ -225,7 +225,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 updateMemoContentUseCase.updateMemoCalledWithMemo shouldBe memo
                 updateMemoContentUseCase.updateMemoCalledWithContent shouldBe "updated"
                 appWidgetRepository.updateAllWidgetsCalledCount shouldBe 1
-                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe emptyList()
+                discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
             }
         }
 
@@ -244,8 +244,25 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 savedPath shouldBe "images/memo-editor-track.jpg"
-                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe listOf("images/memo-editor-track.jpg")
+                discardDraftMediaUseCase.discardCalledWith shouldBe listOf("images/memo-editor-track.jpg")
             }
+        }
+
+        test("trackVoiceMarkdown tracks destination for discard like images") {
+            runTest {
+                val viewModel = createViewModel()
+                viewModel.trackVoiceMarkdown("![voice](media/voice_20260101_120000.m4a)")
+                viewModel.discardInputs()
+                advanceUntilIdle()
+
+                discardDraftMediaUseCase.discardCalledWith shouldBe
+                    listOf("media/voice_20260101_120000.m4a")
+            }
+        }
+
+        test("extractMarkdownDestination strips angle brackets") {
+            MemoEditorViewModel.extractMarkdownDestination("![voice](<media/voice.m4a>)") shouldBe
+                "media/voice.m4a"
         }
 
         test("saveImage cache sync failure sets prefixed error and invokes onError") {
@@ -292,7 +309,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
         test("discardInputs failure maps to prefixed error") {
             runTest {
                 val viewModel = createViewModel()
-                discardMemoDraftAttachmentsUseCase.discardException = IllegalStateException("discard failed")
+                discardDraftMediaUseCase.discardException = IllegalStateException("discard failed")
 
                 viewModel.discardInputs()
                 advanceUntilIdle()
@@ -307,7 +324,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             createMemoUseCase = createMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
-            discardMemoDraftAttachmentsUseCase = discardMemoDraftAttachmentsUseCase,
+            discardDraftMediaUseCase = discardDraftMediaUseCase,
             appWidgetRepository = appWidgetRepository,
             observeDraftTextUseCase = observeDraftTextUseCase,
             setDraftTextUseCase = setDraftTextUseCase,
@@ -378,7 +395,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
         }
     }
 
-    class FakeDiscardMemoDraftAttachmentsUseCase : DiscardMemoDraftAttachmentsUseCase(mockk()) {
+    class FakeDiscardDraftMediaUseCase : DiscardDraftMediaUseCase(mockk()) {
         var discardCalledWith: Collection<String>? = null
         var discardException: Throwable? = null
 

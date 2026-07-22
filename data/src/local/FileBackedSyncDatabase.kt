@@ -1,7 +1,6 @@
 package com.lomo.data.local
 
 import android.content.Context
-import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.dao.PendingSyncReviewDao
 import com.lomo.data.local.dao.RawS3SyncMetadataDao
@@ -18,7 +17,6 @@ import com.lomo.data.local.dao.SyncStateResetDao
 import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
 import com.lomo.data.local.dao.WebDavLocalFingerprintDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
-import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.local.entity.PendingSyncConflictEntity
 import com.lomo.data.local.entity.PendingSyncReviewEntity
 import com.lomo.data.local.entity.S3LocalChangeJournalEntity
@@ -56,7 +54,6 @@ class FileBackedSyncDatabase(
         }
     private val mutex = Mutex()
 
-    private val imageLocation = ConcurrentHashMap<String, ImageLocationCacheEntity>()
     private val pendingConflicts = ConcurrentHashMap<String, PendingSyncConflictEntity>()
     private val pendingReviews = ConcurrentHashMap<String, PendingSyncReviewEntity>()
     private val s3Journal = ConcurrentHashMap<String, S3LocalChangeJournalEntity>()
@@ -73,7 +70,6 @@ class FileBackedSyncDatabase(
         loadAll()
     }
 
-    val imageLocationCacheDao: ImageLocationCacheDao = ImageLocationCacheDaoImpl()
     val pendingSyncConflictDao: PendingSyncConflictDao = PendingSyncConflictDaoImpl()
     val pendingSyncReviewDao: PendingSyncReviewDao = PendingSyncReviewDaoImpl()
     val s3LocalChangeJournalDao: S3LocalChangeJournalDao = S3LocalChangeJournalDaoImpl()
@@ -94,7 +90,6 @@ class FileBackedSyncDatabase(
     ): String = "$a\u0000$b"
 
     private fun loadAll() {
-        loadList<ImageLocationCacheEntity>("image_location.json") { imageLocation[it.name] = it }
         loadList<PendingSyncConflictEntity>("pending_conflicts.json") {
             pendingConflicts[key2(it.workspaceGeneration, it.backend)] = it
         }
@@ -156,20 +151,6 @@ class FileBackedSyncDatabase(
     private data class ListEnvelope<T>(
         val items: List<T>,
     )
-
-    private inner class ImageLocationCacheDaoImpl : ImageLocationCacheDao {
-        override suspend fun readAll(): List<ImageLocationCacheEntity> = imageLocation.values.toList()
-
-        override suspend fun upsertAll(entries: List<ImageLocationCacheEntity>) {
-            entries.forEach { imageLocation[it.name] = it }
-            persist("image_location.json", imageLocation.values)
-        }
-
-        override suspend fun clearAll() {
-            imageLocation.clear()
-            persist("image_location.json", emptyList<ImageLocationCacheEntity>())
-        }
-    }
 
     private inner class PendingSyncConflictDaoImpl : PendingSyncConflictDao {
         override suspend fun getByBackend(

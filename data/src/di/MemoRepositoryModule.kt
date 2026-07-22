@@ -59,6 +59,8 @@ val memoRepositoryModule =
                 reminderScheduler = get(),
                 writeAuthority = get(),
                 invalidation = get(),
+                pendingStages = get(),
+                syncEdge = get(),
             )
         } bind MemoMutationRepository::class
 

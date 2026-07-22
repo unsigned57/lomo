@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.media.AndroidPresentationMimeTypes
 import com.lomo.data.source.safIsImageFilename
 import com.lomo.domain.model.MediaFileExtensions
 
@@ -22,29 +23,9 @@ internal fun workspaceMimeTypeFor(
     filename: String,
 ): String =
     when (category) {
-        WorkspaceMediaCategory.IMAGE -> workspaceImageMimeType(filename)
-        WorkspaceMediaCategory.VOICE -> workspaceAudioMimeType(filename)
-    }
-
-private fun workspaceImageMimeType(filename: String): String =
-    when (filename.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
-        "png" -> "image/png"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "bmp" -> "image/bmp"
-        "heic" -> "image/heic"
-        "heif" -> "image/heif"
-        "avif" -> "image/avif"
-        else -> "image/jpeg"
-    }
-
-private fun workspaceAudioMimeType(filename: String): String =
-    when (filename.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)) {
-        "mp3" -> "audio/mpeg"
-        "aac" -> "audio/aac"
-        "ogg" -> "audio/ogg"
-        "wav" -> "audio/wav"
-        else -> "audio/mp4"
+        // Android presentation MIME only — not Rust media identity (see AndroidPresentationMimeTypes).
+        WorkspaceMediaCategory.IMAGE -> AndroidPresentationMimeTypes.imageMimeForFilename(filename)
+        WorkspaceMediaCategory.VOICE -> AndroidPresentationMimeTypes.audioMimeForFilename(filename)
     }
 
 private fun isWorkspaceSafAudioFilename(name: String): Boolean =

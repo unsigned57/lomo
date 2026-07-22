@@ -27,6 +27,7 @@ import com.lomo.data.webdav.WebDavSmallRemoteFile
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
 import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.repository.MediaRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -40,8 +41,10 @@ import io.kotest.matchers.booleans.shouldBeTrue
 /*
  * Behavior Contract:
  * - Unit under test: WebDavSyncActionApplier
- * - Behavior focus: action routing across upload/download/delete directions, memo-vs-media branching, skip behavior, and failure mapping.
- * - Observable outcomes: ActionExecutionState result, sync state transitions, and side-effect targets (WebDAV client vs markdown/media data sources).
+ * - Behavior focus: action routing across upload/download/delete directions, memo-vs-media branching,
+ *   skip behavior, failure mapping, and D6 media delete (journal + orphan sweep, no false localChanged).
+ * - Observable outcomes: ActionExecutionState result, sync state transitions, and side-effect targets
+ *   (WebDAV client vs markdown/media data sources + MediaRepository.runOrphanSweepAtOperationBoundary).
  * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: planner conflict detection, metadata persistence, and network protocol correctness.
  */
@@ -63,7 +66,9 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
 
         test("delete local memo removes markdown file") { `delete local memo removes markdown file`() }
 
-        test("delete local media removes local media file") { `delete local media removes local media file`() }
+        test("delete local media journals and runs orphan sweep without localChanged") {
+            `delete local media journals and runs orphan sweep without localChanged`()
+        }
 
         test("delete remote removes remote file") { `delete remote removes remote file`() }
 
@@ -78,6 +83,7 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
     private val stateHolder = WebDavSyncStateHolder()
     private val markdownStorageDataSource = FakeFileDataSource()
     private val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
+    private val mediaRepository: MediaRepository = mockk(relaxed = true)
     private val client: WebDavClient = mockk(relaxed = true)
 
     private val layout =
@@ -94,7 +100,8 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
         every { runtime.stateHolder } returns stateHolder
         every { runtime.markdownStorageDataSource } returns markdownStorageDataSource
         every { runtime.localMediaSyncStore } returns localMediaSyncStore
-        applier = WebDavSyncActionApplier(runtime, fileBridge)
+        coEvery { localMediaSyncStore.delete(any(), any()) } returns false
+        applier = WebDavSyncActionApplier(runtime, fileBridge, mediaRepository)
     }
 
     private fun `upload memo reads local markdown and writes remote with local hint`() =
@@ -218,17 +225,20 @@ class WebDavSyncActionApplierTest : DataFunSpec() {
             coVerify(exactly = 0) { localMediaSyncStore.delete(any(), any()) }
         }
 
-    private fun `delete local media removes local media file`() =
+    private fun `delete local media journals and runs orphan sweep without localChanged`() =
         runTest {
             val path = "lomo/voice/clip.m4a"
             val action = action(path, WebDavSyncDirection.DELETE_LOCAL)
             every { fileBridge.isMemoPath(path, layout) } returns false
+            coEvery { localMediaSyncStore.delete(path, layout) } returns false
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
-            result shouldBe ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
+            // D6: media bytes unchanged under fail-closed retain; localChanged must not false-green.
+            result shouldBe ActionExecutionState.Applied(localChanged = false, remoteChanged = false)
             stateHolder.state.value shouldBe WebDavSyncState.Deleting
             coVerify(exactly = 1) { localMediaSyncStore.delete(path, layout) }
+            coVerify(exactly = 1) { mediaRepository.runOrphanSweepAtOperationBoundary() }
             markdownStorageDataSource.files.isEmpty() shouldBe true
         }
 

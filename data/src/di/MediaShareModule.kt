@@ -35,7 +35,7 @@ val mediaShareModule = module {
     single<LanShareDeviceIdentityProvider> { DataStoreLanShareDeviceIdentityProvider(get()) }
     single { ShareTransferOrchestrator(androidContext(), get(), get()) }
     single { ShareServiceLifecycleController(androidContext(), get(), get()) }
-    single { ShareAttachmentStorage(androidContext(), get(), get()) }
+    single { ShareAttachmentStorage(androidContext(), get(), get(), get()) }
     single<ShareAttachmentDestinationRemapper> { OwnerShareAttachmentDestinationRemapper() }
     single { ShareIncomingMemoSaver(get(), get(), get()) }
     single { ShareIncomingStateHolder() }

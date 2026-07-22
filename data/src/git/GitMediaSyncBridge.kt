@@ -191,8 +191,9 @@ constructor(
             if (local == null) {
                 return false
             }
-            localMediaSyncStore.delete(path, layout)
-            return true
+            // D6: journal only — LocalMediaSyncStore never hard-deletes committed media bytes.
+            // localChanged must reflect byte mutation (always false under media-trash law).
+            return localMediaSyncStore.delete(path, layout)
         }
         private fun deleteRepoFile(
             repoRootDir: File,

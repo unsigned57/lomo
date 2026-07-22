@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import androidx.paging.PagingSource
+import com.lomo.data.engine.media.MediaSyncEdgeAdapter
+import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.engine.store.StoreMemoCommand
 import com.lomo.data.engine.store.StoreMemoCommandKind
 import com.lomo.data.engine.store.StoreMemoFilters
@@ -205,6 +207,8 @@ class StoreMemoMutationRepository(
     private val reminderScheduler: MemoMutationReminderScheduler,
     private val writeAuthority: WorkspaceWriteAuthority,
     private val invalidation: StoreInvalidationBus,
+    private val pendingStages: PendingMediaStageRegistry = PendingMediaStageRegistry(),
+    private val syncEdge: MediaSyncEdgeAdapter? = null,
 ) : MemoMutationRepository {
     override suspend fun refreshMemos() {
         requireWritable()
@@ -227,16 +231,27 @@ class StoreMemoMutationRepository(
         requireWritable()
         return withContext(Dispatchers.IO) {
             val opId = UUID.randomUUID().toString()
+            val destinations = markdownAttachmentDestinations(content)
+            val promotes = pendingStages.takePlansForDestinations(destinations, opId)
             val commit =
-                port.applyMemoCommand(
-                    StoreMemoCommand(
-                        operationId = opId,
-                        kind = StoreMemoCommandKind.Create,
-                        memoId = "",
-                        expectedRevision = 0L,
-                        content = content,
-                    ),
-                )
+                try {
+                    port.applyMemoCommand(
+                        StoreMemoCommand(
+                            operationId = opId,
+                            kind = StoreMemoCommandKind.Create,
+                            memoId = "",
+                            expectedRevision = 0L,
+                            content = content,
+                            pendingPromotes = promotes,
+                        ),
+                    )
+                } catch (error: Exception) {
+                    // B5: re-stage so draft retry can takePlans again under a new opId.
+                    reStagePromotes(promotes)
+                    throw error
+                }
+            // D8: journal committed media only after memo-bound promote succeeds.
+            journalPromotedMedia(promotes.map { it.finalRelativePath })
             invalidation.bump()
             val memo =
                 port.getMemo(commit.memoId)?.toDomainMemo()
@@ -253,18 +268,44 @@ class StoreMemoMutationRepository(
         requireWritable()
         withContext(Dispatchers.IO) {
             val snap = port.getMemo(memo.id) ?: error("memo not found: ${memo.id}")
-            port.applyMemoCommand(
-                StoreMemoCommand(
-                    operationId = UUID.randomUUID().toString(),
-                    kind = StoreMemoCommandKind.Update,
-                    memoId = memo.id,
-                    expectedRevision = snap.summary.contentRevision,
-                    expectedFingerprint = snap.summary.fileFingerprint,
-                    content = newContent,
-                ),
-            )
+            val opId = UUID.randomUUID().toString()
+            val destinations = markdownAttachmentDestinations(newContent)
+            val promotes = pendingStages.takePlansForDestinations(destinations, opId)
+            try {
+                port.applyMemoCommand(
+                    StoreMemoCommand(
+                        operationId = opId,
+                        kind = StoreMemoCommandKind.Update,
+                        memoId = memo.id,
+                        expectedRevision = snap.summary.contentRevision,
+                        expectedFingerprint = snap.summary.fileFingerprint,
+                        content = newContent,
+                        pendingPromotes = promotes,
+                    ),
+                )
+            } catch (error: Exception) {
+                reStagePromotes(promotes)
+                throw error
+            }
+            journalPromotedMedia(promotes.map { it.finalRelativePath })
             invalidation.bump()
             reminderScheduler.syncForMemo(memo.id)
+        }
+    }
+
+    private fun reStagePromotes(promotes: List<com.lomo.data.engine.media.MediaPromotePlan>) {
+        for (plan in promotes) {
+            pendingStages.put(plan.staged)
+        }
+    }
+
+    private suspend fun journalPromotedMedia(finalRelativePaths: List<String>) {
+        val edge = syncEdge ?: return
+        for (path in finalRelativePaths) {
+            val basename = path.substringAfterLast('/').substringAfterLast('\\')
+            if (basename.isNotEmpty()) {
+                edge.onCommittedMediaUpsert(basename)
+            }
         }
     }
 
@@ -339,6 +380,44 @@ class StoreMemoMutationRepository(
             "Memo mutation requires Ready engine and unfrozen write authority"
         }
     }
+}
+
+/**
+ * Lightweight markdown image/attachment destination extractor for promote matching.
+ * Not a second Markdown owner — destinations are only used to select staged promote plans.
+ * Full render IR remains Rust-owned.
+ */
+internal fun markdownAttachmentDestinations(content: String): List<String> {
+    if (content.isEmpty()) return emptyList()
+    val results = ArrayList<String>()
+    var index = 0
+    while (index < content.length) {
+        val bang = content.indexOf("![", index)
+        if (bang < 0) break
+        val closeAlt = content.indexOf(']', bang + 2)
+        if (closeAlt < 0) break
+        if (closeAlt + 1 >= content.length || content[closeAlt + 1] != '(') {
+            index = closeAlt + 1
+            continue
+        }
+        val closeDest = content.indexOf(')', closeAlt + 2)
+        if (closeDest < 0) break
+        val dest =
+            content
+                .substring(closeAlt + 2, closeDest)
+                .trim()
+                .substringBefore(' ')
+                .trim()
+        if (dest.isNotEmpty() &&
+            !dest.startsWith("http://", ignoreCase = true) &&
+            !dest.startsWith("https://", ignoreCase = true) &&
+            !dest.startsWith("data:", ignoreCase = true)
+        ) {
+            results += dest
+        }
+        index = closeDest + 1
+    }
+    return results
 }
 
 class StoreMemoSearchRepository(

@@ -609,6 +609,112 @@ private class InMemoryDirectorySettingsRepository : DirectorySettingsRepository 
 private class SessionFakeNativeEnginePort(
     initialSnapshot: NativeEngineSnapshot,
 ) : WorkspaceNativeEnginePort {
+
+    override fun stageMedia(
+        mediaRoot: String,
+        sourceKind: com.lomo.nativebridge.MediaSourceKind,
+        sourcePath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        com.lomo.nativebridge.MediaStagedDto(
+            digest = "0".repeat(64),
+            size = 0uL,
+            mime = "application/octet-stream",
+            stagingPath = "$mediaRoot/stage",
+            humanNameHint = humanNameHint,
+            suggestedFinalRelativePath = "media/attachment.bin",
+        )
+
+    override fun allocateRecordingTarget(
+        mediaRoot: String,
+        extension: String,
+    ): String = "$mediaRoot/recording.$extension"
+
+    override fun finalizeRecording(
+        mediaRoot: String,
+        recordingPath: String,
+        humanNameHint: String,
+    ): com.lomo.nativebridge.MediaStagedDto =
+        stageMedia(mediaRoot, com.lomo.nativebridge.MediaSourceKind.STAGED_TEMP, recordingPath, humanNameHint)
+
+    override fun promoteMedia(
+        workspaceRoot: String,
+        plan: com.lomo.nativebridge.MediaPromotePlanDto,
+    ): com.lomo.nativebridge.MediaPromoteResultDto =
+        com.lomo.nativebridge.MediaPromoteResultDto(
+            operationId = plan.operationId,
+            digest = plan.staged.digest,
+            mime = plan.staged.mime,
+            size = plan.staged.size,
+            finalAbsolutePath = "$workspaceRoot/${plan.finalRelativePath}",
+            finalRelativePath = plan.finalRelativePath,
+        )
+
+    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        com.lomo.nativebridge.MediaManifestDto(stageDirName = "stage", entries = emptyList())
+
+    override fun mediaOrphanSweep(
+        mediaRoot: String,
+        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
+        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+        nowMs: ULong?,
+        recoveryWindowMs: ULong,
+    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
+        com.lomo.nativebridge.MediaOrphanSweepResultDto(
+            movedToTrash = emptyList(),
+            permanentlyDeletedDigests = emptyList(),
+            keptLive = 0uL,
+        )
+
+    override fun archiveExport(
+        workspaceRoot: String,
+        archivePath: String,
+    ): com.lomo.nativebridge.ArchiveExportResultDto =
+        com.lomo.nativebridge.ArchiveExportResultDto(
+            archivePath = archivePath,
+            schemaVersion = 2u,
+            entryCount = 0uL,
+        )
+
+    override fun archiveInspect(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto =
+        com.lomo.nativebridge.ArchiveInspectResultDto(
+            stagingRoot = stagingRoot,
+            schemaVersion = 2u,
+            entryCount = 0uL,
+        )
+
+    override fun archiveImport(
+        archivePath: String,
+        stagingRoot: String,
+    ): com.lomo.nativebridge.ArchiveInspectResultDto = archiveInspect(archivePath, stagingRoot)
+
+    override fun archiveActivate(
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+    ) = Unit
+
+    override fun archiveImportActivateRebuild(
+        archivePath: String,
+        stagingRoot: String,
+        liveRoot: String,
+        backupRoot: String,
+        rebuildBatchSize: UInt,
+    ): com.lomo.nativebridge.StoreRebuildResult =
+        com.lomo.nativebridge.StoreRebuildResult(
+            memosIndexed = 0uL,
+            fileCount = 0uL,
+            attachmentCount = 0uL,
+            workspaceDigest = "",
+            storeDigest = "",
+            corruptLomoIsolated = 0uL,
+            highWaterRevision = 0uL,
+        )
+
     var snapshot: NativeEngineSnapshot = initialSnapshot
     var portCloseCount: Int = 0
     var renderCallCount: Int = 0
@@ -696,6 +802,9 @@ private class SessionFakeNativeEnginePort(
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
     ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
+
+    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
+        emptyList()
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         error("store get not expected")

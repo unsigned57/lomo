@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.media.AndroidPresentationMimeTypes
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.repository.WorkspaceWriteAuthority
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -16,30 +17,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
+import timber.log.Timber
 import java.io.File
 import java.io.IOException
 
-private val IMAGE_CONTENT_TYPES =
-    mapOf(
-        "png" to "image/png",
-        "gif" to "image/gif",
-        "webp" to "image/webp",
-        "bmp" to "image/bmp",
-        "heic" to "image/heic",
-        "heif" to "image/heif",
-        "avif" to "image/avif",
-    )
-private val VOICE_CONTENT_TYPES =
-    mapOf(
-        "mp3" to "audio/mpeg",
-        "aac" to "audio/aac",
-        "wav" to "audio/wav",
-        "ogg" to "audio/ogg",
-    )
-private const val DEFAULT_IMAGE_CONTENT_TYPE = "image/jpeg"
-private const val DEFAULT_VOICE_CONTENT_TYPE = "audio/mp4"
-private const val OCTET_STREAM = "application/octet-stream"
 private const val WEBDAV_PREFIX = "lomo/"
+private const val OCTET_STREAM = AndroidPresentationMimeTypes.OCTET_STREAM
 
 internal sealed interface MediaRoot {
     val category: MediaSyncCategory
@@ -324,23 +307,41 @@ class LocalMediaSyncStore(
             }
         }
 
+        /**
+         * Journals a remote/local sync delete intent for committed media.
+         *
+         * D6: never hard-deletes committed media bytes. Returns whether local media **bytes**
+         * changed (always false under media-trash law). Callers must not report
+         * `localChanged=true` from this alone; reclaim is MediaEdge orphan sweep at the
+         * operation boundary.
+         */
         suspend fun delete(
             relativePath: String,
             layout: SyncDirectoryLayout,
-        ) {
+        ): Boolean {
             writeAuthority.requireWritable()
-            withContext(Dispatchers.IO) {
+            // D6: remote sync must not hard-delete committed media outside media-trash law.
+            // Journal remote delete intent only; local reclaim is MediaEdge orphan sweep.
+            return withContext(Dispatchers.IO) {
                 val located =
                     locateMediaFile(
                         relativePath = relativePath,
                         layout = layout,
                         cachedRoots = configuredRootsState.value,
                         dataStore = dataStore,
-                    ) ?: return@withContext
-                when (val root = located.root) {
-                    is MediaRoot.Direct -> File(root.path, located.filename).delete()
-                    is MediaRoot.Saf -> getSafRoot(context, root)?.findFile(located.filename)?.delete()
+                    )
+                if (located == null) {
+                    return@withContext false
                 }
+                // Locate for validation only — never File.delete / SAF delete committed media.
+                Timber.tag("LocalMediaSyncStore").i(
+                    "skip hard-delete of committed media path=%s root=%s (D6 media-trash); " +
+                        "bytes_unchanged localChanged=false",
+                    relativePath,
+                    located.root,
+                )
+                // Bytes on disk are unchanged; reclaim is deferred to orphan sweep.
+                false
             }
         }
 
@@ -423,8 +424,8 @@ private fun contentTypeFor(
 ): String {
     val extension = filename.extensionOrEmpty()
     return when (category) {
-        MediaSyncCategory.IMAGE -> IMAGE_CONTENT_TYPES[extension] ?: DEFAULT_IMAGE_CONTENT_TYPE
-        MediaSyncCategory.VOICE -> VOICE_CONTENT_TYPES[extension] ?: DEFAULT_VOICE_CONTENT_TYPE
+        MediaSyncCategory.IMAGE -> AndroidPresentationMimeTypes.imageMimeForExtension(extension)
+        MediaSyncCategory.VOICE -> AndroidPresentationMimeTypes.audioMimeForExtension(extension)
     }
 }
 

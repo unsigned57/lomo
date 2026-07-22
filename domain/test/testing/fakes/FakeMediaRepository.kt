@@ -65,6 +65,11 @@ class FakeMediaRepository : MediaRepository {
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
         voiceTargets[entryId] ?: StorageLocation("/voice/${entryId.raw}.m4a")
 
+    override suspend fun finalizeVoiceCapture(
+        recordingLocation: StorageLocation,
+        humanNameHint: String,
+    ): StorageLocation = StorageLocation(humanNameHint.ifBlank { recordingLocation.raw })
+
     override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
         removedVoiceCaptureIds += entryId
     }

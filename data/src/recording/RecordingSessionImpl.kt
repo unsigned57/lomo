@@ -57,6 +57,7 @@ constructor(
                     phase =
                         RecordingPhase.Recording(
                             filename = filename,
+                            captureLocation = target,
                             startedAtMillis = startedAtMillis,
                         )
                     _state.value =
@@ -88,7 +89,14 @@ constructor(
                 serviceController.stop()
                 try {
                     voiceRecordingRepository.stop()
-                    "![voice](${recordingState.filename})"
+                    // D4: finalize stages only; promote is memo-bound under same operation-id.
+                    val dest =
+                        mediaRepository
+                            .finalizeVoiceCapture(
+                                recordingLocation = StorageLocation(recordingState.captureLocation),
+                                humanNameHint = recordingState.filename,
+                            ).raw
+                    "![voice]($dest)"
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (error: Exception) {
@@ -172,6 +180,8 @@ private sealed interface RecordingPhase {
     data object Starting : RecordingPhase
     data class Recording(
         val filename: String,
+        /** Absolute or file:// capture target from allocateVoiceCaptureTarget (stage only). */
+        val captureLocation: String,
         val startedAtMillis: Long,
     ) : RecordingPhase
     data object Stopping : RecordingPhase
