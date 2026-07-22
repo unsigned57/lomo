@@ -42,14 +42,26 @@ path = "tests/reminder_core_contract.rs"
 [dependencies]
 lomo-core = { path = "../core" }
 lomo-workspace = { path = "../workspace" }
+lomo-media = { path = "../media" }
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true
+
+[[test]]
+name = "archive_contract"
+path = "tests/archive_contract.rs"
+
+[[test]]
+name = "history_refs_contract"
+path = "tests/history_refs_contract.rs"

@@ -38,6 +38,7 @@ mod tests {
                     content: Some(content.into()),
                     tags: tags.iter().map(|s| (*s).to_owned()).collect(),
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -69,6 +70,7 @@ mod tests {
                     content: None,
                     tags: vec![],
                     pin: Some(true),
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -234,6 +236,9 @@ mod tests {
     fn query_and_get_memo_project_tags_and_image_urls() {
         let dir = tempdir().expect("tempdir");
         let mut store = Store::open(dir.path()).expect("open");
+        // Attachment file must exist before body/`attachment_ref` commit (P4-04 fail-closed).
+        std::fs::create_dir_all(dir.path().join("images")).expect("images dir");
+        std::fs::write(dir.path().join("images/cover.png"), b"x").expect("cover");
         // Content-derived #tag merges with explicit command tags; markdown image becomes image_urls.
         create(
             &mut store,

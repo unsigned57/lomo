@@ -101,6 +101,7 @@ mod tests {
                     content: Some("笔记：你好世界 hello".into()),
                     tags: vec![],
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )

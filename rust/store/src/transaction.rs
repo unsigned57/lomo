@@ -21,6 +21,8 @@ use crate::tokenizer::index_tokens;
 pub enum CrashPoint {
     AfterIntent,
     AfterHistory,
+    /// After staged media promote succeeds, before Markdown body commit (P4-04).
+    AfterPromoteBeforeFiles,
     AfterFiles,
     AfterProjection,
     AfterCommittedMark,
@@ -37,6 +39,8 @@ pub struct MemoCommand {
     pub content: Option<String>,
     pub tags: Vec<String>,
     pub pin: Option<bool>,
+    /// Staged media to promote under this operation-id before body/`attachment_ref` (P4-04).
+    pub pending_promotes: Vec<lomo_media::PromotePlan>,
 }
 
 /// Successful commit publication (step 8).
@@ -155,6 +159,7 @@ pub fn apply_memo_command(
         file_fingerprint_after: None,
         core_revision_after: None,
         event_sequence_after: None,
+        pending_promotes: command.pending_promotes.clone(),
     };
     persist_intent(&op_path, &intent)?;
     maybe_crash(
@@ -203,7 +208,8 @@ fn recover_operation(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "explicit step machine with durable handles"
+    clippy::too_many_lines,
+    reason = "explicit step machine with durable handles; promote is part of steps 4–5"
 )]
 fn run_remaining_steps(
     workspace_root: &Path,
@@ -229,8 +235,15 @@ fn run_remaining_steps(
         )?;
     }
 
-    // Steps 4–5: generate file patch plan + atomic commit Markdown.
+    // Steps 4–5: promote staged media under the same operation-id, then atomic commit Markdown.
+    // Body/`attachment_ref` must never land before promote Ok (P4-04 no half-success).
     if intent.status == OperationStatus::HistoryAppended {
+        promote_pending_media(workspace_root, intent)?;
+        maybe_crash(
+            crash_point,
+            CrashPoint::AfterPromoteBeforeFiles,
+            "crash_point_after_promote_before_files",
+        )?;
         let (fingerprint, content_revision) = commit_files(workspace_root, intent)?;
         intent.file_fingerprint_after = Some(fingerprint);
         intent.content_revision_after = Some(content_revision);
@@ -471,6 +484,45 @@ fn append_history(paths: &LomoPaths, intent: &OperationIntent) -> Result<(), lom
             body_json,
         },
     )
+}
+
+/// Promotes every pending staged media plan for this operation before body write.
+///
+/// Recovery re-enters this path while status is still `HistoryAppended`. Promote is idempotent
+/// when the final path already holds the same digest (see `lomo_media::promote_staged`).
+fn promote_pending_media(
+    workspace_root: &Path,
+    intent: &OperationIntent,
+) -> Result<(), lomo_core::LomoError> {
+    for plan in &intent.pending_promotes {
+        if plan.operation_id != intent.operation_id {
+            return Err(validation(
+                "promote_operation_id_mismatch",
+                "pending promote operation_id must match the memo operation-id",
+            ));
+        }
+        // Injected AfterMoveBeforeRecord is not used from store; store uses CrashPoint matrix.
+        let _result =
+            lomo_media::promote_staged(workspace_root, plan, lomo_media::PromoteCrashPoint::None)?;
+    }
+    // Fail closed: body attachment paths must exist as committed files after promote.
+    if matches!(
+        intent.command,
+        MemoCommandKind::Create | MemoCommandKind::Update | MemoCommandKind::HistoryRestore
+    ) {
+        let content = option_string(intent.content.clone());
+        let facts = project_content_facts(&content)?;
+        for relative in &facts.attachment_paths {
+            let absolute = workspace_root.join(relative);
+            if !absolute.is_file() {
+                return Err(validation(
+                    "attachment_file_missing_after_promote",
+                    "memo body references an attachment path that is not a committed file; refuse body/`attachment_ref`",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn commit_files(

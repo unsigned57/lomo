@@ -306,6 +306,10 @@ pub struct OperationIntent {
     /// Durable publish plan for the event sequence counter.
     #[serde(default)]
     pub event_sequence_after: Option<u64>,
+    /// Staged media promote plans for this operation (P4-04). Empty when no media promote.
+    /// Serialized so crash recovery re-runs promote under the same operation-id before body/refs.
+    #[serde(default)]
+    pub pending_promotes: Vec<lomo_media::PromotePlan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -44,6 +44,7 @@ mod tests {
                     content: Some(content.into()),
                     tags: tags.iter().map(|t| (*t).to_owned()).collect(),
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -87,6 +88,7 @@ mod tests {
                     content: None,
                     tags: vec![],
                     pin: Some(true),
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -249,6 +251,7 @@ mod tests {
                     content: None,
                     tags: vec![],
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -264,6 +267,7 @@ mod tests {
                     content: None,
                     tags: vec![],
                     pin: Some(true),
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -374,6 +378,7 @@ mod tests {
                     content: Some("writable after replace resume".into()),
                     tags: vec![],
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -487,6 +492,7 @@ mod tests {
                     content: Some("no".into()),
                     tags: vec![],
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -544,6 +550,7 @@ mod tests {
                     content: Some("updated isolation body".into()),
                     tags: vec!["iso".into()],
                     pin: None,
+                    pending_promotes: vec![],
                 },
                 None,
             )
@@ -592,5 +599,36 @@ mod tests {
         assert_eq!(query_all(&store), 1, "memo markdown still rebuilds");
         let body = store.get_memo("iso1").expect("get").expect("present");
         assert!(body.body.contains("updated isolation body"));
+    }
+
+    #[test]
+    fn write_gate_helpers_cover_ready_and_rebuilding() {
+        let dir = tempdir().expect("tempdir");
+        assert_eq!(
+            write_gate_for_checkpoint(dir.path()),
+            WriteGate::Ready,
+            "no checkpoint => Ready"
+        );
+        ensure_writable(WriteGate::Ready).expect("ready is writable");
+        let err = ensure_writable(WriteGate::RebuildingReadOnly).expect_err("readonly");
+        assert_eq!(err.code(), "store_rebuilding");
+        assert_eq!(err.category(), ErrorCategory::Busy);
+
+        // Synthetic incomplete checkpoint must force read-only gate.
+        let sqlite_dir = dir.path().join(".lomo-sqlite");
+        fs::create_dir_all(&sqlite_dir).expect("sqlite dir");
+        let checkpoint = sqlite_dir.join("rebuild.checkpoint.json");
+        fs::write(
+            &checkpoint,
+            r#"{"phase":"indexing","workspace_root":"x","started_at_ms":1,"pages_done":0,"temp_db_path":"t"}"#,
+        )
+        .expect("checkpoint");
+        assert_eq!(
+            write_gate_for_checkpoint(dir.path()),
+            WriteGate::RebuildingReadOnly
+        );
+        assert_eq!(RebuildPhase::Indexing.as_str(), "indexing");
+        assert_eq!(RebuildPhase::Complete.as_str(), "complete");
+        assert_eq!(RebuildPhase::Replacing.as_str(), "replacing");
     }
 }

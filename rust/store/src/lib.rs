@@ -1,15 +1,18 @@
 //! Local data-loop owner for stage-3 dark-build (`lomo-store`).
 //!
 //! Owns `SQLite` query projections, FTS5 + pure-Rust tokenizer, memo transaction recovery,
-//! `.lomo/` durable format, rebuild (packages P3-01..P3-06), and reminder business state (P3-07).
+//! `.lomo/` durable format, rebuild (packages P3-01..P3-06), reminder business state (P3-07),
+//! and archive v2 orchestration (stage-4 P4-06..P4-08).
 //!
 //! Production dual-stack with Room is forbidden; dark-build until atomic cutover (P3-10).
 
 #![deny(unsafe_code)]
 
+mod archive;
 mod content_facts;
 mod cursor;
 mod error;
+mod history_refs;
 mod lomo_format;
 mod open;
 mod query;
@@ -19,10 +22,20 @@ mod schema;
 mod tokenizer;
 mod transaction;
 
+pub use archive::{
+    ARCHIVE_MANIFEST_ENTRY, ARCHIVE_MANIFEST_SCHEMA_V2, ArchiveEntryKind, ArchiveExportResult,
+    ArchiveInspectResult, ArchiveManifestEntry, ArchiveManifestV2, MAX_COMPRESSION_RATIO,
+    MAX_ENTRY_UNCOMPRESSED_BYTES, archive_activate, archive_activate_with_rename, archive_export,
+    archive_import, archive_import_activate_rebuild, archive_inspect,
+};
 pub use content_facts::{
     ContentFacts, aggregate_memo_digest, fingerprint_content, merge_tags, project_content_facts,
 };
 pub use cursor::{PageCursor, fingerprint_plan, fingerprint_query};
+pub use history_refs::{
+    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, list_history_attachment_refs,
+    list_history_attachment_refs_with_retention,
+};
 pub use lomo_format::{
     HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoPaths, LomoPayload, LomoRecord, LomoRecordKind,
     MemoCommandKind, OperationIntent, OperationStatus, StateBody, decode_record, encode_record,
@@ -218,6 +231,15 @@ impl Store {
     /// See [`get_memo`].
     pub fn get_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
         get_memo(&self.opened.connection, &self.workspace_root, memo_id)
+    }
+
+    /// Attachment paths still referenced by durable history revision bodies (D6 orphan keep-set).
+    ///
+    /// # Errors
+    ///
+    /// See [`list_history_attachment_refs`].
+    pub fn list_history_attachment_refs(&self) -> Result<Vec<HistoryAttachmentRef>, LomoError> {
+        list_history_attachment_refs(&self.workspace_root)
     }
 
     /// Aggregate stats.
