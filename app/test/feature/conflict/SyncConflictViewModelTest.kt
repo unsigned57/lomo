@@ -3,9 +3,19 @@ package com.lomo.app.feature.conflict
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeMemoStore
+import com.lomo.domain.model.RemoteSyncBackendLabel
+import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
+import com.lomo.domain.model.RemoteSyncConfigSummary
+import com.lomo.domain.model.RemoteSyncConflictPage
+import com.lomo.domain.model.RemoteSyncConflictPath
+import com.lomo.domain.model.RemoteSyncConflictPathStatus
+import com.lomo.domain.model.RemoteSyncConflictResolution
+import com.lomo.domain.model.RemoteSyncConflictResolveResult
+import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
+import com.lomo.domain.model.RemoteSyncSessionPhase
+import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewItem
@@ -17,12 +27,14 @@ import com.lomo.domain.model.SyncReviewSessionKind
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.repository.RemoteSyncCenterRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.UnifiedSyncProvider
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
-import com.lomo.domain.usecase.SyncConflictResolutionUseCase
+import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
+import com.lomo.app.testing.fakes.FakeMemoMutationRepository
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
@@ -35,24 +47,17 @@ import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
- * - Capability: Conflict and review dialog state transitions, typed default choice preselection, and resolution application.
+ * - Capability: Original conflict dialog over Rust RemoteSyncCenterRepository + independent
+ *   Sync Inbox review path.
  * - Scenarios:
- *   - Given a conflict set, when the dialog is shown, then it displays correct initial showing state.
- *   - Given backend type and content heuristics, when conflicts are shown, then optimal default choices are suggested.
- *   - Given inbox blocked review items, when review state is shown, then blocked choices remain unselected.
- *   - Given user choice overrides or bulk selection, when choices change, then state applies choices appropriately.
- *   - Given apply resolution trigger, when resolution runs, then backup and resolve use cases run in order.
- * - Observable outcomes:
- *   - ViewModel state (Hidden, Showing, ReviewShowing), per-file conflict choices, and per-item review choices.
- * - TDD proof: RED observed with unresolved ReviewShowing/setReviewItemChoice references before the typed review state fix.
- * - Excludes: Compose UI dialog representation and sync engine transport operations.
- *
- * Test Change Justification:
- * - Reason category: API contract migration.
- * - Old behavior/assertion being replaced: SyncProviderRegistry accepted an ordered List of providers.
- * - Why old assertion is no longer correct: provider registration now models the Koin multibinding graph as an unordered Set.
- * - Coverage preserved by: existing ViewModel state assertions plus SyncProviderRegistryTest duplicate-provider coverage.
- * - Why this is not fitting the test to the implementation: observable conflict/review behavior is unchanged.
+ *   - Given a remote OpenSession, when shown, then dialog exposes bodies and suggested choices.
+ *   - Given heuristics, when S3 remote is strict superset, then KEEP_REMOTE is preselected.
+ *   - Given apply with Rust session, when resolve succeeds, then backup + expected-revision resolve
+ *     hide the dialog.
+ *   - Given apply without remote session, when applyResolution, then fail-closed (no Kotlin engine).
+ *   - Given inbox review, when apply, then SyncReviewResolutionUseCase path runs independently.
+ * - Observable outcomes: ViewModel state, backup log, remote resolve kinds/revision.
+ * - Excludes: Compose UI, BoltFFI/JNI, Sync Center list-detail as primary UX.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncConflictViewModelTest : AppFunSpec() {
@@ -61,7 +66,8 @@ class SyncConflictViewModelTest : AppFunSpec() {
     private lateinit var operationLog: MutableList<ConflictOperation>
     private lateinit var backupRepository: RecordingConflictBackupRepository
     private lateinit var memoRepository: FakeMemoStore
-    private lateinit var syncProviders: Map<SyncBackendType, RecordingUnifiedSyncProvider>
+    private lateinit var remoteRepo: RecordingRemoteSyncCenterRepository
+    private lateinit var inboxProvider: RecordingUnifiedSyncProvider
 
     init {
         extension(MainDispatcherExtension(dispatcher))
@@ -70,255 +76,227 @@ class SyncConflictViewModelTest : AppFunSpec() {
             operationLog = mutableListOf()
             backupRepository = RecordingConflictBackupRepository(operationLog)
             memoRepository = FakeMemoStore()
-            syncProviders =
-                listOf(
-                    SyncBackendType.GIT,
-                    SyncBackendType.S3,
-                    SyncBackendType.INBOX,
-                ).associateWith { backendType ->
-                    RecordingUnifiedSyncProvider(
-                        backendType = backendType,
-                        operationLog = operationLog,
-                    )
-                }
+            remoteRepo = RecordingRemoteSyncCenterRepository()
+            inboxProvider =
+                RecordingUnifiedSyncProvider(
+                    backendType = SyncBackendType.INBOX,
+                    operationLog = operationLog,
+                )
         }
 
-        test("showConflictDialog exposes showing state with empty choices") {
+        test("showRemoteConflictSession exposes showing state with empty choices for non-heuristic files") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet()
+            val session = remoteSession(files = conflictFiles())
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showRemoteConflictSession(session)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = emptyMap<String, SyncConflictResolutionChoice>().toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.Showing(
+                    conflictSet = session.conflictSet,
+                    perFileChoices = emptyMap<String, SyncConflictResolutionChoice>().toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
         }
 
-        test("showConflictDialog preselects remote when s3 remote content is a strict superset") {
+        test("showRemoteConflictSession preselects remote when s3 remote content is a strict superset") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
-                source = SyncBackendType.S3,
-                files = listOf(
-                    SyncConflictFile(
-                        relativePath = "memos/2026_03_24.md",
-                        localContent = "alpha\n\nbeta",
-                        remoteContent = "alpha\n\nbeta\n\ngamma",
-                        isBinary = false,
-                    ),
-                ),
-            )
+            val session =
+                remoteSession(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "memos/2026_03_24.md",
+                                localContent = "alpha\n\nbeta",
+                                remoteContent = "alpha\n\nbeta\n\ngamma",
+                                isBinary = false,
+                            ),
+                        ),
+                )
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showRemoteConflictSession(session)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = mapOf(
-                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                ).toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.Showing(
+                    conflictSet = session.conflictSet,
+                    perFileChoices =
+                        mapOf(
+                            "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                        ).toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
         }
 
-        test("showConflictDialog preselects merge when s3 text inserts do not overlap") {
+        test("showRemoteConflictSession preselects merge when s3 text inserts do not overlap") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
-                source = SyncBackendType.S3,
-                files = listOf(
-                    SyncConflictFile(
-                        relativePath = "memos/2026_03_24.md",
-                        localContent = "start\nlocal\nmiddle\nend",
-                        remoteContent = "start\nmiddle\nremote\nend",
-                        isBinary = false,
-                    ),
-                ),
-            )
+            val session =
+                remoteSession(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "memos/2026_03_24.md",
+                                localContent = "start\nlocal\nmiddle\nend",
+                                remoteContent = "start\nmiddle\nremote\nend",
+                                isBinary = false,
+                            ),
+                        ),
+                )
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showRemoteConflictSession(session)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = mapOf(
-                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.MERGE_TEXT,
-                ).toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.Showing(
+                    conflictSet = session.conflictSet,
+                    perFileChoices =
+                        mapOf(
+                            "memos/2026_03_24.md" to SyncConflictResolutionChoice.MERGE_TEXT,
+                        ).toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
         }
 
-        test("showConflictDialog preselects merge for inbox short disjoint memo content") {
-            val viewModel = createViewModel()
-            val conflictSet = conflictSet(
-                source = SyncBackendType.INBOX,
-                files = listOf(
-                    SyncConflictFile(
-                        relativePath = "inbox/2026_04_15.md",
-                        localContent = "local-only note",
-                        remoteContent = "remote-only note",
-                        isBinary = false,
-                        localLastModified = 20L,
-                        remoteLastModified = 10L,
-                    ),
-                ),
-            )
-
-            viewModel.showConflictDialog(conflictSet)
-
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = mapOf(
-                    "inbox/2026_04_15.md" to SyncConflictResolutionChoice.MERGE_TEXT,
-                ).toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
-        }
-
-        test("showReviewDialog exposes typed review state and leaves blocked inbox review item unselected") {
+        test("showReviewDialog preselects merge for inbox short disjoint memo content") {
             val viewModel = createViewModel()
             val review =
                 reviewSession(
-                source = SyncBackendType.INBOX,
-                    items = listOf(
-                        SyncReviewItem(
-                        relativePath = "inbox/2026_04_16.md",
-                        localContent = null,
-                            incomingContent = "memo with image ![cover](cover.png)",
-                        isBinary = false,
-                            state = SyncReviewItemState.BLOCKED,
-                            message = "Missing attachments: cover.png",
+                    items =
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = "inbox/2026_04_15.md",
+                                localContent = "start\nlocal\nmiddle\nend",
+                                incomingContent = "start\nmiddle\nremote\nend",
+                                isBinary = false,
+                            ),
                         ),
-                    ),
                 )
 
             viewModel.showReviewDialog(review)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.ReviewShowing(
-                reviewSession = review,
-                perItemChoices = emptyMap<String, SyncReviewResolutionChoice>().toImmutableMap(),
-                blockedPaths = setOf("inbox/2026_04_16.md").toImmutableSet(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.ReviewShowing(
+                    reviewSession = review,
+                    perItemChoices =
+                        mapOf(
+                            "inbox/2026_04_15.md" to SyncReviewResolutionChoice.MERGE_TEXT,
+                        ).toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
         }
 
-        test("showConflictDialog preselects local when local metadata is much newer for identical content") {
+        test("showReviewDialog leaves blocked inbox items unselected") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
-                source = SyncBackendType.S3,
-                files = listOf(
-                    SyncConflictFile(
-                        relativePath = "memos/2026_03_24.md",
-                        localContent = "same content",
-                        remoteContent = "same content",
-                        isBinary = false,
-                        localLastModified = 1_200_000L,
-                        remoteLastModified = 1_000L,
-                    ),
-                ),
-            )
+            val review =
+                reviewSession(
+                    items =
+                        listOf(
+                            SyncReviewItem(
+                                relativePath = "inbox/ok.md",
+                                localContent = "a",
+                                incomingContent = "a\nb",
+                                isBinary = false,
+                                state = SyncReviewItemState.CONTENT_DIFFERENCE,
+                            ),
+                            SyncReviewItem(
+                                relativePath = "inbox/blocked.md",
+                                localContent = "x",
+                                incomingContent = "y",
+                                isBinary = false,
+                                state = SyncReviewItemState.BLOCKED,
+                                message = "blocked",
+                            ),
+                        ),
+                )
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showReviewDialog(review)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = mapOf(
-                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                ).toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            val state = viewModel.state.value as SyncConflictDialogState.ReviewShowing
+            state.blockedPaths shouldBe setOf("inbox/blocked.md").toImmutableSet()
+            state.perItemChoices.containsKey("inbox/blocked.md") shouldBe false
         }
 
-        test("showConflictDialog preselects the non-empty side when the remote content was deleted") {
+        test("showRemoteConflictSession preselects local when local metadata is much newer for identical content") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet(
-                source = SyncBackendType.WEBDAV,
-                files = listOf(
-                    SyncConflictFile(
-                        relativePath = "memos/2026_03_24.md",
-                        localContent = "keep local",
-                        remoteContent = "",
-                        isBinary = false,
-                    ),
-                ),
-            )
+            val session =
+                remoteSession(
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "memos/2026_03_24.md",
+                                localContent = "same",
+                                remoteContent = "same",
+                                isBinary = false,
+                                localLastModified = 10_000_000L,
+                                remoteLastModified = 1_000L,
+                            ),
+                        ),
+                )
 
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showRemoteConflictSession(session)
 
-            viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                conflictSet = conflictSet,
-                perFileChoices = mapOf(
-                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                ).toImmutableMap(),
-                expandedFilePath = null,
-                isResolving = false,
-            )
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.Showing(
+                    conflictSet = session.conflictSet,
+                    perFileChoices =
+                        mapOf(
+                            "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
+                        ).toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
         }
 
-        test("setAllChoices fills every file choice in showing state") {
+        test("showRemoteConflictSession preselects the non-empty side when the remote content was deleted") {
             val viewModel = createViewModel()
-            val conflictSet = conflictSet()
-            viewModel.showConflictDialog(conflictSet)
+            val session =
+                remoteSession(
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "memos/2026_03_24.md",
+                                localContent = "local only",
+                                remoteContent = "",
+                                isBinary = false,
+                            ),
+                        ),
+                )
+
+            viewModel.showRemoteConflictSession(session)
+
+            viewModel.state.value shouldBe
+                SyncConflictDialogState.Showing(
+                    conflictSet = session.conflictSet,
+                    perFileChoices =
+                        mapOf(
+                            "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
+                        ).toImmutableMap(),
+                    expandedFilePath = null,
+                    isResolving = false,
+                )
+        }
+
+        test("setAllChoices applies bulk selection") {
+            val viewModel = createViewModel()
+            val session = remoteSession()
+            viewModel.showRemoteConflictSession(session)
 
             viewModel.setAllChoices(SyncConflictResolutionChoice.KEEP_REMOTE)
 
             val state = viewModel.state.value as SyncConflictDialogState.Showing
-            state.perFileChoices shouldBe mapOf(
-                "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
-            ).toImmutableMap()
+            state.perFileChoices shouldBe
+                mapOf(
+                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                    "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
+                ).toImmutableMap()
         }
 
-        test("acceptSuggestedChoices applies initial import review defaults without touching unsupported files") {
+        test("toggleExpandedFile expands and collapses") {
             val viewModel = createViewModel()
-            val review =
-                reviewSession(
-                source = SyncBackendType.S3,
-                    kind = SyncReviewSessionKind.INITIAL_IMPORT_PREVIEW,
-                    items = listOf(
-                        SyncReviewItem(
-                        relativePath = "memos/2026_03_24.md",
-                        localContent = "alpha\n\nbeta",
-                            incomingContent = "alpha\n\nbeta\n\ngamma",
-                        isBinary = false,
-                    ),
-                        SyncReviewItem(
-                        relativePath = "memos/2026_03_25.md",
-                        localContent = "start\nlocal\nmiddle\nend",
-                            incomingContent = "start\nmiddle\nremote\nend",
-                        isBinary = false,
-                    ),
-                        SyncReviewItem(
-                        relativePath = "images/photo.jpg",
-                        localContent = null,
-                            incomingContent = null,
-                        isBinary = true,
-                    ),
-                ),
-            )
-            viewModel.showReviewDialog(review)
-            viewModel.setReviewItemChoice("images/photo.jpg", SyncReviewResolutionChoice.SKIP_FOR_NOW)
-
-            viewModel.acceptSuggestedChoices()
-
-            val state = viewModel.state.value as SyncConflictDialogState.ReviewShowing
-            state.reviewSession shouldBe review
-            state.isInitialImportPreview shouldBe true
-            state.perItemChoices shouldBe mapOf(
-                "memos/2026_03_24.md" to SyncReviewResolutionChoice.KEEP_INCOMING,
-                "memos/2026_03_25.md" to SyncReviewResolutionChoice.MERGE_TEXT,
-                "images/photo.jpg" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
-            ).toImmutableMap()
-        }
-
-        test("toggleExpandedFile toggles currently expanded path") {
-            val viewModel = createViewModel()
-            val conflictSet = conflictSet()
-            viewModel.showConflictDialog(conflictSet)
+            viewModel.showRemoteConflictSession(remoteSession())
 
             viewModel.toggleExpandedFile("memos/2026_03_24.md")
             (viewModel.state.value as SyncConflictDialogState.Showing).expandedFilePath shouldBe "memos/2026_03_24.md"
@@ -327,11 +305,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
             (viewModel.state.value as SyncConflictDialogState.Showing).expandedFilePath shouldBe null
         }
 
-        test("applyResolution backs up files and hides dialog on success") {
+        test("applyResolution backs up files and resolves via Rust expected revision") {
             runTest {
+                remoteRepo.postResolveEmpty = true
                 val viewModel = createViewModel()
-                val conflictSet = conflictSet()
-                viewModel.showConflictDialog(conflictSet)
+                val session = remoteSession()
+                viewModel.showRemoteConflictSession(session)
                 viewModel.setFileChoice("memos/2026_03_24.md", SyncConflictResolutionChoice.KEEP_LOCAL)
                 viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.KEEP_REMOTE)
 
@@ -341,26 +320,44 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 viewModel.state.value shouldBe SyncConflictDialogState.Hidden
                 operationLog shouldBe
                     listOf(
-                        ConflictOperation.Backup(conflictSet.files),
-                        ConflictOperation.Resolve(
-                            conflictSet = conflictSet,
-                            resolution =
-                                SyncConflictResolution(
-                                    mapOf(
-                                        "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                                        "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                    ).toImmutableMap(),
-                                ),
+                        ConflictOperation.Backup(session.conflictSet.files),
+                    )
+                remoteRepo.lastExpectedRevision shouldBe session.conflictRevision
+                remoteRepo.lastResolutions shouldBe
+                    listOf(
+                        RemoteSyncConflictResolution(
+                            path = "memos/2026_03_24.md",
+                            kind = RemoteSyncConflictResolution.KIND_KEEP_LOCAL,
+                        ),
+                        RemoteSyncConflictResolution(
+                            path = "images/photo.jpg",
+                            kind = RemoteSyncConflictResolution.KIND_KEEP_REMOTE,
                         ),
                     )
             }
         }
 
-        test("applyResolution keeps dialog open and clears resolving after failure") {
+        test("applyResolution without remote session fails closed without backup") {
             runTest {
                 val viewModel = createViewModel()
-                val conflictSet = conflictSet()
-                viewModel.showConflictDialog(conflictSet)
+                viewModel.showConflictDialog(conflictSet())
+                viewModel.setAllChoices(SyncConflictResolutionChoice.KEEP_LOCAL)
+
+                viewModel.applyResolution()
+                dispatcher.scheduler.advanceUntilIdle()
+
+                val state = viewModel.state.value as SyncConflictDialogState.Showing
+                state.isResolving shouldBe false
+                operationLog shouldBe emptyList()
+                remoteRepo.lastResolutions shouldBe null
+            }
+        }
+
+        test("applyResolution keeps dialog open and clears resolving after backup failure") {
+            runTest {
+                val viewModel = createViewModel()
+                val session = remoteSession()
+                viewModel.showRemoteConflictSession(session)
                 viewModel.setAllChoices(SyncConflictResolutionChoice.KEEP_LOCAL)
                 backupRepository.failure = IllegalStateException("backup failed")
 
@@ -372,106 +369,85 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 dispatcher.scheduler.advanceUntilIdle()
 
                 val state = viewModel.state.value as SyncConflictDialogState.Showing
-                state.conflictSet shouldBe conflictSet
+                state.conflictSet shouldBe session.conflictSet
                 state.isResolving shouldBe false
-                state.perFileChoices shouldBe mapOf(
-                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                    "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                ).toImmutableMap()
                 operationLog shouldBe emptyList()
             }
         }
 
-        test("autoResolveSafeConflicts applies safe choices and defers unresolved s3 files") {
+        test("applyResolution keeps pending open subset after partial Rust resolve") {
             runTest {
-                val viewModel = createViewModel()
-                val conflictSet = conflictSet(
-                    source = SyncBackendType.S3,
-                    files = listOf(
-                        SyncConflictFile(
-                            relativePath = "memos/2026_03_24.md",
-                            localContent = "alpha\n\nbeta",
-                            remoteContent = "alpha\n\nbeta\n\ngamma",
-                            isBinary = false,
-                        ),
-                        SyncConflictFile(
-                            relativePath = "memos/2026_03_25.md",
-                            localContent = "start\nlocal only\nend",
-                            remoteContent = "start\nremote only\nend",
-                            isBinary = false,
-                        ),
-                    ),
-                )
-                val pending = conflictSet.copy(files = listOf(conflictSet.files[1]))
-                viewModel.showConflictDialog(conflictSet)
-                syncProviders.getValue(SyncBackendType.S3).resolveResult =
-                    UnifiedSyncResult.Conflict(
-                        provider = SyncBackendType.S3,
-                        message = "pending",
-                        conflicts = pending,
+                val remaining =
+                    SyncConflictFile(
+                        relativePath = "images/photo.jpg",
+                        localContent = null,
+                        remoteContent = null,
+                        isBinary = true,
                     )
+                remoteRepo.remainingAfterResolve =
+                    listOf(
+                        RemoteSyncConflictPath(
+                            path = remaining.relativePath,
+                            kind = "binary",
+                            localDigest = "l",
+                            remoteDigest = "r",
+                            baselineDigest = "b",
+                            remoteTokenPresent = true,
+                            localArtifactRef = null,
+                            remoteArtifactRef = null,
+                            status = RemoteSyncConflictPathStatus.Open,
+                        ),
+                    )
+                val viewModel = createViewModel()
+                val session =
+                    remoteSession(
+                        source = SyncBackendType.S3,
+                        files =
+                            listOf(
+                                SyncConflictFile(
+                                    relativePath = "memos/2026_03_24.md",
+                                    localContent = "alpha\n\nbeta",
+                                    remoteContent = "alpha\n\nbeta\n\ngamma",
+                                    isBinary = false,
+                                ),
+                                remaining,
+                            ),
+                    )
+                viewModel.showRemoteConflictSession(session)
+                viewModel.setFileChoice("memos/2026_03_24.md", SyncConflictResolutionChoice.KEEP_REMOTE)
+                viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.SKIP_FOR_NOW)
 
-                viewModel.autoResolveSafeConflicts()
+                viewModel.applyResolution()
                 dispatcher.scheduler.advanceUntilIdle()
 
-                operationLog shouldBe
-                    listOf(
-                        ConflictOperation.Backup(listOf(conflictSet.files.first())),
-                        ConflictOperation.Resolve(
-                            conflictSet = conflictSet,
-                            resolution =
-                                SyncConflictResolution(
-                                    mapOf(
-                                        "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                                        "memos/2026_03_25.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-                                    ).toImmutableMap(),
-                                ),
-                        ),
-                    )
-                viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                    conflictSet = pending,
-                    perFileChoices = mapOf(
-                        "memos/2026_03_25.md" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-                    ).toImmutableMap(),
-                    expandedFilePath = null,
-                    isResolving = false,
-                )
+                val state = viewModel.state.value as SyncConflictDialogState.Showing
+                state.conflictSet.files.map { it.relativePath } shouldBe listOf("images/photo.jpg")
+                state.isResolving shouldBe false
             }
         }
 
-        test("autoResolveSafeConflicts applies safe choices and defers unresolved inbox review files") {
+        test("applyResolution resolves inbox review independently of remote kernel") {
             runTest {
                 val viewModel = createViewModel()
                 val review =
                     reviewSession(
-                    source = SyncBackendType.INBOX,
-                        items = listOf(
-                            SyncReviewItem(
-                            relativePath = "inbox/2026_04_15.md",
-                            localContent = "alpha\nbeta",
-                                incomingContent = "alpha\nbeta\ngamma",
-                            isBinary = false,
-                        ),
-                            SyncReviewItem(
-                            relativePath = "inbox/2026_04_16.md",
-                            localContent = "start\nlocal only\nend",
-                                incomingContent = "start\nremote only\nend",
-                            isBinary = false,
-                        ),
-                    ),
-                )
-                val pendingReview = review.copy(items = listOf(review.items[1]))
-                viewModel.showReviewDialog(review)
-                syncProviders.getValue(SyncBackendType.INBOX).resolveResult =
-                    UnifiedSyncResult.Review(
-                        provider = SyncBackendType.INBOX,
-                        message = "pending",
-                        review = pendingReview,
+                        items =
+                            listOf(
+                                SyncReviewItem(
+                                    relativePath = "inbox/2026_04_15.md",
+                                    localContent = "alpha\nbeta",
+                                    incomingContent = "alpha\nbeta\ngamma",
+                                    isBinary = false,
+                                ),
+                            ),
                     )
+                viewModel.showReviewDialog(review)
+                viewModel.setAllReviewItemChoices(SyncReviewResolutionChoice.KEEP_INCOMING)
 
-                viewModel.autoResolveSafeConflicts()
+                viewModel.applyResolution()
                 dispatcher.scheduler.advanceUntilIdle()
 
+                viewModel.state.value shouldBe SyncConflictDialogState.Hidden
                 operationLog shouldBe
                     listOf(
                         ConflictOperation.ResolveReview(
@@ -480,19 +456,11 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 SyncReviewResolution(
                                     mapOf(
                                         "inbox/2026_04_15.md" to SyncReviewResolutionChoice.KEEP_INCOMING,
-                                        "inbox/2026_04_16.md" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
                                     ).toImmutableMap(),
                                 ),
                         ),
                     )
-                viewModel.state.value shouldBe SyncConflictDialogState.ReviewShowing(
-                    reviewSession = pendingReview,
-                    perItemChoices = mapOf(
-                        "inbox/2026_04_16.md" to SyncReviewResolutionChoice.SKIP_FOR_NOW,
-                    ).toImmutableMap(),
-                    expandedFilePath = null,
-                    isResolving = false,
-                )
+                remoteRepo.lastResolutions shouldBe null
             }
         }
 
@@ -507,87 +475,58 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 operationLog shouldBe emptyList()
             }
         }
-
-        test("applyResolution keeps dialog open with pending subset when conflicts remain") {
-            runTest {
-                val viewModel = createViewModel()
-                val conflictSet = conflictSet(
-                    source = SyncBackendType.S3,
-                    files = listOf(
-                        SyncConflictFile(
-                            relativePath = "memos/2026_03_24.md",
-                            localContent = "alpha\n\nbeta",
-                            remoteContent = "alpha\n\nbeta\n\ngamma",
-                            isBinary = false,
-                        ),
-                        SyncConflictFile(
-                            relativePath = "images/photo.jpg",
-                            localContent = null,
-                            remoteContent = null,
-                            isBinary = true,
-                        ),
-                    ),
-                )
-                val pending = conflictSet.copy(files = listOf(conflictSet.files[1]))
-                viewModel.showConflictDialog(conflictSet)
-                viewModel.setFileChoice("memos/2026_03_24.md", SyncConflictResolutionChoice.KEEP_REMOTE)
-                viewModel.setFileChoice("images/photo.jpg", SyncConflictResolutionChoice.SKIP_FOR_NOW)
-                syncProviders.getValue(SyncBackendType.S3).resolveResult =
-                    UnifiedSyncResult.Conflict(
-                        provider = SyncBackendType.S3,
-                        message = "pending",
-                        conflicts = pending,
-                    )
-
-                viewModel.applyResolution()
-                dispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.state.value shouldBe SyncConflictDialogState.Showing(
-                    conflictSet = pending,
-                    perFileChoices = mapOf("images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW).toImmutableMap(),
-                    expandedFilePath = null,
-                    isResolving = false,
-                )
-            }
-        }
     }
 
     private fun createViewModel(): SyncConflictViewModel =
         SyncConflictViewModel(
-            syncConflictResolutionUseCase =
-                SyncConflictResolutionUseCase(
-                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toSet()),
-                    memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository),
+            remoteSyncConflictDialogUseCase =
+                RemoteSyncConflictDialogUseCase(
+                    remoteSyncCenterRepository = remoteRepo,
+                    memoRepository = FakeMemoMutationRepository(memoRepository),
                 ),
             syncReviewResolutionUseCase =
                 SyncReviewResolutionUseCase(
-                    syncProviderRegistry = SyncProviderRegistry(syncProviders.values.toSet()),
+                    syncProviderRegistry = SyncProviderRegistry(setOf(inboxProvider)),
                 ),
             backupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(backupRepository),
         )
 
+    private fun conflictFiles(): List<SyncConflictFile> =
+        listOf(
+            SyncConflictFile(
+                relativePath = "memos/2026_03_24.md",
+                localContent = "start\nlocal memo\nend",
+                remoteContent = "start\nremote memo\nend",
+                isBinary = false,
+            ),
+            SyncConflictFile(
+                relativePath = "images/photo.jpg",
+                localContent = null,
+                remoteContent = null,
+                isBinary = true,
+            ),
+        )
+
     private fun conflictSet(
         source: SyncBackendType = SyncBackendType.GIT,
-        files: List<SyncConflictFile> =
-            listOf(
-                SyncConflictFile(
-                    relativePath = "memos/2026_03_24.md",
-                    localContent = "start\nlocal memo\nend",
-                    remoteContent = "start\nremote memo\nend",
-                    isBinary = false,
-                ),
-                SyncConflictFile(
-                    relativePath = "images/photo.jpg",
-                    localContent = null,
-                    remoteContent = null,
-                    isBinary = true,
-                ),
-            ),
+        files: List<SyncConflictFile> = conflictFiles(),
     ): SyncConflictSet =
         SyncConflictSet(
             source = source,
             files = files,
             timestamp = 123L,
+        )
+
+    private fun remoteSession(
+        source: SyncBackendType = SyncBackendType.GIT,
+        files: List<SyncConflictFile> = conflictFiles(),
+        revision: Long = 11L,
+    ): RemoteSyncConflictDialogUseCase.OpenSession =
+        RemoteSyncConflictDialogUseCase.OpenSession(
+            workspaceRoot = "/ws",
+            conflictSet = conflictSet(source = source, files = files),
+            conflictRevision = revision,
+            sessionId = "sess-test",
         )
 
     private fun reviewSession(
@@ -605,11 +544,6 @@ class SyncConflictViewModelTest : AppFunSpec() {
     private sealed interface ConflictOperation {
         data class Backup(
             val files: List<SyncConflictFile>,
-        ) : ConflictOperation
-
-        data class Resolve(
-            val conflictSet: SyncConflictSet,
-            val resolution: SyncConflictResolution,
         ) : ConflictOperation
 
         data class ResolveReview(
@@ -655,16 +589,9 @@ class SyncConflictViewModelTest : AppFunSpec() {
             )
 
         override suspend fun resolveConflicts(
-            resolution: SyncConflictResolution,
+            resolution: com.lomo.domain.model.SyncConflictResolution,
             conflictSet: SyncConflictSet,
-        ): UnifiedSyncResult {
-            operationLog +=
-                ConflictOperation.Resolve(
-                    conflictSet = conflictSet,
-                    resolution = resolution,
-                )
-            return resolveResult
-        }
+        ): UnifiedSyncResult = resolveResult
 
         override suspend fun resolveReview(
             resolution: SyncReviewResolution,
@@ -677,5 +604,92 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 )
             return resolveResult
         }
+    }
+
+    private class RecordingRemoteSyncCenterRepository : RemoteSyncCenterRepository {
+        var lastExpectedRevision: Long? = null
+        var lastResolutions: List<RemoteSyncConflictResolution>? = null
+        var postResolveEmpty: Boolean = false
+        var remainingAfterResolve: List<RemoteSyncConflictPath> = emptyList()
+
+        private var afterResolve = false
+
+        override fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
+            RemoteSyncConfigSummary(
+                backend = RemoteSyncBackendLabel.Git,
+                attentionCount = 0,
+                lastVerifiedAtEpochMillis = null,
+                schedulePolicyLabel = null,
+            )
+
+        override fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
+            RemoteSyncSessionProgress(
+                phase = RemoteSyncSessionPhase.ConflictOpen,
+                completedActions = 0,
+                totalActions = null,
+                canCancel = false,
+            )
+
+        override fun listConflicts(
+            workspaceRoot: String,
+            cursor: Int,
+            limit: Int,
+        ): RemoteSyncConflictPage {
+            val items =
+                if (!afterResolve) {
+                    emptyList()
+                } else if (postResolveEmpty) {
+                    emptyList()
+                } else {
+                    remainingAfterResolve
+                }
+            return RemoteSyncConflictPage(
+                sessionId = "sess-test",
+                conflictRevision = if (afterResolve) 12L else 11L,
+                items = items,
+                nextCursor = null,
+            )
+        }
+
+        override fun resolveConflicts(
+            workspaceRoot: String,
+            expectedRevision: Long,
+            resolutions: List<RemoteSyncConflictResolution>,
+        ): RemoteSyncConflictResolveResult {
+            lastExpectedRevision = expectedRevision
+            lastResolutions = resolutions
+            afterResolve = true
+            return RemoteSyncConflictResolveResult(
+                sessionId = "sess-test",
+                conflictRevision = expectedRevision + 1,
+                appliedPaths = resolutions.map { it.path },
+            )
+        }
+
+        override fun markdownConflictFacts(
+            workspaceRoot: String,
+            path: RemoteSyncConflictPath,
+            mergedDraft: String?,
+        ): RemoteSyncMarkdownConflictFacts =
+            RemoteSyncMarkdownConflictFacts(
+                path = path.path,
+                baseDigest = path.baselineDigest,
+                localDigest = path.localDigest,
+                remoteDigest = path.remoteDigest,
+            )
+
+        override fun binaryConflictFacts(
+            workspaceRoot: String,
+            path: RemoteSyncConflictPath,
+        ): RemoteSyncBinaryConflictFacts =
+            RemoteSyncBinaryConflictFacts(
+                path = path.path,
+                mimeType = null,
+                sizeBytes = null,
+                localDigest = path.localDigest,
+                remoteDigest = path.remoteDigest,
+                baselineDigest = path.baselineDigest,
+                sourceLabel = "test",
+            )
     }
 }

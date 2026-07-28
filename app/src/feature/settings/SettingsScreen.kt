@@ -28,12 +28,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.app.AppBuildInfo
 import com.lomo.app.R
-import com.lomo.app.feature.conflict.RemoteSyncConflictProviders
-import com.lomo.app.feature.conflict.SyncConflictDialogHost
-import com.lomo.app.feature.conflict.SyncConflictDialogController
-import com.lomo.app.feature.conflict.SyncConflictStateHost
-import com.lomo.app.feature.conflict.SyncConflictStateViewModel
-import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.util.injectedKoinViewModel
@@ -104,13 +98,11 @@ data class MigrationPickerActions(
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
+    onNavigateToSyncCenter: (() -> Unit)? = null,
     viewModel: SettingsViewModel = injectedKoinViewModel(),
-    conflictViewModel: SyncConflictViewModel = injectedKoinViewModel(),
-    conflictStateViewModel: SyncConflictStateViewModel = injectedKoinViewModel(),
 ) {
     val appContext = LocalContext.current.applicationContext
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val conflictSyncStates by conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val dialogState = rememberSettingsDialogState()
     var activeUpdateDialogState by remember { mutableStateOf<AppUpdateDialogState?>(null) }
@@ -137,7 +129,6 @@ fun SettingsScreen(
     val debugPreviewDialogState by features.system.debugPreviewDialogState.collectAsStateWithLifecycle()
     val migrationOperationState by features.migration.operationState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
-    val conflictController = rememberConflictController(conflictViewModel)
     val storagePickers =
         rememberStoragePickerActions(
             storageFeature = features.storage,
@@ -154,16 +145,6 @@ fun SettingsScreen(
 
     SettingsBackHandler(dialogState)
 
-    SettingsConflictHandlers(
-        uiState = uiState,
-        features = features,
-        dialogState = dialogState,
-        snackbarHostState = snackbarHostState,
-        messages = resources.messages,
-        conflictController = conflictController,
-        conflictSyncStates = conflictSyncStates,
-        onClearOperationError = viewModel::clearOperationError,
-    )
     HandleSettingsUpdateDialogs(
         manualUpdateState = manualUpdateState,
         debugPreviewDialogState = debugPreviewDialogState,
@@ -191,6 +172,7 @@ fun SettingsScreen(
         manualUpdateState = manualUpdateState,
         onBackClick = onBackClick,
         onOpenAvailableUpdateDialog = { activeUpdateDialogState = it },
+        onOpenSyncCenter = onNavigateToSyncCenter,
     )
 
     LomoAppUpdateDialog(
@@ -202,7 +184,6 @@ fun SettingsScreen(
         },
         onOpenReleasePage = uriHandler::openUri,
     )
-    SyncConflictDialogHost(controller = conflictController)
     SettingsDialogHost(
         uiState = uiState,
         features = features,
@@ -213,27 +194,6 @@ fun SettingsScreen(
     )
 }
 
-@Composable
-private fun rememberConflictController(
-    conflictViewModel: SyncConflictViewModel,
-): SyncConflictDialogController {
-    return remember(conflictViewModel) {
-        SyncConflictDialogController(
-            state = conflictViewModel.state,
-            onFileChoiceChanged = conflictViewModel::setFileChoice,
-            onAllChoicesChanged = conflictViewModel::setAllChoices,
-            onReviewItemChoiceChanged = conflictViewModel::setReviewItemChoice,
-            onAllReviewItemChoicesChanged = conflictViewModel::setAllReviewItemChoices,
-            onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
-            onAutoResolveSafeConflicts = conflictViewModel::autoResolveSafeConflicts,
-            onToggleExpanded = conflictViewModel::toggleExpandedFile,
-            onApply = conflictViewModel::applyResolution,
-            onDismiss = conflictViewModel::dismiss,
-            onShowConflictDialog = conflictViewModel::showConflictDialog,
-            onShowReviewDialog = conflictViewModel::showReviewDialog,
-        )
-    }
-}
 
 @Composable
 private fun SettingsBackHandler(dialogState: SettingsDialogState) {
@@ -258,6 +218,7 @@ private fun SettingsSubPagesAnimatedContent(
     manualUpdateState: SettingsManualUpdateState,
     onBackClick: () -> Unit,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
+    onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     AnimatedContent(
         targetState = dialogState.activeSubPage,
@@ -288,6 +249,7 @@ private fun SettingsSubPagesAnimatedContent(
                     storagePickers = storagePickers,
                     migrationPickers = migrationPickers,
                     onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
+                    onOpenSyncCenter = onOpenSyncCenter,
                 )
             }
             SettingsSubPage.STORAGE_FORMATS -> {
@@ -411,36 +373,6 @@ private fun settingsSubPagesTransitionSpec():
     }
 }
 
-@Composable
-private fun SettingsConflictHandlers(
-    uiState: SettingsScreenUiState,
-    features: SettingsFeatures,
-    dialogState: SettingsDialogState,
-    snackbarHostState: SnackbarHostState,
-    messages: SettingsMessages,
-    conflictController: SyncConflictDialogController,
-    conflictSyncStates: ImmutableMap<SyncBackendType, UnifiedSyncState>,
-    onClearOperationError: () -> Unit,
-) {
-    HandleSettingsOperationError(
-        operationError = uiState.operationError,
-        gitFeature = features.git,
-        dialogState = dialogState,
-        snackbarHostState = snackbarHostState,
-        messages = messages,
-        onClearOperationError = onClearOperationError,
-    )
-    HandleGitProviderErrorState(
-        syncState = uiState.git.providerSettings.syncState,
-        gitFeature = features.git,
-        dialogState = dialogState,
-    )
-    SyncConflictStateHost(
-        syncStates = conflictSyncStates,
-        providers = RemoteSyncConflictProviders,
-        controller = conflictController,
-    )
-}
 
 @Composable
 private fun HandleSettingsUpdateDialogs(

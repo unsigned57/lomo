@@ -1,0 +1,30 @@
+[package]
+name = "lomo-git"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "git_adapter_contract"
+path = "tests/git_adapter_contract.rs"
+
+# Credential-gated real provider lines. Every test is `#[ignore]`d, so `just check` / `just ci`
+# never run them; `just sync-provider-smoke` resolves credentials and then runs `--ignored --exact`.
+[[test]]
+name = "provider_smoke"
+path = "tests/provider_smoke.rs"
+
+[dependencies]
+lomo-core = { path = "../core" }
+lomo-sync = { path = "../sync" }
+git2.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

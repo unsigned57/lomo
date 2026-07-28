@@ -4,7 +4,7 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.WriteFreezeRepository
+import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -17,7 +17,7 @@ class MainWorkspaceCoordinator(
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
     private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
-    private val writeFreezeRepository: WriteFreezeRepository,
+    private val workspaceMutationLease: WorkspaceMutationLease,
 ) {
     val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
 
@@ -55,8 +55,15 @@ class MainWorkspaceCoordinator(
         }
     }
 
+    /**
+     * Recovery retry is the same transition as a settings switch and a cold restore.
+     *
+     * Activating the engine directly here would skip candidate probing, the mutation barrier and
+     * the rebuild/rollback policy, which is how a third activation workflow drifted from the other
+     * two.
+     */
     suspend fun retryEngineOpen(rootPath: String) {
-        engineReadinessRepository.activateWorkspace(StorageLocation(rootPath))
+        switchRootStorageUseCase.updateRootLocation(StorageLocation(rootPath))
     }
 
     fun resnapshotEngine() {
@@ -64,13 +71,12 @@ class MainWorkspaceCoordinator(
     }
 
     /**
-     * Observe-root rebuild is suppressed during SwitchRoot freeze and until the active engine
-     * identity matches the persisted selection at Ready. SwitchRoot is the sole rebuild owner
-     * for intentional root switches (settings + main picker).
+     * Observe-root rebuild is suppressed while a workspace transition is draining writers and until
+     * the active engine identity matches the persisted selection at Ready. SwitchRoot is the sole
+     * rebuild owner for intentional root switches (settings + main picker).
      */
     fun canObserveRootRebuild(directory: String): Boolean {
-        if (writeFreezeRepository.isFrozen.value) return false
-        if (engineReadinessRepository.readiness.value !is EngineReadiness.Ready) return false
+        if (!workspaceMutationLease.isWritable()) return false
         return engineReadinessRepository.activeWorkspaceLocation.value?.raw == directory
     }
 }

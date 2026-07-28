@@ -1,7 +1,7 @@
 package com.lomo.data.source
 
 import android.net.Uri
-import com.lomo.data.repository.WorkspaceWriteAuthority
+import com.lomo.domain.repository.WorkspaceMutationLease
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.emitAll
@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.flow
 
 class FileMarkdownStorageDataSourceDelegate(
     private val backendResolver: FileStorageBackendResolver,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
 ) : MarkdownStorageDataSource {
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
             backendResolver.markdownBackend()?.listMetadataIn(directory) ?: emptyList()
@@ -56,19 +56,20 @@ class FileMarkdownStorageDataSourceDelegate(
             content: String,
             append: Boolean,
             uri: Uri?,
-        ): String? {
-            writeAuthority.requireWritable()
-            return requireMarkdownBackend("saveFileIn($filename)")
-                .saveFileIn(directory, filename, content, append, uri)
-        }
+        ): String? =
+            writeLease.withWrite {
+                requireMarkdownBackend("saveFileIn($filename)")
+                    .saveFileIn(directory, filename, content, append, uri)
+            }
 
         override suspend fun deleteFileIn(
             directory: MemoDirectoryType,
             filename: String,
             uri: Uri?,
         ) {
-            writeAuthority.requireWritable()
-            requireMarkdownBackend("deleteFileIn($filename)").deleteFileIn(directory, filename, uri)
+            writeLease.withWrite {
+                requireMarkdownBackend("deleteFileIn($filename)").deleteFileIn(directory, filename, uri)
+            }
         }
 
         override suspend fun getFileMetadataIn(

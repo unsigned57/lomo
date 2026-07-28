@@ -1,7 +1,7 @@
 package com.lomo.app.feature.main
 
 import com.lomo.app.testing.fakes.testMemoUiMapper
-import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingSource
@@ -153,7 +153,7 @@ class MainViewModelTest : AppFunSpec() {
     private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
     private lateinit var dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider
     private lateinit var reminderCoordinator: com.lomo.app.testing.fakes.FakeReminderCoordinator
-    private lateinit var writeFreezeRepository: FakeWriteFreezeRepository
+    private lateinit var workspaceMutationLease: FakeWorkspaceMutationLease
     private lateinit var engineReadinessRepository: com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 
     init {
@@ -176,13 +176,13 @@ class MainViewModelTest : AppFunSpec() {
             imageMapProvider = com.lomo.app.provider.FakeImageMapProvider(mediaRepository)
             audioPlayerManager = com.lomo.app.testing.fakes.FakeAudioPlayerManager()
             workspaceStateResolver = FakeWorkspaceStateResolver()
-            writeFreezeRepository = FakeWriteFreezeRepository()
+            workspaceMutationLease = FakeWorkspaceMutationLease()
             engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
             switchRootStorageUseCase =
                 SwitchRootStorageUseCase(
                     directorySettingsRepository = appConfigRepository,
                     workspaceStateResolver = workspaceStateResolver,
-                    writeFreezeRepository = writeFreezeRepository,
+                    workspaceMutationLease = workspaceMutationLease,
                     engineReadinessRepository = engineReadinessRepository,
                 )
             dispatcherProvider = FakeDispatcherProvider(testDispatcher)
@@ -922,7 +922,7 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("observed root change does not rebuild while write freeze is active") {
+        test("observed root change does not rebuild while a workspace transition holds the lease") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
                 engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
@@ -931,13 +931,13 @@ class MainViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.advanceUntilIdle()
                 workspaceStateResolver.rebuildCount = 0
 
-                check(writeFreezeRepository.begin())
-                engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
-                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
-                testDispatcher.scheduler.advanceUntilIdle()
+                workspaceMutationLease.withExclusiveTransition {
+                    engineReadinessRepository.activateWorkspace(StorageLocation("/root/two"))
+                    appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
+                    testDispatcher.scheduler.advanceUntilIdle()
 
-                workspaceStateResolver.rebuildCount shouldBe 0
-                writeFreezeRepository.end()
+                    workspaceStateResolver.rebuildCount shouldBe 0
+                }
             }
         }
 
@@ -1100,7 +1100,7 @@ class MainViewModelTest : AppFunSpec() {
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
                     engineReadinessRepository = engineReadinessRepository,
-                    writeFreezeRepository = writeFreezeRepository,
+                    workspaceMutationLease = workspaceMutationLease,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(

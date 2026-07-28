@@ -135,8 +135,8 @@ just ci
 签名 release 使用 `just android release`，必须按 `quality/release.md` 明确提供 keystore 配置。
 
 生产 FFI 身份为 `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`。
-迁移证据与体积门见 [BOLTFFI-MIGRATION-PLAN.md](BOLTFFI-MIGRATION-PLAN.md) 与
-`fixtures/baseline/STAGE1-EVIDENCE.md`。
+迁移证据与体积门见 `fixtures/baseline/STAGE1-EVIDENCE.md` 与
+`fixtures/baseline/size-baseline.v1.json`。
 
 Android Studio 仍可用于编辑和设备调试，但仓库门禁与 native 生成必须使用上述命令。
 

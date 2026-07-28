@@ -51,6 +51,7 @@ internal fun SyncBackupSettingsPage(
     storagePickers: StoragePickerActions,
     migrationPickers: MigrationPickerActions,
     onBack: () -> Unit,
+    onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val haptic = LocalAppHapticFeedback.current
@@ -94,6 +95,7 @@ internal fun SyncBackupSettingsPage(
         }
     ) { padding ->
         SyncBackupSettingsBody(
+            onOpenSyncCenter = onOpenSyncCenter,
             padding = padding,
             uiState = uiState,
             dialogState = dialogState,
@@ -107,6 +109,7 @@ internal fun SyncBackupSettingsPage(
 
 @Composable
 private fun SyncBackupSettingsBody(
+    onOpenSyncCenter: (() -> Unit)? = null,
     padding: PaddingValues,
     uiState: SettingsScreenUiState,
     dialogState: SettingsDialogState,
@@ -180,6 +183,7 @@ private fun SyncBackupSettingsBody(
             storageState = uiState.storage,
             onToggleSyncInbox = features.storage::updateSyncInboxEnabled,
             onSelectSyncInbox = storagePickers.openSyncInbox,
+            onOpenSyncCenter = onOpenSyncCenter,
             gitContent = {
                 GitSyncSettingsSectionContainer(
                     state = uiState.git,

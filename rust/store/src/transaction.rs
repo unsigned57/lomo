@@ -10,8 +10,8 @@ use lomo_core::{CoreRevision, EventSequence, InvalidationScope, OperationId};
 use crate::content_facts::{fingerprint_content, merge_tags, project_content_facts};
 use crate::error::{busy, conflict, from_sqlite, storage, validation};
 use crate::lomo_format::{
-    HistoryBody, LomoPaths, LomoPayload, LomoRecordKind, MemoCommandKind, OperationIntent,
-    OperationStatus, StateBody, read_record, write_record_atomic,
+    HistoryBody, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind, MemoCommandKind,
+    OperationIntent, OperationStatus, StateBody, read_record, write_record_atomic,
 };
 use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
@@ -26,6 +26,26 @@ pub enum CrashPoint {
     AfterFiles,
     AfterProjection,
     AfterCommittedMark,
+}
+
+/// Fails closed when layout head is V2 while this crate still only writes v1-shaped records.
+///
+/// First principles: layout head is the sole authority for history/state tree shape. Store memo
+/// writers still produce flat v1 bodies (`memoId-rN` history, single-file state). Writing those into
+/// a V2 tree would corrupt the dual-layout contract. Production activation migration must stay off
+/// the hot path until store v2 writers exist.
+///
+/// # Errors
+///
+/// - `layout_v2_requires_v2_writers` when layout is V2.
+pub fn refuse_v1_writers_on_layout_v2(paths: &LomoPaths) -> Result<(), lomo_core::LomoError> {
+    if paths.layout == LomoLayoutVersion::V2 {
+        return Err(validation(
+            "layout_v2_requires_v2_writers",
+            "layout head is V2 but store memo writers still emit v1-shaped history/state; refuse mutate until store v2 writers cut over",
+        ));
+    }
+    Ok(())
 }
 
 /// Command accepted by the nine-step machine.
@@ -88,6 +108,10 @@ pub fn apply_memo_command(
     }
 
     let paths = LomoPaths::for_workspace(workspace_root);
+    // Dual-layout fence: store writers still emit v1-shaped flat history/state records.
+    // Layout V2 is authoritative only after migration; until store v2 writers cut over, refuse
+    // mutate so v1 bodies never land under history/v2 or state/v2 paths.
+    refuse_v1_writers_on_layout_v2(&paths)?;
     paths.ensure_layout()?;
 
     let op_path = operation_path(&paths, command.operation_id.as_str());

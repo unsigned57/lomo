@@ -53,11 +53,11 @@ import com.lomo.data.engine.store.StoreHistoryAttachmentRef
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreRebuildResult
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.data.testing.fakes.FakeReminderCoordinator
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.EngineReadinessRepository
+import com.lomo.domain.repository.WorkspaceMutationLease
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -272,24 +272,10 @@ private fun seededSnapshot(
         body = body,
     )
 
-private fun frozenWriteAuthority(): WorkspaceWriteAuthority =
-    WorkspaceWriteAuthority(
+private fun notReadyWriteLease(): WorkspaceMutationLease =
+    ProcessWorkspaceMutationLease(
         engineReadinessRepository =
-            object : EngineReadinessRepository {
-                private val state =
-                    MutableStateFlow<EngineReadiness>(EngineReadiness.AwaitingWorkspaceSelection)
-                private val activeLocation = MutableStateFlow<StorageLocation?>(null)
-                override val readiness: StateFlow<EngineReadiness> = state.asStateFlow()
-                override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
-                    activeLocation.asStateFlow()
-
-                override fun resnapshot() = Unit
-
-                override suspend fun activateWorkspace(location: StorageLocation) = Unit
-
-                override suspend fun clearWorkspace() = Unit
-            },
-        writeFreezeRepository = ProcessWriteFreezeRepository(),
+            FakeEngineReadinessRepository(EngineReadiness.AwaitingWorkspaceSelection),
     )
 
 class StoreMemoRepositoriesTest : FunSpec({
@@ -333,7 +319,7 @@ class StoreMemoRepositoriesTest : FunSpec({
                     port = port,
                     queryRepository = query,
                     reminderScheduler = reminders,
-                    writeAuthority = AlwaysWritableWorkspaceWriteAuthority,
+                    writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                 )
 
@@ -359,7 +345,7 @@ class StoreMemoRepositoriesTest : FunSpec({
         }
     }
 
-    test("mutation repository fails closed when write authority is not ready") {
+    test("mutation repository fails closed when the workspace lease refuses admission") {
         runTest {
             val port = RecordingStorePort()
             val mutation =
@@ -367,7 +353,7 @@ class StoreMemoRepositoriesTest : FunSpec({
                     port = port,
                     queryRepository = StoreMemoQueryRepository(port, StoreInvalidationBus()),
                     reminderScheduler = FakeReminderCoordinator(),
-                    writeAuthority = frozenWriteAuthority(),
+                    writeLease = notReadyWriteLease(),
                     invalidation = StoreInvalidationBus(),
                 )
             shouldThrow<IllegalStateException> {

@@ -20,12 +20,25 @@ package com.lomo.data.engine
  *   the native subscription and port are each closed exactly once.
  * - Given Opening with a platform batch runner, when bootstrap completes, then Ready is published
  *   after the runner drives the job.
+ * - Given state read, bootstrap drive, or subscribe fails during acquisition, when construction
+ *   aborts, then the native port closes exactly once and no callback listener remains published.
+ * - Given the subscription refuses to close, when the adapter closes, then the native port is still
+ *   released exactly once and the subscription failure is reported.
+ * - Given the state read fails after a Ready snapshot, when an event or resnapshot arrives, then
+ *   readiness becomes typed recovery instead of keeping the stale Ready.
+ * - Given the engine reports an unknown failure category, when the snapshot decodes, then readiness
+ *   fails closed and keeps the unknown value in the diagnostic.
  *
  * Observable outcomes:
  * - StateFlow readiness, native state-read count, subscription closure, and port closure.
  *
  * TDD proof:
- * - RED when adapter close only unsubscribes and never closes NativeEnginePort.
+ * - RED on 2026-07-27: state/bootstrap/subscribe exceptions escape the constructor while the
+ *   acquired native port remains open and a failing subscribe can retain its listener.
+ * - RED on 2026-07-27: a throwing subscription close skipped `native.close()` entirely, leaking the
+ *   engine handle and its workspace lock.
+ * - RED on 2026-07-27: a failing state read or an unknown failure category escaped the adapter, so
+ *   `readiness` kept the last Ready and the write gate stayed open against an unknown engine.
  *
  * Excludes:
  * - SAF action execution internals, workspace selection persistence, Compose rendering, and Rust.
@@ -47,6 +60,8 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.nativebridge.PlatformBatchResult
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 class RustEngineAdapterTest : DataFunSpec() {
     init {
@@ -141,10 +156,109 @@ class RustEngineAdapterTest : DataFunSpec() {
                         ),
                 )
 
-            val adapter = RustEngineAdapter(native, platformBatchRunner = runner)
+            val adapter = RustEngineAdapter.acquire(native, platformBatchRunner = runner)
 
             adapter.readiness.value shouldBe EngineReadiness.Ready(coreRevision = 0uL, eventSequence = 1uL)
             adapter.close()
+        }
+
+        test("given state read failure during acquisition then native port closes exactly once") {
+            val native =
+                FakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection).apply {
+                    stateFailure = IllegalStateException("state failed")
+                }
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<IllegalStateException> {
+                    testRustEngineAdapter(native)
+                }
+
+            error.message shouldBe "state failed"
+            native.portCloseCount shouldBe 1
+            native.hasListener shouldBe false
+        }
+
+        test("given bootstrap drive failure during acquisition then native port closes exactly once") {
+            val native =
+                FakeNativeEnginePort(NativeEngineSnapshot.Opening(jobId = "job-bootstrap")).apply {
+                    onPoll = { error("bootstrap drive failed") }
+                }
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<IllegalStateException> {
+                    testRustEngineAdapter(native)
+                }
+
+            error.message shouldBe "bootstrap drive failed"
+            native.portCloseCount shouldBe 1
+            native.hasListener shouldBe false
+        }
+
+        test("given subscribe failure during acquisition then native port and listener are released") {
+            val native =
+                FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL)).apply {
+                    subscribeFailure = IllegalStateException("subscribe failed")
+                }
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<IllegalStateException> {
+                    testRustEngineAdapter(native)
+                }
+
+            error.message shouldBe "subscribe failed"
+            native.portCloseCount shouldBe 1
+            native.hasListener shouldBe false
+        }
+
+        test("given state read failure after Ready when an event arrives then readiness fails closed") {
+            val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL))
+            val adapter = testRustEngineAdapter(native)
+            adapter.readiness.value shouldBe EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
+            native.stateFailure = IllegalStateException("engine handle vanished")
+
+            native.emit(NativeCoreEvent(coreRevision = 1uL, eventSequence = 2uL))
+
+            val recovery = adapter.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+            recovery.code shouldBe "engine_state_unavailable"
+            recovery.diagnostic shouldContain "engine handle vanished"
+            adapter.close()
+        }
+
+        test("given an unknown failure category when the snapshot decodes then readiness fails closed") {
+            val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL))
+            val adapter = testRustEngineAdapter(native)
+            native.snapshot =
+                NativeEngineSnapshot.ReadOnlyRecovery(
+                    EngineFailureSnapshot(
+                        category = "quantum_flux",
+                        code = "unknown",
+                        retryDisposition = "after_user_action",
+                        diagnostic = "unmapped",
+                    ),
+                )
+
+            adapter.resnapshot()
+
+            val recovery = adapter.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+            recovery.code shouldBe "engine_state_unavailable"
+            recovery.diagnostic shouldContain "quantum_flux"
+            adapter.close()
+        }
+
+        test("given subscription close failure when adapter closes then the native port is still released") {
+            val native =
+                FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL)).apply {
+                    subscriptionCloseFailure = IllegalStateException("unsubscribe refused")
+                }
+            val adapter = testRustEngineAdapter(native)
+
+            val error =
+                io.kotest.assertions.throwables.shouldThrow<IllegalStateException> {
+                    adapter.close()
+                }
+
+            error.message shouldBe "unsubscribe refused"
+            native.portCloseCount shouldBe 1
         }
     }
 }
@@ -265,18 +379,26 @@ private class FakeNativeEnginePort(
     val pollResults = mutableMapOf<String, ArrayDeque<NativeJobStep>>()
     var afterSubmitSnapshot: NativeEngineSnapshot? = null
     var onPoll: (() -> Unit)? = null
+    var stateFailure: Throwable? = null
+    var subscribeFailure: Throwable? = null
+    var subscriptionCloseFailure: Throwable? = null
     private var listener: ((NativeCoreEvent) -> Unit)? = null
+    val hasListener: Boolean
+        get() = listener != null
 
     override fun state(): NativeEngineSnapshot {
         stateReads += 1
+        stateFailure?.let { throw it }
         return snapshot
     }
 
     override fun subscribe(listener: (NativeCoreEvent) -> Unit): NativeEngineSubscription {
         this.listener = listener
+        subscribeFailure?.let { throw it }
         return NativeEngineSubscription {
             subscriptionCloseCount += 1
             this.listener = null
+            subscriptionCloseFailure?.let { throw it }
         }
     }
 
@@ -341,6 +463,7 @@ private class FakeNativeEnginePort(
 
     override fun close() {
         portCloseCount += 1
+        listener = null
     }
 
     fun emit(event: NativeCoreEvent) {
@@ -349,7 +472,7 @@ private class FakeNativeEnginePort(
 }
 
 private fun testRustEngineAdapter(native: FakeNativeEnginePort): RustEngineAdapter =
-    RustEngineAdapter(
+    RustEngineAdapter.acquire(
         native = native,
         platformBatchRunner =
             PlatformBatchRunner(

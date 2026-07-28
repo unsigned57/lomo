@@ -9,7 +9,8 @@ members = [
     "media",
     "native",
     "store",
-    "sync-core",
+    "sync",
+    "git",
     "workspace",
     "xtask",
 ]
@@ -33,6 +34,12 @@ pulldown-cmark = { version = "=0.13.4", default-features = false }
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking"] }
 rustls = { version = "=0.23.37", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-pki-types = "=1.14.0"
+# Stage-5 dark S3 rclone crypt (P5-06): audited RustCrypto primitives only (no custom cipher).
+aes = { version = "=0.8.4", default-features = false }
+cipher = { version = "=0.4.4", default-features = false }
+scrypt = { version = "=0.11.0", default-features = false }
+# Successor of deprecated `xsalsa20poly1305` (RUSTSEC-2023-0037 rename).
+crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["alloc", "salsa20"] }
 rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 # Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl).
 git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }

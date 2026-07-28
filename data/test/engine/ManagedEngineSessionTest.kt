@@ -12,13 +12,22 @@ package com.lomo.data.engine
  *
  * Scenarios:
  * - Given no configured root, when the session starts, then readiness is AwaitingWorkspaceSelection.
+ * - Given bootstrap engine acquisition fails, when the session is constructed, then the graph
+ *   remains available in structured ReadOnlyRecovery without a placeholder adapter.
  * - Given Direct selection, when activate succeeds with Ready, then Ready is published and previous
  *   adapter closes once.
  * - Given open throws, when activate fails, then previous readiness remains and candidate is not
  *   installed.
- * - Given SAF selection, when activate runs, then a capability token is registered before open.
+ * - Given repeated SAF selection, when activation rotates the capability token, then the stable
+ *   workspace ID supplied to native remains unchanged.
  * - Given candidate opens as ReadOnlyRecovery, when activate runs, then previous engine stays and
  *   the soft failure is thrown without installing Recovery as success.
+ * - Given a soft-failed candidate whose close also throws, when activate runs, then the structured
+ *   activation failure still surfaces and the candidate capability is revoked.
+ * - Given the previous engine refuses to close, when a Ready candidate is promoted, then neither
+ *   engine stays published, both capabilities are revoked and readiness freezes in Recovery.
+ * - Given the active engine refuses to close, when the session closes, then the capability is still
+ *   revoked and terminal ShuttingDown readiness is still published.
  * - Given persisted root that hard-fails open, when cold restore fails, then Recovery holds and
  *   bootstrap resnapshot cannot overwrite it with Awaiting.
  * - Given an active Ready adapter, when workspace scan start/drive/read routes through the session,
@@ -32,7 +41,10 @@ package com.lomo.data.engine
  *
  * Observable outcomes: readiness StateFlow, open request workspace shape, adapter close counts,
  * workspace port identity and engine-open count.
- * TDD proof: fails before ManagedEngineSession exposes a leased single-adapter workspace route.
+ * TDD proof: RED on 2026-07-27 because NativeWorkspaceSelection.Saf exposed no stableWorkspaceId;
+ * repeated activation could only send the newly randomized capability token to native.
+ * TDD proof: RED on 2026-07-27 because a throwing engine close skipped capability revoke, terminal
+ * readiness and candidate release, and a failed previous retirement still published the candidate.
  * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
  *
  * Test Change Justification:
@@ -45,6 +57,8 @@ package com.lomo.data.engine
  *   identity, and recovery freeze scenarios remain asserted.
  * - Why this is not fitting the test to the implementation: outcomes stay product-visible
  *   readiness and port-lease behavior, not private store SQL.
+ * - SAF fixture correction: the prior `content://tree/...` string omitted the required
+ *   `/tree/<document-id>` path and never represented a valid DocumentsContract tree URI.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -220,6 +234,31 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
+        test("given bootstrap acquisition failure when session starts then Recovery remains available") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-bootstrap-fail").toFile()
+                try {
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { error("native library unavailable") },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+
+                    val recovery =
+                        session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+                    recovery.code shouldBe "workspace_open_failed"
+                    recovery.diagnostic shouldContain "native library unavailable"
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
         test("given direct root when activate succeeds then Ready is published and previous closes") {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-ready").toFile()
@@ -322,12 +361,55 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { it.startsWith("content://") },
                         )
 
-                    session.activateWorkspace(StorageLocation("content://tree/primary%3ALomo"))
+                    val treeUri = "content://com.lomo.documents/tree/primary%3ALomo"
+                    session.activateWorkspace(StorageLocation(treeUri))
 
                     val saf = observed.shouldBeInstanceOf<NativeWorkspaceSelection.Saf>()
-                    registry.resolve(saf.capabilityToken) shouldBe "content://tree/primary%3ALomo"
+                    registry.resolve(saf.capabilityToken) shouldBe treeUri
+                    saf.stableWorkspaceId shouldBe SafWorkspaceIdentity.fromTreeUri(treeUri)
                     session.readiness.value shouldBe
                         EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given the same SAF tree when activation rotates tokens then native identity is stable") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-identity").toFile()
+                try {
+                    val observed = mutableListOf<NativeWorkspaceSelection.Saf>()
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                request.workspace
+                                    ?.shouldBeInstanceOf<NativeWorkspaceSelection.Saf>()
+                                    ?.let(observed::add)
+                                val snapshot =
+                                    if (request.workspace == null) {
+                                        NativeEngineSnapshot.AwaitingWorkspaceSelection
+                                    } else {
+                                        NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL)
+                                    }
+                                testRustEngineAdapter(SessionFakeNativeEnginePort(snapshot))
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+
+                    val tree =
+                        StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                    session.activateWorkspace(tree)
+                    session.activateWorkspace(tree)
+
+                    observed.size shouldBe 2
+                    observed[0].stableWorkspaceId shouldBe observed[1].stableWorkspaceId
+                    (observed[0].capabilityToken == observed[1].capabilityToken) shouldBe false
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -433,8 +515,150 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
-        test("given cold restore hard open failure when resnapshot runs then Recovery authority holds") {
+        test("given soft candidate whose close throws when activate runs then the capability is still revoked") {
             runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-soft-close-fail").toFile()
+                try {
+                    val registry = CapabilityRegistry()
+                    val tokens = mutableListOf<String>()
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = registry,
+                            openAdapter = { request ->
+                                testRustEngineAdapter(
+                                    safCandidatePort(request, tokens) {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.ReadOnlyRecovery(
+                                                EngineFailureSnapshot(
+                                                    category = "permission",
+                                                    code = "saf_grant_revoked",
+                                                    retryDisposition = "after_user_action",
+                                                    diagnostic = "grant missing",
+                                                ),
+                                            ),
+                                        ).apply {
+                                            closeFailure = IllegalStateException("candidate close refused")
+                                        }
+                                    },
+                                )
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+
+                    val error =
+                        shouldThrow<WorkspaceActivationException> {
+                            session.activateWorkspace(
+                                StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
+                            )
+                        }
+
+                    error.recovery.code shouldBe "saf_grant_revoked"
+                    error.suppressedExceptions.single().message shouldBe "candidate close refused"
+                    shouldThrow<CapabilityRegistryException> { registry.resolve(tokens.single()) }
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given previous engine close failure when candidate promotes then neither engine stays published") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-retire-fail").toFile()
+                try {
+                    val registry = CapabilityRegistry()
+                    val tokens = mutableListOf<String>()
+                    val ports = mutableListOf<SessionFakeNativeEnginePort>()
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = registry,
+                            openAdapter = { request ->
+                                testRustEngineAdapter(
+                                    safCandidatePort(request, tokens) {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL),
+                                        )
+                                    }.also(ports::add),
+                                )
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(
+                        StorageLocation("content://com.lomo.documents/tree/primary%3AFirst"),
+                    )
+                    ports[1].closeFailure = IllegalStateException("previous close refused")
+
+                    val error =
+                        shouldThrow<IllegalStateException> {
+                            session.activateWorkspace(
+                                StorageLocation("content://com.lomo.documents/tree/primary%3ASecond"),
+                            )
+                        }
+
+                    error.message shouldBe "previous close refused"
+                    val recovery =
+                        session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+                    recovery.code shouldBe "workspace_retire_failed"
+                    // The candidate never becomes authoritative and is released with its capability.
+                    ports.last().portCloseCount shouldBe 1
+                    tokens.size shouldBe 2
+                    tokens.forEach { token ->
+                        shouldThrow<CapabilityRegistryException> { registry.resolve(token) }
+                    }
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given active engine close failure when session closes then revoke and ShuttingDown still happen") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-close-fail").toFile()
+                try {
+                    val registry = CapabilityRegistry()
+                    val tokens = mutableListOf<String>()
+                    val ports = mutableListOf<SessionFakeNativeEnginePort>()
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = registry,
+                            openAdapter = { request ->
+                                testRustEngineAdapter(
+                                    safCandidatePort(request, tokens) {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL),
+                                        )
+                                    }.also(ports::add),
+                                )
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(
+                        StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
+                    )
+                    ports.last().closeFailure = IllegalStateException("engine close refused")
+
+                    val error = shouldThrow<IllegalStateException> { session.close() }
+
+                    error.message shouldBe "engine close refused"
+                    session.readiness.value shouldBe EngineReadiness.ShuttingDown
+                    shouldThrow<CapabilityRegistryException> { registry.resolve(tokens.single()) }
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given cold restore hard open failure when resnapshot runs then Recovery authority holds") {            runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-cold-fail").toFile()
                 try {
                     val settings = InMemoryDirectorySettingsRepository()
@@ -717,6 +941,7 @@ private class SessionFakeNativeEnginePort(
 
     var snapshot: NativeEngineSnapshot = initialSnapshot
     var portCloseCount: Int = 0
+    var closeFailure: Throwable? = null
     var renderCallCount: Int = 0
     val workspaceCalls = mutableListOf<String>()
     var scanGate: ScanGate? = null
@@ -818,6 +1043,7 @@ private class SessionFakeNativeEnginePort(
 
     override fun close() {
         portCloseCount += 1
+        closeFailure?.let { throw it }
     }
 }
 
@@ -826,8 +1052,24 @@ private data class ScanGate(
     val release: CountDownLatch,
 )
 
+/**
+ * Bootstrap requests get an Awaiting port; SAF candidate requests record their rotated token and
+ * build the scenario's candidate port.
+ */
+private fun safCandidatePort(
+    request: NativeEngineOpenRequest,
+    tokens: MutableList<String>,
+    candidate: () -> SessionFakeNativeEnginePort,
+): SessionFakeNativeEnginePort {
+    val saf =
+        request.workspace as? NativeWorkspaceSelection.Saf
+            ?: return SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+    tokens += saf.capabilityToken
+    return candidate()
+}
+
 private fun testRustEngineAdapter(port: SessionFakeNativeEnginePort): RustEngineAdapter =
-    RustEngineAdapter(
+    RustEngineAdapter.acquire(
         native = port,
         platformBatchRunner =
             PlatformBatchRunner(

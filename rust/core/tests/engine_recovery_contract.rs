@@ -6,6 +6,14 @@
 //! Scenarios:
 //! - Given one engine owns a canonical workspace, when another engine opens the same identity,
 //!   then it fails with a structured busy error; after owner drop, reopen succeeds.
+//! - Given one SAF tree is reopened with a rotated process capability, when both descriptors carry
+//!   the same stable identity, then the second engine is Busy and later resumes the same journal.
+//! - Given a freshly published-incomplete lock, when another engine opens, then it is Busy instead
+//!   of reclaiming a creator that may still be initializing.
+//! - Given a dead owner or a reused PID with different process start identity, when engines race to
+//!   reclaim, then exactly one becomes owner.
+//! - Given an old owner observes a replacement nonce during Drop, then it preserves the replacement
+//!   lock instead of deleting another engine's authority.
 //! - Given a direct workspace completes bootstrap, when it reopens, then `CoreRevision` remains
 //!   zero while `EventSequence` advances only for the durable lifecycle event.
 //! - Given an uncommitted journal candidate remains beside the committed journal, when the engine
@@ -15,8 +23,8 @@
 //!
 //! Observable outcomes: `EngineState`, stable workspace identity, error category/code, lock
 //! release, and exact durable journal bytes.
-//! TDD proof: the first run fails to compile because `EngineConfig`, `LomoEngine`, and
-//! `EngineState` are absent; GREEN is recorded in `STAGE1-EVIDENCE.md`.
+//! TDD proof: P0-02 was RED on 2026-07-27 with E0061; P0-03 is RED while a fresh lock directory
+//! without `owner.pid` is immediately reclaimed and an old owner Drop removes any replacement.
 //! Excludes: actor scheduling, listener delivery, cancellation races, SAF execution, and FFI.
 
 #[cfg(test)]
@@ -33,8 +41,13 @@ mod support;
 mod tests {
 
     use std::fs;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Barrier};
 
-    use lomo_core::{EngineConfig, EngineState, ErrorCategory, LomoEngine, WorkspaceDescriptor};
+    use lomo_core::{
+        CapabilityToken, EngineConfig, EngineState, ErrorCategory, LomoEngine, WorkspaceDescriptor,
+        WorkspaceId,
+    };
     use tempfile::tempdir;
 
     use super::failure_support::ResultFailureTestExt;
@@ -66,6 +79,33 @@ mod tests {
         }
     }
 
+    fn lock_dir(config: &EngineConfig) -> PathBuf {
+        config
+            .journal_path()
+            .must_succeed("configured workspace journal")
+            .parent()
+            .must_succeed("workspace control directory")
+            .join("engine.lock")
+    }
+
+    fn owner_record(config: &EngineConfig) -> serde_json::Value {
+        let bytes = fs::read(lock_dir(config).join("owner.json")).must_succeed("owner record");
+        serde_json::from_slice(&bytes).must_succeed("owner record JSON")
+    }
+
+    fn write_owner_record(config: &EngineConfig, record: &serde_json::Value) {
+        let bytes = serde_json::to_vec(record).must_succeed("owner record encoding");
+        fs::write(lock_dir(config).join("owner.json"), bytes).must_succeed("owner record write");
+    }
+
+    /// Replaces one owner-record field, failing loudly when the record is not a JSON object.
+    fn set_owner_field(record: &mut serde_json::Value, key: &str, value: &str) {
+        record
+            .as_object_mut()
+            .must_succeed("owner record object")
+            .insert(key.to_owned(), serde_json::Value::String(value.to_owned()));
+    }
+
     #[test]
     fn workspace_lock_is_exclusive_and_released_with_the_owner() {
         let fixture = Fixture::new();
@@ -79,6 +119,143 @@ mod tests {
         let reopened =
             LomoEngine::open(fixture.config).must_succeed("lock released after owner drop");
         assert!(matches!(reopened.state(), EngineState::Ready { .. }));
+    }
+
+    #[test]
+    fn fresh_incomplete_workspace_lock_is_busy_instead_of_reclaimed() {
+        let fixture = Fixture::new();
+        let lock = lock_dir(&fixture.config);
+        fs::create_dir_all(&lock).must_succeed("fresh incomplete lock");
+
+        let error = LomoEngine::open(fixture.config)
+            .must_fail("fresh incomplete creator must retain authority");
+
+        assert_eq!(error.category(), ErrorCategory::Busy);
+        assert_eq!(error.code(), "workspace_busy");
+        assert!(lock.is_dir());
+    }
+
+    #[test]
+    fn old_owner_drop_preserves_a_replacement_nonce() {
+        let fixture = Fixture::new();
+        let first = LomoEngine::open(fixture.config.clone()).must_succeed("first engine");
+        let mut replacement = owner_record(&fixture.config);
+        set_owner_field(&mut replacement, "nonce", &"f".repeat(32));
+        write_owner_record(&fixture.config, &replacement);
+
+        drop(first);
+
+        assert!(lock_dir(&fixture.config).is_dir());
+        assert_eq!(owner_record(&fixture.config), replacement);
+    }
+
+    #[test]
+    fn reused_pid_with_different_start_identity_is_reclaimed() {
+        let fixture = Fixture::new();
+        let first = LomoEngine::open(fixture.config.clone()).must_succeed("first engine");
+        let mut reused = owner_record(&fixture.config);
+        set_owner_field(&mut reused, "nonce", &"e".repeat(32));
+        set_owner_field(
+            &mut reused,
+            "process_start_identity",
+            "different-boot:different-start",
+        );
+        write_owner_record(&fixture.config, &reused);
+        drop(first);
+
+        let reopened = LomoEngine::open(fixture.config)
+            .must_succeed("PID reuse must not preserve stale ownership");
+
+        assert!(matches!(reopened.state(), EngineState::Ready { .. }));
+    }
+
+    #[test]
+    fn concurrent_stale_reclaim_has_exactly_one_owner() {
+        let fixture = Fixture::new();
+        let lock = lock_dir(&fixture.config);
+        fs::create_dir_all(&lock).must_succeed("stale lock directory");
+        fs::write(
+            lock.join("owner.json"),
+            br#"{"pid":4294967294,"process_start_identity":"dead-boot:1","nonce":"00000000000000000000000000000000","created_unix_millis":1}"#,
+        )
+        .must_succeed("stale owner record");
+        let start = Arc::new(Barrier::new(3));
+        let finish = Arc::new(Barrier::new(2));
+        // Both reclaimers must be spawned before any is joined, so the barrier can release them
+        // into the same reclaim window.
+        let mut handles = Vec::with_capacity(2);
+        for _ in 0..2 {
+            let config = fixture.config.clone();
+            let start = Arc::clone(&start);
+            let finish = Arc::clone(&finish);
+            handles.push(std::thread::spawn(move || {
+                start.wait();
+                let result = LomoEngine::open(config);
+                finish.wait();
+                result
+            }));
+        }
+        start.wait();
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+            results.push(handle.join().must_succeed("reclaimer thread"));
+        }
+
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        for error in results.iter().filter_map(|result| result.as_ref().err()) {
+            assert_eq!(error.category(), ErrorCategory::Busy);
+            assert_eq!(error.code(), "workspace_busy");
+        }
+    }
+
+    #[test]
+    fn saf_capability_rotation_preserves_lock_and_journal_identity() {
+        let temporary = tempdir().must_succeed("temporary root");
+        let control = temporary.path().join("control");
+        let exchange = temporary.path().join("exchange");
+        fs::create_dir(&control).must_succeed("control root");
+        fs::create_dir(&exchange).must_succeed("exchange root");
+        let stable_identity =
+            WorkspaceId::parse("ws-saf-primary-lomo").must_succeed("stable SAF identity");
+        let first_config = EngineConfig::new(
+            &control,
+            &exchange,
+            Some(WorkspaceDescriptor::saf(
+                stable_identity.clone(),
+                CapabilityToken::parse("cap-process-one").must_succeed("first capability"),
+            )),
+        )
+        .must_succeed("first engine config");
+        let rotated_config = EngineConfig::new(
+            control,
+            exchange,
+            Some(WorkspaceDescriptor::saf(
+                stable_identity,
+                CapabilityToken::parse("cap-process-two").must_succeed("rotated capability"),
+            )),
+        )
+        .must_succeed("rotated engine config");
+
+        let first = LomoEngine::open(first_config).must_succeed("first SAF engine");
+        let EngineState::Opening { job_id: first_job } = first.state() else {
+            panic!("SAF engine must retain an opening bootstrap job");
+        };
+        let busy = LomoEngine::open(rotated_config.clone())
+            .must_fail("rotated capability must not bypass the workspace lock");
+        assert_eq!(busy.category(), ErrorCategory::Busy);
+        assert_eq!(busy.code(), "workspace_busy");
+
+        drop(first);
+        let reopened = LomoEngine::open(rotated_config)
+            .must_succeed("rotated capability must reopen the same workspace");
+        let EngineState::Opening {
+            job_id: reopened_job,
+        } = reopened.state()
+        else {
+            panic!("reopened SAF engine must recover its bootstrap job");
+        };
+        assert_eq!(reopened_job, first_job);
     }
 
     #[test]
@@ -99,9 +276,11 @@ mod tests {
 
         // Recreate a stale lock as if the owner process died without Drop.
         fs::create_dir(&lock_dir).must_succeed("stale lock dir");
-        fs::write(lock_dir.join("owner.pid"), "1\n").must_succeed("dead pid owner");
-        // PID 1 is init and is usually alive; write a clearly dead high pid instead.
-        fs::write(lock_dir.join("owner.pid"), "4294967294\n").must_succeed("dead pid owner");
+        fs::write(
+            lock_dir.join("owner.json"),
+            br#"{"pid":4294967294,"process_start_identity":"dead-boot:1","nonce":"00000000000000000000000000000000","created_unix_millis":1}"#,
+        )
+        .must_succeed("dead owner record");
 
         let reopened = LomoEngine::open(fixture.config)
             .must_succeed("stale lock with dead owner must reclaim");

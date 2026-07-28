@@ -17,18 +17,17 @@ import io.kotest.matchers.shouldBe
  * - Owning layer: app conflict orchestration.
  * - Priority tier: P1.
  * - Capability: consume domain UnifiedSyncState conflict/review states from any mounted screen.
+ *   Post P5-13, primary remote open conflicts come from Rust poll; handler still supports review
+ *   and presentation-only ConflictDetected payloads.
  *
  * Scenarios:
  * - Given a provider ConflictDetected state, when the handler consumes it, then the conflict dialog callback is invoked.
- * - Given S3 or WebDAV ReviewRequired states, when the handler consumes them, then the review dialog callback is invoked.
+ * - Given Inbox ReviewRequired, when consumed, then the review dialog callback is invoked.
  * - Given a non-conflict provider state, when the handler consumes it, then no dialog callback is invoked.
  * - Given a provider outside the mounted provider set, when the handler consumes it, then no dialog callback is invoked.
  *
  * Observable outcomes:
  * - Recorded dialog callback invocations with the exact conflict set or review session.
- *
- * TDD proof:
- * - Fails before the fix because provider conflict/review state consumption exists only in settings-specific composables and no shared app conflict handler exists for the main screen.
  *
  * Excludes:
  * - Compose dialog rendering, Git provider error-detail dialog presentation, and sync engine state production.
@@ -38,33 +37,26 @@ class SyncConflictStateHandlerTest : AppFunSpec() {
         test("given provider conflict or review state when consumed then matching dialog callback is invoked") {
             val recorder = RecordingConflictCallbacks()
             val s3Conflict = conflictSet(SyncBackendType.S3)
-            val webDavReview = reviewSession(SyncBackendType.WEBDAV)
-            val s3Review = reviewSession(SyncBackendType.S3)
+            val inboxReview = reviewSession(SyncBackendType.INBOX)
 
             consumeSyncConflictState(
                 syncState = UnifiedSyncState.ConflictDetected(SyncBackendType.S3, s3Conflict),
-                providers = setOf(SyncBackendType.S3, SyncBackendType.WEBDAV),
+                providers = setOf(SyncBackendType.S3, SyncBackendType.INBOX),
                 onShowConflictDialog = recorder::showConflict,
                 onShowReviewDialog = recorder::showReview,
             )
             consumeSyncConflictState(
-                syncState = UnifiedSyncState.ReviewRequired(SyncBackendType.WEBDAV, webDavReview),
-                providers = setOf(SyncBackendType.S3, SyncBackendType.WEBDAV),
-                onShowConflictDialog = recorder::showConflict,
-                onShowReviewDialog = recorder::showReview,
-            )
-            consumeSyncConflictState(
-                syncState = UnifiedSyncState.ReviewRequired(SyncBackendType.S3, s3Review),
-                providers = setOf(SyncBackendType.S3, SyncBackendType.WEBDAV),
+                syncState = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, inboxReview),
+                providers = setOf(SyncBackendType.S3, SyncBackendType.INBOX),
                 onShowConflictDialog = recorder::showConflict,
                 onShowReviewDialog = recorder::showReview,
             )
 
-            recorder.events shouldBe listOf(
-                ConflictDialogEvent.ShowConflict(s3Conflict),
-                ConflictDialogEvent.ShowReview(webDavReview),
-                ConflictDialogEvent.ShowReview(s3Review),
-            )
+            recorder.events shouldBe
+                listOf(
+                    ConflictDialogEvent.ShowConflict(s3Conflict),
+                    ConflictDialogEvent.ShowReview(inboxReview),
+                )
         }
 
         test("given non-conflict or unmounted provider state when consumed then no dialog callback is invoked") {

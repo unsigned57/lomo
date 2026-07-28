@@ -3,14 +3,12 @@ package com.lomo.data.di
 import com.lomo.data.engine.AndroidPlatformActionAccess
 import com.lomo.data.engine.AndroidPlatformActionExecutor
 import com.lomo.data.engine.BoltFfiNativeEngineFactory
-import com.lomo.data.engine.BoltFfiNativeEnginePort
 import com.lomo.data.engine.CapabilityRegistry
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
 import com.lomo.data.engine.ExchangeResolver
+import com.lomo.data.engine.LeasedMarkdownWorkspace
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.NativeEngineOpenRequest
-import com.lomo.data.engine.PlatformBatchRunner
-import com.lomo.data.engine.RustEngineAdapter
 import com.lomo.data.engine.WorkspaceCandidateProbe
 import com.lomo.data.engine.WorkspaceMarkdownOwner
 import com.lomo.data.source.isContentStorageUri
@@ -72,14 +70,7 @@ val engineModule =
                 filesDir = filesDir,
                 capabilityRegistry = registry,
                 openAdapter = { request ->
-                    val port: BoltFfiNativeEnginePort =
-                        BoltFfiNativeEngineFactory.openPort(request, exchangeResolver)
-                    val runner =
-                        PlatformBatchRunner(
-                            native = port,
-                            executor = executor,
-                        )
-                    RustEngineAdapter(native = port, platformBatchRunner = runner)
+                    BoltFfiNativeEngineFactory.openAdapter(request, exchangeResolver, executor)
                 },
                 directorySettingsRepository = get<DirectorySettingsRepository>(),
                 appScope = get(named("ApplicationScope")),
@@ -91,7 +82,13 @@ val engineModule =
             }
         }
         single<EngineReadinessRepository> { get<ManagedEngineSession>() }
-        single<MarkdownWorkspaceRepository> { get<ManagedEngineSession>() }
-        single<MarkdownReminderRepository> { get<ManagedEngineSession>() }
         single<WorkspaceMarkdownOwner> { get<ManagedEngineSession>() }
+        // Markdown/reminder mutations are admitted at this owning boundary instead of repeating a
+        // readiness condition in every use case, so foreground toggles and background alarm
+        // rewrites are drained by the same workspace switch barrier.
+        single {
+            LeasedMarkdownWorkspace(delegate = get<ManagedEngineSession>(), lease = get())
+        }
+        single<MarkdownWorkspaceRepository> { get<LeasedMarkdownWorkspace>() }
+        single<MarkdownReminderRepository> { get<LeasedMarkdownWorkspace>() }
     }

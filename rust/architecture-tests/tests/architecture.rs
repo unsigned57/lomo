@@ -237,10 +237,17 @@ mod tests {
 
     fn assert_native_manifest_is_conversion_facade_only() {
         let native = read("rust/native/Cargo.toml");
-        let sync_core = read("rust/sync-core/Cargo.toml");
         assert!(native.contains("name = \"lomo-native\""));
         assert!(native.contains("crate-type = [\"staticlib\", \"rlib\"]"));
-        assert!(native.contains("lomo-sync-core"));
+        // P5-13: lomo-sync-core is absorbed; native conversion depends on lomo-sync only.
+        assert!(
+            !native.contains("lomo-sync-core"),
+            "post-P5-13 native must not depend on absorbed lomo-sync-core"
+        );
+        assert!(
+            native.contains("lomo-sync") || native.contains("path = \"../sync\""),
+            "post-P5-13 native must depend on lomo-sync for conversion-only FFI"
+        );
         for forbidden in [
             "lomo-xtask",
             "lomo-architecture-tests",
@@ -252,7 +259,24 @@ mod tests {
                 "native facade must not depend on tooling crate {forbidden}"
             );
         }
-        assert!(!sync_core.contains("lomo-feasibility"));
+        // Post-cutover Git composition: native may depend on production lomo-git (sole git2 owner).
+        // Tooling feasibility remains forbidden above.
+        if stage_five_sync_cutover_complete() {
+            assert!(
+                native.contains("lomo-git") || native.contains("path = \"../git\""),
+                "post-cutover native must depend on lomo-git for Git composition"
+            );
+        }
+        // P5-13: lomo-sync-core directory must be gone from production tree.
+        assert!(
+            !repository_root().join("rust/sync-core").exists(),
+            "rust/sync-core must be deleted after P5-13 absorption"
+        );
+        let workspace = read("rust/Cargo.toml");
+        assert!(
+            !workspace.contains("\"sync-core\"") && !workspace.contains("\"sync-core\","),
+            "workspace must drop sync-core member after P5-13 absorption"
+        );
     }
 
     fn assert_feasibility_tooling_is_non_production() {
@@ -333,6 +357,7 @@ mod tests {
             "perf",
             "preflight",
             "rust-toolchain-bump",
+            "sync-provider-smoke",
             "test",
         ]
         .into_iter()
@@ -1834,11 +1859,11 @@ mod tests {
 
     fn assert_wave_a_media_delete_law() {
         // Broader production scan: committed media delete tails outside MediaEdge must fail closed.
+        // LocalMediaSyncStore was deleted with Kotlin sync media mirror ownership (P5-13).
         let media_delete_owners = [
             "data/src/source/DirectMediaStorageBackendDelegate.kt",
             "data/src/source/SafMediaStorageBackendDelegate.kt",
             "data/src/source/FileMediaStorageDataSourceDelegate.kt",
-            "data/src/webdav/LocalMediaSyncStore.kt",
             "data/src/repository/WorkspaceMediaAccess.kt",
             "data/src/repository/WorkspaceMediaDirectAccess.kt",
             "data/src/repository/WorkspaceMediaSafAccess.kt",
@@ -1920,20 +1945,24 @@ mod tests {
     }
 
     fn assert_wave_a_sync_delete_reclaim() {
-        let webdav_applier = read("data/src/repository/WebDavSyncOperationRepositoryImpl.kt");
+        // P5-13 deleted Kotlin WebDAV/S3 sync appliers; media delete reclaim is owned by Rust
+        // sync + MediaEdge orphan sweep. Gate only remaining production media edge + store keep-set.
+        let edge = read("data/src/repository/MediaEdgeRepository.kt");
         assert!(
-            webdav_applier.contains("runOrphanSweepAtOperationBoundary"),
-            "WebDavSyncActionApplier must orphan-sweep after media delete journal"
+            edge.contains("runOrphanSweepAtOperationBoundary") || edge.contains("mediaOrphanSweep"),
+            "MediaEdgeRepository must orphan-sweep after media delete journal"
         );
         assert!(
-            webdav_applier.contains("mediaBytesChanged")
-                || webdav_applier.contains("localChanged = mediaBytesChanged"),
-            "WebDav media delete must report localChanged from store delete Boolean, not hard-coded true"
+            !repository_root()
+                .join("data/src/repository/WebDavSyncOperationRepositoryImpl.kt")
+                .exists(),
+            "legacy WebDavSyncOperationRepositoryImpl must remain deleted after P5-13"
         );
-        let s3_applier = read("data/src/repository/S3SyncActionApplier.kt");
         assert!(
-            s3_applier.contains("runOrphanSweepAtOperationBoundary"),
-            "S3SyncActionApplier must orphan-sweep after media delete journal"
+            !repository_root()
+                .join("data/src/repository/S3SyncActionApplier.kt")
+                .exists(),
+            "legacy S3SyncActionApplier must remain deleted after P5-13"
         );
     }
 
@@ -1943,6 +1972,1135 @@ mod tests {
             history_refs.contains("DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS")
                 && history_refs.contains("list_history_attachment_refs_with_retention"),
             "history_refs must expose explicit retention window for D6 keep-set"
+        );
+    }
+
+    #[test]
+    fn stage_five_contract_and_evidence_files_exist() {
+        assert_stage_five_contract_and_evidence_core();
+        assert_stage_five_scaffolding_fixtures();
+        assert_stage_five_cutover_prep_inventory_locks();
+        assert_stage_five_safe_behavior_and_inventory_locks();
+        assert_stage_five_size_and_feasibility_locks();
+    }
+
+    fn assert_stage_five_contract_and_evidence_core() {
+        let contract = repository_root().join("fixtures/baseline/STAGE5-CONTRACT.md");
+        let evidence = repository_root().join("fixtures/baseline/STAGE5-EVIDENCE.md");
+        assert!(
+            contract.exists(),
+            "stage 5 requires versioned fixtures/baseline/STAGE5-CONTRACT.md"
+        );
+        assert!(
+            evidence.exists(),
+            "stage 5 requires versioned fixtures/baseline/STAGE5-EVIDENCE.md"
+        );
+
+        let contract_text = read("fixtures/baseline/STAGE5-CONTRACT.md");
+        for required in [
+            "Capability",
+            "Given",
+            "When",
+            "Then",
+            "Observable outcomes",
+            "Excludes",
+            "RED",
+            "GREEN",
+            "Generation fence",
+            "No unproven delete",
+            "Verify before baseline",
+            "Single production stack",
+            "Hard APK gate",
+            "dual-stack",
+            "dark-build",
+            "API ≥ 26",
+            "arm64",
+            "lomo-sync",
+            "WorkspaceGenerationId",
+            "RemoteDatasetId",
+            "pending_env",
+            "P5-13",
+            "Stage-3",
+            "Stage-4",
+        ] {
+            assert!(
+                contract_text.contains(required),
+                "STAGE5-CONTRACT.md is missing required lock text: {required}"
+            );
+        }
+
+        let evidence_text = read("fixtures/baseline/STAGE5-EVIDENCE.md");
+        for required in [
+            "P5-00",
+            "RED command",
+            "GREEN command",
+            "First principles",
+            "pending_env",
+            "P3-10",
+            "P4-10A",
+            "P4-10B",
+        ] {
+            assert!(
+                evidence_text.contains(required),
+                "STAGE5-EVIDENCE.md is missing required evidence text: {required}"
+            );
+        }
+    }
+
+    fn assert_stage_five_scaffolding_fixtures() {
+        // P5-00 scaffolding fixtures: inventory, divergence, safe-behavior, feasibility, size.
+        // Wave-12: P5-13 cutover prep inventory (prep-only; does not authorize cutover).
+        for relative in [
+            "fixtures/baseline/stage5-sync-owner-inventory.v1.md",
+            "fixtures/baseline/stage5-divergence-manifest.v1.md",
+            "fixtures/baseline/stage5-safe-behavior-fixtures.v1.json",
+            "fixtures/baseline/stage5-feasibility-spike.v1.md",
+            "fixtures/baseline/stage5-native-size-ceiling.v1.json",
+            "fixtures/baseline/stage5-p5-13-cutover-prep-inventory.v1.md",
+        ] {
+            let path = repository_root().join(relative);
+            assert!(
+                path.exists(),
+                "stage 5 requires non-empty scaffolding fixture: {relative}"
+            );
+            let text = read(relative);
+            assert!(
+                !text.trim().is_empty(),
+                "stage 5 scaffolding fixture must not be empty: {relative}"
+            );
+        }
+    }
+
+    fn assert_stage_five_cutover_prep_inventory_locks() {
+        // Cutover prep inventory: checklist only — must ban premature DI flip language and lock
+        // dual-stack / workerOf / use_rust_sync fail-closed markers without claiming P5-13 GREEN.
+        let cutover_prep = read("fixtures/baseline/stage5-p5-13-cutover-prep-inventory.v1.md");
+        for required in [
+            "PREP_ONLY",
+            "Do not flip production DI",
+            "SyncDataModule",
+            "workerOf(::RustSyncWorker)",
+            "use_rust_sync",
+            "GitSyncEngine",
+            "S3SyncRepositoryImpl",
+            "WebDavSyncRepositoryImpl",
+            "pending_env",
+            "P5-13",
+            "P5-14",
+            "arm64",
+            "dual-stack",
+            "Atomic cutover checklist",
+        ] {
+            assert!(
+                cutover_prep.contains(required),
+                "stage5-p5-13-cutover-prep-inventory.v1.md missing lock text: {required}"
+            );
+        }
+        assert!(
+            cutover_prep.contains("FORBIDDEN")
+                && (cutover_prep.contains("Does **not** flip")
+                    || cutover_prep.contains("does **not** authorize")
+                    || cutover_prep.contains("Does **not** mark P5-13")),
+            "cutover prep inventory must remain prep-only and not claim production cutover GREEN"
+        );
+    }
+
+    fn assert_stage_five_safe_behavior_and_inventory_locks() {
+        // Safe-behavior fixtures: schema + SB-01…SB-10 (language-agnostic planner oracle).
+        let safe_behavior = read("fixtures/baseline/stage5-safe-behavior-fixtures.v1.json");
+        assert!(
+            safe_behavior.contains("\"schema_version\""),
+            "stage5-safe-behavior-fixtures.v1.json must declare schema_version"
+        );
+        assert!(
+            safe_behavior.contains("\"cases\""),
+            "stage5-safe-behavior-fixtures.v1.json must declare cases"
+        );
+        for sb in [
+            "SB-01", "SB-02", "SB-03", "SB-04", "SB-05", "SB-06", "SB-07", "SB-08", "SB-09",
+            "SB-10",
+        ] {
+            assert!(
+                safe_behavior.contains(&format!("\"id\": \"{sb}\"")),
+                "stage5-safe-behavior-fixtures.v1.json missing required case id {sb}"
+            );
+        }
+
+        // Inventory: cutover tail markers, P5-13, and use_rust_sync ban language.
+        let inventory = read("fixtures/baseline/stage5-sync-owner-inventory.v1.md");
+        for required in [
+            "P5-13",
+            "use_rust_sync",
+            "Tail deletion",
+            "GitSyncEngine",
+            "S3",
+            "WebDAV",
+            "lomo-sync",
+            "lomo-git",
+            "dual-write",
+            "No",
+        ] {
+            assert!(
+                inventory.contains(required),
+                "stage5-sync-owner-inventory.v1.md missing cutover/inventory lock text: {required}"
+            );
+        }
+        // Explicit ban language for progressive dual DI / feature flags.
+        assert!(
+            inventory.contains("use_rust_sync")
+                && (inventory.contains("No** `use_rust_sync`")
+                    || inventory.contains("**No** `use_rust_sync`")
+                    || inventory.contains("No `use_rust_sync`")
+                    || inventory.contains("no feature flag")),
+            "inventory must ban use_rust_sync / dual DI feature flags"
+        );
+    }
+
+    fn assert_stage_five_size_and_feasibility_locks() {
+        // Size ceiling: hard APK gate frozen; may_raise must stay false.
+        let size_ceiling = read("fixtures/baseline/stage5-native-size-ceiling.v1.json");
+        assert!(
+            size_ceiling.contains("\"may_raise\": false")
+                || size_ceiling.contains("\"may_raise\":false"),
+            "stage5-native-size-ceiling.v1.json hard_apk_gate.may_raise must be false"
+        );
+        assert!(
+            size_ceiling.contains("129337975"),
+            "stage5-native-size-ceiling.v1.json must freeze Stage-0 hard gate bytes 129337975"
+        );
+
+        // Feasibility spike: inherited four-ABI markers + AWS OPEN honesty.
+        let feasibility = read("fixtures/baseline/stage5-feasibility-spike.v1.md");
+        for marker in [
+            "LOMO_LINK_MARKER_GIT2_v1",
+            "LOMO_LINK_MARKER_REQWEST_RUSTLS_v1",
+            "LOMO_LINK_MARKER_SQLITE_v1",
+        ] {
+            assert!(
+                feasibility.contains(marker),
+                "stage5-feasibility-spike.v1.md must name inherited marker {marker}"
+            );
+        }
+        assert!(
+            feasibility.contains("AWS")
+                && (feasibility.contains("OPEN") || feasibility.contains("**OPEN")),
+            "stage5-feasibility-spike.v1.md must explicitly record AWS as OPEN when not four-ABI linked"
+        );
+    }
+
+    /// Minimum file-delete probe for P5-13 cutover. Full uniqueness (inventory tails, frozen
+    /// planner absorption, dual-stack absence) is enforced by later P5-13 architecture gates;
+    /// this helper only answers "have the three primary Kotlin sync engines been removed?".
+    fn stage_five_sync_cutover_complete() -> bool {
+        let root = repository_root();
+        !root.join("data/src/git/GitSyncEngine.kt").exists()
+            && !root
+                .join("data/src/repository/S3SyncRepositoryImpl.kt")
+                .exists()
+            && !root
+                .join("data/src/repository/WebDavSyncRepositoryImpl.kt")
+                .exists()
+    }
+
+    /// P5-13 post-cutover uniqueness: single Rust stack, no dual DI flags, Sync Center wired once,
+    /// frozen planner and provider engines gone from production graph.
+    #[test]
+    fn stage_five_production_sync_owner_is_unique_after_cutover() {
+        if !stage_five_sync_cutover_complete() {
+            return;
+        }
+        assert_post_cutover_legacy_sources_deleted();
+        assert_post_cutover_sync_module_and_ui_wiring();
+        assert_post_cutover_conflict_dialog_rust_only();
+        assert_post_cutover_composed_cycle_surface();
+        assert_post_cutover_graph_and_dependency_bans();
+        assert_post_cutover_dual_stack_flags_absent();
+    }
+
+    fn assert_post_cutover_legacy_sources_deleted() {
+        let forbidden_sources = [
+            "data/src/git/GitSyncEngine.kt",
+            "data/src/repository/S3SyncRepositoryImpl.kt",
+            "data/src/repository/WebDavSyncRepositoryImpl.kt",
+            "data/src/worker/GitSyncWorker.kt",
+            "data/src/worker/S3SyncWorker.kt",
+            "data/src/worker/WebDavSyncWorker.kt",
+            "data/src/sync/RustSyncPlannerClient.kt",
+            "data/src/sync/RustSyncRequestEncoder.kt",
+            "data/src/sync/RustSyncPlanDecoder.kt",
+            "data/src/sync/RustSyncPlannerProtocol.kt",
+            "data/src/s3/AwsSdkS3ClientFactory.kt",
+            "data/src/s3/LomoS3Client.kt",
+            "data/src/s3/S3RcloneCryptCompatCodec.kt",
+            "data/src/webdav/OkHttpWebDavClient.kt",
+            "data/src/git/SafGitMirrorBridge.kt",
+        ];
+        for relative in forbidden_sources {
+            assert!(
+                !repository_root().join(relative).exists(),
+                "legacy Kotlin sync owner remains after P5-13 cutover: {relative}"
+            );
+        }
+    }
+
+    fn assert_post_cutover_sync_module_and_ui_wiring() {
+        let sync_module = read("data/src/di/SyncDataModule.kt");
+        for required in [
+            "workerOf(::RustSyncWorker)",
+            "BoltFfiRemoteSyncRepository",
+            "RemoteSyncCenterRepositoryAdapter",
+            "FreeFunctionSyncNativeBridge",
+        ] {
+            assert!(
+                sync_module.contains(required),
+                "post-cutover SyncDataModule must wire Rust-only surface: {required}"
+            );
+        }
+        for forbidden in [
+            "workerOf(::GitSyncWorker)",
+            "workerOf(::S3SyncWorker)",
+            "workerOf(::WebDavSyncWorker)",
+            "GitSyncEngine",
+            "S3SyncRepositoryImpl",
+            "WebDavSyncRepositoryImpl",
+            "use_rust_sync",
+            "USE_RUST_SYNC",
+            "RustSyncPlannerClient",
+            "BoltFfiRustSyncEnvelopePlanner",
+        ] {
+            assert!(
+                !sync_module.contains(forbidden),
+                "post-cutover SyncDataModule must not retain dual-stack residual: {forbidden}"
+            );
+        }
+
+        let view_models = read("app/src/di/ViewModelModule.kt");
+        assert!(
+            view_models.contains("SyncCenterViewModel"),
+            "post-cutover ViewModelModule must register SyncCenterViewModel"
+        );
+        // Original conflict dialog UX is retained over the Rust kernel (product decision).
+        // ViewModels are allowed only when remote resolve is Rust-backed via
+        // RemoteSyncConflictDialogUseCase / RemoteSyncCenterRepository — not dual Kotlin engines.
+        assert!(
+            view_models.contains("SyncConflictViewModel")
+                && view_models.contains("SyncConflictStateViewModel"),
+            "post-cutover ViewModelModule must register Rust-backed conflict dialog ViewModels"
+        );
+        let nav = read("app/src/navigation/NavRoute.kt");
+        assert!(
+            nav.contains("SyncCenter"),
+            "post-cutover NavRoute must register Sync Center"
+        );
+    }
+
+    fn assert_post_cutover_conflict_dialog_rust_only() {
+        let conflict_vm = read("app/src/feature/conflict/SyncConflictViewModel.kt");
+        assert!(
+            conflict_vm.contains("RemoteSyncConflictDialogUseCase")
+                && conflict_vm.contains("resolveRemoteConflictDialogState")
+                && conflict_vm.contains("remoteSyncConflictDialogUseCase"),
+            "post-cutover SyncConflictViewModel must resolve remote conflicts only via RemoteSyncConflictDialogUseCase"
+        );
+        assert!(
+            !conflict_vm.contains("SyncConflictResolutionUseCase")
+                && !conflict_vm.contains("resolveConflictDialogState("),
+            "post-cutover SyncConflictViewModel must not call legacy registry-backed SyncConflictResolutionUseCase for remote resolve"
+        );
+        for forbidden_engine in [
+            "GitSyncEngine",
+            "S3SyncRepositoryImpl",
+            "WebDavSyncRepositoryImpl",
+            "use_rust_sync",
+            "USE_RUST_SYNC",
+        ] {
+            assert!(
+                !conflict_vm.contains(forbidden_engine),
+                "post-cutover SyncConflictViewModel must not retain dual-stack engine residual: {forbidden_engine}"
+            );
+        }
+        let conflict_state_vm = read("app/src/feature/conflict/SyncConflictStateViewModel.kt");
+        assert!(
+            conflict_state_vm.contains("RemoteSyncConflictDialogUseCase")
+                && conflict_state_vm.contains("loadRemoteOpenSession")
+                && conflict_state_vm.contains("loadOpenSession"),
+            "post-cutover SyncConflictStateViewModel must load open remote sessions from RemoteSyncConflictDialogUseCase"
+        );
+        let domain_sync = read("app/src/di/DomainSyncBindingsModule.kt");
+        assert!(
+            domain_sync.contains("RemoteSyncConflictDialogUseCase"),
+            "post-cutover DomainSyncBindingsModule must bind RemoteSyncConflictDialogUseCase"
+        );
+    }
+
+    fn assert_post_cutover_composed_cycle_surface() {
+        // Hollow residual ban: production work unit must compose real ports via runCycle, not
+        // empty-port inspectCyclePlan as the sole production surface.
+        let executor = read("data/src/worker/RemoteSyncRustWorkExecutor.kt");
+        assert!(
+            executor.contains("runCycle")
+                && executor.contains("RemoteSyncCycleRequest")
+                && !executor.contains("inspectCyclePlan"),
+            "post-cutover RemoteSyncRustWorkExecutor must call runCycle (composed owner cycle), not inspectCyclePlan"
+        );
+        let work_request = read("data/src/worker/RustSyncWorkExecutor.kt");
+        assert!(
+            work_request.contains("INPUT_BACKEND_KIND") && work_request.contains("backendKind"),
+            "post-cutover RustSyncWorkRequest must carry backend kind for port composition"
+        );
+        let bridge = read("data/src/engine/sync/SyncNativeBridge.kt");
+        assert!(
+            bridge.contains("fun runCycle"),
+            "post-cutover SyncNativeBridge must expose runCycle conversion surface"
+        );
+        let native_sync = read("rust/native/src/sync_ffi.rs");
+        assert!(
+            native_sync.contains("pub fn sync_run_cycle")
+                && native_sync.contains("run_composed_sync_cycle"),
+            "post-cutover native must expose sync_run_cycle over run_composed_sync_cycle"
+        );
+    }
+
+    fn assert_post_cutover_graph_and_dependency_bans() {
+        let native = read("rust/native/Cargo.toml");
+        assert!(
+            !native.contains("lomo-sync-core"),
+            "post-cutover native must not depend on lomo-sync-core"
+        );
+        assert!(
+            native.contains("lomo-sync") || native.contains("path = \"../sync\""),
+            "post-cutover native must depend on lomo-sync"
+        );
+        assert!(
+            native.contains("lomo-git") || native.contains("path = \"../git\""),
+            "post-cutover native must depend on lomo-git for Git composition"
+        );
+        let sync_cargo = read("rust/sync/Cargo.toml");
+        assert!(
+            !production_dep_mentions_crate(&sync_cargo, "lomo-git")
+                && !production_dep_mentions_path(&sync_cargo, "../git"),
+            "post-cutover lomo-sync production deps must not depend on lomo-git (avoids crate cycle; host tests may use lomo-git as dev-dep)"
+        );
+        let native_src = read("rust/native/src/sync_ffi.rs");
+        assert!(
+            native_src.contains("connect_workspace_git")
+                && native_src.contains("run_composed_sync_cycle_with_remote_port")
+                && !native_src.contains("sync_ffi_git_backend_not_composed"),
+            "post-cutover native must compose Git via lomo-git (not fail-closed theater)"
+        );
+
+        let workspace = read("rust/Cargo.toml");
+        assert!(
+            !workspace.contains("\"sync-core\"") && !workspace.contains("\"sync-core\","),
+            "post-cutover workspace must not list sync-core member"
+        );
+
+        let data_module = read("data/module.yaml");
+        for forbidden in [
+            "org.eclipse.jgit",
+            "aws.sdk.kotlin:s3",
+            "aws.sdk.kotlin:bom",
+            "org.bouncycastle:bcprov",
+        ] {
+            assert!(
+                !data_module.contains(forbidden),
+                "post-cutover data/module.yaml must drop sync-only dependency: {forbidden}"
+            );
+        }
+    }
+
+    fn assert_post_cutover_dual_stack_flags_absent() {
+        // Dual-stack flags remain forbidden (also enforced by dark-build test).
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                for forbidden in [
+                    "use_rust_sync",
+                    "USE_RUST_SYNC",
+                    "dualWriteSync",
+                    "rustSyncEnabled",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "post-cutover dual-stack flag forbidden: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stage_five_provider_smoke_gate_stays_credential_fenced() {
+        // plan3 §1 decision 15: a standalone `just sync-provider-smoke` owns the six locked lines.
+        let justfile = read("Justfile");
+        assert!(
+            justfile.contains("sync-provider-smoke"),
+            "Stage-5 requires a standalone `just sync-provider-smoke` recipe"
+        );
+        let cli = read("rust/xtask/src/cli.rs");
+        assert!(
+            cli.contains("\"sync-provider-smoke\""),
+            "xtask CLI must route the sync-provider-smoke command"
+        );
+
+        let gate = read("rust/xtask/src/provider_smoke.rs");
+        for line in [
+            "nutstore",
+            "nextcloud",
+            "aws-s3",
+            "cloudflare-r2",
+            "github",
+            "gitlab",
+        ] {
+            assert!(
+                gate.contains(line),
+                "provider smoke gate must enumerate the locked line: {line}"
+            );
+        }
+        assert!(
+            gate.contains("pending_env"),
+            "provider smoke gate must report unsatisfied lines as pending_env"
+        );
+
+        // The smoke targets must stay `#[ignore]`d so credential-less `just check` / `just ci`
+        // can neither execute real network calls nor report a silent pass for a provider line.
+        for relative in [
+            "rust/sync/tests/provider_smoke.rs",
+            "rust/git/tests/provider_smoke.rs",
+        ] {
+            let text = read(relative);
+            let tests = text.matches("#[test]").count();
+            let ignored = text.matches("#[ignore =").count();
+            assert!(
+                tests > 0 && tests == ignored,
+                "every provider smoke test in {relative} must stay #[ignore]d ({tests} tests, {ignored} ignored)"
+            );
+        }
+
+        for (manifest, relative) in [
+            ("rust/sync/Cargo.toml", "tests/provider_smoke.rs"),
+            ("rust/git/Cargo.toml", "tests/provider_smoke.rs"),
+        ] {
+            assert!(
+                read(manifest).contains(relative),
+                "{manifest} must register the provider_smoke test target"
+            );
+        }
+    }
+
+    #[test]
+    fn stage_five_dark_build_must_not_wire_production_dual_stack() {
+        assert_production_kotlin_has_no_dual_stack_sync_identifiers();
+        if stage_five_sync_cutover_complete() {
+            assert_post_cutover_native_conversion_only_graph();
+            return;
+        }
+        assert_pre_cutover_kotlin_sync_owners_present();
+        assert_native_sync_dependency_policy_for_dark_build();
+        assert_dark_lomo_sync_package_shape_when_present();
+        assert_dark_lomo_git_package_shape_when_present();
+    }
+
+    fn assert_production_kotlin_has_no_dual_stack_sync_identifiers() {
+        // Production Kotlin must not import Rust sync crate names or dual-write feature flags.
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                // Identifier-aware: path strings like "lomo-sync-tables" must not false-positive.
+                assert!(
+                    !contains_identifier(&text, "lomo_sync")
+                        && !text.contains("com.lomo.sync")
+                        && !text.contains("package lomo_sync"),
+                    "production Kotlin must not import Rust sync crate names: {}",
+                    source.display()
+                );
+                for forbidden in [
+                    "use_rust_sync",
+                    "USE_RUST_SYNC",
+                    "dualWriteSync",
+                    "dual_write_sync",
+                    "RustAndKotlinSync",
+                    "rustSyncEnabled",
+                    "use_rust_git",
+                    "USE_RUST_GIT",
+                    "dualWriteGit",
+                    "dual_write_git",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "production dual-stack / feature-flag sync path forbidden: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+    }
+
+    fn assert_post_cutover_native_conversion_only_graph() {
+        // Post-cutover: production graph is Rust-only; dual flags already banned above.
+        // Native may depend on lomo-sync + lomo-git (Git composition at conversion edge only).
+        // Native must not re-implement planner machines and must not depend on deleted lomo-sync-core.
+        let native = read("rust/native/Cargo.toml");
+        assert!(
+            !native.contains("lomo-sync-core"),
+            "post-cutover native must not depend on lomo-sync-core"
+        );
+        assert!(
+            native.contains("lomo-sync") || native.contains("path = \"../sync\""),
+            "post-cutover native must depend on lomo-sync"
+        );
+        // Git composition is production-legal: native links lomo-git (sole git2 owner).
+        assert!(
+            native.contains("lomo-git") || native.contains("path = \"../git\""),
+            "post-cutover native must depend on lomo-git for Git composition"
+        );
+        // lomo-sync production deps must NOT depend on lomo-git (avoids crate cycle; composition is native-edge).
+        let sync_cargo = read("rust/sync/Cargo.toml");
+        assert!(
+            !production_dep_mentions_crate(&sync_cargo, "lomo-git")
+                && !production_dep_mentions_path(&sync_cargo, "../git"),
+            "post-cutover lomo-sync production deps must not depend on lomo-git (composition is native-edge)"
+        );
+    }
+
+    fn assert_pre_cutover_kotlin_sync_owners_present() {
+        // Pre-cutover dark-build: Kotlin remains sole live production sync authority.
+        assert!(
+            repository_root()
+                .join("data/src/git/GitSyncEngine.kt")
+                .exists(),
+            "production GitSyncEngine must remain until P5-13 cutover"
+        );
+        assert!(
+            repository_root()
+                .join("data/src/repository/S3SyncRepositoryImpl.kt")
+                .exists(),
+            "production S3SyncRepositoryImpl must remain until P5-13 cutover"
+        );
+        assert!(
+            repository_root()
+                .join("data/src/repository/WebDavSyncRepositoryImpl.kt")
+                .exists(),
+            "production WebDavSyncRepositoryImpl must remain until P5-13 cutover"
+        );
+        assert!(
+            repository_root()
+                .join("data/src/di/SyncDataModule.kt")
+                .exists(),
+            "production SyncDataModule must remain until P5-13 cutover"
+        );
+    }
+
+    fn assert_native_sync_dependency_policy_for_dark_build() {
+        // P5-09+: dark BoltFFI may depend on lomo-sync for conversion-only mapping.
+        // Production dual-stack DI / feature flags remain forbidden until P5-13 cutover.
+        // When STAGE5-EVIDENCE still claims P5-09 OPEN, native must not depend on lomo-sync yet.
+        // After P5-09 lands and before cutover, native may depend on lomo-sync but not lomo-git.
+        // After cutover (P5-13+), native may depend on lomo-git for Git composition.
+        let evidence = read("fixtures/baseline/STAGE5-EVIDENCE.md");
+        let p5_09_open = evidence.lines().any(|line| {
+            line.contains("| P5-09 |") && (line.contains("**OPEN**") || line.contains("| OPEN |"))
+        });
+        let cutover = stage_five_sync_cutover_complete();
+        let native = read("rust/native/Cargo.toml");
+        if p5_09_open {
+            for forbidden in [
+                "lomo-sync =",
+                "lomo_sync =",
+                "name = \"lomo-sync\"",
+                "path = \"../sync\"",
+                "lomo-git =",
+                "lomo_git =",
+                "name = \"lomo-git\"",
+                "path = \"../git\"",
+            ] {
+                assert!(
+                    !native.contains(forbidden),
+                    "pre-P5-09 dark-build: native must not depend on future sync/git crates ({forbidden})"
+                );
+            }
+            return;
+        }
+        if cutover {
+            // Post-cutover: Git composition requires lomo-git on native.
+            assert!(
+                native.contains("lomo-git") || native.contains("path = \"../git\""),
+                "post-cutover native must depend on lomo-git for Git composition"
+            );
+            let sync_cargo = read("rust/sync/Cargo.toml");
+            assert!(
+                !production_dep_mentions_crate(&sync_cargo, "lomo-git")
+                    && !production_dep_mentions_path(&sync_cargo, "../git"),
+                "post-cutover lomo-sync production deps must not depend on lomo-git (avoids crate cycle)"
+            );
+        } else {
+            // Pre-cutover dark FFI may depend on lomo-sync only (conversion). lomo-git stays out.
+            for forbidden in [
+                "lomo-git =",
+                "lomo_git =",
+                "name = \"lomo-git\"",
+                "path = \"../git\"",
+            ] {
+                assert!(
+                    !native.contains(forbidden),
+                    "P5-09 dark FFI pre-cutover: native must not depend on lomo-git ({forbidden})"
+                );
+            }
+        }
+        // Conversion-only: native must not re-implement planner/session machines.
+        let native_src = repository_root().join("rust/native/src");
+        for source in rust_sources(&native_src) {
+            let text = fs::read_to_string(&source).expect("native source is UTF-8");
+            for forbidden in [
+                "pub fn plan_intents",
+                "pub fn run_sync_cycle",
+                "force_push",
+                "use_rust_sync",
+            ] {
+                assert!(
+                    !text.contains(forbidden),
+                    "native sync FFI must stay conversion-only (forbidden {forbidden} in {})",
+                    source.display()
+                );
+            }
+        }
+    }
+
+    fn assert_dark_lomo_sync_package_shape_when_present() {
+        // When dark lomo-sync is present (P5-03+), it must be a real package (not hollow) and remain
+        // off the production native graph. When absent, the path ban remains for pre-P5-03 trees.
+        let sync_dir = repository_root().join("rust/sync");
+        if !sync_dir.exists() {
+            return;
+        }
+        let sync_cargo = read("rust/sync/Cargo.toml");
+        assert!(
+            sync_cargo.contains("name = \"lomo-sync\""),
+            "rust/sync must package as lomo-sync"
+        );
+        assert!(
+            sync_dir.join("src").exists(),
+            "dark lomo-sync must ship real sources under rust/sync/src"
+        );
+        assert!(
+            sync_dir.join("tests").exists(),
+            "dark lomo-sync must ship external behavior tests under rust/sync/tests"
+        );
+        // Workspace must list the dark member so clippy/tests can target it.
+        let workspace_cargo = read("rust/Cargo.toml");
+        assert!(
+            workspace_cargo.contains("\"sync\"") || workspace_cargo.contains("\"sync\","),
+            "workspace must list sync member when rust/sync exists"
+        );
+    }
+
+    fn assert_dark_lomo_git_package_shape_when_present() {
+        // P5-07+: dark lomo-git may exist as a workspace member without native DI. When present it
+        // must be real (src+tests) and the sole production-graph git2 owner (feasibility remains
+        // tooling-only). When absent, the directory ban still holds for pre-P5-07 trees.
+        let git_dir = repository_root().join("rust/git");
+        if !git_dir.exists() {
+            assert!(
+                !git_dir.exists(),
+                "pre-cutover: rust/git directory must not exist until P5-07 dark adapter lands"
+            );
+            return;
+        }
+        let git_cargo = read("rust/git/Cargo.toml");
+        assert!(
+            git_cargo.contains("name = \"lomo-git\""),
+            "rust/git must package as lomo-git"
+        );
+        assert!(
+            git_cargo.contains("git2"),
+            "lomo-git is the sole git2 adapter and must declare the git2 dependency"
+        );
+        assert!(
+            git_dir.join("src").exists(),
+            "dark lomo-git must ship real sources under rust/git/src"
+        );
+        assert!(
+            git_dir.join("tests").exists(),
+            "dark lomo-git must ship external behavior tests under rust/git/tests"
+        );
+        let workspace_cargo = read("rust/Cargo.toml");
+        assert!(
+            workspace_cargo.contains("\"git\"") || workspace_cargo.contains("\"git\","),
+            "workspace must list git member when rust/git exists"
+        );
+        // No other production-ish crate may depend on git2 (feasibility is tooling-only;
+        // lomo-native / lomo-sync may depend on lomo-git but not git2 directly; tests may use
+        // git2 as a dev-dep for hermetic bare-repo fixtures).
+        for relative in [
+            "rust/sync/Cargo.toml",
+            "rust/store/Cargo.toml",
+            "rust/workspace/Cargo.toml",
+            "rust/core/Cargo.toml",
+            "rust/media/Cargo.toml",
+            "rust/native/Cargo.toml",
+        ] {
+            let path = repository_root().join(relative);
+            if path.exists() {
+                let text = read(relative);
+                // Only production [dependencies] git2 is forbidden — allow [dev-dependencies].
+                let production_git2 = production_dep_mentions_git2(&text);
+                assert!(
+                    !production_git2,
+                    "{relative} production deps must not depend on git2; only lomo-git (and tooling feasibility) may"
+                );
+            }
+        }
+    }
+
+    fn production_dep_mentions_git2(cargo_toml: &str) -> bool {
+        production_dep_mentions_crate(cargo_toml, "git2")
+    }
+
+    fn production_dep_mentions_crate(cargo_toml: &str, crate_name: &str) -> bool {
+        let mut in_deps = false;
+        for line in cargo_toml.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_deps = trimmed == "[dependencies]";
+                continue;
+            }
+            if in_deps
+                && (trimmed.starts_with(&format!("{crate_name} "))
+                    || trimmed.starts_with(&format!("{crate_name}="))
+                    || trimmed.contains(&format!("{crate_name} =")))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn production_dep_mentions_path(cargo_toml: &str, path: &str) -> bool {
+        let mut in_deps = false;
+        let needle = format!("path = \"{path}\"");
+        for line in cargo_toml.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_deps = trimmed == "[dependencies]";
+                continue;
+            }
+            if in_deps && trimmed.contains(&needle) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn stage_three_and_four_cutover_prerequisites_before_stage_five_production_cutover_claims() {
+        let stage3 = read("fixtures/baseline/STAGE3-EVIDENCE.md");
+        assert!(
+            stage3.contains("P3-10")
+                && (stage3.contains("cutover GREEN")
+                    || stage3.contains("production store cutover GREEN")
+                    || stage3.contains("P3-10 production store cutover GREEN")),
+            "STAGE3-EVIDENCE.md must record P3-10 store cutover before stage-5 production cutover claims"
+        );
+
+        let stage4 = read("fixtures/baseline/STAGE4-EVIDENCE.md");
+        assert!(
+            (stage4.contains("P4-10A") && stage4.contains("P4-10B"))
+                && (stage4.contains("GREEN") || stage4.contains("host production cutover")),
+            "STAGE4-EVIDENCE.md must record P4-10A/B media/archive host cutover before stage-5 production cutover claims"
+        );
+
+        let stage5_evidence = repository_root().join("fixtures/baseline/STAGE5-EVIDENCE.md");
+        if stage5_evidence.exists() {
+            let evidence = read("fixtures/baseline/STAGE5-EVIDENCE.md");
+            if evidence.contains("GREEN result") || evidence.contains("GREEN command") {
+                assert!(
+                    evidence.contains("P3-10")
+                        || evidence.contains("stage-3 store cutover")
+                        || evidence.contains("STAGE3-EVIDENCE"),
+                    "stage-5 evidence must cite stage-3 store cutover as entry prerequisite"
+                );
+                assert!(
+                    evidence.contains("P4-10A")
+                        || evidence.contains("P4-10B")
+                        || evidence.contains("stage-4")
+                        || evidence.contains("STAGE4-EVIDENCE"),
+                    "stage-5 evidence must cite stage-4 media/archive host cutover as entry prerequisite"
+                );
+            }
+
+            // Fail closed: table-form P5-13 GREEN claims without cutover completeness.
+            // Meta text such as "no premature P5-13 GREEN claim" is not a cutover claim.
+            let claims_p5_13_green = evidence.contains("| P5-13 | **GREEN**")
+                || evidence.contains("P5-13 | **GREEN**")
+                || evidence.contains("P5-13 production cutover GREEN")
+                || evidence.contains("Status: stage 5 closed")
+                || evidence.contains("formal Stage-5 exit GREEN")
+                || evidence.contains("Stage 5 formal exit GREEN");
+            if claims_p5_13_green {
+                assert!(
+                    stage_five_sync_cutover_complete(),
+                    "STAGE5-EVIDENCE must not claim P5-13 / stage-5 close GREEN while Kotlin sync owners remain"
+                );
+                assert!(
+                    stage3.contains("P3-10")
+                        && (stage3.contains("cutover GREEN")
+                            || stage3.contains("production store cutover GREEN")),
+                    "P5-13 GREEN requires recorded Stage-3 P3-10 store cutover"
+                );
+                assert!(
+                    stage4.contains("P4-10A") && stage4.contains("P4-10B"),
+                    "P5-13 GREEN requires recorded Stage-4 P4-10A/B host cutover"
+                );
+            }
+
+            if !stage_five_sync_cutover_complete() {
+                for claim in [
+                    "Status: stage 5 closed",
+                    "stage 5 is closed",
+                    "stage 5 closed for stage 6",
+                    "production dual-stack sync GREEN",
+                    "P5-13 | **GREEN**",
+                    "| P5-13 | **GREEN**",
+                    "P5-13 production cutover GREEN",
+                    "formal Stage-5 exit GREEN",
+                    "Stage 5 formal exit GREEN",
+                ] {
+                    assert!(
+                        !evidence.contains(claim),
+                        "stage-5 evidence must not claim production sync cutover or formal stage close early: {claim}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// P5-04 host: local sync mutations are fenced through `lomo-store` expected-revision ports;
+    /// dark `lomo-sync` must not write user Markdown/media; SAF projection is rebuildable cache only;
+    /// no provider-specific user-file mirror authority may land as a Stage-5 write path in Rust.
+    #[test]
+    fn stage_five_local_sync_ports_forbid_bypass_user_file_writes() {
+        let store_sync = read("rust/store/src/sync_local.rs");
+        for required in [
+            "LocalSyncMutationBatch",
+            "prepare_sync_apply",
+            "commit_sync_apply",
+            "snapshot_sync_view",
+            "SafProjectionBinding",
+            "sync_local_write_authority",
+            "WorkspaceGenerationId",
+        ] {
+            assert!(
+                store_sync.contains(required),
+                "lomo-store sync_local must expose P5-04 port surface: {required}"
+            );
+        }
+        assert!(
+            store_sync.contains("lomo-store expected-revision LocalSyncMutationBatch"),
+            "sync_local_write_authority must name the sole local write authority string"
+        );
+        assert!(
+            store_sync.contains("app-private")
+                && store_sync.contains("rebuild_from_snapshot")
+                && store_sync.contains("saf-projection"),
+            "SAF projection must be app-private, generation-bound, and rebuildable from coarse facts"
+        );
+        // Projection is cache: rebuild must not claim authority over user Markdown bytes.
+        assert!(
+            !store_sync.contains("pub fn write_user_markdown_from_projection")
+                && !store_sync.contains("pub fn apply_provider_user_file_mirror"),
+            "SAF projection must not grow a user-file write authority API"
+        );
+
+        let store_lib = read("rust/store/src/lib.rs");
+        assert!(
+            store_lib.contains("snapshot_sync_view")
+                && store_lib.contains("apply_local_sync_batch")
+                && store_lib.contains("prepare_sync_apply")
+                && store_lib.contains("commit_sync_apply"),
+            "Store handle must expose unified Direct/SAF local sync ports"
+        );
+
+        // Dark lomo-sync must not own a second user-file write path (durable control only).
+        let sync_root = repository_root().join("rust/sync/src");
+        assert!(
+            sync_root.exists(),
+            "P5-04 assumes dark lomo-sync sources from P5-03"
+        );
+        for source in rust_sources(&sync_root) {
+            let text = fs::read_to_string(&source).expect("sync source is UTF-8");
+            for forbidden in [
+                "memos/",
+                "attachments/",
+                "apply_local_sync_batch",
+                "checkout",
+                "force_push",
+                "user_file_mirror",
+                "GitSafMirror",
+                "write_user_bytes",
+            ] {
+                // Allow comments / docs that name the forbidden path as a ban; ban executable API.
+                if text.contains(&format!("pub fn {forbidden}"))
+                    || text.contains(&format!("fn {forbidden}"))
+                    || text.contains(&format!("\"{forbidden}"))
+                {
+                    // memos/ and attachments/ as path literals in production sync sources are
+                    // user-file targets — fail closed if they appear as string writes.
+                    if forbidden == "memos/" || forbidden == "attachments/" {
+                        if text.contains(&format!("\"{forbidden}"))
+                            || text.contains(&format!("join(\"{forbidden}"))
+                        {
+                            panic!(
+                                "dark lomo-sync must not target user memo/media paths: {} in {}",
+                                forbidden,
+                                source.display()
+                            );
+                        }
+                        continue;
+                    }
+                    panic!(
+                        "dark lomo-sync must not implement user-file write/bypass API {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+
+        // No second Rust crate may claim provider-specific user-file mirror as write authority.
+        for relative in [
+            "rust/sync/src",
+            "rust/store/src",
+            "rust/workspace/src",
+            "rust/core/src",
+            "rust/native/src",
+        ] {
+            let root = repository_root().join(relative);
+            if !root.exists() {
+                continue;
+            }
+            for source in rust_sources(&root) {
+                let text = fs::read_to_string(&source).expect("source is UTF-8");
+                for banned in [
+                    "ProviderUserFileMirror",
+                    "GitUserFileMirror",
+                    "S3UserFileMirror",
+                    "WebDavUserFileMirror",
+                    "checkout_user_workspace",
+                    "force_checkout_user_files",
+                ] {
+                    assert!(
+                        !contains_identifier(&text, banned),
+                        "provider-specific user-file mirror write authority is forbidden: {banned} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+
+        // Contract/evidence must keep the SAF exception language once P5-04 ports exist.
+        let arch = read("ARCHITECTURE.md");
+        assert!(
+            arch.contains("SAF projection")
+                && (arch.contains("LocalSyncMutationBatch") || arch.contains("expected-revision")),
+            "ARCHITECTURE.md must document SAF projection exception and local commit boundary"
+        );
+        let contract = read("fixtures/baseline/STAGE5-CONTRACT.md");
+        assert!(
+            contract.contains("LocalSyncMutationBatch")
+                || contract.contains("Local commit boundary"),
+            "STAGE5-CONTRACT must lock local commit boundary / LocalSyncMutationBatch"
+        );
+    }
+
+    /// Wave-12: P5-13 cutover prep inventory is host-closeable, but premature production DI /
+    /// `workerOf(::RustSyncWorker)` / dual-stack flags remain fail-closed until atomic cutover.
+    #[test]
+    fn stage_five_cutover_prep_inventory_must_not_authorize_premature_production_wire() {
+        let prep_path =
+            repository_root().join("fixtures/baseline/stage5-p5-13-cutover-prep-inventory.v1.md");
+        assert!(
+            prep_path.exists(),
+            "Wave-12 requires fixtures/baseline/stage5-p5-13-cutover-prep-inventory.v1.md"
+        );
+        let prep = read("fixtures/baseline/stage5-p5-13-cutover-prep-inventory.v1.md");
+        assert!(
+            prep.contains("PREP_ONLY") && prep.contains("Do not flip production DI"),
+            "cutover prep inventory must declare PREP_ONLY / do-not-flip production DI"
+        );
+
+        // Evidence must keep P5-13 OPEN while prep inventory exists (prep ≠ cutover).
+        let evidence = read("fixtures/baseline/STAGE5-EVIDENCE.md");
+        let p5_13_open = evidence.lines().any(|line| {
+            line.contains("| P5-13 |") && (line.contains("**OPEN**") || line.contains("| OPEN |"))
+        });
+        assert!(
+            p5_13_open || stage_five_sync_cutover_complete(),
+            "STAGE5-EVIDENCE must keep P5-13 OPEN until atomic cutover completes"
+        );
+
+        if stage_five_sync_cutover_complete() {
+            let sync_module = read("data/src/di/SyncDataModule.kt");
+            assert!(
+                sync_module.contains("workerOf(::RustSyncWorker)"),
+                "post-cutover SyncDataModule must register workerOf(::RustSyncWorker)"
+            );
+            let nav = read("app/src/navigation/NavRoute.kt");
+            assert!(
+                nav.contains("SyncCenter"),
+                "post-cutover NavRoute must register Sync Center"
+            );
+            let view_models = read("app/src/di/ViewModelModule.kt");
+            assert!(
+                view_models.contains("SyncCenterViewModel"),
+                "post-cutover ViewModelModule must register SyncCenterViewModel"
+            );
+            return;
+        }
+
+        // Pre-cutover: production SyncDataModule must not register dark RustSyncWorker.
+        let sync_module = read("data/src/di/SyncDataModule.kt");
+        for forbidden in [
+            "workerOf(::RustSyncWorker)",
+            "workerOf(RustSyncWorker)",
+            "RustSyncWorker::class",
+            "BoltFfiRemoteSyncRepository",
+            "RemoteSyncCenterRepositoryAdapter",
+            "use_rust_sync",
+            "USE_RUST_SYNC",
+        ] {
+            assert!(
+                !sync_module.contains(forbidden),
+                "pre-cutover SyncDataModule must not wire dark cutover types ({forbidden})"
+            );
+        }
+        // Production workers remain the sole registered provider workers.
+        for required in [
+            "workerOf(::GitSyncWorker)",
+            "workerOf(::S3SyncWorker)",
+            "workerOf(::WebDavSyncWorker)",
+        ] {
+            assert!(
+                sync_module.contains(required),
+                "pre-cutover SyncDataModule must still register Kotlin provider worker: {required}"
+            );
+        }
+
+        // Dark worker body may exist unregistered; production nav must not dual-wire Sync Center.
+        assert!(
+            repository_root()
+                .join("data/src/worker/RustSyncWorker.kt")
+                .exists(),
+            "dark RustSyncWorker must exist as unregistered host residual before P5-13"
+        );
+        let nav = read("app/src/navigation/NavRoute.kt");
+        assert!(
+            !nav.contains("SyncCenter") && !nav.contains("RemoteSyncCenter"),
+            "pre-cutover NavRoute must not register Sync Center production route"
+        );
+        let view_models = read("app/src/di/ViewModelModule.kt");
+        assert!(
+            !view_models.contains("SyncCenterViewModel"),
+            "pre-cutover ViewModelModule must not register SyncCenterViewModel"
         );
     }
 
@@ -2089,7 +3247,6 @@ mod tests {
         for relative in [
             "rust/core/Cargo.toml",
             "rust/workspace/Cargo.toml",
-            "rust/sync-core/Cargo.toml",
             "rust/native/Cargo.toml",
         ] {
             let text = read(relative);
@@ -2328,7 +3485,6 @@ mod tests {
     #[test]
     fn production_rust_tests_are_physically_separate_and_safe() {
         for relative in [
-            "rust/sync-core/src",
             "rust/native/src",
             "rust/feasibility/src",
             "rust/workspace/src",

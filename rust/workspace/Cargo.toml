@@ -71,6 +71,22 @@ path = "tests/memo_body_extract_contract.rs"
 name = "memo_shard_identity_merge_contract"
 path = "tests/memo_shard_identity_merge_contract.rs"
 
+[[test]]
+name = "lomo_record_contract"
+path = "tests/lomo_record_contract.rs"
+
+[[test]]
+name = "identity_contract"
+path = "tests/identity_contract.rs"
+
+[[test]]
+name = "history_state_v2_contract"
+path = "tests/history_state_v2_contract.rs"
+
+[[test]]
+name = "migration_v2_contract"
+path = "tests/migration_v2_contract.rs"
+
 [[example]]
 name = "workspace_scale_benchmark"
 path = "examples/workspace_scale_benchmark.rs"

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -14,18 +14,26 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     ActionId, ActionOutcome, BatchId, CapabilityToken, CoreRevision, DriverAdvance, EventSequence,
-    JobDriverContext, JobDriverKind, JobDriverRegistry, JobId, LomoError, PageSize, PlatformAction,
-    PlatformActionBatch, PlatformBatchResult, RetryDisposition, WorkspaceDescriptor, WorkspaceId,
+    JobDriverContext, JobDriverKind, JobDriverRegistry, JobId, LomoError, NativeTaskCompletion,
+    NativeTaskDispatch, NativeTaskOutcome, NativeTaskWorkerPool, NativeWorkerAttach, PageSize,
+    PendingEffect, PlatformAction, PlatformActionBatch, PlatformBatchResult, RetryDisposition,
+    SecretLeaseId, WorkspaceDescriptor, WorkspaceId,
 };
 
 const JOURNAL_MAGIC: &str = "LOMO_ENGINE";
-const JOURNAL_SCHEMA: u32 = 1;
+/// Journal envelope schema. v1 journals (platform-only jobs) migrate in-memory on open; unknown
+/// schemas fail closed as corruption → callers observe open failure (no clean slate).
+const JOURNAL_SCHEMA: u32 = 2;
+const JOURNAL_SCHEMA_V1: u32 = 1;
 const COMMAND_CAPACITY: usize = 256;
 const EVENT_CAPACITY: usize = 256;
 const MAX_ACTIVE_JOBS: usize = 64;
 const MAX_TERMINAL_JOBS: usize = 256;
 const DEFAULT_BOOTSTRAP_DEADLINE: Duration = Duration::from_mins(5);
 const MAX_BOOTSTRAP_DEADLINE: Duration = Duration::from_hours(24);
+const WORKSPACE_LOCK_INITIALIZATION_GRACE: Duration = Duration::from_secs(30);
+const WORKSPACE_LOCK_OWNER_FILE: &str = "owner.json";
+const WORKSPACE_RECLAIM_CLAIM_FILE: &str = "engine.lock.reclaim";
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
@@ -34,6 +42,11 @@ pub struct EngineConfig {
     workspace: Option<WorkspaceDescriptor>,
     bootstrap_deadline: Duration,
     drivers: JobDriverRegistry,
+    /// Optional dark-build / host-test attachment of a bounded native worker pool.
+    ///
+    /// Production DI cutover remains deferred (P5-13). Absent attachment keeps the historical
+    /// host-submit path (`submit_native_task_result`) for unit contracts.
+    native_worker: Option<NativeWorkerAttach>,
 }
 
 impl PartialEq for EngineConfig {
@@ -71,6 +84,7 @@ impl EngineConfig {
             workspace,
             bootstrap_deadline: DEFAULT_BOOTSTRAP_DEADLINE,
             drivers: JobDriverRegistry::default(),
+            native_worker: None,
         })
     }
 
@@ -84,6 +98,21 @@ impl EngineConfig {
     #[must_use]
     pub const fn drivers(&self) -> &JobDriverRegistry {
         &self.drivers
+    }
+
+    /// Attaches a bounded native worker pool for dark-build / host contract tests.
+    ///
+    /// When set, `start_native_task_job` enqueues work on the pool and the actor drains completions
+    /// on its idle path. Without this attachment, hosts must call [`LomoEngine::submit_native_task_result`].
+    #[must_use]
+    pub fn with_native_worker(mut self, attach: NativeWorkerAttach) -> Self {
+        self.native_worker = Some(attach);
+        self
+    }
+
+    #[must_use]
+    pub const fn native_worker(&self) -> Option<&NativeWorkerAttach> {
+        self.native_worker.as_ref()
     }
 
     /// Replaces the explicit bootstrap deadline policy.
@@ -140,10 +169,22 @@ pub enum EngineState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum JobStep {
     Running,
-    NeedsPlatformBatch { batch: PlatformActionBatch },
-    BlockedByConflict { error: LomoError },
+    NeedsPlatformBatch {
+        batch: PlatformActionBatch,
+    },
+    /// Actor-external native task is queued or running outside the writer (dispatch fence active).
+    RunningNative {
+        task_kind: String,
+        attempt: u32,
+        dispatch_generation: u64,
+    },
+    BlockedByConflict {
+        error: LomoError,
+    },
     Completed,
-    Failed { error: LomoError },
+    Failed {
+        error: LomoError,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -280,6 +321,21 @@ impl LomoEngine {
         let (event_sender, event_receiver) = mpsc::sync_channel(EVENT_CAPACITY);
         spawn_event_dispatcher(event_receiver, Arc::clone(&listeners));
         let (commands, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
+        let (native_pool, native_completions) = match config.native_worker() {
+            Some(attach) => {
+                // Capacity bounds in-flight worker results so a slow actor cannot grow unbounded.
+                let (completion_tx, completion_rx) = mpsc::sync_channel(crate::MAX_NATIVE_QUEUE);
+                let pool = NativeTaskWorkerPool::start(
+                    attach.worker_count,
+                    attach.queue_capacity,
+                    Arc::clone(&attach.executor),
+                    Arc::clone(&attach.vault),
+                    completion_tx,
+                )?;
+                (Some(pool), Some(completion_rx))
+            }
+            None => (None, None),
+        };
         let runtime = ActorRuntime {
             journal_path: prepared.journal_path,
             journal: prepared.journal,
@@ -289,6 +345,8 @@ impl LomoEngine {
             exchange_root: config.exchange_root().to_path_buf(),
             workspace: config.workspace().cloned(),
             drivers: config.drivers().clone(),
+            native_pool,
+            native_completions,
             _workspace_lock: prepared.workspace_lock,
         };
         let actor = std::thread::Builder::new()
@@ -300,14 +358,24 @@ impl LomoEngine {
                     format!("single-writer thread could not start: {error}"),
                 )
             })?;
-        Ok(Arc::new(Self {
+        let engine = Arc::new(Self {
             config,
             state,
             commands,
             listeners,
             next_listener_id: AtomicU64::new(1),
             actor: Mutex::new(Some(actor)),
-        }))
+        });
+        // When a pool is attached, re-enqueue QueuedNative (post-crash recovery) with a fresh
+        // non-zero dispatch_generation so work is fully replayable without a host submit.
+        // Without a pool, hosts call `redispatch_queued_native_jobs` or submit completions.
+        if engine.config.native_worker().is_some() {
+            // behavior-contract: silent-result-ok: open already recovered durable state; a failed
+            // redispatch leaves QueuedNative with gen=0 (stale completions still rejected) for host
+            // retry via redispatch_queued_native_jobs.
+            drop(engine.redispatch_queued_native_jobs());
+        }
+        Ok(engine)
     }
 
     #[must_use]
@@ -428,6 +496,67 @@ impl LomoEngine {
         receive_response(&response)
     }
 
+    /// Starts a native (actor-external) task job with dispatch fence and optional secret lease id.
+    ///
+    /// The job enters `QueuedNative` then `RunningNative` when a completion is not yet known. Host
+    /// tests and dark-build workers call [`submit_native_task_result`] with matching fences.
+    ///
+    /// # Errors
+    ///
+    /// Validation / resource-limit / not-ready / journal errors.
+    pub fn start_native_task_job(
+        &self,
+        task_kind: &str,
+        request_json: &str,
+        secret_lease_id: Option<SecretLeaseId>,
+        deadline: Duration,
+    ) -> Result<JobId, LomoError> {
+        let (reply, response) = mpsc::channel();
+        self.send(Command::StartNativeTask {
+            task_kind: task_kind.to_owned(),
+            request_json: request_json.to_owned(),
+            secret_lease_id,
+            deadline,
+            reply,
+        })?;
+        receive_response(&response)
+    }
+
+    /// Applies a native task completion. Stale attempt/`dispatch_generation` fences are ignored.
+    ///
+    /// # Errors
+    ///
+    /// Unknown-job or journal errors. Cancelled jobs return their durable cancelled step.
+    pub fn submit_native_task_result(
+        &self,
+        completion: &NativeTaskCompletion,
+    ) -> Result<JobStep, LomoError> {
+        let (reply, response) = mpsc::channel();
+        self.send(Command::SubmitNative {
+            completion: completion.clone(),
+            reply,
+        })?;
+        receive_response(&response)
+    }
+
+    /// Re-dispatches durable `QueuedNative` jobs that still need a non-zero dispatch fence.
+    ///
+    /// Crash recovery leaves recovered work as `QueuedNative` with `dispatch_generation = 0` so
+    /// stale pre-crash completions cannot win. Hosts with an attached pool (or this explicit API)
+    /// must re-enqueue with a fresh non-zero generation before work can complete.
+    ///
+    /// When a pool is attached, open already performs this re-dispatch once; this API is for
+    /// host-driven recovery and tests without relying on open timing.
+    ///
+    /// # Errors
+    ///
+    /// Not-ready / journal / resource-limit errors from fence allocation or pool enqueue.
+    pub fn redispatch_queued_native_jobs(&self) -> Result<u32, LomoError> {
+        let (reply, response) = mpsc::channel();
+        self.send(Command::RedispatchQueuedNative { reply })?;
+        receive_response(&response)
+    }
+
     /// Returns the latest durable job result payload published by a multi-phase driver.
     ///
     /// # Errors
@@ -510,6 +639,10 @@ enum Command {
         result: PlatformBatchResult,
         reply: mpsc::Sender<Result<JobStep, LomoError>>,
     },
+    SubmitNative {
+        completion: NativeTaskCompletion,
+        reply: mpsc::Sender<Result<JobStep, LomoError>>,
+    },
     Cancel {
         job_id: JobId,
         reply: mpsc::Sender<Result<CancelOutcome, LomoError>>,
@@ -520,9 +653,19 @@ enum Command {
         deadline: Duration,
         reply: mpsc::Sender<Result<JobId, LomoError>>,
     },
+    StartNativeTask {
+        task_kind: String,
+        request_json: String,
+        secret_lease_id: Option<SecretLeaseId>,
+        deadline: Duration,
+        reply: mpsc::Sender<Result<JobId, LomoError>>,
+    },
     ReadJobResult {
         job_id: JobId,
         reply: mpsc::Sender<Result<Option<String>, LomoError>>,
+    },
+    RedispatchQueuedNative {
+        reply: mpsc::Sender<Result<u32, LomoError>>,
     },
     Shutdown {
         reply: mpsc::Sender<Result<ShutdownOutcome, LomoError>>,
@@ -547,6 +690,9 @@ struct ActorRuntime {
     exchange_root: PathBuf,
     workspace: Option<WorkspaceDescriptor>,
     drivers: JobDriverRegistry,
+    /// Present only when [`EngineConfig::with_native_worker`] was used (dark host path).
+    native_pool: Option<NativeTaskWorkerPool>,
+    native_completions: Option<Receiver<NativeTaskCompletion>>,
     _workspace_lock: Option<WorkspaceLock>,
 }
 
@@ -594,6 +740,9 @@ fn prepare_runtime(config: &EngineConfig) -> Result<PreparedRuntime, LomoError> 
 
 fn actor_loop(mut runtime: ActorRuntime, receiver: &Receiver<Command>) {
     loop {
+        // Drain worker completions before taking the next command so long network work never
+        // monopolizes the writer: completions only arrive after external workers finish.
+        drain_native_completions(&mut runtime);
         match receiver.recv_timeout(Duration::from_millis(10)) {
             Ok(command) => {
                 if !handle_command(&mut runtime, command) {
@@ -602,6 +751,28 @@ fn actor_loop(mut runtime: ActorRuntime, receiver: &Receiver<Command>) {
             }
             Err(mpsc::RecvTimeoutError::Timeout) => expire_monotonic_jobs(&mut runtime),
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    // Drop completion receiver first so workers can observe disconnect on shutdown.
+    runtime.native_completions.take();
+    if let Some(pool) = runtime.native_pool.take() {
+        pool.shutdown();
+    }
+}
+
+/// Applies any queued native completions without blocking the actor.
+fn drain_native_completions(runtime: &mut ActorRuntime) {
+    loop {
+        let Some(receiver) = runtime.native_completions.as_ref() else {
+            return;
+        };
+        match receiver.try_recv() {
+            Ok(completion) => {
+                // behavior-contract: silent-result-ok: drain applies best-effort; durable fence
+                // rejection / cancel races are handled inside submit_native_completion.
+                drop(submit_native_completion(runtime, &completion));
+            }
+            Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => return,
         }
     }
 }
@@ -619,6 +790,10 @@ fn handle_command(runtime: &mut ActorRuntime, command: Command) -> bool {
             let response = submit_result(runtime, &job_id, &result);
             let _reply_result = reply.send(response);
         }
+        Command::SubmitNative { completion, reply } => {
+            let response = submit_native_completion(runtime, &completion);
+            let _reply_result = reply.send(response);
+        }
         Command::Cancel { job_id, reply } => {
             let response = cancel_job(runtime, &job_id);
             let _reply_result = reply.send(response);
@@ -632,8 +807,28 @@ fn handle_command(runtime: &mut ActorRuntime, command: Command) -> bool {
             let response = start_user_job(runtime, &driver_kind, &request_json, deadline);
             let _reply_result = reply.send(response);
         }
+        Command::StartNativeTask {
+            task_kind,
+            request_json,
+            secret_lease_id,
+            deadline,
+            reply,
+        } => {
+            let response = start_native_task_job(
+                runtime,
+                &task_kind,
+                &request_json,
+                secret_lease_id,
+                deadline,
+            );
+            let _reply_result = reply.send(response);
+        }
         Command::ReadJobResult { job_id, reply } => {
             let response = read_job_result(runtime.journal.as_ref(), &job_id);
+            let _reply_result = reply.send(response);
+        }
+        Command::RedispatchQueuedNative { reply } => {
+            let response = redispatch_queued_native_jobs(runtime);
             let _reply_result = reply.send(response);
         }
         Command::Shutdown { reply } => {
@@ -678,7 +873,10 @@ fn cancel_job(runtime: &mut ActorRuntime, job_id: &JobId) -> Result<CancelOutcom
         PersistedJobStatus::Completed | PersistedJobStatus::Failed(_) => {
             return Ok(CancelOutcome::AlreadyCompleted);
         }
-        PersistedJobStatus::WaitingPlatform => {}
+        PersistedJobStatus::WaitingPlatform
+        | PersistedJobStatus::QueuedNative
+        | PersistedJobStatus::RunningNative
+        | PersistedJobStatus::BlockedByConflict => {}
     }
     let mut candidate = current.clone();
     let job = candidate
@@ -695,6 +893,7 @@ fn cancel_job(runtime: &mut ActorRuntime, job_id: &JobId) -> Result<CancelOutcom
         "job_cancelled",
         "job cancellation durably won the terminal-state race",
     ));
+    job.pending_effect = PendingEffect::Done;
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
     runtime.monotonic_deadlines.remove(job_id);
     Ok(CancelOutcome::Accepted)
@@ -716,6 +915,7 @@ fn submit_result(
         .ok_or_else(|| unknown_job_error(job_id))?;
     let prefix = result.validate_against(&record.batch)?;
     if !matches!(record.status, PersistedJobStatus::WaitingPlatform) {
+        // Stale platform completion after cancel/native transition: ignore, return durable step.
         return Ok(record.step());
     }
 
@@ -730,7 +930,24 @@ fn submit_result(
                 "job disappeared while cloning one journal generation",
             )
         })?;
+    apply_platform_batch_outcome(runtime, &mut candidate, job_index, result, prefix)?;
+    commit_candidate(runtime, candidate, Some(job_id.clone()))?;
+    if !matches!(
+        poll_job(runtime.journal.as_ref(), job_id)?,
+        JobStep::NeedsPlatformBatch { .. } | JobStep::RunningNative { .. }
+    ) {
+        runtime.monotonic_deadlines.remove(job_id);
+    }
+    poll_job(runtime.journal.as_ref(), job_id)
+}
 
+fn apply_platform_batch_outcome(
+    runtime: &ActorRuntime,
+    candidate: &mut JournalState,
+    job_index: usize,
+    result: &PlatformBatchResult,
+    prefix: usize,
+) -> Result<(), LomoError> {
     let job_missing = || {
         LomoError::corruption(
             "job_generation_changed",
@@ -744,58 +961,133 @@ fn submit_result(
             None
         }
     }) {
+        let job = candidate.jobs.get_mut(job_index).ok_or_else(job_missing)?;
+        job.status = PersistedJobStatus::Failed(error);
+        job.pending_effect = PendingEffect::Done;
+        return Ok(());
+    }
+    let remaining = candidate
+        .jobs
+        .get(job_index)
+        .ok_or_else(job_missing)?
+        .batch
+        .remaining_after(prefix);
+    if let Some(remaining) = remaining {
         candidate
             .jobs
             .get_mut(job_index)
             .ok_or_else(job_missing)?
-            .status = PersistedJobStatus::Failed(error);
+            .batch = remaining;
+        return Ok(());
+    }
+    let driver_kind = candidate
+        .jobs
+        .get(job_index)
+        .ok_or_else(job_missing)?
+        .driver_kind
+        .clone();
+    if let Some(driver_kind) = driver_kind {
+        if let Err(error) =
+            apply_driver_advance(runtime, candidate, job_index, &driver_kind, result)
+        {
+            let job = candidate.jobs.get_mut(job_index).ok_or_else(job_missing)?;
+            job.status = PersistedJobStatus::Failed(error);
+            job.pending_effect = PendingEffect::Done;
+        }
     } else {
-        let remaining = candidate
-            .jobs
-            .get(job_index)
-            .ok_or_else(job_missing)?
-            .batch
-            .remaining_after(prefix);
-        if let Some(remaining) = remaining {
-            candidate
-                .jobs
-                .get_mut(job_index)
-                .ok_or_else(job_missing)?
-                .batch = remaining;
-        } else {
-            let driver_kind = candidate
-                .jobs
-                .get(job_index)
-                .ok_or_else(job_missing)?
-                .driver_kind
-                .clone();
-            if let Some(driver_kind) = driver_kind {
-                if let Err(error) =
-                    apply_driver_advance(runtime, &mut candidate, job_index, &driver_kind, result)
-                {
-                    candidate
-                        .jobs
-                        .get_mut(job_index)
-                        .ok_or_else(job_missing)?
-                        .status = PersistedJobStatus::Failed(error);
-                }
-            } else {
-                candidate
-                    .jobs
-                    .get_mut(job_index)
-                    .ok_or_else(job_missing)?
-                    .status = PersistedJobStatus::Completed;
-            }
+        let job = candidate.jobs.get_mut(job_index).ok_or_else(job_missing)?;
+        job.status = PersistedJobStatus::Completed;
+        job.pending_effect = PendingEffect::Done;
+    }
+    Ok(())
+}
+
+/// Applies a native task completion with dispatch fence. Stale or post-cancel completions are rejected.
+fn submit_native_completion(
+    runtime: &mut ActorRuntime,
+    completion: &NativeTaskCompletion,
+) -> Result<JobStep, LomoError> {
+    let job_id = &completion.job_id;
+    let current = runtime
+        .journal
+        .as_ref()
+        .ok_or_else(|| unknown_job_error(job_id))?;
+    let record = current
+        .jobs
+        .iter()
+        .find(|job| &job.job_id == job_id)
+        .ok_or_else(|| unknown_job_error(job_id))?;
+
+    // Cancel/terminal already won: ignore late worker results (stale completion rejection).
+    if matches!(
+        record.status,
+        PersistedJobStatus::Completed
+            | PersistedJobStatus::Failed(_)
+            | PersistedJobStatus::BlockedByConflict
+            | PersistedJobStatus::WaitingPlatform
+    ) {
+        return Ok(record.step());
+    }
+
+    let expected = match &record.pending_effect {
+        PendingEffect::NativeTask {
+            attempt,
+            dispatch_generation,
+            ..
+        } => (*attempt, *dispatch_generation),
+        PendingEffect::PlatformBatch | PendingEffect::BlockedByConflict | PendingEffect::Done => {
+            return Ok(record.step());
+        }
+    };
+    if completion.attempt != expected.0 || completion.dispatch_generation != expected.1 {
+        // Stale fence: do not mutate durable state.
+        return Ok(record.step());
+    }
+    // Generation 0 is reserved for post-crash "not yet redispatched" state and is never a live fence.
+    if completion.dispatch_generation == 0 {
+        return Ok(record.step());
+    }
+    if !matches!(
+        record.status,
+        PersistedJobStatus::RunningNative | PersistedJobStatus::QueuedNative
+    ) {
+        return Ok(record.step());
+    }
+
+    let mut candidate = current.clone();
+    let job = candidate
+        .jobs
+        .iter_mut()
+        .find(|job| &job.job_id == job_id)
+        .ok_or_else(|| {
+            LomoError::corruption(
+                "job_generation_changed",
+                "job disappeared while applying native completion",
+            )
+        })?;
+
+    match &completion.outcome {
+        NativeTaskOutcome::Success { result_json } => {
+            job.result_json = Some(result_json.clone());
+            job.status = PersistedJobStatus::Completed;
+            job.pending_effect = PendingEffect::Done;
+            job.driver_state_json = None;
+        }
+        NativeTaskOutcome::Failed { error } => {
+            job.status = PersistedJobStatus::Failed(error.clone());
+            job.pending_effect = PendingEffect::Done;
+        }
+        NativeTaskOutcome::Cancelled => {
+            job.status = PersistedJobStatus::Failed(LomoError::cancelled(
+                "native_task_cancelled",
+                "native task was cancelled before completion",
+            ));
+            job.pending_effect = PendingEffect::Done;
         }
     }
 
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
-    if !matches!(
-        poll_job(runtime.journal.as_ref(), job_id)?,
-        JobStep::NeedsPlatformBatch { .. }
-    ) {
-        runtime.monotonic_deadlines.remove(job_id);
-    }
+    runtime.monotonic_deadlines.remove(job_id);
     poll_job(runtime.journal.as_ref(), job_id)
 }
 
@@ -878,11 +1170,13 @@ fn apply_driver_advance(
                 job.result_json = Some(payload);
             }
             job.status = PersistedJobStatus::WaitingPlatform;
+            job.pending_effect = PendingEffect::PlatformBatch;
         }
         DriverAdvance::Done { result_json } => {
             job.driver_state_json = None;
             job.result_json = Some(result_json);
             job.status = PersistedJobStatus::Completed;
+            job.pending_effect = PendingEffect::Done;
         }
     }
     Ok(())
@@ -906,11 +1200,7 @@ fn start_user_job(
             "user jobs require a Ready engine",
         ));
     }
-    let active_count = current
-        .jobs
-        .iter()
-        .filter(|job| matches!(job.status, PersistedJobStatus::WaitingPlatform))
-        .count();
+    let active_count = current.jobs.iter().filter(|job| job.is_active()).count();
     if active_count >= MAX_ACTIVE_JOBS {
         return Err(LomoError::resource_limit(
             "active_job_limit_exceeded",
@@ -985,6 +1275,11 @@ fn start_user_job(
         },
         result_json: started.result_json,
         is_bootstrap: false,
+        pending_effect: if completed_immediately {
+            PendingEffect::Done
+        } else {
+            PendingEffect::PlatformBatch
+        },
     });
 
     if !completed_immediately {
@@ -994,6 +1289,245 @@ fn start_user_job(
     }
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
     Ok(job_id)
+}
+
+fn start_native_task_job(
+    runtime: &mut ActorRuntime,
+    task_kind: &str,
+    request_json: &str,
+    secret_lease_id: Option<SecretLeaseId>,
+    deadline: Duration,
+) -> Result<JobId, LomoError> {
+    let current = runtime.journal.as_ref().ok_or_else(|| {
+        LomoError::validation(
+            "workspace_not_selected",
+            "jobs are unavailable until a workspace is selected",
+        )
+    })?;
+    if !matches!(current.lifecycle, PersistedLifecycle::Ready) {
+        return Err(LomoError::validation(
+            "engine_not_ready",
+            "user jobs require a Ready engine",
+        ));
+    }
+    validate_native_task_request(task_kind, request_json, deadline, current)?;
+
+    let (mut candidate, job_id, operation_id) = allocate_user_job(current)?;
+    let deadline_epoch_millis = checked_deadline_epoch(deadline)?;
+    let dispatch_generation = candidate.next_id;
+    candidate.next_id = checked_next_identifier(dispatch_generation)?;
+    let batch_id = allocate_batch_id(&mut candidate)?;
+    let capability = runtime
+        .workspace
+        .as_ref()
+        .map(ctx_capability)
+        .ok_or_else(|| {
+            LomoError::validation(
+                "workspace_not_selected",
+                "jobs are unavailable until a workspace is selected",
+            )
+        })?;
+    // Sentinel batch so journal shape stays valid for schema-compatible tools.
+    let batch = PlatformActionBatch::new(
+        job_id.clone(),
+        batch_id,
+        1,
+        deadline_epoch_millis,
+        vec![PlatformAction::stat_root(
+            ActionId::parse(&format!("action-native-{}", job_id.as_str()))?,
+            capability,
+        )],
+    )?;
+
+    candidate.jobs.push(JobRecord {
+        job_id: job_id.clone(),
+        operation_id,
+        deadline_epoch_millis,
+        batch,
+        status: PersistedJobStatus::RunningNative,
+        driver_kind: Some("native-task".to_owned()),
+        driver_state_json: None,
+        result_json: None,
+        is_bootstrap: false,
+        pending_effect: PendingEffect::NativeTask {
+            task_kind: task_kind.to_owned(),
+            request_json: request_json.to_owned(),
+            attempt: 1,
+            dispatch_generation,
+            secret_lease_id: secret_lease_id.clone(),
+        },
+    });
+    runtime
+        .monotonic_deadlines
+        .insert(job_id.clone(), Instant::now() + deadline);
+    // Commit fence first so a worker completion after a failed enqueue cannot invent state.
+    commit_candidate(runtime, candidate, Some(job_id.clone()))?;
+    enqueue_native_if_attached(
+        runtime,
+        &job_id,
+        task_kind,
+        request_json,
+        1,
+        dispatch_generation,
+        secret_lease_id,
+    )?;
+    Ok(job_id)
+}
+
+fn validate_native_task_request(
+    task_kind: &str,
+    request_json: &str,
+    deadline: Duration,
+    current: &JournalState,
+) -> Result<(), LomoError> {
+    if task_kind.is_empty() || task_kind.len() > 128 {
+        return Err(LomoError::validation(
+            "invalid_native_task_kind",
+            "native task kind must be 1..=128 bytes",
+        ));
+    }
+    // Fail closed: request_json must not smuggle secrets into the journal.
+    if request_json.contains("\"password\"")
+        || request_json.contains("\"secret_value\"")
+        || request_json.contains("Bearer ")
+    {
+        return Err(LomoError::validation(
+            "native_request_contains_secret",
+            "native task request_json must not contain secret material; use secret lease ids only",
+        ));
+    }
+    let active_count = current.jobs.iter().filter(|job| job.is_active()).count();
+    if active_count >= MAX_ACTIVE_JOBS {
+        return Err(LomoError::resource_limit(
+            "active_job_limit_exceeded",
+            "engine supports at most 64 active jobs",
+        ));
+    }
+    if deadline < Duration::from_millis(1) || deadline > MAX_BOOTSTRAP_DEADLINE {
+        return Err(LomoError::validation(
+            "invalid_job_deadline",
+            "job deadline must be within 1 millisecond..=24 hours",
+        ));
+    }
+    Ok(())
+}
+
+/// Enqueues to the external pool when attached (dark host path). Without a pool the host must
+/// call [`LomoEngine::submit_native_task_result`] explicitly.
+fn enqueue_native_if_attached(
+    runtime: &mut ActorRuntime,
+    job_id: &JobId,
+    task_kind: &str,
+    request_json: &str,
+    attempt: u32,
+    dispatch_generation: u64,
+    secret_lease_id: Option<SecretLeaseId>,
+) -> Result<(), LomoError> {
+    let Some(pool) = runtime.native_pool.as_ref() else {
+        return Ok(());
+    };
+    if let Err(error) = pool.enqueue(NativeTaskDispatch {
+        job_id: job_id.clone(),
+        task_kind: task_kind.to_owned(),
+        request_json: request_json.to_owned(),
+        attempt,
+        dispatch_generation,
+        secret_lease_id,
+    }) {
+        // Durable job already committed: mark failed so it cannot hang RunningNative forever.
+        let fail_error = error.clone();
+        if let Some(journal) = runtime.journal.as_ref() {
+            let mut failed = journal.clone();
+            if let Some(job) = failed.jobs.iter_mut().find(|job| &job.job_id == job_id) {
+                job.status = PersistedJobStatus::Failed(error);
+                job.pending_effect = PendingEffect::Done;
+                // behavior-contract: silent-result-ok: secondary fail-commit after enqueue
+                // failure must not mask the original resource-limit/shutdown error.
+                drop(commit_candidate(runtime, failed, Some(job_id.clone())));
+            }
+        }
+        runtime.monotonic_deadlines.remove(job_id);
+        return Err(fail_error);
+    }
+    Ok(())
+}
+
+/// Assigns a fresh non-zero `dispatch_generation` to each recoverable `QueuedNative` job and
+/// enqueues when a pool is attached. Without a pool, only the durable fence is refreshed so a
+/// host may submit matching completions.
+fn redispatch_queued_native_jobs(runtime: &mut ActorRuntime) -> Result<u32, LomoError> {
+    let Some(current) = runtime.journal.as_ref() else {
+        return Ok(0);
+    };
+    if !matches!(current.lifecycle, PersistedLifecycle::Ready) {
+        return Err(LomoError::validation(
+            "engine_not_ready",
+            "native redispatch requires a Ready engine",
+        ));
+    }
+
+    let mut candidate = current.clone();
+    let mut to_enqueue: Vec<(JobId, String, String, u32, u64, Option<SecretLeaseId>)> = Vec::new();
+
+    for job in &mut candidate.jobs {
+        if !matches!(job.status, PersistedJobStatus::QueuedNative) {
+            continue;
+        }
+        let PendingEffect::NativeTask {
+            task_kind,
+            request_json,
+            attempt,
+            dispatch_generation,
+            secret_lease_id,
+        } = &mut job.pending_effect
+        else {
+            continue;
+        };
+        // Only jobs still waiting for a post-recovery fence (gen == 0). Fresh start_native uses
+        // RunningNative with a non-zero gen and must not be re-fenced here.
+        if *dispatch_generation != 0 {
+            continue;
+        }
+        let new_gen = candidate.next_id;
+        candidate.next_id = checked_next_identifier(new_gen)?;
+        *dispatch_generation = new_gen;
+        job.status = PersistedJobStatus::RunningNative;
+        to_enqueue.push((
+            job.job_id.clone(),
+            task_kind.clone(),
+            request_json.clone(),
+            *attempt,
+            new_gen,
+            secret_lease_id.clone(),
+        ));
+    }
+
+    if to_enqueue.is_empty() {
+        return Ok(0);
+    }
+
+    commit_candidate(
+        runtime,
+        candidate,
+        to_enqueue.first().map(|row| row.0.clone()),
+    )?;
+
+    let mut redispatched = 0_u32;
+    for (job_id, task_kind, request_json, attempt, dispatch_generation, secret_lease_id) in
+        to_enqueue
+    {
+        enqueue_native_if_attached(
+            runtime,
+            &job_id,
+            &task_kind,
+            &request_json,
+            attempt,
+            dispatch_generation,
+            secret_lease_id,
+        )?;
+        redispatched = redispatched.saturating_add(1);
+    }
+    Ok(redispatched)
 }
 
 fn allocate_user_job(
@@ -1120,9 +1654,10 @@ fn expire_monotonic_jobs(runtime: &mut ActorRuntime) {
         if let Some(current) = runtime.journal.as_ref() {
             let mut candidate = current.clone();
             if let Some(job) = candidate.jobs.iter_mut().find(|job| job.job_id == job_id)
-                && matches!(job.status, PersistedJobStatus::WaitingPlatform)
+                && job.is_active()
             {
                 job.status = PersistedJobStatus::Failed(deadline_error());
+                job.pending_effect = PendingEffect::Done;
                 let _commit_result = commit_candidate(runtime, candidate, Some(job_id.clone()));
             }
         }
@@ -1206,6 +1741,9 @@ struct JobRecord {
     result_json: Option<String>,
     #[serde(default)]
     is_bootstrap: bool,
+    /// Pending durable effect (platform batch by default for schema v1 recovery).
+    #[serde(default)]
+    pending_effect: PendingEffect,
 }
 
 impl JobRecord {
@@ -1214,10 +1752,60 @@ impl JobRecord {
             PersistedJobStatus::WaitingPlatform => JobStep::NeedsPlatformBatch {
                 batch: self.batch.clone(),
             },
+            PersistedJobStatus::QueuedNative | PersistedJobStatus::RunningNative => {
+                match &self.pending_effect {
+                    PendingEffect::NativeTask {
+                        task_kind,
+                        attempt,
+                        dispatch_generation,
+                        ..
+                    } => JobStep::RunningNative {
+                        task_kind: task_kind.clone(),
+                        attempt: *attempt,
+                        dispatch_generation: *dispatch_generation,
+                    },
+                    PendingEffect::PlatformBatch
+                    | PendingEffect::BlockedByConflict
+                    | PendingEffect::Done => JobStep::Running,
+                }
+            }
+            PersistedJobStatus::BlockedByConflict => JobStep::BlockedByConflict {
+                error: LomoError::validation(
+                    "job_blocked_by_conflict",
+                    "job is blocked by a durable conflict session",
+                ),
+            },
             PersistedJobStatus::Completed => JobStep::Completed,
             PersistedJobStatus::Failed(error) => JobStep::Failed {
                 error: error.clone(),
             },
+        }
+    }
+
+    const fn is_active(&self) -> bool {
+        matches!(
+            self.status,
+            PersistedJobStatus::WaitingPlatform
+                | PersistedJobStatus::QueuedNative
+                | PersistedJobStatus::RunningNative
+                | PersistedJobStatus::BlockedByConflict
+        )
+    }
+
+    /// Crash recovery: `RunningNative` requeues as `QueuedNative` for idempotent replay.
+    fn recover_native_on_open(&mut self) {
+        if matches!(self.status, PersistedJobStatus::RunningNative) {
+            self.status = PersistedJobStatus::QueuedNative;
+            if let PendingEffect::NativeTask {
+                attempt,
+                dispatch_generation,
+                ..
+            } = &mut self.pending_effect
+            {
+                // Bump attempt so stale in-flight completions from the dead process are rejected.
+                *attempt = attempt.saturating_add(1).max(1);
+                *dispatch_generation = 0;
+            }
         }
     }
 }
@@ -1225,6 +1813,9 @@ impl JobRecord {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 enum PersistedJobStatus {
     WaitingPlatform,
+    QueuedNative,
+    RunningNative,
+    BlockedByConflict,
     Completed,
     Failed(LomoError),
 }
@@ -1281,6 +1872,11 @@ fn ensure_bootstrap(
             PersistedJobStatus::Completed,
         ),
     };
+    let pending_effect = if matches!(status, PersistedJobStatus::Completed) {
+        PendingEffect::Done
+    } else {
+        PendingEffect::PlatformBatch
+    };
     journal.jobs.push(JobRecord {
         job_id: job_id.clone(),
         operation_id,
@@ -1291,6 +1887,7 @@ fn ensure_bootstrap(
         driver_state_json: None,
         result_json: None,
         is_bootstrap: true,
+        pending_effect,
     });
     Ok(())
 }
@@ -1375,7 +1972,7 @@ fn monotonic_deadlines(journal: &JournalState) -> Result<BTreeMap<JobId, Instant
     journal
         .jobs
         .iter()
-        .filter(|job| matches!(job.status, PersistedJobStatus::WaitingPlatform))
+        .filter(|job| job.is_active())
         .map(|job| {
             let remaining = job.deadline_epoch_millis.saturating_sub(now_wall);
             Ok((job.job_id.clone(), now + Duration::from_millis(remaining)))
@@ -1385,24 +1982,19 @@ fn monotonic_deadlines(journal: &JournalState) -> Result<BTreeMap<JobId, Instant
 
 fn expire_wall_clock_jobs(journal: &mut JournalState, now: u64) {
     for job in &mut journal.jobs {
-        if matches!(job.status, PersistedJobStatus::WaitingPlatform)
-            && job.deadline_epoch_millis <= now
-        {
+        if job.is_active() && job.deadline_epoch_millis <= now {
             job.status = PersistedJobStatus::Failed(deadline_error());
+            job.pending_effect = PendingEffect::Done;
         }
     }
     journal.lifecycle = lifecycle_for(journal);
 }
 
 fn retain_bounded_terminals(journal: &mut JournalState) {
-    let terminal_count = journal
-        .jobs
-        .iter()
-        .filter(|job| !matches!(job.status, PersistedJobStatus::WaitingPlatform))
-        .count();
+    let terminal_count = journal.jobs.iter().filter(|job| !job.is_active()).count();
     let mut to_remove = terminal_count.saturating_sub(MAX_TERMINAL_JOBS);
     journal.jobs.retain(|job| {
-        if to_remove > 0 && !matches!(job.status, PersistedJobStatus::WaitingPlatform) {
+        if to_remove > 0 && !job.is_active() {
             to_remove -= 1;
             false
         } else {
@@ -1415,11 +2007,7 @@ fn validate_journal_state(
     state: &JournalState,
     expected_workspace: &WorkspaceId,
 ) -> Result<(), LomoError> {
-    let active_count = state
-        .jobs
-        .iter()
-        .filter(|job| matches!(job.status, PersistedJobStatus::WaitingPlatform))
-        .count();
+    let active_count = state.jobs.iter().filter(|job| job.is_active()).count();
     let terminal_count = state.jobs.len().saturating_sub(active_count);
     let ids = state
         .jobs
@@ -1435,6 +2023,23 @@ fn validate_journal_state(
         return Err(LomoError::corruption(
             "journal_state_inconsistent",
             "engine journal identity, bounds, or job ids are inconsistent",
+        ));
+    }
+    // Secrets must never appear as plaintext values in durable journal payload encodings.
+    // Opaque lease ids (field name secret_lease_id) are allowed; plaintext markers are not.
+    let payload = serde_json::to_string(state).map_err(|_error| {
+        LomoError::corruption(
+            "journal_payload_invalid",
+            "engine journal payload is malformed",
+        )
+    })?;
+    if payload.contains("\"password\"")
+        || payload.contains("Bearer ")
+        || payload.contains("super-secret")
+    {
+        return Err(LomoError::corruption(
+            "journal_contains_secret_material",
+            "engine journal payload must not contain secret material",
         ));
     }
     Ok(())
@@ -1482,51 +2087,122 @@ fn workspace_control_directory(control_root: &Path, workspace_id: &WorkspaceId) 
         .join(workspace_id.as_str())
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct WorkspaceLockOwner {
+    pid: u32,
+    process_start_identity: String,
+    nonce: String,
+    created_unix_millis: u64,
+}
+
+impl WorkspaceLockOwner {
+    fn current() -> Result<Self, LomoError> {
+        let pid = std::process::id();
+        let process_start_identity = process_start_identity(pid)?.ok_or_else(|| {
+            LomoError::storage(
+                "workspace_lock_identity_unavailable",
+                "current process start identity is unavailable".to_owned(),
+            )
+        })?;
+        Ok(Self {
+            pid,
+            process_start_identity,
+            nonce: random_lock_nonce()?,
+            created_unix_millis: epoch_millis()?,
+        })
+    }
+
+    fn is_live(&self) -> Result<bool, LomoError> {
+        process_start_identity(self.pid)
+            .map(|identity| identity.is_some_and(|current| current == self.process_start_identity))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExistingLockSnapshot {
+    owner_bytes: Option<Vec<u8>>,
+}
+
+impl ExistingLockSnapshot {
+    fn read(path: &Path) -> Result<Self, LomoError> {
+        match fs::read(path.join(WORKSPACE_LOCK_OWNER_FILE)) {
+            Ok(owner_bytes) => Ok(Self {
+                owner_bytes: Some(owner_bytes),
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Self { owner_bytes: None })
+            }
+            Err(error) => Err(workspace_lock_error(
+                "workspace lock owner cannot be read",
+                &error,
+            )),
+        }
+    }
+
+    fn is_reclaimable(&self, path: &Path) -> Result<bool, LomoError> {
+        let Some(bytes) = self.owner_bytes.as_ref() else {
+            return path_is_older_than_initialization_grace(path);
+        };
+        match serde_json::from_slice::<WorkspaceLockOwner>(bytes) {
+            Ok(owner) => owner.is_live().map(|live| !live),
+            Err(_error) => path_is_older_than_initialization_grace(path),
+        }
+    }
+}
+
 /// Exclusive workspace ownership without first-party `unsafe`.
 ///
-/// Rust std `File::try_lock` is stubbed on Android, so this uses an atomic `create_dir` lock
-/// directory plus a pid owner record. Process death leaves the directory; the next open reclaims
-/// it only when `/proc/<pid>` is gone, so recovery is possible without a permanent sentinel.
+/// The directory is the atomic exclusion primitive. Its owner record pins PID + process-start
+/// identity + nonce; incomplete/malformed initialization remains Busy for a grace period.
 struct WorkspaceLock {
     path: PathBuf,
+    nonce: String,
 }
 
 impl WorkspaceLock {
     fn acquire(control_directory: &Path) -> Result<Self, LomoError> {
         let path = control_directory.join("engine.lock");
-        match try_create_lock_dir(&path) {
-            Ok(()) => {
-                write_lock_owner(&path)?;
-                Ok(Self { path })
-            }
+        ensure_no_reclaim_in_progress(control_directory)?;
+        let owner = WorkspaceLockOwner::current()?;
+        match fs::create_dir(&path) {
+            Ok(()) => finish_created_workspace_lock(path, &owner),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                if !reclaim_stale_lock_dir(&path)? {
+                let expected = ExistingLockSnapshot::read(&path)?;
+                if !expected.is_reclaimable(&path)? {
                     return Err(LomoError::busy(
                         "workspace_busy",
                         "workspace is already owned by another active engine",
                     ));
                 }
-                try_create_lock_dir(&path).map_err(|retry_error| {
-                    if retry_error.kind() == std::io::ErrorKind::AlreadyExists {
+                let _claim = WorkspaceReclaimClaim::acquire(control_directory)?;
+                let current = ExistingLockSnapshot::read(&path)?;
+                if current != expected || !current.is_reclaimable(&path)? {
+                    return Err(LomoError::busy(
+                        "workspace_busy",
+                        "workspace ownership changed before stale reclaim",
+                    ));
+                }
+                fs::remove_dir_all(&path).map_err(|remove_error| {
+                    workspace_lock_error("stale workspace lock cannot be removed", &remove_error)
+                })?;
+                fs::create_dir(&path).map_err(|create_error| {
+                    if create_error.kind() == std::io::ErrorKind::AlreadyExists {
                         LomoError::busy(
                             "workspace_busy",
-                            "workspace is already owned by another active engine",
+                            "workspace was acquired by another engine during stale reclaim",
                         )
                     } else {
-                        LomoError::storage(
-                            "workspace_lock_unavailable",
-                            format!(
-                                "workspace lock cannot be created after reclaim: {retry_error}"
-                            ),
+                        workspace_lock_error(
+                            "workspace lock cannot be created after stale reclaim",
+                            &create_error,
                         )
                     }
                 })?;
-                write_lock_owner(&path)?;
-                Ok(Self { path })
+                finish_created_workspace_lock(path, &owner)
             }
-            Err(error) => Err(LomoError::storage(
-                "workspace_lock_unavailable",
-                format!("workspace lock cannot be created: {error}"),
+            Err(error) => Err(workspace_lock_error(
+                "workspace lock cannot be created",
+                &error,
             )),
         }
     }
@@ -1534,88 +2210,223 @@ impl WorkspaceLock {
 
 impl Drop for WorkspaceLock {
     fn drop(&mut self) {
-        // Best-effort release; process death is recovered by stale reclaim on next open.
-        drop(fs::remove_dir_all(&self.path));
+        release_workspace_lock_if_owned(&self.path, &self.nonce);
     }
 }
 
-fn try_create_lock_dir(path: &Path) -> std::io::Result<()> {
-    fs::create_dir(path)
+struct WorkspaceReclaimClaim {
+    path: PathBuf,
+    nonce: String,
 }
 
-fn write_lock_owner(path: &Path) -> Result<(), LomoError> {
-    let owner = path.join("owner.pid");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&owner)
-        .map_err(|error| {
-            LomoError::storage(
-                "workspace_lock_unavailable",
-                format!("workspace lock owner cannot be written: {error}"),
-            )
-        })?;
-    write!(file, "{}", std::process::id()).map_err(|error| {
-        LomoError::storage(
-            "workspace_lock_unavailable",
-            format!("workspace lock owner cannot be written: {error}"),
+impl WorkspaceReclaimClaim {
+    fn acquire(control_directory: &Path) -> Result<Self, LomoError> {
+        ensure_no_reclaim_in_progress(control_directory)?;
+        let owner = WorkspaceLockOwner::current()?;
+        let path = control_directory.join(WORKSPACE_RECLAIM_CLAIM_FILE);
+        let candidate = control_directory.join(format!("reclaim.{}.candidate", owner.nonce));
+        write_owner_file(&candidate, &owner)?;
+        let link_result = fs::hard_link(&candidate, &path);
+        drop(fs::remove_file(&candidate));
+        match link_result {
+            Ok(()) => Ok(Self {
+                path,
+                nonce: owner.nonce,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(LomoError::busy(
+                    "workspace_busy",
+                    "workspace stale reclaim is already active",
+                ))
+            }
+            Err(error) => Err(workspace_lock_error(
+                "workspace reclaim claim cannot be published",
+                &error,
+            )),
+        }
+    }
+}
+
+impl Drop for WorkspaceReclaimClaim {
+    fn drop(&mut self) {
+        release_owner_file_if_owned(&self.path, &self.nonce);
+    }
+}
+
+fn finish_created_workspace_lock(
+    path: PathBuf,
+    owner: &WorkspaceLockOwner,
+) -> Result<WorkspaceLock, LomoError> {
+    if let Err(error) = publish_workspace_lock_owner(&path, owner) {
+        cleanup_failed_workspace_lock(&path, &owner.nonce);
+        return Err(error);
+    }
+    Ok(WorkspaceLock {
+        path,
+        nonce: owner.nonce.clone(),
+    })
+}
+
+fn publish_workspace_lock_owner(path: &Path, owner: &WorkspaceLockOwner) -> Result<(), LomoError> {
+    let candidate = path.join(format!("owner.{}.candidate", owner.nonce));
+    write_owner_file(&candidate, owner)?;
+    fs::rename(&candidate, path.join(WORKSPACE_LOCK_OWNER_FILE)).map_err(|error| {
+        workspace_lock_error("workspace lock owner cannot be published", &error)
+    })?;
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| workspace_lock_error("workspace lock directory cannot be synced", &error))
+}
+
+fn write_owner_file(path: &Path, owner: &WorkspaceLockOwner) -> Result<(), LomoError> {
+    let bytes = serde_json::to_vec(owner).map_err(|_error| {
+        LomoError::internal(
+            "workspace_lock_owner_invalid",
+            "workspace lock owner record cannot be encoded",
         )
     })?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| workspace_lock_error("workspace lock owner cannot be created", &error))?;
+    file.write_all(&bytes)
+        .map_err(|error| workspace_lock_error("workspace lock owner cannot be written", &error))?;
     file.sync_all().map_err(|error| {
-        LomoError::storage(
-            "workspace_lock_unavailable",
-            format!("workspace lock owner cannot be synced: {error}"),
-        )
+        workspace_lock_error("workspace lock owner cannot be durably synced", &error)
     })?;
     Ok(())
 }
 
-fn reclaim_stale_lock_dir(path: &Path) -> Result<bool, LomoError> {
-    let owner_path = path.join("owner.pid");
-    let raw = match fs::read_to_string(&owner_path) {
-        Ok(value) => value,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            // Incomplete lock from a crashed creator — safe to reclaim.
-            fs::remove_dir_all(path).map_err(|remove_error| {
-                LomoError::storage(
-                    "workspace_lock_unavailable",
-                    format!("stale workspace lock without owner cannot be removed: {remove_error}"),
-                )
-            })?;
-            return Ok(true);
-        }
+fn ensure_no_reclaim_in_progress(control_directory: &Path) -> Result<(), LomoError> {
+    let path = control_directory.join(WORKSPACE_RECLAIM_CLAIM_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
-            return Err(LomoError::storage(
-                "workspace_lock_unavailable",
-                format!("workspace lock owner cannot be read: {error}"),
+            return Err(workspace_lock_error(
+                "workspace reclaim claim cannot be read",
+                &error,
             ));
         }
     };
-    let pid = raw.trim().parse::<u32>().map_err(|_error| {
-        LomoError::storage(
-            "workspace_lock_unavailable",
-            "workspace lock owner pid is malformed".to_owned(),
-        )
-    })?;
-    if process_is_alive(pid) {
-        return Ok(false);
+    let reclaimable = match serde_json::from_slice::<WorkspaceLockOwner>(&bytes) {
+        Ok(owner) => !owner.is_live()?,
+        Err(_error) => path_is_older_than_initialization_grace(&path)?,
+    };
+    if !reclaimable {
+        return Err(LomoError::busy(
+            "workspace_busy",
+            "workspace stale reclaim is already active",
+        ));
     }
-    fs::remove_dir_all(path).map_err(|error| {
-        LomoError::storage(
-            "workspace_lock_unavailable",
-            format!("stale workspace lock cannot be removed: {error}"),
-        )
-    })?;
-    Ok(true)
+    remove_owner_file_if_unchanged(&path, &bytes)
 }
 
-fn process_is_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
+fn remove_owner_file_if_unchanged(path: &Path, expected: &[u8]) -> Result<(), LomoError> {
+    match fs::read(path) {
+        Ok(current) if current == expected => fs::remove_file(path).map_err(|error| {
+            workspace_lock_error("stale workspace reclaim claim cannot be removed", &error)
+        }),
+        Ok(_) => Err(LomoError::busy(
+            "workspace_busy",
+            "workspace reclaim ownership changed",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(workspace_lock_error(
+            "workspace reclaim claim cannot be re-read",
+            &error,
+        )),
     }
-    // Linux/Android: presence of /proc/<pid> is a pure-safe liveness probe.
-    Path::new("/proc").join(pid.to_string()).exists()
+}
+
+fn cleanup_failed_workspace_lock(path: &Path, nonce: &str) {
+    let candidate = path.join(format!("owner.{nonce}.candidate"));
+    if candidate.exists() || owner_file_has_nonce(&path.join(WORKSPACE_LOCK_OWNER_FILE), nonce) {
+        drop(fs::remove_dir_all(path));
+    }
+}
+
+fn release_workspace_lock_if_owned(path: &Path, nonce: &str) {
+    if owner_file_has_nonce(&path.join(WORKSPACE_LOCK_OWNER_FILE), nonce) {
+        drop(fs::remove_dir_all(path));
+    }
+}
+
+fn release_owner_file_if_owned(path: &Path, nonce: &str) {
+    if owner_file_has_nonce(path, nonce) {
+        drop(fs::remove_file(path));
+    }
+}
+
+/// True only when the on-disk owner record proves this instance still owns the lock.
+///
+/// A missing, unreadable, or malformed record is deliberately not ownership: release must never
+/// delete a lock directory it cannot prove it holds, or a crashed reclaim would remove the live
+/// owner's lock and let two engines write the same workspace.
+fn owner_file_has_nonce(path: &Path, nonce: &str) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let Ok(owner) = serde_json::from_slice::<WorkspaceLockOwner>(&bytes) else {
+        return false;
+    };
+    owner.nonce == nonce
+}
+
+fn path_is_older_than_initialization_grace(path: &Path) -> Result<bool, LomoError> {
+    let modified = fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| workspace_lock_error("workspace lock age cannot be read", &error))?;
+    Ok(SystemTime::now()
+        .duration_since(modified)
+        .is_ok_and(|age| age >= WORKSPACE_LOCK_INITIALIZATION_GRACE))
+}
+
+fn process_start_identity(pid: u32) -> Result<Option<String>, LomoError> {
+    if pid == 0 {
+        return Ok(None);
+    }
+    let stat_path = Path::new("/proc").join(pid.to_string()).join("stat");
+    let stat = match fs::read_to_string(stat_path) {
+        Ok(stat) => stat,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(workspace_lock_error(
+                "process start identity cannot be read",
+                &error,
+            ));
+        }
+    };
+    let (_command, fields) = stat.rsplit_once(") ").ok_or_else(|| {
+        LomoError::storage(
+            "workspace_lock_identity_unavailable",
+            "process stat record is malformed".to_owned(),
+        )
+    })?;
+    let start_ticks = fields.split_whitespace().nth(19).ok_or_else(|| {
+        LomoError::storage(
+            "workspace_lock_identity_unavailable",
+            "process stat record has no start time".to_owned(),
+        )
+    })?;
+    let boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map_err(|error| workspace_lock_error("boot identity cannot be read", &error))?;
+    Ok(Some(format!("{}:{start_ticks}", boot_id.trim())))
+}
+
+fn random_lock_nonce() -> Result<String, LomoError> {
+    let mut bytes = [0_u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut source| source.read_exact(&mut bytes))
+        .map_err(|error| {
+            workspace_lock_error("workspace lock nonce cannot be generated", &error)
+        })?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn workspace_lock_error(context: &str, error: &std::io::Error) -> LomoError {
+    LomoError::storage("workspace_lock_unavailable", format!("{context}: {error}"))
 }
 
 fn acquire_workspace_lock(control_directory: &Path) -> Result<WorkspaceLock, LomoError> {
@@ -1635,7 +2446,14 @@ fn read_journal(path: &Path, expected_workspace: &WorkspaceId) -> Result<Journal
             "engine journal envelope is truncated or malformed",
         )
     })?;
-    if envelope.magic != JOURNAL_MAGIC || envelope.schema != JOURNAL_SCHEMA {
+    if envelope.magic != JOURNAL_MAGIC {
+        return Err(LomoError::corruption(
+            "journal_schema_unknown",
+            "engine journal magic or schema is unknown",
+        ));
+    }
+    // Unknown schema fails closed (corruption / ReadOnlyRecovery path for callers) — never clean slate.
+    if envelope.schema != JOURNAL_SCHEMA && envelope.schema != JOURNAL_SCHEMA_V1 {
         return Err(LomoError::corruption(
             "journal_schema_unknown",
             "engine journal magic or schema is unknown",
@@ -1647,12 +2465,22 @@ fn read_journal(path: &Path, expected_workspace: &WorkspaceId) -> Result<Journal
             "engine journal checksum does not match its payload",
         ));
     }
-    let state: JournalState = serde_json::from_str(&envelope.payload).map_err(|_error| {
+    let mut state: JournalState = serde_json::from_str(&envelope.payload).map_err(|_error| {
         LomoError::corruption(
             "journal_payload_invalid",
             "engine journal payload is malformed",
         )
     })?;
+    // Crash recovery: RunningNative → QueuedNative for idempotent replay after process death.
+    for job in &mut state.jobs {
+        job.recover_native_on_open();
+        // Schema v1 jobs default pending_effect via serde; ensure platform jobs stay consistent.
+        if matches!(job.status, PersistedJobStatus::WaitingPlatform)
+            && matches!(job.pending_effect, PendingEffect::Done)
+        {
+            job.pending_effect = PendingEffect::PlatformBatch;
+        }
+    }
     validate_journal_state(&state, expected_workspace)?;
     Ok(state)
 }

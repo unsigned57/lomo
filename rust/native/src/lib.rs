@@ -17,12 +17,12 @@ use std::time::Duration;
 
 use boltffi::{data, error, export};
 use lomo_core as core;
-use lomo_sync_core::plan_envelope;
 use lomo_workspace::{self as workspace, workspace_driver_registry};
 
 // Public so BoltFFI type resolution can name `crate::media_ffi::*` wire DTOs from store_ffi.
 pub mod media_ffi;
 mod store_ffi;
+pub mod sync_ffi;
 pub use media_ffi::{
     ArchiveExportResultDto, ArchiveInspectResultDto, MediaAttachmentRefDto, MediaCommittedEntryDto,
     MediaManifestDto, MediaOrphanSweepResultDto, MediaPromotePlanDto, MediaPromoteResultDto,
@@ -34,6 +34,14 @@ pub use store_ffi::{
     StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
     StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
     StoreReminderSession, StoreTimeZoneContext, StoreZoneTransition,
+};
+pub use sync_ffi::{
+    SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
+    SyncConflictResolveResultDto, SyncCyclePlanSummaryDto, SyncRetryDispositionDto,
+    SyncRetryHintDto, SyncSecretLeaseDto, looks_like_lease_id, sync_inspect_cycle_plan,
+    sync_issue_secret_lease, sync_list_conflicts, sync_probe_secret_lease,
+    sync_read_conflict_artifact, sync_resolve_conflicts, sync_retry_disposition_from_name,
+    sync_revoke_secret_lease, sync_run_cycle,
 };
 
 #[data]
@@ -215,8 +223,13 @@ pub struct EngineConfig {
 #[data]
 #[derive(Clone, Debug)]
 pub enum WorkspaceDescriptor {
-    Direct { root_path: String },
-    Saf { capability_token: String },
+    Direct {
+        root_path: String,
+    },
+    Saf {
+        stable_workspace_id: String,
+        capability_token: String,
+    },
 }
 
 #[data]
@@ -432,10 +445,22 @@ pub struct PlatformBatchResult {
 #[derive(Clone, Debug)]
 pub enum JobStep {
     Running,
-    NeedsPlatformBatch { batch: PlatformActionBatch },
-    BlockedByConflict { failure: EngineFailure },
+    NeedsPlatformBatch {
+        batch: PlatformActionBatch,
+    },
+    /// Actor-external native task is queued or running outside the writer (dispatch fence active).
+    RunningNative {
+        task_kind: String,
+        attempt: u32,
+        dispatch_generation: u64,
+    },
+    BlockedByConflict {
+        failure: EngineFailure,
+    },
     Completed,
-    Failed { failure: EngineFailure },
+    Failed {
+        failure: EngineFailure,
+    },
 }
 
 #[data]
@@ -1226,9 +1251,13 @@ pub fn workspace_from_ffi(
 ) -> Result<core::WorkspaceDescriptor, EngineError> {
     match value {
         WorkspaceDescriptor::Direct { root_path } => core::WorkspaceDescriptor::direct(root_path),
-        WorkspaceDescriptor::Saf { capability_token } => {
-            core::CapabilityToken::parse(&capability_token).map(core::WorkspaceDescriptor::saf)
-        }
+        WorkspaceDescriptor::Saf {
+            stable_workspace_id,
+            capability_token,
+        } => Ok(core::WorkspaceDescriptor::saf(
+            core::WorkspaceId::parse(&stable_workspace_id)?,
+            core::CapabilityToken::parse(&capability_token)?,
+        )),
     }
     .map_err(EngineError::from)
 }
@@ -1450,6 +1479,15 @@ pub fn job_step_to_ffi(value: core::JobStep) -> JobStep {
         core::JobStep::Running => JobStep::Running,
         core::JobStep::NeedsPlatformBatch { batch } => JobStep::NeedsPlatformBatch {
             batch: batch_to_ffi(&batch),
+        },
+        core::JobStep::RunningNative {
+            task_kind,
+            attempt,
+            dispatch_generation,
+        } => JobStep::RunningNative {
+            task_kind,
+            attempt,
+            dispatch_generation,
         },
         core::JobStep::BlockedByConflict { error } => JobStep::BlockedByConflict {
             failure: failure_from_core(&error),
@@ -1681,27 +1719,6 @@ pub const fn retry_name(value: core::RetryDisposition) -> &'static str {
         core::RetryDisposition::Transient => "transient",
     }
 }
-
-#[error]
-#[derive(Debug)]
-pub enum SyncPlannerError {
-    Rejected { reason: String },
-}
-
-impl fmt::Display for SyncPlannerError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Rejected { reason } => {
-                write!(
-                    formatter,
-                    "Rust sync planner rejected the request: {reason}"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for SyncPlannerError {}
 
 fn render_document_to_ffi(
     document: &workspace::RenderDocumentV1,
@@ -1982,19 +1999,6 @@ fn static_boundary_error(
         Ok(error) => error,
         Err(error) => panic!("invalid static native boundary error: {error}"),
     }
-}
-
-#[export]
-/// Plans one sync v1 request through the native facade.
-///
-/// # Errors
-///
-/// Returns [`SyncPlannerError::Rejected`] when the core rejects the request envelope.
-pub fn plan_sync_envelope(input: Vec<u8>) -> Result<Vec<u8>, SyncPlannerError> {
-    let input = input.into_boxed_slice();
-    plan_envelope(&input).map_err(|error| SyncPlannerError::Rejected {
-        reason: error.to_string(),
-    })
 }
 
 #[data]

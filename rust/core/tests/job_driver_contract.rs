@@ -34,7 +34,7 @@ mod tests {
     use lomo_core::{
         CapabilityToken, DriverAdvance, DriverStart, ErrorCategory, JobDriver, JobDriverContext,
         JobDriverKind, JobDriverRegistry, JobId, LomoError, PlatformActionBatch,
-        PlatformBatchResult, WorkspaceDescriptor, job_driver_context,
+        PlatformBatchResult, WorkspaceDescriptor, WorkspaceId, job_driver_context,
     };
     use tempfile::tempdir;
 
@@ -130,7 +130,9 @@ mod tests {
         assert_eq!(counter, 3);
 
         let saf_token = CapabilityToken::parse("saf-cap-token-xyz").must_succeed("saf token");
-        let saf = WorkspaceDescriptor::saf(saf_token);
+        let saf_identity =
+            WorkspaceId::parse("ws-saf-job-driver").must_succeed("saf workspace identity");
+        let saf = WorkspaceDescriptor::saf(saf_identity, saf_token);
         let mut counter2 = 10_u64;
         let mut saf_ctx =
             job_driver_context(&job_id, Path::new(&exchange), &saf, 2_000, 1, &mut counter2);

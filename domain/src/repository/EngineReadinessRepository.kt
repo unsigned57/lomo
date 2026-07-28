@@ -2,6 +2,7 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAuthority
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -21,6 +22,15 @@ interface EngineReadinessRepository {
      * index rebuild never runs against new VFS + old engine mid-switch.
      */
     val activeWorkspaceLocation: StateFlow<StorageLocation?>
+
+    /**
+     * Stable identity plus activation generation of the engine currently installed at Ready, or
+     * null when no workspace engine is active.
+     *
+     * Generation increments on every committed activation so a mutation admitted over one workspace
+     * can never be attributed to the next one.
+     */
+    val workspaceAuthority: StateFlow<WorkspaceAuthority?>
 
     /** Reloads the authoritative snapshot after foreground resume or suspected notification loss. */
     fun resnapshot()

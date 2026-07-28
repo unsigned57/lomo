@@ -19,6 +19,7 @@ mod query;
 mod rebuild;
 mod reminder;
 mod schema;
+mod sync_local;
 mod tokenizer;
 mod transaction;
 
@@ -37,9 +38,9 @@ pub use history_refs::{
     list_history_attachment_refs_with_retention,
 };
 pub use lomo_format::{
-    HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoPaths, LomoPayload, LomoRecord, LomoRecordKind,
-    MemoCommandKind, OperationIntent, OperationStatus, StateBody, decode_record, encode_record,
-    isolate_corrupt_record, read_record, write_record_atomic,
+    HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload,
+    LomoRecord, LomoRecordKind, MemoCommandKind, OperationIntent, OperationStatus, StateBody,
+    decode_record, encode_record, isolate_corrupt_record, read_record, write_record_atomic,
 };
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use query::{
@@ -56,13 +57,20 @@ pub use reminder::{
     query_reminder_plan, resolve_floating_local_to_utc_ms, session_base_trigger_utc_ms,
 };
 pub use schema::{BUSY_TIMEOUT_MS, STORE_SCHEMA_VERSION, TOKENIZER_VERSION, tables};
+pub use sync_local::{
+    LocalSyncCommitResult, LocalSyncMutation, LocalSyncMutationBatch, LocalSyncMutationResult,
+    PreparedSyncApply, SafProjectionBinding, SyncLocalPathFact, SyncLocalSnapshot,
+    SyncPlatformAction, SyncPlatformActionResult, apply_local_sync_batch_direct, commit_sync_apply,
+    memo_content_revision, prepare_sync_apply, snapshot_sync_view, sync_local_write_authority,
+    verify_platform_results,
+};
 pub use tokenizer::{
     QueryPlan, QueryTerm, Tokenizer, UnicodeTokenizer, index_tokens, is_cjk, is_emoji_char,
     query_plan, tokenizer_version,
 };
 pub use transaction::{
     CrashPoint, MemoCommand, MemoCommitResult, WriteGate, apply_memo_command,
-    cleanup_expired_operations,
+    cleanup_expired_operations, refuse_v1_writers_on_layout_v2,
 };
 
 use std::path::{Path, PathBuf};
@@ -131,8 +139,14 @@ impl Store {
     /// # Errors
     ///
     /// Propagates open/schema/integrity failures from [`open_store`].
+    /// Fails closed with `layout_v2_requires_v2_writers` when the workspace layout head is already
+    /// V2 while this crate still only writes v1-shaped history/state (dual-layout fence until
+    /// store v2 writers cut over).
     pub fn open(workspace_root: impl AsRef<Path>) -> Result<Self, LomoError> {
         let workspace_root = workspace_root.as_ref().to_path_buf();
+        // Dual-layout fence at the store open boundary (generation fence + layout authority).
+        let paths = LomoPaths::for_workspace(&workspace_root);
+        refuse_v1_writers_on_layout_v2(&paths)?;
         let opened = open_store(&workspace_root)?;
         let high_water_revision = read_meta_u64(&opened.connection, "high_water_revision")?;
         let event_sequence = read_meta_u64(&opened.connection, "event_sequence")?;
@@ -249,6 +263,75 @@ impl Store {
     /// See [`query_stats`].
     pub fn stats(&self) -> Result<StoreStats, LomoError> {
         query_stats(&self.opened.connection)
+    }
+
+    /// Coarse local sync snapshot (path/digest/revision/media; no full-text bulk).
+    ///
+    /// # Errors
+    ///
+    /// See [`snapshot_sync_view`].
+    pub fn snapshot_sync_view(&self) -> Result<SyncLocalSnapshot, LomoError> {
+        snapshot_sync_view(
+            &self.opened.connection,
+            &self.workspace_root,
+            self.high_water_revision,
+        )
+    }
+
+    /// Applies a local sync mutation batch on the Direct host through prepare → verify → commit.
+    ///
+    /// Same expected-revision memo machine as user edits; media under generation fence.
+    ///
+    /// # Errors
+    ///
+    /// See [`apply_local_sync_batch_direct`].
+    pub fn apply_local_sync_batch(
+        &mut self,
+        batch: &LocalSyncMutationBatch,
+    ) -> Result<LocalSyncCommitResult, LomoError> {
+        let gate = self.write_gate();
+        apply_local_sync_batch_direct(
+            &self.workspace_root,
+            &self.opened.connection,
+            gate,
+            &mut self.high_water_revision,
+            &mut self.event_sequence,
+            batch,
+        )
+    }
+
+    /// Prepares a sync apply (platform actions + deferred commit mutations).
+    ///
+    /// # Errors
+    ///
+    /// See [`prepare_sync_apply`].
+    pub fn prepare_sync_apply(
+        &self,
+        batch: &LocalSyncMutationBatch,
+    ) -> Result<PreparedSyncApply, LomoError> {
+        prepare_sync_apply(&self.workspace_root, batch)
+    }
+
+    /// Commits after platform results are verified (SAF executor or Direct).
+    ///
+    /// # Errors
+    ///
+    /// See [`commit_sync_apply`].
+    pub fn commit_sync_apply(
+        &mut self,
+        prepared: &PreparedSyncApply,
+        platform_results: &[SyncPlatformActionResult],
+    ) -> Result<LocalSyncCommitResult, LomoError> {
+        let gate = self.write_gate();
+        commit_sync_apply(
+            &self.workspace_root,
+            &self.opened.connection,
+            gate,
+            &mut self.high_water_revision,
+            &mut self.event_sequence,
+            prepared,
+            platform_results,
+        )
     }
 
     /// Builds a reminder plan using app-private snooze state.

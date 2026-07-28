@@ -99,13 +99,6 @@ class MainViewModel(
                 mainError ?: collectionError
             }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
 
-        private val _syncConflictEvent =
-            kotlinx.coroutines.flow.MutableSharedFlow<com.lomo.domain.model.SyncConflictSet>(
-                extraBufferCapacity = 1,
-            )
-        val syncConflictEvent:
-            kotlinx.coroutines.flow.SharedFlow<com.lomo.domain.model.SyncConflictSet> = _syncConflictEvent
-
         val isSyncing: StateFlow<Boolean> =
             mainMemoListQueryUseCase
                 .isSyncing()
@@ -641,7 +634,11 @@ class MainViewModel(
                                     throw throwable
                                 }
                                 if (throwable is com.lomo.domain.usecase.SyncConflictException) {
-                                    _syncConflictEvent.tryEmit(throwable.conflicts)
+                                    // P5-13: conflict authority is Sync Center (not dual dialog).
+                                    timber.log.Timber.w(
+                                        "Remote sync conflict requires Sync Center: %d file(s)",
+                                        throwable.conflicts.files.size,
+                                    )
                                 } else {
                                     Timber.w(throwable, "Automatic memo refresh failed")
                                 }
@@ -703,7 +700,10 @@ class MainViewModel(
             when (throwable) {
                 is kotlinx.coroutines.CancellationException -> throw throwable
                 is com.lomo.domain.usecase.SyncConflictException ->
-                    _syncConflictEvent.tryEmit(throwable.conflicts)
+                    timber.log.Timber.w(
+                        "Remote sync conflict requires Sync Center: %d file(s)",
+                        throwable.conflicts.files.size,
+                    )
                 else -> _errorMessage.value = throwable.toUserMessage(fallbackMessage)
             }
         }

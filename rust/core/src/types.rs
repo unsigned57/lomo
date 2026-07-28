@@ -272,9 +272,10 @@ impl WorkspaceDescriptor {
         })
     }
 
+    /// Creates a SAF descriptor from independently validated stable identity and process-local
+    /// access capability.
     #[must_use]
-    pub fn saf(capability: CapabilityToken) -> Self {
-        let identity = workspace_identity(b"saf\0", capability.as_str().as_bytes());
+    pub const fn saf(identity: WorkspaceId, capability: CapabilityToken) -> Self {
         Self::Saf {
             capability,
             identity,

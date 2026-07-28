@@ -57,7 +57,7 @@ val memoRepositoryModule =
                 port = get(),
                 queryRepository = get(),
                 reminderScheduler = get(),
-                writeAuthority = get(),
+                writeLease = get(),
                 invalidation = get(),
                 pendingStages = get(),
                 syncEdge = get(),
@@ -71,7 +71,7 @@ val memoRepositoryModule =
         single {
             StoreMemoTrashRepository(
                 port = get(),
-                writeAuthority = get(),
+                writeLease = get(),
                 invalidation = get(),
             )
         } bind MemoTrashRepository::class

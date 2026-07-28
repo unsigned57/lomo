@@ -24,6 +24,8 @@ import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.search.SearchScreen
 import com.lomo.app.feature.settings.SettingsScreen
+import com.lomo.app.feature.synccenter.SyncCenterRoute
+import com.lomo.app.feature.synccenter.SyncCenterViewModel
 import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
@@ -288,7 +290,18 @@ private fun NavGraphBuilder.addNonSharedDestinations(
     lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.Settings> {
-        SettingsScreen(onBackClick = popBackStackSafely)
+        SettingsScreen(
+            onBackClick = popBackStackSafely,
+            onNavigateToSyncCenter = { navController.navigate(NavRoute.SyncCenter) },
+        )
+    }
+
+    composable<NavRoute.SyncCenter> {
+        val syncCenterViewModel: SyncCenterViewModel = activityKoinViewModel()
+        SyncCenterRoute(
+            viewModel = syncCenterViewModel,
+            onClose = popBackStackSafely,
+        )
     }
 
     composable<NavRoute.Trash> {

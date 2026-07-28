@@ -20,7 +20,7 @@ import com.lomo.data.repository.WorkspaceArchiveEdgeRepository
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.SyncStateResetRepositoryImpl
-import com.lomo.data.repository.WorkspaceWriteAuthority
+import com.lomo.data.repository.ProcessWorkspaceMutationLease
 import com.lomo.data.repository.DirectorySettingsRepositoryImpl
 import com.lomo.data.repository.PreferencesRepositoryImpl
 import com.lomo.data.repository.DateTimePreferencesRepositoryImpl
@@ -42,6 +42,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.security.DataStoreSecuritySessionPolicy
 import com.lomo.data.security.DefaultCredentialRepository
 import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.s3.S3CredentialStore
+import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.CredentialRepository
@@ -110,9 +112,8 @@ val coreDataRepositoryModule = module {
     singleOf(::AppPreferencesSnapshotRepositoryImpl) bind AppPreferencesSnapshotRepository::class
     single { com.lomo.data.repository.CustomFontStoreImpl(androidContext()) } bind CustomFontStore::class
 
-    single { com.lomo.data.repository.ProcessWriteFreezeRepository() } bind
-        com.lomo.domain.repository.WriteFreezeRepository::class
-    singleOf(::WorkspaceWriteAuthority)
+    single { ProcessWorkspaceMutationLease(engineReadinessRepository = get()) } bind
+        com.lomo.domain.repository.WorkspaceMutationLease::class
 
 
     singleOf(::SyncStateResetRepositoryImpl) bind SyncStateResetRepository::class
@@ -131,7 +132,7 @@ val coreDataRepositoryModule = module {
     }
     single { com.lomo.data.engine.media.PendingMediaStageRegistry() }
     single<MediaPort> { BoltFfiMediaPort(bridge = get<ManagedEngineSession>()) }
-    single { MediaSyncEdgeAdapter(s3LocalChangeRecorder = get(), webDavLocalChangeRecorder = get()) }
+    single { MediaSyncEdgeAdapter() }
     single {
         MediaEdgeRepository(
             context = androidContext(),
@@ -140,7 +141,7 @@ val coreDataRepositoryModule = module {
             mediaPort = get(),
             workspaceRoot = get(),
             syncEdge = get(),
-            writeAuthority = get(),
+            writeLease = get(),
             storePort = get(),
             pendingStages = get(),
         )
@@ -149,6 +150,8 @@ val coreDataRepositoryModule = module {
 
     // Credentials / Security
     single { GitCredentialStore(get<Context>()) }
+    single { WebDavCredentialStore(get<Context>()) }
+    single { S3CredentialStore(get<Context>()) }
     singleOf(::DefaultCredentialRepository) bind CredentialRepository::class
     single { DataStoreSecuritySessionPolicy(get()) } binds arrayOf(
         SecuritySessionPolicy::class,

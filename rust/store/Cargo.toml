@@ -65,3 +65,7 @@ path = "tests/archive_contract.rs"
 [[test]]
 name = "history_refs_contract"
 path = "tests/history_refs_contract.rs"
+
+[[test]]
+name = "sync_local_contract"
+path = "tests/sync_local_contract.rs"

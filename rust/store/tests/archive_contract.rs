@@ -688,6 +688,8 @@ mod tests {
         write_bytes_for_tests(&ws.join("media/nested/deep.png"), PNG_1X1).expect("deep");
         fs::create_dir_all(ws.join(".lomo/operations/v1")).expect("ops");
         fs::write(ws.join(".lomo/operations/v1/op.json"), b"{\"ok\":true}").expect("op");
+        fs::create_dir_all(ws.join(".lomo/local/v1")).expect("local");
+        fs::write(ws.join(".lomo/local/v1/generation.rec"), b"local-only").expect("gen");
         let archive = root.path().join("nested.zip");
         let exported = archive_export(&ws, &archive).expect("export");
         let paths: Vec<&str> = exported
@@ -700,9 +702,79 @@ mod tests {
             paths.contains(&"media/nested/deep.png"),
             "nested media kept: {paths:?}"
         );
+        // Stage-5 allowlist: durable history/state + markdown/media; never operations/local/sync.
         assert!(
-            paths.iter().any(|p| p.contains(".lomo/operations/")),
-            "lomo operations state kept: {paths:?}"
+            paths
+                .iter()
+                .any(|p| p.contains(".lomo/state/") || p.contains(".lomo/history/")),
+            "lomo durable state/history kept: {paths:?}"
+        );
+        assert!(
+            paths.iter().all(|p| {
+                !p.contains(".lomo/operations/")
+                    && !p.contains(".lomo/local/")
+                    && !p.contains(".lomo/sync/")
+            }),
+            "operations/local/sync must be excluded from archive: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn export_includes_history_state_v2_and_excludes_migration_staging() {
+        // Stage-5 archive allowlist: history/state v2 + layout head included; migration-staging out.
+        let root = tempdir().expect("tmp");
+        let ws = root.path().join("ws");
+        seed_workspace(&ws);
+        fs::create_dir_all(ws.join(".lomo/history/v2/objects")).expect("history v2");
+        fs::write(
+            ws.join(".lomo/history/v2/objects/rev.rec"),
+            b"history-v2-object",
+        )
+        .expect("history object");
+        fs::create_dir_all(ws.join(".lomo/state/v2/heads")).expect("state v2");
+        fs::write(ws.join(".lomo/state/v2/heads/memo.rec"), b"state-v2-head").expect("state head");
+        fs::write(ws.join(".lomo/layout_head.rec"), b"layout-v2").expect("layout head");
+        fs::create_dir_all(ws.join(".lomo/migration-staging/history/v2")).expect("staging");
+        fs::write(
+            ws.join(".lomo/migration-staging/history/v2/tmp.rec"),
+            b"staging-only",
+        )
+        .expect("staging file");
+        fs::create_dir_all(ws.join(".lomo/sync/v1")).expect("sync");
+        fs::write(ws.join(".lomo/sync/v1/session.rec"), b"sync-local").expect("sync file");
+
+        let archive = root.path().join("v2-allowlist.zip");
+        let exported = archive_export(&ws, &archive).expect("export");
+        let paths: Vec<&str> = exported
+            .manifest
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+
+        assert!(
+            paths.iter().any(|p| p.contains(".lomo/history/v2/")),
+            "history/v2 must be archived: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains(".lomo/state/v2/")),
+            "state/v2 must be archived: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| *p == ".lomo/layout_head.rec"
+                || p.ends_with("layout_head.rec")
+                || p.contains("layout_head")),
+            "layout head should be archived when present: {paths:?}"
+        );
+        assert!(
+            paths
+                .iter()
+                .all(|p| !p.contains(".lomo/migration-staging/")),
+            "migration-staging must be excluded: {paths:?}"
+        );
+        assert!(
+            paths.iter().all(|p| !p.contains(".lomo/sync/")),
+            "sync tree must be excluded: {paths:?}"
         );
     }
 

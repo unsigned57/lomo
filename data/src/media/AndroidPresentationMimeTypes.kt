@@ -3,7 +3,7 @@ package com.lomo.data.media
 /**
  * Android-only presentation MIME hints for SAF create/list and sync Content-Type headers.
  *
- * **Not** content identity. Rust `lomo-media` magic/extension conflict detection is the sole
+ * **Not** content identity. Rust media-owner magic/extension conflict detection is the sole
  * media identity MIME authority after P4-10A. These tables must never decide digest, stage, or
  * promote acceptance.
  *

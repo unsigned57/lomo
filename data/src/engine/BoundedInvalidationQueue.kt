@@ -18,6 +18,10 @@ import java.util.concurrent.atomic.AtomicReference
  * Capacity defaults to 256 (stage-1 contract). When the queue is full, newer events collapse
  * into a single overflow slot holding the latest sequence instead of growing unbounded or
  * forging intermediate deltas.
+ *
+ * A consumer failure is reported through [onFatal] and stops delivery. Letting it end the drain
+ * task silently would leave the last published readiness in place forever while the engine moved
+ * on, so the write gate would keep admitting writes against a state nobody is observing.
  */
 internal class BoundedInvalidationQueue(
     capacity: Int = DEFAULT_CAPACITY,
@@ -27,6 +31,7 @@ internal class BoundedInvalidationQueue(
                 Thread(runnable, DRAIN_THREAD_NAME).apply { isDaemon = true }
             },
         ),
+    private val onFatal: (Throwable) -> Unit = {},
     private val deliver: (NativeCoreEvent) -> Unit,
 ) : AutoCloseable {
     private val queue = ArrayBlockingQueue<NativeCoreEvent>(capacity)
@@ -78,7 +83,12 @@ internal class BoundedInvalidationQueue(
         while (!stopped.get()) {
             val next = queue.poll() ?: overflow.getAndSet(null) ?: return
             if (stopped.get()) return
-            deliver(next)
+            val failure = runCatching { deliver(next) }.exceptionOrNull() ?: continue
+            // Delivery is the only thing that keeps published readiness current; a failing consumer
+            // is a fatal invalidation-path failure, not a skippable event.
+            stop()
+            onFatal(failure)
+            return
         }
     }
 

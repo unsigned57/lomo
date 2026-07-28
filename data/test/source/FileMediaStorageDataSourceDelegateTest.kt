@@ -36,8 +36,7 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import com.lomo.data.repository.ProcessWriteFreezeRepository
-import com.lomo.data.repository.WorkspaceWriteAuthority
+import com.lomo.data.repository.ProcessWorkspaceMutationLease
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import io.kotest.assertions.throwables.shouldThrow
@@ -101,7 +100,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 FileMediaStorageDataSourceDelegate(
                     context,
                     backendResolver,
-                    WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
+                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
                 )
             shouldThrow<IOException> {
                 delegate.saveImage(sourceUri)
@@ -122,7 +121,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 FileMediaStorageDataSourceDelegate(
                     context,
                     backendResolver,
-                    WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
+                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
                 )
 
             val files = delegate.listImageFiles()
@@ -143,7 +142,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 FileMediaStorageDataSourceDelegate(
                     context,
                     backendResolver,
-                    WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
+                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
                 )
 
             val location = delegate.getImageLocation("cover.jpg")
@@ -163,7 +162,7 @@ class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
                 FileMediaStorageDataSourceDelegate(
                     context,
                     backendResolver,
-                    WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository()),
+                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
                 )
 
             shouldThrow<UnsupportedOperationException> {

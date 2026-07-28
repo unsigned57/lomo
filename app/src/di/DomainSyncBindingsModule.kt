@@ -3,6 +3,9 @@ package com.lomo.app.di
 import com.lomo.domain.repository.UnifiedSyncProvider
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
+import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
+import com.lomo.domain.usecase.RemoteSyncCenterUseCase
+import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
@@ -19,6 +22,10 @@ val domainSyncModule = module {
     single { S3SyncSettingsUseCase(get(), get(), get()) }
     single { LoadMemoRevisionHistoryUseCase(get()) }
     single { RestoreMemoRevisionUseCase(get()) }
+    // Legacy registry-backed use case retained for non-UI callers; dialog resolve uses Rust port.
     single { SyncConflictResolutionUseCase(get(), get()) }
+    single { RemoteSyncConflictDialogUseCase(get(), get()) }
     single { SyncReviewResolutionUseCase(get()) }
+    single { ObserveDirectWorkspaceRootUseCase(get()) }
+    single { RemoteSyncCenterUseCase(get()) }
 }

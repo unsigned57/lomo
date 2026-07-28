@@ -1,5 +1,5 @@
 package com.lomo.app.feature.settings
-import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
@@ -59,7 +59,7 @@ import kotlinx.coroutines.test.runTest
 class SettingsAppConfigCoordinatorTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val workspaceStateResolver = FakeWorkspaceStateResolver()
-    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver, FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
+    private val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, workspaceStateResolver, FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
 
     private class FakeWorkspaceStateResolver : WorkspaceStateResolver {
         var rebuildCallCount = 0

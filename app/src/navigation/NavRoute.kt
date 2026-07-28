@@ -16,6 +16,7 @@ internal object NavRouteSerialNames {
     const val GALLERY_REEL = "galleryReel"
     const val STATISTICS = "statistics"
     const val SHARE = "share"
+    const val SYNC_CENTER = "syncCenter"
 }
 
 @Serializable
@@ -77,6 +78,10 @@ sealed interface NavRoute {
         val payloadKey: String,
         val memoTimestamp: Long,
     ) : NavRoute
+
+    @Serializable
+    @SerialName(NavRouteSerialNames.SYNC_CENTER)
+    data object SyncCenter : NavRoute
 }
 
 /**

@@ -309,6 +309,7 @@ mod tests {
         })
         .test_ok("direct workspace");
         workspace_from_ffi(WorkspaceDescriptor::Saf {
+            stable_workspace_id: "ws-saf-conversion-coverage".to_owned(),
             capability_token: "cap-coverage".to_owned(),
         })
         .test_ok("saf workspace");
@@ -361,12 +362,22 @@ mod tests {
         let awaiting: EngineState = state_to_ffi(core::EngineState::AwaitingWorkspaceSelection);
         let shutting_down: EngineState = state_to_ffi(core::EngineState::ShuttingDown);
         let running: JobStep = job_step_to_ffi(core::JobStep::Running);
+        let running_native: JobStep = job_step_to_ffi(core::JobStep::RunningNative {
+            task_kind: "sync-preflight".to_owned(),
+            attempt: 2,
+            dispatch_generation: 7,
+        });
         assert!(matches!(awaiting, EngineState::AwaitingWorkspaceSelection));
         assert!(matches!(shutting_down, EngineState::ShuttingDown));
         assert!(matches!(running, JobStep::Running));
-        let rejected = SyncPlannerError::Rejected {
-            reason: "bad envelope".to_owned(),
-        };
-        assert!(rejected.to_string().contains("bad envelope"));
+        assert!(matches!(
+            running_native,
+            JobStep::RunningNative {
+                task_kind,
+                attempt: 2,
+                dispatch_generation: 7,
+            } if task_kind == "sync-preflight"
+        ));
+        // P5-13: SyncPlannerError / plan_sync_envelope absorbed with lomo-sync-core.
     }
 }

@@ -19,7 +19,7 @@ val storageDataSourceModule = module {
     single { FileStorageBackendResolver(androidContext(), get()) }
     // Bind workspace config separately from markdown/media writers. DirectorySettings (used by
     // ManagedEngineSession) only needs WorkspaceConfigSource; routing it through FileDataSourceImpl
-    // also constructed FileMarkdown/Media delegates, which require WorkspaceWriteAuthority, which
+    // also constructed FileMarkdown/Media delegates, which require WorkspaceMutationLease, which
     // requires EngineReadinessRepository (= ManagedEngineSession) — a Koin creation cycle that
     // StackOverflowError'd on cold start.
     single {

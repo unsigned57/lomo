@@ -2,6 +2,7 @@ package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.repository.EngineReadinessRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,9 +13,15 @@ class FakeEngineReadinessRepository(
 ) : EngineReadinessRepository {
     private val _readiness = MutableStateFlow(initial)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
+    private val _workspaceAuthority =
+        MutableStateFlow<WorkspaceAuthority?>(
+            WorkspaceAuthority(workspaceId = "fake-workspace", generation = 0),
+        )
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
     override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
         _activeWorkspaceLocation.asStateFlow()
+    override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
+        _workspaceAuthority.asStateFlow()
     var resnapshotCount: Int = 0
         private set
     var activateCount: Int = 0
@@ -42,6 +49,8 @@ class FakeEngineReadinessRepository(
             throw activateFailure
         }
         _activeWorkspaceLocation.value = location
+        _workspaceAuthority.value =
+            WorkspaceAuthority(workspaceId = location.raw, generation = activateCount.toLong())
         _readiness.value =
             activateResult
                 ?: EngineReadiness.Ready(coreRevision = 0uL, eventSequence = activateCount.toULong())
@@ -51,6 +60,7 @@ class FakeEngineReadinessRepository(
         clearCount += 1
         _readiness.value = EngineReadiness.AwaitingWorkspaceSelection
         _activeWorkspaceLocation.value = null
+        _workspaceAuthority.value = null
         lastActivated = null
     }
 }

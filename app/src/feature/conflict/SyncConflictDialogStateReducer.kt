@@ -108,7 +108,7 @@ internal fun SyncConflictDialogState.withResolving(isResolving: Boolean): SyncCo
         is SyncConflictDialogState.ReviewShowing -> copy(isResolving = isResolving)
     }
 
-private fun pendingConflictState(
+internal fun pendingConflictState(
     current: SyncConflictDialogState.Showing,
     conflictSet: SyncConflictSet,
 ): SyncConflictDialogState.Showing {

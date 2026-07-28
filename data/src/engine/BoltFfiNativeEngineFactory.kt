@@ -12,6 +12,25 @@ import java.io.File
  * roots only; domain code sees [com.lomo.domain.repository.EngineReadinessRepository].
  */
 internal object BoltFfiNativeEngineFactory {
+    /**
+     * Opens one adapter as a single ownership transaction.
+     *
+     * The port is handed to [RustEngineAdapter.acquire] in the same expression that creates it, so
+     * there is no statement in between where a failure could strand an open engine and its
+     * workspace lock with nothing left holding a reference to close them.
+     */
+    fun openAdapter(
+        request: NativeEngineOpenRequest,
+        exchangeResolver: ExchangeResolver,
+        executor: AndroidPlatformActionExecutor,
+    ): RustEngineAdapter {
+        val port = openPort(request, exchangeResolver)
+        return RustEngineAdapter.acquire(
+            native = port,
+            platformBatchRunner = PlatformBatchRunner(native = port, executor = executor),
+        )
+    }
+
     fun openPort(
         request: NativeEngineOpenRequest,
         exchangeResolver: ExchangeResolver,
@@ -63,21 +82,26 @@ internal data class NativeEngineOpenRequest(
 }
 
 internal sealed interface NativeWorkspaceSelection {
+    /**
+     * Pure description of a filesystem workspace root.
+     *
+     * Describing a location must never bring it into existence: creating a missing or unmounted
+     * root here is what turned "my notes are gone" into a Ready empty workspace instead of typed
+     * Recovery. Existence, readability and writability belong to [WorkspaceCandidateProbe], and
+     * `WorkspaceDescriptor::direct` in the core rejects a root it cannot canonicalize.
+     */
     data class Direct(
         val rootPath: File,
-    ) : NativeWorkspaceSelection {
-        init {
-            rootPath.mkdirs()
-            require(rootPath.isDirectory) { "direct workspace root is not a directory: $rootPath" }
-        }
-    }
+    ) : NativeWorkspaceSelection
 
     data class Saf(
-        val capabilityToken: String,
+        val grant: SafCapabilityGrant,
     ) : NativeWorkspaceSelection {
-        init {
-            require(capabilityToken.isNotBlank()) { "SAF capability token must be non-blank" }
-        }
+        val stableWorkspaceId: StableWorkspaceId
+            get() = grant.stableWorkspaceId
+
+        val capabilityToken: String
+            get() = grant.capabilityToken
     }
 }
 
@@ -86,5 +110,8 @@ private fun NativeWorkspaceSelection.toBridge(): WorkspaceDescriptor =
         is NativeWorkspaceSelection.Direct ->
             WorkspaceDescriptor.Direct(rootPath = rootPath.absolutePath)
         is NativeWorkspaceSelection.Saf ->
-            WorkspaceDescriptor.Saf(capabilityToken = capabilityToken)
+            WorkspaceDescriptor.Saf(
+                stableWorkspaceId = stableWorkspaceId.value,
+                capabilityToken = capabilityToken,
+            )
     }

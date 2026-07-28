@@ -29,6 +29,7 @@ import com.lomo.domain.repository.MemoSearchRepository
 import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.repository.MemoTrashRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionPage
@@ -205,14 +206,13 @@ class StoreMemoMutationRepository(
     private val port: StorePort,
     private val queryRepository: MemoQueryRepository,
     private val reminderScheduler: MemoMutationReminderScheduler,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
     private val invalidation: StoreInvalidationBus,
     private val pendingStages: PendingMediaStageRegistry = PendingMediaStageRegistry(),
     private val syncEdge: MediaSyncEdgeAdapter? = null,
 ) : MemoMutationRepository {
     override suspend fun refreshMemos() {
-        requireWritable()
-        withContext(Dispatchers.IO) {
+        mutate {
             invalidation.setSyncing(true)
             try {
                 port.startRebuild(batchSize = 64)
@@ -228,8 +228,7 @@ class StoreMemoMutationRepository(
         timestamp: Long,
         geoLocation: String?,
     ): Memo {
-        requireWritable()
-        return withContext(Dispatchers.IO) {
+        return mutate {
             val opId = UUID.randomUUID().toString()
             val destinations = markdownAttachmentDestinations(content)
             val promotes = pendingStages.takePlansForDestinations(destinations, opId)
@@ -265,8 +264,7 @@ class StoreMemoMutationRepository(
         memo: Memo,
         newContent: String,
     ) {
-        requireWritable()
-        withContext(Dispatchers.IO) {
+        mutate {
             val snap = port.getMemo(memo.id) ?: error("memo not found: ${memo.id}")
             val opId = UUID.randomUUID().toString()
             val destinations = markdownAttachmentDestinations(newContent)
@@ -310,9 +308,8 @@ class StoreMemoMutationRepository(
     }
 
     override suspend fun deleteMemo(memo: Memo) {
-        requireWritable()
-        withContext(Dispatchers.IO) {
-            val snap = port.getMemo(memo.id) ?: return@withContext
+        mutate {
+            val snap = port.getMemo(memo.id) ?: return@mutate
             port.applyMemoCommand(
                 StoreMemoCommand(
                     operationId = UUID.randomUUID().toString(),
@@ -331,8 +328,7 @@ class StoreMemoMutationRepository(
         currentMemo: Memo,
         revisionId: String,
     ) {
-        requireWritable()
-        withContext(Dispatchers.IO) {
+        mutate {
             val snap = port.getMemo(currentMemo.id) ?: error("memo not found: ${currentMemo.id}")
             port.applyMemoCommand(
                 StoreMemoCommand(
@@ -358,9 +354,8 @@ class StoreMemoMutationRepository(
         memoId: String,
         pinned: Boolean,
     ) {
-        requireWritable()
-        withContext(Dispatchers.IO) {
-            val snap = port.getMemo(memoId) ?: return@withContext
+        mutate {
+            val snap = port.getMemo(memoId) ?: return@mutate
             port.applyMemoCommand(
                 StoreMemoCommand(
                     operationId = UUID.randomUUID().toString(),
@@ -375,11 +370,14 @@ class StoreMemoMutationRepository(
         }
     }
 
-    private fun requireWritable() {
-        check(writeAuthority.isWritable()) {
-            "Memo mutation requires Ready engine and unfrozen write authority"
-        }
-    }
+    /**
+     * Every memo mutation is admitted by the workspace lease before it touches the store.
+     *
+     * Admission is registered, not merely checked, so a switch cannot begin between this call and
+     * the command reaching the engine.
+     */
+    private suspend fun <T> mutate(block: suspend () -> T): T =
+        writeLease.withWrite { withContext(Dispatchers.IO) { block() } }
 }
 
 /**
@@ -393,32 +391,56 @@ internal fun markdownAttachmentDestinations(content: String): List<String> {
     var index = 0
     while (index < content.length) {
         val bang = content.indexOf("![", index)
-        if (bang < 0) break
-        val closeAlt = content.indexOf(']', bang + 2)
-        if (closeAlt < 0) break
-        if (closeAlt + 1 >= content.length || content[closeAlt + 1] != '(') {
-            index = closeAlt + 1
-            continue
+        if (bang < 0) {
+            index = content.length
+        } else {
+            val parsed = parseMarkdownImageDestination(content, bang)
+            if (parsed == null) {
+                index = content.length
+            } else {
+                if (parsed.destination.isNotEmpty() && isLocalAttachmentDestination(parsed.destination)) {
+                    results += parsed.destination
+                }
+                index = parsed.nextIndex
+            }
         }
-        val closeDest = content.indexOf(')', closeAlt + 2)
-        if (closeDest < 0) break
-        val dest =
-            content
-                .substring(closeAlt + 2, closeDest)
-                .trim()
-                .substringBefore(' ')
-                .trim()
-        if (dest.isNotEmpty() &&
-            !dest.startsWith("http://", ignoreCase = true) &&
-            !dest.startsWith("https://", ignoreCase = true) &&
-            !dest.startsWith("data:", ignoreCase = true)
-        ) {
-            results += dest
-        }
-        index = closeDest + 1
     }
     return results
 }
+
+private data class MarkdownImageParse(
+    val destination: String,
+    val nextIndex: Int,
+)
+
+private fun parseMarkdownImageDestination(
+    content: String,
+    bang: Int,
+): MarkdownImageParse? {
+    val closeAlt = content.indexOf(']', bang + 2)
+    if (closeAlt < 0) {
+        return null
+    }
+    if (closeAlt + 1 >= content.length || content[closeAlt + 1] != '(') {
+        return MarkdownImageParse(destination = "", nextIndex = closeAlt + 1)
+    }
+    val closeDest = content.indexOf(')', closeAlt + 2)
+    if (closeDest < 0) {
+        return null
+    }
+    val dest =
+        content
+            .substring(closeAlt + 2, closeDest)
+            .trim()
+            .substringBefore(' ')
+            .trim()
+    return MarkdownImageParse(destination = dest, nextIndex = closeDest + 1)
+}
+
+private fun isLocalAttachmentDestination(dest: String): Boolean =
+    !dest.startsWith("http://", ignoreCase = true) &&
+        !dest.startsWith("https://", ignoreCase = true) &&
+        !dest.startsWith("data:", ignoreCase = true)
 
 class StoreMemoSearchRepository(
     private val port: StorePort,
@@ -501,7 +523,7 @@ class StoreMemoStatisticsRepository(
 
 class StoreMemoTrashRepository(
     private val port: StorePort,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
     private val invalidation: StoreInvalidationBus,
 ) : MemoTrashRepository {
     override fun getDeletedMemosPagingSource(): PagingSource<Int, Memo> =
@@ -511,9 +533,8 @@ class StoreMemoTrashRepository(
         )
 
     override suspend fun restoreMemo(memo: Memo) {
-        check(writeAuthority.isWritable())
-        withContext(Dispatchers.IO) {
-            val snap = port.getMemo(memo.id) ?: return@withContext
+        mutate {
+            val snap = port.getMemo(memo.id) ?: return@mutate
             port.applyMemoCommand(
                 StoreMemoCommand(
                     operationId = UUID.randomUUID().toString(),
@@ -530,9 +551,8 @@ class StoreMemoTrashRepository(
     override suspend fun deletePermanently(memo: Memo) {
         // Permanent delete: delete again from trash (store treats delete as trash; permanent is
         // workspace fact removal via another delete after trash — fail closed if not trashed).
-        check(writeAuthority.isWritable())
-        withContext(Dispatchers.IO) {
-            val snap = port.getMemo(memo.id) ?: return@withContext
+        mutate {
+            val snap = port.getMemo(memo.id) ?: return@mutate
             port.applyMemoCommand(
                 StoreMemoCommand(
                     operationId = UUID.randomUUID().toString(),
@@ -547,8 +567,7 @@ class StoreMemoTrashRepository(
     }
 
     override suspend fun clearTrash() {
-        check(writeAuthority.isWritable())
-        withContext(Dispatchers.IO) {
+        mutate {
             val trashQuery =
                 StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true))
             for (item in walkStorePages(port, trashQuery)) {
@@ -565,6 +584,10 @@ class StoreMemoTrashRepository(
             invalidation.bump()
         }
     }
+
+    /** Trash mutations are admitted by the same workspace lease as memo mutations. */
+    private suspend fun <T> mutate(block: suspend () -> T): T =
+        writeLease.withWrite { withContext(Dispatchers.IO) { block() } }
 }
 
 /**

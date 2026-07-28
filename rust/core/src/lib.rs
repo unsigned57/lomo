@@ -3,7 +3,9 @@
 mod engine;
 mod error;
 mod job;
+mod native_task;
 mod platform;
+mod secret;
 mod types;
 
 pub use engine::{
@@ -15,11 +17,17 @@ pub use job::{
     DriverAdvance, DriverStart, JobDriver, JobDriverContext, JobDriverKind, JobDriverRegistry,
     job_driver_context,
 };
+pub use native_task::{
+    MAX_NATIVE_QUEUE, MAX_NATIVE_WORKERS, NativeTaskCompletion, NativeTaskDispatch,
+    NativeTaskExecutor, NativeTaskOutcome, NativeTaskWorkerPool, NativeWorkerAttach, PendingEffect,
+    RecordingNativeExecutor,
+};
 pub use platform::{
     ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, ExchangeArtifact,
     ExpectedFingerprint, MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionOutput,
     PlatformBatchResult, Sha256Digest, VerifiedAbsence, WorkspaceTarget, WriteMode,
 };
+pub use secret::{EphemeralSecretVault, SecretLeaseId, SecretMaterial, SharedSecretVault};
 pub use types::{
     ActionId, BatchId, CapabilityToken, CoreRevision, EventSequence, ExchangeToken,
     InvalidationScope, JobId, OperationId, PageSize, RelativeWorkspacePath, WorkspaceDescriptor,

@@ -21,6 +21,7 @@ import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.WorkspaceMutationLease
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +59,7 @@ constructor(
     private val mediaPort: MediaPort,
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val syncEdge: MediaSyncEdgeAdapter,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
     private val storePort: StorePort,
     private val pendingStages: PendingMediaStageRegistry,
     private val clockMs: () -> Long = { System.currentTimeMillis() },
@@ -68,17 +69,18 @@ constructor(
     private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
     override suspend fun importImage(source: StorageLocation): StorageLocation =
-        withContext(Dispatchers.IO) {
-            requireWritableEngine()
+        mediaWrite {
             val mediaRoot = requireMediaRootForStage()
-            val (stageSourcePath, sourceKind, humanHint, cleanupTemp) = prepareStageSource(source.raw)
+            val stagePrep = prepareStageSource(source.raw)
+            val stageSourcePath = stagePrep.path
+            val cleanupTemp = stagePrep.cleanupTemp
             try {
                 val staged =
                     mediaPort.stageMedia(
                         mediaRoot = mediaRoot,
-                        sourceKind = sourceKind,
+                        sourceKind = stagePrep.kind,
                         sourcePath = stageSourcePath,
-                        humanNameHint = humanHint,
+                        humanNameHint = stagePrep.humanHint,
                     )
                 val finalRelative =
                     staged.suggestedFinalRelativePath.ifBlank {
@@ -105,23 +107,24 @@ constructor(
         }
 
     override suspend fun removeImage(entryId: MediaEntryId) {
-        requireWritableEngine()
-        val key = entryId.raw
-        // Draft discard: staged-only drop — never sync journal, never orphan sweep as committed.
-        val staged = pendingStages.remove(key) ?: pendingStages.remove(key.substringAfterLast('/'))
-        if (staged != null) {
-            File(staged.stagingPath).delete()
-            imageLocationMap.update { current ->
-                current - MediaEntryId(key) - MediaEntryId(key.substringAfterLast('/')) -
-                    MediaEntryId(staged.suggestedFinalRelativePath.substringAfterLast('/'))
+        mediaWrite {
+            val key = entryId.raw
+            // Draft discard: staged-only drop — never sync journal, never orphan sweep as committed.
+            val staged = pendingStages.remove(key) ?: pendingStages.remove(key.substringAfterLast('/'))
+            if (staged != null) {
+                File(staged.stagingPath).delete()
+                imageLocationMap.update { current ->
+                    current - MediaEntryId(key) - MediaEntryId(key.substringAfterLast('/')) -
+                        MediaEntryId(staged.suggestedFinalRelativePath.substringAfterLast('/'))
+                }
+                return@mediaWrite
             }
-            return
+            val basename = key.substringAfterLast('/')
+            // Drop UI/path cache + sync journal; permanent FS authority is media-trash / orphan sweep.
+            syncEdge.onCommittedMediaDelete(basename)
+            imageLocationMap.update { current -> current - entryId - MediaEntryId(basename) }
+            runOrphanSweepAtOperationBoundary()
         }
-        val basename = key.substringAfterLast('/')
-        // Drop UI/path cache + sync journal; permanent FS authority is media-trash / orphan sweep.
-        syncEdge.onCommittedMediaDelete(basename)
-        imageLocationMap.update { current -> current - entryId - MediaEntryId(basename) }
-        runOrphanSweepAtOperationBoundary()
     }
 
     override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
@@ -160,26 +163,23 @@ constructor(
     }
 
     override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
-        when (category) {
-            MediaCategory.IMAGE -> {
-                requireWritableEngine()
-                createDefaultWorkspace(
-                    folderName = IMAGE_DIRECTORY_NAME,
-                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
-                )
-            }
-            MediaCategory.VOICE -> {
-                requireWritableEngine()
-                createDefaultWorkspace(
-                    folderName = VOICE_DIRECTORY_NAME,
-                    setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
-                )
+        mediaWrite {
+            when (category) {
+                MediaCategory.IMAGE ->
+                    createDefaultWorkspace(
+                        folderName = IMAGE_DIRECTORY_NAME,
+                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
+                    )
+                MediaCategory.VOICE ->
+                    createDefaultWorkspace(
+                        folderName = VOICE_DIRECTORY_NAME,
+                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
+                    )
             }
         }
 
     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
-        withContext(Dispatchers.IO) {
-            requireWritableEngine()
+        mediaWrite {
             val root = requireMediaRootForStage()
             val extension =
                 entryId.raw
@@ -194,8 +194,7 @@ constructor(
         recordingLocation: StorageLocation,
         humanNameHint: String,
     ): StorageLocation =
-        withContext(Dispatchers.IO) {
-            requireWritableEngine()
+        mediaWrite {
             val mediaRoot = requireMediaRootForStage()
             val recordingPath = absoluteFilesystemPath(recordingLocation.raw)
             val staged =
@@ -214,29 +213,30 @@ constructor(
         }
 
     override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
-        requireWritableEngine()
-        // D4/D6: removeVoiceCapture is draft/cancel only (unpromoted allocate or finalize stage).
-        // Never journal sync delete here — uncommitted capture names must not look committed.
-        // Committed media delete uses removeImage / orphan sweep after memo-bound promote.
-        val key = entryId.raw
-        val staged =
-            pendingStages.remove(key)
-                ?: pendingStages.remove(key.substringAfterLast('/'))
-        if (staged != null) {
-            File(staged.stagingPath).delete()
-            return
+        mediaWrite {
+            // D4/D6: removeVoiceCapture is draft/cancel only (unpromoted allocate or finalize stage).
+            // Never journal sync delete here — uncommitted capture names must not look committed.
+            // Committed media delete uses removeImage / orphan sweep after memo-bound promote.
+            val key = entryId.raw
+            val staged =
+                pendingStages.remove(key)
+                    ?: pendingStages.remove(key.substringAfterLast('/'))
+            if (staged != null) {
+                File(staged.stagingPath).delete()
+                return@mediaWrite
+            }
+            val root = workspaceRoot.absolutePathOrNull() ?: hostStageRoot().absolutePath
+            val stageDir = File(root, MEDIA_STAGE_DIR)
+            stageDir
+                .listFiles()
+                ?.filter { it.name.contains(key) || it.name == key || it.name.contains(key.substringAfterLast('/')) }
+                ?.forEach { it.delete() }
+            // Also drop any absolute capture path under host stage root matching the name.
+            hostStageRoot()
+                .listFiles()
+                ?.filter { it.name.contains(key) || it.name == key }
+                ?.forEach { it.delete() }
         }
-        val root = workspaceRoot.absolutePathOrNull() ?: hostStageRoot().absolutePath
-        val stageDir = File(root, MEDIA_STAGE_DIR)
-        stageDir
-            .listFiles()
-            ?.filter { it.name.contains(key) || it.name == key || it.name.contains(key.substringAfterLast('/')) }
-            ?.forEach { it.delete() }
-        // Also drop any absolute capture path under host stage root matching the name.
-        hostStageRoot()
-            .listFiles()
-            ?.filter { it.name.contains(key) || it.name == key }
-            ?.forEach { it.delete() }
     }
 
     /**
@@ -317,9 +317,14 @@ constructor(
         return refs
     }
 
-    private fun requireWritableEngine() {
-        writeAuthority.requireWritable()
-    }
+    /**
+     * Admits one media mutation through the workspace lease before any staging or promote runs.
+     *
+     * Registration (not a bare check) is what lets a workspace switch drain media writers instead
+     * of racing them into a workspace that is already being retired.
+     */
+    private suspend fun <T> mediaWrite(block: suspend () -> T): T =
+        writeLease.withWrite { withContext(Dispatchers.IO) { block() } }
 
     /**
      * Stage root is the Direct workspace path when available; otherwise a private host stage root
@@ -511,7 +516,7 @@ constructor(
         // Split so production sources never embed the Rust crate name substring.
         private const val MEDIA_STAGE_DIR = ".lomo" + "-media-stage"
         private const val MEDIA_TRASH_DIR_SEGMENT = ".lomo" + "-media-trash"
-        private const val HOST_STAGE_ROOT_NAME = "lomo-media-host"
+        private const val HOST_STAGE_ROOT_NAME = "lomo-host-media-stage"
         private const val STORE_PAGE_SIZE = 200
         private const val COPY_BUFFER_BYTES = 64 * 1024
 

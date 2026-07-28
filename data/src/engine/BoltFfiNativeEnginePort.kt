@@ -22,16 +22,21 @@ import java.util.concurrent.atomic.AtomicReference
 internal class BoltFfiNativeEnginePort(
     engine: LomoEngine,
     private val exchangeResolver: ExchangeResolver,
+    private val onInvalidationFatal: (Throwable) -> Unit = {},
 ) : WorkspaceNativeEnginePort,
     AutoCloseable {
     private val lease = NativeHandleLease()
     private val engineRef = AtomicReference(engine)
     private val listenerRef = AtomicReference<((NativeCoreEvent) -> Unit)?>(null)
     private val invalidationQueue =
-        BoundedInvalidationQueue { event ->
-            if (!lease.isOpen()) return@BoundedInvalidationQueue
-            listenerRef.get()?.invoke(event)
-        }
+        BoundedInvalidationQueue(
+            onFatal = onInvalidationFatal,
+            deliver = { event ->
+                if (lease.isOpen()) {
+                    listenerRef.get()?.invoke(event)
+                }
+            },
+        )
 
     override fun state(): NativeEngineSnapshot =
         withReadLease { engine ->
@@ -214,57 +219,69 @@ internal class BoltFfiNativeEnginePort(
         }
 
     override fun subscribe(listener: (NativeCoreEvent) -> Unit): NativeEngineSubscription {
-        listenerRef.set(listener)
+        // Published before the native call so no invalidation raised by registration is dropped;
+        // a failed subscribe rolls the bridge back instead of leaving a listener bound to nothing.
+        val displaced = listenerRef.getAndSet(listener)
         val subscription =
-            withReadLease { engine ->
-                engine.subscribe(
-                    object : CoreEventListener {
-                        override fun onEvent(event: com.lomo.nativebridge.CoreEvent) {
-                            // Invalidation enqueue only. No FFI re-entry on this stack.
-                            invalidationQueue.enqueue(
-                                NativeCoreEvent(
-                                    coreRevision = event.coreRevision,
-                                    eventSequence = event.eventSequence,
-                                ),
-                            )
-                        }
-                    },
-                )
-            }
+            runCatching {
+                withReadLease { engine ->
+                    engine.subscribe(
+                        object : CoreEventListener {
+                            override fun onEvent(event: com.lomo.nativebridge.CoreEvent) {
+                                // Invalidation enqueue only. No FFI re-entry on this stack.
+                                invalidationQueue.enqueue(
+                                    NativeCoreEvent(
+                                        coreRevision = event.coreRevision,
+                                        eventSequence = event.eventSequence,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                }
+            }.onFailure {
+                listenerRef.compareAndSet(listener, displaced)
+            }.getOrThrow()
         return NativeEngineSubscription {
-            withReadLease {
-                check(subscription.unsubscribe()) {
-                    "Native engine subscription was already unregistered"
+            val release = ReleaseSequence()
+            release.release {
+                withReadLease {
+                    check(subscription.unsubscribe()) {
+                        "Native engine subscription was already unregistered"
+                    }
                 }
             }
             // Generated handle release is idempotent; do not hold a read lease so engine close
             // can still acquire the write lease without waiting on this stack.
-            closeSubscriptionHandle(subscription)
+            release.release { closeSubscriptionHandle(subscription) }
             listenerRef.compareAndSet(listener, null)
+            release.throwIfFailed()
         }
     }
 
     override fun close() {
         val ran =
             lease.closeOnce {
-                // Fixed order: stop invalidations, drop listener, shutdown, release engine.
-                invalidationQueue.stop()
+                // Fixed order: stop invalidations, drop listener, shutdown, release engine, stop the
+                // drain thread. Every step runs even when an earlier one fails, so a refused
+                // shutdown cannot leak the engine handle or the drain executor.
+                val release = ReleaseSequence()
+                release.release(invalidationQueue::stop)
                 listenerRef.set(null)
-                val engine =
-                    engineRef.getAndSet(null)
-                        ?: return@closeOnce
-                try {
-                    val outcome = engine.shutdown(SHUTDOWN_DEADLINE_MILLIS)
-                    check(
-                        outcome == ShutdownOutcome.COMPLETED ||
-                            outcome == ShutdownOutcome.ALREADY_SHUTDOWN,
-                    ) {
-                        "Native engine shutdown failed with outcome=$outcome"
+                engineRef.getAndSet(null)?.let { engine ->
+                    release.release {
+                        val outcome = engine.shutdown(SHUTDOWN_DEADLINE_MILLIS)
+                        check(
+                            outcome == ShutdownOutcome.COMPLETED ||
+                                outcome == ShutdownOutcome.ALREADY_SHUTDOWN,
+                        ) {
+                            "Native engine shutdown failed with outcome=$outcome"
+                        }
                     }
-                } finally {
-                    engine.close()
-                    invalidationQueue.close()
+                    release.release(engine::close)
                 }
+                release.release(invalidationQueue::close)
+                release.throwIfFailed()
             }
         if (!ran) {
             invalidationQueue.stop()

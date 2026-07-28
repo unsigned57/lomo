@@ -384,12 +384,32 @@ pub fn get_memo(
         .next()
         .ok_or_else(|| validation("memo_projection_missing", "summary vanished after attach"))?;
     let body_path = workspace_root.join(&summary.source_path);
-    let body = std::fs::read_to_string(&body_path).map_err(|err| {
-        storage(
-            "memo_body_read_failed",
-            &format!("cannot read memo body {}: {err}", body_path.display()),
-        )
-    })?;
+    let body = match std::fs::read_to_string(&body_path) {
+        Ok(body) => body,
+        Err(error) if summary.is_trashed && error.kind() == std::io::ErrorKind::NotFound => {
+            // A trashed memo is physically recoverable under the workspace trash root while its
+            // projection retains the canonical memo source path. Reading that durable location
+            // is the domain state; an unreadable non-trashed body remains fail-closed.
+            let trash_path = workspace_root
+                .join("trash")
+                .join(format!("{}.md", summary.memo_id));
+            std::fs::read_to_string(&trash_path).map_err(|trash_error| {
+                storage(
+                    "memo_body_read_failed",
+                    &format!(
+                        "cannot read trashed memo body {}: {trash_error}",
+                        trash_path.display()
+                    ),
+                )
+            })?
+        }
+        Err(error) => {
+            return Err(storage(
+                "memo_body_read_failed",
+                &format!("cannot read memo body {}: {error}", body_path.display()),
+            ));
+        }
+    };
     Ok(Some(MemoSnapshot { summary, body }))
 }
 

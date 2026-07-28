@@ -30,6 +30,7 @@ import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.app.startup.AppStartupCoordinator
 import com.lomo.domain.repository.DatabaseInitializationRepository
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +76,7 @@ class LomoApplication :
     private val databaseInitializationRepository: DatabaseInitializationRepository by inject()
     private val appShutdownCoordinator: AppShutdownCoordinator by inject()
     private val reminderCoordinator: ReminderCoordinator by inject()
+    private val engineReadinessRepository: EngineReadinessRepository by inject()
     
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val syncStartupRegistered = AtomicBoolean(false)
@@ -150,6 +152,13 @@ class LomoApplication :
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
+                    // Foreground entry re-reads the authoritative engine snapshot. Grants can be
+                    // revoked and workspaces removed while the process is backgrounded, so a stale
+                    // Ready would keep the write gate open against a workspace that is gone.
+                    runCatching { engineReadinessRepository.resnapshot() }
+                        .onFailure { error ->
+                            Timber.e(error, "Failed to resnapshot engine readiness on foreground entry")
+                        }
                     if (!syncStartupRegistered.compareAndSet(false, true)) {
                         return
                     }

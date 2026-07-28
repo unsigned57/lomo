@@ -92,7 +92,8 @@ fn classify_relative(path: &str) -> Result<ArchiveEntryKind, LomoError> {
     if path.starts_with(".lomo/history/") {
         return Ok(ArchiveEntryKind::LomoHistory);
     }
-    // Durable .lomo control tree (state, operations, manifest) is archiveable as LomoState.
+    // Durable .lomo history/state (and layout head) are archiveable; device-local trees
+    // are filtered earlier in `should_include` (local/sync/operations/migration-staging).
     if path.starts_with(".lomo/") {
         return Ok(ArchiveEntryKind::LomoState);
     }
@@ -120,6 +121,17 @@ fn should_include(relative: &str) -> bool {
         || extension_is(relative, "db")
         || relative.ends_with(".db-wal")
         || relative.ends_with(".db-shm")
+    {
+        return false;
+    }
+    // Stage-5 archive allowlist: include state/history v1+v2 and layout head; exclude
+    // local/sync/operations/remote-control/migration staging (never leave the device).
+    if relative.starts_with(".lomo/local/")
+        || relative.starts_with(".lomo/sync/")
+        || relative.starts_with(".lomo/operations/")
+        || relative.starts_with(".lomo/migration-staging/")
+        || relative.starts_with(".lomo-remote/")
+        || relative.contains("/.lomo-remote/")
     {
         return false;
     }

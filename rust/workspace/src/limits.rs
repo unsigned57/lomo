@@ -120,7 +120,11 @@ impl ResourceBudget {
     }
 }
 
-pub fn validation(code: &'static str, diagnostic: &'static str) -> LomoError {
+/// Builds a validation error on the workspace boundary.
+///
+/// Accepts owned or static diagnostics so durable I/O helpers can include path detail.
+#[must_use]
+pub fn validation(code: &str, diagnostic: &str) -> LomoError {
     LomoError::from_platform_boundary(
         ErrorCategory::Validation,
         code,
@@ -132,7 +136,9 @@ pub fn validation(code: &'static str, diagnostic: &'static str) -> LomoError {
     .unwrap_or_else(|error| error)
 }
 
-pub fn resource_limit(code: &'static str, diagnostic: &'static str) -> LomoError {
+/// Builds a resource-limit error on the workspace boundary.
+#[must_use]
+pub fn resource_limit(code: &str, diagnostic: &str) -> LomoError {
     LomoError::from_platform_boundary(
         ErrorCategory::ResourceLimit,
         code,
@@ -144,9 +150,25 @@ pub fn resource_limit(code: &'static str, diagnostic: &'static str) -> LomoError
     .unwrap_or_else(|error| error)
 }
 
-pub fn corruption(code: &'static str, diagnostic: &'static str) -> LomoError {
+/// Builds a corruption error (durable record damage) on the workspace boundary.
+#[must_use]
+pub fn corruption(code: &str, diagnostic: &str) -> LomoError {
     LomoError::from_platform_boundary(
         ErrorCategory::Corruption,
+        code,
+        RetryDisposition::AfterUserAction,
+        None,
+        None,
+        diagnostic,
+    )
+    .unwrap_or_else(|error| error)
+}
+
+/// Builds a storage I/O error on the workspace boundary (codec / generation durability).
+#[must_use]
+pub fn storage(code: &str, diagnostic: &str) -> LomoError {
+    LomoError::from_platform_boundary(
+        ErrorCategory::Storage,
         code,
         RetryDisposition::AfterUserAction,
         None,

@@ -44,9 +44,10 @@ mod tests {
         MediaSource, PromotePlan, stage_media, suggest_human_relative_path, write_bytes_for_tests,
     };
     use lomo_store::{
-        CrashPoint, LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, StateBody,
-        Store, cleanup_expired_operations, read_record,
+        CrashPoint, LomoLayoutVersion, LomoPaths, MemoCommand, MemoCommandKind, MemoFilters,
+        MemoQuery, StateBody, Store, cleanup_expired_operations, read_record,
     };
+    use lomo_workspace::write_layout_head_v2;
     use tempfile::tempdir;
 
     const PNG_1X1: &[u8] = &[
@@ -959,5 +960,48 @@ mod tests {
                 None,
             )
             .expect("pin without body file");
+    }
+
+    #[test]
+    fn layout_v2_refuses_store_open_and_mutate_until_v2_writers() {
+        // Dual-layout fence: layout head V2 + store still writing v1-shaped bodies → fail closed.
+        let dir = tempdir().expect("tempdir");
+        write_layout_head_v2(dir.path()).expect("layout head v2");
+        assert_eq!(
+            LomoPaths::for_workspace(dir.path()).layout,
+            LomoLayoutVersion::V2
+        );
+
+        let open_err = match Store::open(dir.path()) {
+            Ok(_store) => panic!("open must refuse layout V2"),
+            Err(error) => error,
+        };
+        assert_eq!(open_err.code(), "layout_v2_requires_v2_writers");
+        assert_eq!(open_err.category(), ErrorCategory::Validation);
+
+        // Mutate path also fences even if a connection were forced open under V1 then head switched.
+        let dir_v1 = tempdir().expect("tempdir v1");
+        let mut store = Store::open(dir_v1.path()).expect("open v1");
+        write_layout_head_v2(dir_v1.path()).expect("switch head to v2");
+        let mutate_err = store
+            .apply_memo_command(&create_cmd("op-v2-fence", "m-v2", "should fail"), None)
+            .expect_err("mutate under layout V2");
+        assert_eq!(mutate_err.code(), "layout_v2_requires_v2_writers");
+        // No v1-shaped flat history records under history/v2 (v1 uses memoId-rN.rec at tree root).
+        let v2_history = dir_v1.path().join(".lomo/history/v2");
+        if v2_history.is_dir() {
+            let mut flat_records = Vec::new();
+            for entry in fs::read_dir(&v2_history).expect("read v2 history") {
+                let entry = entry.expect("dir entry");
+                let path = entry.path();
+                if path.is_file() && path.extension().is_some_and(|ext| ext == "rec") {
+                    flat_records.push(path);
+                }
+            }
+            assert!(
+                flat_records.is_empty(),
+                "must not write v1 flat history records under history/v2: {flat_records:?}"
+            );
+        }
     }
 }

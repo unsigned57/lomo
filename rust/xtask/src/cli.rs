@@ -5,6 +5,7 @@ use crate::cache;
 use crate::deps;
 use crate::native::{self, Abi, NativeProfile};
 use crate::perf;
+use crate::provider_smoke;
 use crate::quality::{self, CoverageMode, FormatMode};
 use crate::tools;
 use crate::workspace::Workspace;
@@ -24,6 +25,7 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "android" => android_command(workspace, rest),
         "ci" => no_args(rest, || quality::ci(workspace)),
         "device-smoke" => no_args(rest, || android::device_smoke(workspace)),
+        "sync-provider-smoke" => sync_provider_smoke(workspace, rest),
         "deps" => deps_command(workspace, rest),
         "perf" => no_args(rest, || perf::run_diagnostics(workspace)),
         "cache" => cache_command(workspace, rest),
@@ -84,6 +86,19 @@ fn deps_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     deps::run_dependencies(workspace, mode)
 }
 
+/// Runs the six locked Stage-5 provider lines, or a single selected line.
+///
+/// Lines without credentials stay `OPEN / pending_env` and the command exits non-zero.
+fn sync_provider_smoke(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    match arguments {
+        [] => provider_smoke::run(workspace, None),
+        [selector] => provider_smoke::run(workspace, Some(selector)),
+        _ => bail!(
+            "usage: just sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]"
+        ),
+    }
+}
+
 fn cache_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     let mode = match arguments {
         [] => cache::CacheMode::Audit,
@@ -141,6 +156,6 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 
 fn print_help() {
     crate::util::emit_stderr(format_args!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  deps [check|update]\n  perf\n  cache [audit|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]\n  deps [check|update]\n  perf\n  cache [audit|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
     ));
 }

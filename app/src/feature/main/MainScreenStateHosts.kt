@@ -23,9 +23,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.window.core.layout.WindowSizeClass
-import com.lomo.app.feature.conflict.RemoteSyncConflictProviders
+import com.lomo.app.feature.conflict.RemoteSyncConflictPollHost
+import com.lomo.app.feature.conflict.ReviewSyncProviders
 import com.lomo.app.feature.conflict.SyncConflictDialogController
 import com.lomo.app.feature.conflict.SyncConflictStateHost
+import com.lomo.app.feature.conflict.autoResolveSafeConflicts
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
@@ -161,6 +163,7 @@ internal fun MainScreenConflictHost(
     dependencies: MainScreenDependencies,
 ) {
     val syncStates by dependencies.conflictStateViewModel.syncStates.collectAsStateWithLifecycle()
+    val workspaceRoot by dependencies.conflictStateViewModel.workspaceRoot.collectAsStateWithLifecycle()
     val conflictController =
         remember(dependencies.conflictViewModel) {
             SyncConflictDialogController(
@@ -176,19 +179,21 @@ internal fun MainScreenConflictHost(
                 onDismiss = dependencies.conflictViewModel::dismiss,
                 onShowConflictDialog = dependencies.conflictViewModel::showConflictDialog,
                 onShowReviewDialog = dependencies.conflictViewModel::showReviewDialog,
+                onShowRemoteSession = dependencies.conflictViewModel::showRemoteConflictSession,
             )
         }
     com.lomo.app.feature.conflict.SyncConflictDialogHost(controller = conflictController)
+    // Sync Inbox review only via provider state; remote conflicts via Rust poll.
     SyncConflictStateHost(
         syncStates = syncStates,
-        providers = RemoteSyncConflictProviders,
+        providers = ReviewSyncProviders,
         controller = conflictController,
     )
-    LaunchedEffect(Unit) {
-        dependencies.mainViewModel.syncConflictEvent.collect { conflictSet ->
-            conflictController.onShowConflictDialog(conflictSet)
-        }
-    }
+    RemoteSyncConflictPollHost(
+        workspaceRoot = workspaceRoot,
+        onShowRemoteSession = conflictController.onShowRemoteSession,
+        loadSession = dependencies.conflictStateViewModel::loadRemoteOpenSession,
+    )
 }
 
 @Composable

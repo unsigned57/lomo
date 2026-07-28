@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "description": "Stage-5 native size ceiling policy. Hard APK gate remains Stage 0 compressed baseline × 1.15 and must not be raised.",
+  "hard_apk_gate": {
+    "source": "fixtures/baseline/size-baseline.v1.json",
+    "debug_universal_compressed_bytes": 112467804,
+    "hard_gate_multiplier": 1.15,
+    "hard_gate_max_compressed_bytes": 129337975,
+    "may_raise": false
+  },
+  "stage5_native_ceiling_policy": {
+    "method": "measured_four_abi_native_sum_plus_10_percent_margin_against_current_non_native_apk_occupancy",
+    "margin_fraction": 0.1,
+    "status": "MEASURED_HOST",
+    "reason": "Measured four-ABI release-android stripped liblomo_native_jni.so after Git-in-native + DT_NEEDED libz (2026-07-25) from just ci pack; ceiling = measured sum + 10% = 46530532 (MAX_FOUR_ABI_BYTES in rust/xtask/src/native.rs). Hard APK gate remains Stage-0×1.15 separate. Signed shipping APK formal measure still OPEN/pending_env (signing secrets/password + formal release measure; keystore file may exist at release.keystore — not path-missing alone).",
+    "measured_liblomo_native_so_bytes": {
+      "arm64-v8a": 11039520,
+      "armeabi-v7a": 7941552,
+      "x86_64": 13013832,
+      "x86": 10305580
+    },
+    "ceiling_liblomo_native_so_bytes": 46530532,
+    "measured_liblomo_native_so_sum_bytes": 42300484,
+    "profile": "release-android",
+    "measured_at": "2026-07-25",
+    "includes_git2": true,
+    "includes_dt_needed_libz": true,
+    "measured_sum_bytes": 42300484,
+    "measured_deflate_so_proxy_bytes": 19390971,
+    "ci_debug_universal_apk_bytes": 92577058,
+    "ci_debug_apk_under_hard_gate": true,
+    "signed_shipping_apk_formal": "OPEN_pending_env"
+  },
+  "inherited_feasibility_device_volume": {
+    "source": "fixtures/baseline/feasibility-device-size.v1.json",
+    "not_production": true,
+    "liblomo_feasibility_device_so_bytes": {
+      "arm64-v8a": 11731528,
+      "armeabi-v7a": 8328308,
+      "x86": 10968552,
+      "x86_64": 13322968
+    },
+    "required_markers": [
+      "LOMO_LINK_MARKER_GIT2_v1",
+      "LOMO_LINK_MARKER_REQWEST_RUSTLS_v1",
+      "LOMO_LINK_MARKER_SQLITE_v1"
+    ]
+  },
+  "notes": [
+    "Deleting JGit/AWS Kotlin/BouncyCastle at P5-13 is expected to offset Rust native growth; net APK must still pass hard gate.",
+    "Feasibility-device SO volume is not the production APK gate.",
+    "xtask shipping four-ABI gate uses measured sum + 10% margin; hard APK gate is independent."
+  ]
+}

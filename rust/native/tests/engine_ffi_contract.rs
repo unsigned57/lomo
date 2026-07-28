@@ -8,12 +8,13 @@
 //!   same structured state and error fields as `lomo-core`.
 //! - Given a SAF bootstrap job, when Kotlin-style callers poll, cancel, and shut down, then opaque
 //!   ids remain strings but terminal decisions remain owned by core.
-//! - Given invalid ids or deadlines, when they cross FFI, then validation errors are structured and
-//!   no engine state is created.
+//! - Given an invalid stable workspace id, capability, or deadline, when it crosses FFI, then the
+//!   boundary returns a structured validation error and creates no engine state.
 //!
 //! Observable outcomes: exported state/job/cancel/shutdown enums and stable error fields.
-//! TDD proof: the first run fails because the formal engine FFI surface does not exist; GREEN is
-//! recorded in `STAGE1-EVIDENCE.md`.
+//! TDD proof: the core descriptor/engine contracts were RED on 2026-07-27 before the FFI production
+//! edit because stable SAF identity could not cross independently from the capability; this
+//! companion contract locks the facade validation/mapping outcome.
 //! Excludes: generated Kotlin syntax, Android SAF execution, and frozen sync-v1 planning.
 
 #[cfg(test)]
@@ -45,6 +46,7 @@ mod tests {
             control_root: control.display().to_string(),
             exchange_root: exchange.display().to_string(),
             workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-root-ffi".to_owned(),
                 capability_token: "saf-root-ffi".to_owned(),
             }),
             bootstrap_deadline_millis: 30_000,
@@ -85,6 +87,7 @@ mod tests {
             control_root: control.display().to_string(),
             exchange_root: exchange.display().to_string(),
             workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-invalid-capability".to_owned(),
                 capability_token: "../escaped".to_owned(),
             }),
             bootstrap_deadline_millis: 30_000,
@@ -92,6 +95,27 @@ mod tests {
         .test_err("invalid capability");
         assert_eq!(error.category(), "validation");
         assert_eq!(error.code(), "invalid_capability_token");
+    }
+
+    #[test]
+    fn ffi_rejects_invalid_stable_workspace_identity_before_engine_creation() {
+        let temporary = tempdir().test_ok("temporary root");
+        let control = temporary.path().join("control");
+        let exchange = temporary.path().join("exchange");
+        fs::create_dir(&control).test_ok("control root");
+        fs::create_dir(&exchange).test_ok("exchange root");
+        let error = LomoEngine::open(EngineConfig {
+            control_root: control.display().to_string(),
+            exchange_root: exchange.display().to_string(),
+            workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "../escaped".to_owned(),
+                capability_token: "saf-valid-capability".to_owned(),
+            }),
+            bootstrap_deadline_millis: 30_000,
+        })
+        .test_err("invalid stable workspace identity");
+        assert_eq!(error.category(), "validation");
+        assert_eq!(error.code(), "invalid_workspace_id");
     }
 
     struct RecordingListener {
@@ -115,6 +139,7 @@ mod tests {
             control_root: control.display().to_string(),
             exchange_root: exchange.display().to_string(),
             workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-root-submit".to_owned(),
                 capability_token: "saf-root-submit".to_owned(),
             }),
             bootstrap_deadline_millis: 30_000,

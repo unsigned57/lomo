@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "description": "Language-agnostic safe-behavior fixtures for Stage-5 planner/state machine. Not an oracle for old Kotlin bugs.",
+  "source_contract": "fixtures/baseline/STAGE5-CONTRACT.md",
+  "divergence_manifest": "fixtures/baseline/stage5-divergence-manifest.v1.md",
+  "cases": [
+    {
+      "id": "SB-01",
+      "title": "partial_listing_no_delete",
+      "given": {
+        "remote_snapshot_completeness": "Incomplete",
+        "baseline_paths": ["memo/a.md"],
+        "remote_paths": []
+      },
+      "when": "plan",
+      "then": {
+        "ensure_absent_count": 0,
+        "user_file_delete_intents": 0
+      }
+    },
+    {
+      "id": "SB-02",
+      "title": "first_takeover_no_user_file_delete",
+      "given": {
+        "session_kind": "FirstTakeover",
+        "local_paths": ["memo/a.md"],
+        "remote_paths": ["memo/b.md"],
+        "overlap": []
+      },
+      "when": "plan",
+      "then": {
+        "user_file_delete_intents": 0,
+        "remote_user_file_delete_intents": 0,
+        "allow_ensure_present": true
+      }
+    },
+    {
+      "id": "SB-03",
+      "title": "verify_failure_no_baseline_advance",
+      "given": {
+        "apply_status": "Applied",
+        "verify_status": "Failed"
+      },
+      "when": "commit_baseline",
+      "then": {
+        "baseline_advanced": false
+      }
+    },
+    {
+      "id": "SB-04",
+      "title": "conditional_write_failure_replans",
+      "given": {
+        "publish_status": "PreconditionFailed"
+      },
+      "when": "handle_receipt",
+      "then": {
+        "next": "Replan",
+        "unconditional_overwrite": false,
+        "force_push": false
+      }
+    },
+    {
+      "id": "SB-05",
+      "title": "both_modified_conflict",
+      "given": {
+        "local_digest": "aa",
+        "remote_digest": "bb",
+        "baseline_digest": "cc"
+      },
+      "when": "plan",
+      "then": {
+        "durable_conflict": true,
+        "silent_resolution": false
+      }
+    },
+    {
+      "id": "SB-06",
+      "title": "generation_mismatch_reject",
+      "given": {
+        "session_generation": "G1",
+        "workspace_generation": "G2"
+      },
+      "when": "restore_session",
+      "then": {
+        "accepted": false,
+        "clean_slate": false
+      }
+    },
+    {
+      "id": "SB-07",
+      "title": "secrets_not_in_durable_state",
+      "given": {
+        "secret_lease": "present"
+      },
+      "when": "persist_session",
+      "then": {
+        "journal_contains_secret": false,
+        "session_record_contains_secret": false
+      }
+    },
+    {
+      "id": "SB-08",
+      "title": "unrecognized_remote_path_report_only",
+      "given": {
+        "remote_paths": ["unknown/tooling.bin"]
+      },
+      "when": "plan",
+      "then": {
+        "reported": true,
+        "moved": false,
+        "deleted": false
+      }
+    },
+    {
+      "id": "SB-09",
+      "title": "migration_actions_forbid_user_file_delete",
+      "given": {
+        "action_class": "MigrationOrResetOrTakeover"
+      },
+      "when": "typecheck_action_graph",
+      "then": {
+        "user_file_delete_branch": false,
+        "user_file_overwrite_branch": false
+      }
+    },
+    {
+      "id": "SB-10",
+      "title": "sync_inbox_survives_remote_tail_deletion",
+      "given": {
+        "cutover": "P5-13",
+        "pending_sync_inbox_reviews": 1
+      },
+      "when": "delete_remote_sync_tails",
+      "then": {
+        "inbox_reviews_retained": true
+      }
+    }
+  ]
+}

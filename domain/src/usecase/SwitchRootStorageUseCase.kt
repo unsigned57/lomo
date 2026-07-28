@@ -4,24 +4,25 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.WorkspaceCandidateValidator
+import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.repository.WorkspaceStateResolver
-import com.lomo.domain.repository.WriteFreezeRepository
 
 /**
  * Switches the workspace root with prepare → validate → persist → activate → rebuild ordering.
  *
- * Candidate validation runs before any durable selection change. Writes freeze for the whole
- * critical section so concurrent mutations cannot observe a half-switched workspace. The engine is
- * activated under freeze after selection persistence so only one engine is authoritative. Soft
- * Recovery and hard open failure both restore the previous selection, previous engine, and previous
- * index (mandatory rebuild after any abort that may have cleared Room) when a previous selection
- * existed; freeze is always released. SwitchRoot is the sole rebuild owner for a root switch —
- * observe-root must not rebuild while freeze is active.
+ * Candidate validation runs before any durable selection change. The whole critical section runs
+ * under an exclusive mutation transition: new writers are refused and every writer already admitted
+ * is drained before the workspace changes, so no mutation can straddle the switch. The engine is
+ * activated under the transition after selection persistence so only one engine is authoritative.
+ * Soft Recovery and hard open failure both restore the previous selection, previous engine, and
+ * previous index (mandatory rebuild after any abort that may have cleared projections) when a
+ * previous selection existed; the transition always ends. SwitchRoot is the sole rebuild owner for
+ * a root switch — observe-root must not rebuild while a transition is active.
  */
 open class SwitchRootStorageUseCase(
     private val directorySettingsRepository: DirectorySettingsRepository,
     private val workspaceStateResolver: WorkspaceStateResolver,
-    private val writeFreezeRepository: WriteFreezeRepository,
+    private val workspaceMutationLease: WorkspaceMutationLease,
     private val engineReadinessRepository: EngineReadinessRepository,
     private val workspaceCandidateValidator: WorkspaceCandidateValidator =
         WorkspaceCandidateValidator { location ->
@@ -32,10 +33,7 @@ open class SwitchRootStorageUseCase(
         // Prepare + validate before mutating durable selection.
         workspaceCandidateValidator.validate(location)
         val previousSelection = directorySettingsRepository.currentRootLocation()
-        check(writeFreezeRepository.begin()) {
-            "Another workspace switch is already in progress"
-        }
-        try {
+        workspaceMutationLease.withExclusiveTransition {
             directorySettingsRepository.applyRootLocation(location)
             val activated =
                 runCatching {
@@ -60,8 +58,6 @@ open class SwitchRootStorageUseCase(
                 }
                 throw originalFailure
             }
-        } finally {
-            writeFreezeRepository.end()
         }
     }
 

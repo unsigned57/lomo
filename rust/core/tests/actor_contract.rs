@@ -37,7 +37,7 @@ mod tests {
         CoreEventListener, DocumentKind, DocumentMetadata, EngineConfig, EngineState,
         ErrorCategory, ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction,
         PlatformActionOutput, PlatformBatchResult, Sha256Digest, VerifiedAbsence,
-        WorkspaceDescriptor, WorkspaceTarget,
+        WorkspaceDescriptor, WorkspaceId, WorkspaceTarget,
     };
     use tempfile::tempdir;
 
@@ -57,7 +57,8 @@ mod tests {
             fs::create_dir(&control).must_succeed("control root");
             fs::create_dir(&exchange).must_succeed("exchange root");
             let capability = CapabilityToken::parse("saf-root-1").must_succeed("capability");
-            let workspace = WorkspaceDescriptor::saf(capability);
+            let identity = WorkspaceId::parse("ws-saf-root-1").must_succeed("workspace identity");
+            let workspace = WorkspaceDescriptor::saf(identity, capability);
             let config = EngineConfig::new(control, exchange, Some(workspace))
                 .must_succeed("engine config")
                 .with_bootstrap_deadline(deadline)

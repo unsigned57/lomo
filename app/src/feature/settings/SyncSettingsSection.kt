@@ -18,8 +18,18 @@ fun SyncSettingsSection(
     s3Content: @Composable () -> Unit,
     onToggleSyncInbox: (Boolean) -> Unit,
     onSelectSyncInbox: () -> Unit,
+    onOpenSyncCenter: (() -> Unit)? = null,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_sync)) {
+        if (onOpenSyncCenter != null) {
+            PreferenceItem(
+                title = stringResource(R.string.sync_center_title),
+                subtitle = stringResource(R.string.sync_center_open_conflicts),
+                icon = Icons.Outlined.Sync,
+                onClick = onOpenSyncCenter,
+            )
+            SettingsDivider()
+        }
         SyncInboxSettingsSection(
             state = storageState,
             onToggleEnabled = onToggleSyncInbox,

@@ -2,7 +2,7 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import com.lomo.data.repository.WorkspaceWriteAuthority
+import com.lomo.domain.repository.WorkspaceMutationLease
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -10,7 +10,7 @@ import java.io.IOException
 class FileMediaStorageDataSourceDelegate(
     private val context: Context,
     private val backendResolver: FileStorageBackendResolver,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
 ) : MediaStorageDataSource {
     override suspend fun saveImage(uri: Uri): String =
         withContext(Dispatchers.IO) {
@@ -28,24 +28,26 @@ class FileMediaStorageDataSourceDelegate(
         resolvedImageBackend()?.getImageLocation(filename)
 
     override suspend fun deleteImage(filename: String) {
-        writeAuthority.requireWritable()
-        // D6: host storage must not permanently delete committed media.
-        throw UnsupportedOperationException(
-            "deleteImage is retired after P4-10A; use MediaRepository.removeImage (media-trash law)",
-        )
+        writeLease.withWrite {
+            // D6: host storage must not permanently delete committed media.
+            throw UnsupportedOperationException(
+                "deleteImage is retired after P4-10A; use MediaRepository.removeImage (media-trash law)",
+            )
+        }
     }
 
-    override suspend fun createVoiceFile(filename: String): Uri {
-        writeAuthority.requireWritable()
-        return (backendResolver.voiceBackend() ?: throw IOException("No storage configured"))
-            .createVoiceFile(filename)
-    }
+    override suspend fun createVoiceFile(filename: String): Uri =
+        writeLease.withWrite {
+            (backendResolver.voiceBackend() ?: throw IOException("No storage configured"))
+                .createVoiceFile(filename)
+        }
 
     override suspend fun deleteVoiceFile(filename: String) {
-        writeAuthority.requireWritable()
-        throw UnsupportedOperationException(
-            "deleteVoiceFile is retired after P4-10A; use MediaRepository.removeVoiceCapture (media-trash law)",
-        )
+        writeLease.withWrite {
+            throw UnsupportedOperationException(
+                "deleteVoiceFile is retired after P4-10A; use MediaRepository.removeVoiceCapture (media-trash law)",
+            )
+        }
     }
 
     private suspend fun resolvedImageBackend(): MediaStorageBackend? =

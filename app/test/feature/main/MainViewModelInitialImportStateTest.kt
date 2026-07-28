@@ -1,7 +1,7 @@
 package com.lomo.app.feature.main
 
 import com.lomo.app.testing.fakes.testMemoUiMapper
-import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 
 import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
@@ -112,7 +112,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
     private val switchRootStorageUseCase by lazy { FakeSwitchRootStorageUseCase(rootLocationFlow) }
     private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
-    private val writeFreezeRepository = FakeWriteFreezeRepository()
+    private val workspaceMutationLease = FakeWorkspaceMutationLease()
     private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
 
     private lateinit var gitSyncRepo: FakeGitSyncRepository
@@ -379,7 +379,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
                     engineReadinessRepository = engineReadinessRepository,
-                    writeFreezeRepository = writeFreezeRepository,
+                    workspaceMutationLease = workspaceMutationLease,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(
@@ -511,7 +511,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     class FakeSwitchRootStorageUseCase(
         private val rootLocationFlow: MutableStateFlow<StorageLocation?>
-    ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver(), FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository()) {
+    ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver(), FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository()) {
         var rebuildWorkspaceCallback: (suspend () -> Unit)? = null
         var updateRootLocationCallback: (suspend (StorageLocation) -> Unit)? = null
 

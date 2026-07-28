@@ -1,0 +1,81 @@
+[package]
+name = "lomo-sync"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "pipeline_contract"
+path = "tests/pipeline_contract.rs"
+
+[[test]]
+name = "state_machine_contract"
+path = "tests/state_machine_contract.rs"
+
+[[test]]
+name = "durable_state_contract"
+path = "tests/durable_state_contract.rs"
+
+[[test]]
+name = "store_local_port_contract"
+path = "tests/store_local_port_contract.rs"
+
+[[test]]
+name = "webdav_adapter_contract"
+path = "tests/webdav_adapter_contract.rs"
+
+[[test]]
+name = "s3_adapter_contract"
+path = "tests/s3_adapter_contract.rs"
+
+[[test]]
+name = "conflict_recovery_contract"
+path = "tests/conflict_recovery_contract.rs"
+
+[[test]]
+name = "cycle_plan_inspect_contract"
+path = "tests/cycle_plan_inspect_contract.rs"
+
+[[test]]
+name = "safe_behavior_fixtures_contract"
+path = "tests/safe_behavior_fixtures_contract.rs"
+
+[[test]]
+name = "scale_streaming_contract"
+path = "tests/scale_streaming_contract.rs"
+
+[[test]]
+name = "takeover_matrix_contract"
+path = "tests/takeover_matrix_contract.rs"
+
+# Credential-gated real provider lines. Every test is `#[ignore]`d, so `just check` / `just ci`
+# never run them; `just sync-provider-smoke` resolves credentials and then runs `--ignored --exact`.
+[[test]]
+name = "provider_smoke"
+path = "tests/provider_smoke.rs"
+
+[dependencies]
+lomo-core = { path = "../core" }
+lomo-workspace = { path = "../workspace" }
+lomo-store = { path = "../store" }
+aes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+scrypt.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+url = { version = "=2.5.8", default-features = false, features = ["std"] }
+crypto_secretbox.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# Hermetic bare-repo Git composition contracts only (production graph uses lomo-git via native).
+git2.workspace = true
+lomo-git = { path = "../git" }
+
+[lints]
+workspace = true

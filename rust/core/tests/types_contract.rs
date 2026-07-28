@@ -8,14 +8,15 @@
 //!   uses unsupported characters, then construction fails with validation instead of normalizing.
 //! - Given a workspace-relative path, when it is absolute, ambiguous, escaped, or oversized, then
 //!   construction fails; a bounded canonical relative path is preserved byte-for-byte.
-//! - Given direct aliases to the same canonical directory or a SAF capability identity, when a
-//!   workspace identity is derived, then aliases converge and access modes cannot collide.
+//! - Given direct aliases to the same canonical directory or a SAF stable identity with rotating
+//!   capabilities, when a workspace identity is derived, then aliases/tokens converge while
+//!   different trees and access modes cannot collide.
 //! - Given a page size outside 1..=256, when it crosses the boundary, then it is rejected rather
 //!   than clamped or replaced with a default.
 //!
 //! Observable outcomes: constrained values, stable workspace ids, and structured error fields.
-//! TDD proof: RED on 2026-07-15 with unresolved lomo-core imports because the constrained types
-//! and constructors did not exist; GREEN is recorded in STAGE1-EVIDENCE.md.
+//! TDD proof: RED on 2026-07-27 with E0061 because SAF construction accepted only a capability;
+//! the stable identity could not be represented independently.
 //! Excludes: engine actor behavior, journal persistence, Android URI resolution, and FFI mapping.
 
 #[cfg(test)]
@@ -31,7 +32,8 @@ mod tests {
     use std::fs;
 
     use lomo_core::{
-        CapabilityToken, ErrorCategory, JobId, PageSize, RelativeWorkspacePath, WorkspaceDescriptor,
+        CapabilityToken, ErrorCategory, JobId, PageSize, RelativeWorkspacePath,
+        WorkspaceDescriptor, WorkspaceId,
     };
     use tempfile::tempdir;
 
@@ -105,10 +107,24 @@ mod tests {
         let aliased = WorkspaceDescriptor::direct(&alias).must_succeed("canonical alias");
         assert_eq!(direct.identity(), aliased.identity());
 
-        let capability =
-            CapabilityToken::parse("root-capability-1").must_succeed("capability token");
-        let saf = WorkspaceDescriptor::saf(capability);
-        assert_ne!(direct.identity(), saf.identity());
+        let stable_identity =
+            WorkspaceId::parse("ws-saf-primary-lomo").must_succeed("stable SAF identity");
+        let first = WorkspaceDescriptor::saf(
+            stable_identity.clone(),
+            CapabilityToken::parse("root-capability-1").must_succeed("first capability token"),
+        );
+        let rotated = WorkspaceDescriptor::saf(
+            stable_identity,
+            CapabilityToken::parse("root-capability-2").must_succeed("rotated capability token"),
+        );
+        let other_tree = WorkspaceDescriptor::saf(
+            WorkspaceId::parse("ws-saf-secondary-lomo").must_succeed("other SAF identity"),
+            CapabilityToken::parse("root-capability-3").must_succeed("other capability token"),
+        );
+
+        assert_eq!(first.identity(), rotated.identity());
+        assert_ne!(first.identity(), other_tree.identity());
+        assert_ne!(direct.identity(), first.identity());
     }
 
     #[test]

@@ -5,14 +5,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Adapts one native engine handle into domain readiness.
  *
+ * Constructed only through [acquire], which owns the native port for the whole fallible acquisition
+ * so a caller either receives a fully-owned adapter or nothing at all.
+ *
  * Not the process owner — [ManagedEngineSession] opens/closes adapters and is the sole
  * [com.lomo.domain.repository.EngineReadinessRepository].
  */
-internal class RustEngineAdapter(
+internal class RustEngineAdapter private constructor(
     private val native: WorkspaceNativeEnginePort,
     private val platformBatchRunner: PlatformBatchRunner,
 ) : WorkspaceNativeAdapter,
@@ -20,21 +24,14 @@ internal class RustEngineAdapter(
     private val closed = AtomicBoolean(false)
     private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.Opening)
     private var lastEventSequence: ULong? = null
-    private val subscription: NativeEngineSubscription
-
-    init {
-        // Drive any durable bootstrap platform batch before publishing the first readiness value.
-        publishSnapshot(driveIfOpening(native.state()))
-        lastEventSequence = (_readiness.value as? EngineReadiness.Ready)?.eventSequence
-        subscription = native.subscribe(::onNativeEvent)
-    }
+    private val subscriptionRef = AtomicReference<NativeEngineSubscription?>(null)
 
     val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
 
     @Synchronized
     fun resnapshot() {
         check(!closed.get()) { "Rust engine adapter is closed" }
-        publishSnapshot(driveIfOpening(native.state()))
+        publishBoundarySnapshot()
     }
 
     override fun renderMarkdown(
@@ -173,9 +170,38 @@ internal class RustEngineAdapter(
         if (lastEventSequence?.plus(1uL) != event.eventSequence) {
             lastEventSequence = null
         }
-        publishSnapshot(driveIfOpening(native.state()))
+        publishBoundarySnapshot()
         lastEventSequence = event.eventSequence
     }
+
+    /**
+     * Reads, decodes and publishes the authoritative snapshot, converting any boundary failure into
+     * typed recovery.
+     *
+     * A failed state read, a failed bootstrap drive, or an unknown category/disposition must never
+     * leave the previous `Ready` published: the write gate reads that value, so a silently-failing
+     * boundary would keep admitting writes against an engine whose state is unknown. The original
+     * diagnostic is preserved rather than collapsed into a generic error.
+     */
+    private fun publishBoundarySnapshot() {
+        val readiness =
+            runCatching { driveIfOpening(native.state()).toDomain() }
+                .getOrElse { error -> boundaryRecovery(error) }
+        _readiness.value = readiness
+        if (readiness is EngineReadiness.Ready) {
+            lastEventSequence = readiness.eventSequence
+        }
+    }
+
+    private fun boundaryRecovery(error: Throwable): EngineReadiness.ReadOnlyRecovery =
+        EngineReadiness.ReadOnlyRecovery(
+            category = EngineReadiness.FailureCategory.INTERNAL,
+            code = "engine_state_unavailable",
+            retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+            diagnostic =
+                "Rust engine state could not be read at the adapter boundary: " +
+                    (error.message ?: error::class.qualifiedName ?: "unknown failure"),
+        )
 
     private fun driveIfOpening(snapshot: NativeEngineSnapshot): NativeEngineSnapshot {
         val opening = snapshot as? NativeEngineSnapshot.Opening ?: return snapshot
@@ -199,9 +225,53 @@ internal class RustEngineAdapter(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        // Fixed order: stop events (subscription), then release the native port/engine.
-        subscription.close()
-        native.close()
+        val release = ReleaseSequence()
+        releaseOwnedInto(release)
+        release.throwIfFailed()
+    }
+
+    /**
+     * Takes the first snapshot, drives any durable bootstrap batch, then registers the callback.
+     *
+     * Every acquired resource is recorded in the adapter itself, so [acquire] can release whatever
+     * this got through before it failed.
+     */
+    private fun completeAcquisition() {
+        publishSnapshot(driveIfOpening(native.state()))
+        lastEventSequence = (_readiness.value as? EngineReadiness.Ready)?.eventSequence
+        subscriptionRef.set(native.subscribe(::onNativeEvent))
+    }
+
+    /** Fixed order: stop events (subscription), then release the native port/engine. */
+    private fun releaseOwnedInto(release: ReleaseSequence) {
+        subscriptionRef.getAndSet(null)?.let { subscription -> release.release(subscription::close) }
+        release.release(native::close)
+    }
+
+    companion object {
+        /**
+         * Acquires one adapter as a single ownership transaction.
+         *
+         * [native] belongs to the acquisition until it completes. A failure while reading the first
+         * state, driving the bootstrap batch, or subscribing releases everything already taken:
+         * without this, the only reference able to close the engine dies with the constructor and
+         * the workspace lock stays held until the process exits, so every retry reports `Busy`.
+         */
+        fun acquire(
+            native: WorkspaceNativeEnginePort,
+            platformBatchRunner: PlatformBatchRunner,
+        ): RustEngineAdapter {
+            val adapter = RustEngineAdapter(native, platformBatchRunner)
+            runCatching { adapter.completeAcquisition() }
+                .onFailure { failure ->
+                    adapter.closed.set(true)
+                    val release = ReleaseSequence()
+                    release.record(failure)
+                    adapter.releaseOwnedInto(release)
+                    release.throwIfFailed()
+                }
+            return adapter
+        }
     }
 }
 

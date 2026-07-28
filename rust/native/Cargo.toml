@@ -16,14 +16,20 @@ lomo-core = { path = "../core" }
 lomo-workspace = { path = "../workspace" }
 lomo-store = { path = "../store" }
 lomo-media = { path = "../media" }
-lomo-sync-core = { path = "../sync-core" }
+# Production BoltFFI conversion surface for lomo-sync (post P5-13).
+lomo-sync = { path = "../sync" }
+# Sole git2 adapter composition at the conversion edge (not lomo-sync → lomo-git cycle).
+lomo-git = { path = "../git" }
 serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 sha2.workspace = true
+git2.workspace = true
 lomo-workspace = { path = "../workspace" }
 lomo-media = { path = "../media" }
+lomo-sync = { path = "../sync" }
+lomo-git = { path = "../git" }
 
 [lints]
 workspace = true

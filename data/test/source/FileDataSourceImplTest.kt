@@ -18,8 +18,7 @@ package com.lomo.data.source
 
 
 
-import com.lomo.data.repository.WorkspaceWriteAuthority
-import com.lomo.data.repository.ProcessWriteFreezeRepository
+import com.lomo.data.repository.ProcessWorkspaceMutationLease
 import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
@@ -74,8 +73,8 @@ class FileDataSourceImplTest : DataFunSpec() {
         dataSource =
             FileDataSourceImpl(
                 workspaceConfigSource = FileWorkspaceConfigSourceDelegate(context, dataStore, resolver),
-                markdownStorageDataSource = FileMarkdownStorageDataSourceDelegate(resolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository())),
-                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(context, resolver, WorkspaceWriteAuthority(FakeEngineReadinessRepository(), ProcessWriteFreezeRepository())),
+                markdownStorageDataSource = FileMarkdownStorageDataSourceDelegate(resolver, ProcessWorkspaceMutationLease(FakeEngineReadinessRepository())),
+                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(context, resolver, ProcessWorkspaceMutationLease(FakeEngineReadinessRepository())),
             )
     }
 

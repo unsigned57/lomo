@@ -62,6 +62,11 @@ ci:
 device-smoke:
     {{xtask}} device-smoke
 
+# Run the six locked real remote provider lines. Lines without credentials stay OPEN / pending_env
+# and this command exits non-zero; it is never part of `just check` or `just ci`.
+sync-provider-smoke line="all":
+    {{xtask}} sync-provider-smoke {{line}}
+
 # Check or explicitly update dependencies.
 deps mode="check":
     {{xtask}} deps {{mode}}

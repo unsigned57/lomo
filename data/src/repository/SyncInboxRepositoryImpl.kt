@@ -22,6 +22,7 @@ import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
+import com.lomo.domain.repository.WorkspaceMutationLease
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,9 @@ import timber.log.Timber
 
 internal const val INBOX_PREFIX = "inbox/"
 
+internal const val WORKSPACE_WRITES_UNAVAILABLE_MESSAGE =
+    "Workspace writes are unavailable"
+
 class SyncInboxRepositoryImpl(
     private val context: Context,
     private val preferencesRepository: PreferencesRepository,
@@ -39,7 +43,7 @@ class SyncInboxRepositoryImpl(
     private val workspaceMediaAccess: WorkspaceMediaAccess,
     private val memoMutationRepository: MemoMutationRepository,
     private val pendingReviewStore: PendingSyncReviewStore,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
 ) : SyncInboxRepository {
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
@@ -60,84 +64,7 @@ class SyncInboxRepositoryImpl(
         )
     }
 
-    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
-        when (operation) {
-            UnifiedSyncOperation.MANUAL_SYNC,
-            UnifiedSyncOperation.REFRESH_SYNC,
-            UnifiedSyncOperation.PROCESS_PENDING_CHANGES,
-            -> processPendingInbox()
-        }
-
-    override suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): UnifiedSyncResult {
-        if (!writeAuthority.isWritable()) {
-            return workspaceWritesUnavailableResult()
-        }
-        state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
-        val inboxRoot =
-            workspaceConfigSource
-                .getRootFlow(StorageRootType.SYNC_INBOX)
-                .first()
-                ?: return notConfiguredResult()
-
-        val validatedReview =
-            when (val restored = pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
-                pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)
-            }) {
-                null -> review
-                is PendingSyncRestoreResult.Restored -> restored.session
-                is PendingSyncRestoreResult.Invalidated -> {
-                    pendingReviewStore.clear(SyncBackendType.INBOX)
-                    val error =
-                        UnifiedSyncError(
-                            provider = SyncBackendType.INBOX,
-                            message = "Pending sync inbox review requires rebuild: ${restored.reason}",
-                        )
-                    state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
-                    return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
-                }
-                is PendingSyncRestoreResult.Failed -> {
-                    val error =
-                        UnifiedSyncError(
-                            provider = SyncBackendType.INBOX,
-                            message = "Pending sync inbox review restore failed: ${restored.error.category}",
-                            cause = restored.error.cause,
-                        )
-                    state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
-                    return UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
-                }
-            }
-
-        val remaining = applyInboxReviewResolution(inboxRoot, validatedReview, resolution)
-        return if (remaining.isEmpty()) {
-            pendingReviewStore.clear(SyncBackendType.INBOX)
-            val success =
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox review resolved",
-                )
-            state.value =
-                UnifiedSyncState.Success(
-                    provider = SyncBackendType.INBOX,
-                    timestamp = System.currentTimeMillis(),
-                    summary = success.message,
-            )
-            success
-        } else {
-            val pendingReview = validatedReview.copy(items = remaining)
-            pendingReviewStore.write(pendingReview)
-            state.value = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, pendingReview)
-            UnifiedSyncResult.Review(
-                provider = SyncBackendType.INBOX,
-                message = "Pending sync inbox review",
-                review = pendingReview,
-            )
-        }
-    }
-
-    private suspend fun processPendingInbox(): UnifiedSyncResult {
+    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult {
         if (!preferencesRepository.isSyncInboxEnabled().first()) {
             state.value = UnifiedSyncState.Idle
             return UnifiedSyncResult.Success(
@@ -145,10 +72,87 @@ class SyncInboxRepositoryImpl(
                 message = "Sync inbox is disabled",
             )
         }
-        if (!writeAuthority.isWritable()) {
-            return workspaceWritesUnavailableResult()
+        // One admission for the whole drain, so a switch cannot split the batch across workspaces.
+        return when (operation) {
+            UnifiedSyncOperation.MANUAL_SYNC,
+            UnifiedSyncOperation.REFRESH_SYNC,
+            UnifiedSyncOperation.PROCESS_PENDING_CHANGES,
+            -> writeLease.withWriteOrNull { processPendingInbox() } ?: workspaceWritesUnavailableResult()
         }
+    }
 
+    override suspend fun resolveReview(
+        resolution: SyncReviewResolution,
+        review: SyncReviewSession,
+    ): UnifiedSyncResult =
+        // One admission for the whole resolution: a switch mid-review would otherwise land some
+        // files in the old workspace and the rest in the new one.
+        writeLease.withWriteOrNull {
+            state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
+            val inboxRoot =
+                workspaceConfigSource
+                    .getRootFlow(StorageRootType.SYNC_INBOX)
+                    .first()
+                    ?: return@withWriteOrNull notConfiguredResult()
+
+            val validatedReview =
+                when (val restored = pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
+                    pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)
+                }) {
+                    null -> review
+                    is PendingSyncRestoreResult.Restored -> restored.session
+                    is PendingSyncRestoreResult.Invalidated -> {
+                        pendingReviewStore.clear(SyncBackendType.INBOX)
+                        val error =
+                            UnifiedSyncError(
+                                provider = SyncBackendType.INBOX,
+                                message = "Pending sync inbox review requires rebuild: ${restored.reason}",
+                            )
+                        state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+                        return@withWriteOrNull UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+                    }
+                    is PendingSyncRestoreResult.Failed -> {
+                        val error =
+                            UnifiedSyncError(
+                                provider = SyncBackendType.INBOX,
+                                message =
+                                    "Pending sync inbox review restore failed: " +
+                                        (restored.error.category ?: restored.error.message),
+                                cause = restored.error.cause,
+                            )
+                        state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())
+                        return@withWriteOrNull UnifiedSyncResult.Error(provider = SyncBackendType.INBOX, error = error)
+                    }
+                }
+
+            val remaining = applyInboxReviewResolution(inboxRoot, validatedReview, resolution)
+            if (remaining.isEmpty()) {
+                pendingReviewStore.clear(SyncBackendType.INBOX)
+                val success =
+                    UnifiedSyncResult.Success(
+                        provider = SyncBackendType.INBOX,
+                        message = "Sync inbox review resolved",
+                    )
+                state.value =
+                    UnifiedSyncState.Success(
+                        provider = SyncBackendType.INBOX,
+                        timestamp = System.currentTimeMillis(),
+                        summary = success.message,
+                    )
+                success
+            } else {
+                val pendingReview = validatedReview.copy(items = remaining)
+                pendingReviewStore.write(pendingReview)
+                state.value = UnifiedSyncState.ReviewRequired(SyncBackendType.INBOX, pendingReview)
+                UnifiedSyncResult.Review(
+                    provider = SyncBackendType.INBOX,
+                    message = "Pending sync inbox review",
+                    review = pendingReview,
+                )
+            }
+        } ?: workspaceWritesUnavailableResult()
+
+    private suspend fun processPendingInbox(): UnifiedSyncResult {
         val inboxRoot = workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX).first()
         if (inboxRoot == null) {
             return notConfiguredResult()
@@ -174,7 +178,9 @@ class SyncInboxRepositoryImpl(
                     val error =
                         UnifiedSyncError(
                             provider = SyncBackendType.INBOX,
-                            message = "Pending sync inbox review restore failed: ${restored.error.category}",
+                            message =
+                                "Pending sync inbox review restore failed: " +
+                                    (restored.error.category ?: restored.error.message),
                             cause = restored.error.cause,
                         )
                     state.value = UnifiedSyncState.Error(error = error, timestamp = System.currentTimeMillis())

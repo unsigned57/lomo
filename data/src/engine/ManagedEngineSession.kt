@@ -5,6 +5,7 @@ import com.lomo.domain.model.Recurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
@@ -22,6 +23,7 @@ import java.io.File
 import java.time.LocalDateTime
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
@@ -30,11 +32,14 @@ import kotlin.concurrent.write
 /**
  * Sole production owner of the Rust engine lifecycle for the process.
  *
- * Cold start opens with no workspace (`AwaitingWorkspaceSelection`). When a Direct/SAF root is
- * selected (or restored once from persisted settings), [activateWorkspace] opens a candidate engine
- * and only installs it after it reaches [EngineReadiness.Ready]. Soft Recovery and hard open failure
- * leave the previous engine authoritative. Session-owned recovery authority freezes readiness so a
- * bootstrap Awaiting engine cannot resnapshot Recovery away after cold-restore failure.
+ * Cold start opens with no workspace (`AwaitingWorkspaceSelection`); a bootstrap engine that cannot
+ * be acquired leaves the session in structured `ReadOnlyRecovery` with no adapter rather than
+ * failing graph construction. When a Direct/SAF root is selected (or restored once from persisted
+ * settings), [activateWorkspace] runs Prepared → RetiringPrevious → Committed: it opens a candidate
+ * engine, promotes it only after it reaches [EngineReadiness.Ready] and the previous owner has been
+ * released. Soft Recovery and hard open failure leave the previous engine authoritative.
+ * Session-owned recovery authority freezes readiness so a bootstrap Awaiting engine cannot
+ * resnapshot Recovery away after cold-restore failure.
  *
  * Workspace switch activation is owned by domain [com.lomo.domain.usecase.SwitchRootStorageUseCase];
  * this session does not race-observe selection changes after the initial cold restore.
@@ -57,6 +62,8 @@ internal class ManagedEngineSession(
     private val adapterLease = ReentrantReadWriteLock()
     private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.AwaitingWorkspaceSelection)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
+    private val _workspaceAuthority = MutableStateFlow<WorkspaceAuthority?>(null)
+    private val activationGeneration = AtomicLong(0)
     private var activeAdapter: RustEngineAdapter? = null
     private var activeCapabilityToken: String? = null
     private var mirrorJob: kotlinx.coroutines.Job? = null
@@ -68,12 +75,12 @@ internal class ManagedEngineSession(
     private val recoveryAuthority = AtomicReference<EngineReadiness.ReadOnlyRecovery?>(null)
 
     init {
-        // Bootstrap without a workspace: publishes AwaitingWorkspaceSelection and keeps a live handle
-        // so process teardown can still close cleanly.
-        installAdapter(
-            adapter = openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)),
-            capabilityToken = null,
-        )
+        // Bootstrap without a workspace is a resource transaction, not a precondition: when the
+        // native library or control root is unusable the graph must still build so Recovery UI
+        // exists. A failed bootstrap installs no adapter at all rather than a placeholder.
+        runCatching { openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)) }
+            .onSuccess { adapter -> adapterLease.write { installAdapterLocked(adapter, capabilityToken = null) } }
+            .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
         appScope.launch {
             // Cold-start restore only. SwitchRootStorageUseCase activates subsequent selections.
             val existing = directorySettingsRepository.currentRootLocation()
@@ -92,6 +99,8 @@ internal class ManagedEngineSession(
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
     override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
         _activeWorkspaceLocation.asStateFlow()
+    override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
+        _workspaceAuthority.asStateFlow()
 
     override fun resnapshot() {
         check(!closed.get()) { "Managed engine session is closed" }
@@ -355,53 +364,14 @@ internal class ManagedEngineSession(
         activationMutex.withLock {
             check(!closed.get()) { "Managed engine session is closed" }
             val selection = selectionFor(location)
-            val request =
-                NativeEngineOpenRequest.forAppFilesDir(filesDir).copy(
-                    workspace = selection.workspace,
-                )
-            // Candidate open keeps the previous adapter authoritative until Ready is installed.
-            val candidateResult = runCatching { openAdapter(request) }
-            val candidate =
-                candidateResult.getOrElse { error ->
-                    // Hard open failure: leave previous engine authoritative and rethrow.
-                    selection.capabilityToken?.let(capabilityRegistry::revoke)
-                    throw error
-                }
-            val candidateReadiness = candidate.readiness.value
-            if (candidateReadiness !is EngineReadiness.Ready) {
-                // Soft open (Recovery / Opening / Awaiting): never promote; close candidate.
-                val failure =
-                    when (candidateReadiness) {
-                        is EngineReadiness.ReadOnlyRecovery -> candidateReadiness
-                        else ->
-                            EngineReadiness.ReadOnlyRecovery(
-                                category = EngineReadiness.FailureCategory.INTERNAL,
-                                code = "workspace_open_not_ready",
-                                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
-                                diagnostic =
-                                    "Workspace open did not reach Ready " +
-                                        "(${candidateReadiness::class.simpleName})",
-                            )
-                    }
-                candidate.close()
-                selection.capabilityToken?.let(capabilityRegistry::revoke)
-                throw WorkspaceActivationException(failure)
-            }
-            val previousToken =
-                adapterLease.write {
-                    val previous = activeAdapter
-                    val token = activeCapabilityToken
-                    // Ready install clears any prior recovery authority and becomes sole publisher.
-                    recoveryAuthority.set(null)
-                    installAdapterLocked(candidate, capabilityToken = selection.capabilityToken)
-                    _activeWorkspaceLocation.value = location
-                    // Exclusive lease waits for every in-flight workspace call before close.
-                    previous?.close()
-                    token
-                }
-            previousToken
-                ?.takeIf { it != selection.capabilityToken }
-                ?.let(capabilityRegistry::revoke)
+            // Prepared → RetiringPrevious → Committed. Every phase either advances or releases
+            // what it took, so no caller observes a half-switched workspace authority.
+            promoteCandidate(
+                candidate = prepareCandidate(selection),
+                candidateToken = selection.capabilityToken,
+                location = location,
+                workspaceId = selection.stableWorkspaceId,
+            )
         }
     }
 
@@ -411,51 +381,142 @@ internal class ManagedEngineSession(
             if (closed.get()) return
             // Reselect / failed first selection: open awaiting engine under the activation mutex.
             val bootstrap = openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir))
-            val previousToken =
-                adapterLease.write {
-                    val previous = activeAdapter
-                    val token = activeCapabilityToken
-                    recoveryAuthority.set(null)
-                    installAdapterLocked(bootstrap, capabilityToken = null)
-                    _activeWorkspaceLocation.value = null
-                    previous?.close()
-                    token
-                }
-            previousToken?.let(capabilityRegistry::revoke)
+            promoteCandidate(
+                candidate = bootstrap,
+                candidateToken = null,
+                location = null,
+                workspaceId = null,
+            )
         }
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        val token =
+        val retirement =
             adapterLease.write {
-                mirrorJob?.cancel()
-                mirrorJob = null
-                recoveryAuthority.set(null)
+                val token = activeCapabilityToken
                 val adapter = activeAdapter
-                activeAdapter = null
-                val activeToken = activeCapabilityToken
-                activeCapabilityToken = null
+                detachActiveAdapterLocked()
+                recoveryAuthority.set(null)
                 _activeWorkspaceLocation.value = null
-                adapter?.close()
-                activeToken
+                AdapterRetirement(
+                    previousToken = token,
+                    failure = adapter?.let { runCatching(it::close).exceptionOrNull() },
+                )
             }
-        token?.let(capabilityRegistry::revoke)
+        // A failing engine close must not skip capability revoke or the terminal readiness value.
+        retirement.previousToken?.let(capabilityRegistry::revoke)
         _readiness.value = EngineReadiness.ShuttingDown
+        retirement.failure?.let { throw it }
+    }
+
+    /**
+     * Prepared phase: opens the candidate and requires Ready before any authority changes.
+     *
+     * Hard open failure and soft non-Ready both leave the previous engine authoritative and release
+     * the capability this selection registered.
+     */
+    private fun prepareCandidate(selection: PreparedSelection): RustEngineAdapter {
+        val candidate =
+            runCatching {
+                openAdapter(
+                    NativeEngineOpenRequest
+                        .forAppFilesDir(filesDir)
+                        .copy(workspace = selection.workspace),
+                )
+            }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
+                .getOrThrow()
+        val candidateReadiness = candidate.readiness.value
+        if (candidateReadiness is EngineReadiness.Ready) return candidate
+        // Soft open (Recovery / Opening / Awaiting): never promote; release the candidate.
+        val activation =
+            WorkspaceActivationException(
+                candidateReadiness as? EngineReadiness.ReadOnlyRecovery
+                    ?: EngineReadiness.ReadOnlyRecovery(
+                        category = EngineReadiness.FailureCategory.INTERNAL,
+                        code = "workspace_open_not_ready",
+                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        diagnostic =
+                            "Workspace open did not reach Ready " +
+                                "(${candidateReadiness::class.simpleName})",
+                    ),
+            )
+        releaseCandidate(candidate, selection.capabilityToken, activation)
+        throw activation
+    }
+
+    /**
+     * RetiringPrevious → Committed: the outgoing owner is released first and only a complete
+     * retirement publishes [candidate] as the committed authority.
+     */
+    private fun promoteCandidate(
+        candidate: RustEngineAdapter,
+        candidateToken: String?,
+        location: StorageLocation?,
+        workspaceId: String?,
+    ) {
+        val retirement = retirePreviousAndCommit(candidate, candidateToken, location, workspaceId)
+        retirement.previousToken
+            ?.takeIf { it != candidateToken }
+            ?.let(capabilityRegistry::revoke)
+        val failure = retirement.failure ?: return
+        // The previous owner could not be retired, so two writers could otherwise hold the same
+        // workspace. Publish neither and freeze the session in structured recovery instead.
+        releaseCandidate(candidate, candidateToken, failure)
+        holdRecoveryAuthority(
+            EngineReadiness.ReadOnlyRecovery(
+                category = EngineReadiness.FailureCategory.INTERNAL,
+                code = "workspace_retire_failed",
+                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                diagnostic = failure.message ?: "Previous workspace engine could not be retired",
+            ),
+        )
+        throw failure
+    }
+
+    private fun retirePreviousAndCommit(
+        candidate: RustEngineAdapter,
+        candidateToken: String?,
+        location: StorageLocation?,
+        workspaceId: String?,
+    ): AdapterRetirement =
+        adapterLease.write {
+            val token = activeCapabilityToken
+            val previous = activeAdapter
+            detachActiveAdapterLocked()
+            // Exclusive lease waits for every in-flight workspace call before close.
+            val failure = previous?.let { runCatching(it::close).exceptionOrNull() }
+            if (failure == null) {
+                // Ready install clears any prior recovery authority and becomes sole publisher.
+                recoveryAuthority.set(null)
+                installAdapterLocked(candidate, capabilityToken = candidateToken)
+                _activeWorkspaceLocation.value = location
+                // A new generation is published only here, once the candidate is the sole owner.
+                _workspaceAuthority.value =
+                    workspaceId?.let { id ->
+                        WorkspaceAuthority(
+                            workspaceId = id,
+                            generation = activationGeneration.incrementAndGet(),
+                        )
+                    }
+            }
+            AdapterRetirement(previousToken = token, failure = failure)
+        }
+
+    /** Releases a candidate that will never be published, reporting its close failure on [primary]. */
+    private fun releaseCandidate(
+        candidate: RustEngineAdapter,
+        candidateToken: String?,
+        primary: Throwable,
+    ) {
+        runCatching(candidate::close).exceptionOrNull()?.let(primary::addSuppressed)
+        // Capability revoke is never skipped by a failing candidate close.
+        candidateToken?.let(capabilityRegistry::revoke)
     }
 
     private fun holdRecoveryAuthority(recovery: EngineReadiness.ReadOnlyRecovery) {
         recoveryAuthority.set(recovery)
         _readiness.value = recovery
-    }
-
-    private fun installAdapter(
-        adapter: RustEngineAdapter,
-        capabilityToken: String?,
-    ) {
-        adapterLease.write {
-            installAdapterLocked(adapter, capabilityToken)
-        }
     }
 
     private fun installAdapterLocked(
@@ -481,6 +542,15 @@ internal class ManagedEngineSession(
             }
     }
 
+    /** Drops the outgoing owner before it is closed, so no route can reach a retiring adapter. */
+    private fun detachActiveAdapterLocked() {
+        mirrorJob?.cancel()
+        mirrorJob = null
+        activeAdapter = null
+        activeCapabilityToken = null
+        _workspaceAuthority.value = null
+    }
+
     private inline fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {
         check(!closed.get()) { "Managed engine session is closed" }
         return adapterLease.read {
@@ -496,15 +566,19 @@ internal class ManagedEngineSession(
         val raw = location.raw.trim()
         return if (isContentUri(raw)) {
             val token = "cap-${UUID.randomUUID()}"
-            capabilityRegistry.register(token = token, treeUri = raw)
+            val grant = capabilityRegistry.register(token = token, treeUri = raw)
             PreparedSelection(
-                workspace = NativeWorkspaceSelection.Saf(capabilityToken = token),
-                capabilityToken = token,
+                workspace = NativeWorkspaceSelection.Saf(grant),
+                capabilityToken = grant.capabilityToken,
+                // Stable tree identity, never the rotating process capability.
+                stableWorkspaceId = grant.stableWorkspaceId.value,
             )
         } else {
+            val rootPath = File(raw)
             PreparedSelection(
-                workspace = NativeWorkspaceSelection.Direct(rootPath = File(raw)),
+                workspace = NativeWorkspaceSelection.Direct(rootPath = rootPath),
                 capabilityToken = null,
+                stableWorkspaceId = "direct:${rootPath.absolutePath}",
             )
         }
     }
@@ -524,6 +598,13 @@ internal class ManagedEngineSession(
     private data class PreparedSelection(
         val workspace: NativeWorkspaceSelection,
         val capabilityToken: String?,
+        val stableWorkspaceId: String,
+    )
+
+    /** Outcome of releasing the outgoing workspace owner during a switch or process close. */
+    private data class AdapterRetirement(
+        val previousToken: String?,
+        val failure: Throwable?,
     )
 }
 
@@ -591,6 +672,7 @@ private fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
         is NativeJobStep.Failed -> throw terminal.failure.toWorkspaceCommandException()
         is NativeJobStep.BlockedByConflict -> throw terminal.failure.toWorkspaceCommandException()
         NativeJobStep.Running,
+        is NativeJobStep.RunningNative,
         is NativeJobStep.NeedsPlatformBatch,
         ->
             throw MarkdownWorkspaceCommandException(

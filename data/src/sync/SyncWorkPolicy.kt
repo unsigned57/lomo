@@ -1,10 +1,8 @@
 package com.lomo.data.sync
 
-import com.lomo.data.worker.GitSyncWorker
-import com.lomo.data.worker.WebDavSyncWorker
+import com.lomo.data.worker.RustSyncWorker
 import com.lomo.domain.model.SyncBackendType
 import java.time.Duration
-
 
 interface SyncWorkPolicy<Input> {
     fun plan(input: Input): SyncWorkDecision
@@ -117,41 +115,24 @@ class RemoteAutoSyncWorkPolicy(
         )
 }
 
-class WebDavSyncWorkPolicyPlanner {
-        private val policy =
-            RemoteAutoSyncWorkPolicy(
-                backend = SyncBackendType.WEBDAV,
-                uniqueWorkName = WebDavSyncWorker.WORK_NAME,
-                workPayload = SyncWorkPayload.StandardRemoteSync,
-                retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
-            )
+/** Single post-cutover auto-schedule planner for the Rust remote-sync worker. */
+class RustSyncWorkPolicyPlanner {
+    private val policy =
+        RemoteAutoSyncWorkPolicy(
+            backend = SyncBackendType.NONE,
+            uniqueWorkName = RustSyncWorker.WORK_NAME,
+            workPayload = SyncWorkPayload.StandardRemoteSync,
+            retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
+        )
 
-        fun planAutoSchedule(interval: String): SyncWorkDecision =
-            policy.plan(
-                RemoteAutoSyncWorkInput(
-                    trigger = SyncWorkTrigger.PERIODIC_AUTO_SYNC,
-                    requestedInterval = parseRemoteAutoSyncInterval(interval),
-                ),
-            )
-    }
-
-class GitSyncWorkPolicyPlanner {
-        private val policy =
-            RemoteAutoSyncWorkPolicy(
-                backend = SyncBackendType.GIT,
-                uniqueWorkName = GitSyncWorker.WORK_NAME,
-                workPayload = SyncWorkPayload.StandardRemoteSync,
-                retryPolicy = REMOTE_AUTO_SYNC_RETRY_POLICY,
-            )
-
-        fun planAutoSchedule(interval: String): SyncWorkDecision =
-            policy.plan(
-                RemoteAutoSyncWorkInput(
-                    trigger = SyncWorkTrigger.PERIODIC_AUTO_SYNC,
-                    requestedInterval = parseRemoteAutoSyncInterval(interval),
-                ),
-            )
-    }
+    fun planAutoSchedule(interval: String): SyncWorkDecision =
+        policy.plan(
+            RemoteAutoSyncWorkInput(
+                trigger = SyncWorkTrigger.PERIODIC_AUTO_SYNC,
+                requestedInterval = parseRemoteAutoSyncInterval(interval),
+            ),
+        )
+}
 
 internal val DEFAULT_REMOTE_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(REMOTE_AUTO_SYNC_HOURS_1)
 

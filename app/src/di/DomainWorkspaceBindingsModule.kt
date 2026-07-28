@@ -19,7 +19,7 @@ val domainWorkspaceModule = module {
         SwitchRootStorageUseCase(
             directorySettingsRepository = get(),
             workspaceStateResolver = get(),
-            writeFreezeRepository = get(),
+            workspaceMutationLease = get(),
             engineReadinessRepository = get(),
             workspaceCandidateValidator = get(),
         )

@@ -1,5 +1,5 @@
 package com.lomo.app.feature.settings
-import com.lomo.app.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
@@ -277,7 +277,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         kotlinx.coroutines.runBlocking {
             appConfigRepository.setCheckUpdatesOnStartup(checkUpdatesOnStartupEnabled)
         }
-        val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, FakeWorkspaceStateResolver(), FakeWriteFreezeRepository(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
+        val switchRootStorageUseCase = SwitchRootStorageUseCase(appConfigRepository, FakeWorkspaceStateResolver(), FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository())
         val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository(currentVersion)
 
         return SystemFeatureFixture(

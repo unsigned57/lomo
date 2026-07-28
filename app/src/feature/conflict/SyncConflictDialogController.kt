@@ -1,5 +1,6 @@
 package com.lomo.app.feature.conflict
 
+import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import kotlinx.coroutines.flow.StateFlow
 
 data class SyncConflictDialogController(
@@ -15,4 +16,5 @@ data class SyncConflictDialogController(
     val onDismiss: () -> Unit,
     val onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
     val onShowReviewDialog: (com.lomo.domain.model.SyncReviewSession) -> Unit,
+    val onShowRemoteSession: (RemoteSyncConflictDialogUseCase.OpenSession) -> Unit,
 )

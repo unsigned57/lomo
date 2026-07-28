@@ -161,7 +161,7 @@ mod tests {
                             return after;
                         }
                     }
-                    JobStep::Running => {}
+                    JobStep::Running | JobStep::RunningNative { .. } => {}
                     JobStep::BlockedByConflict { .. }
                     | JobStep::Completed
                     | JobStep::Failed { .. } => return step,

@@ -14,7 +14,6 @@ import com.lomo.nativebridge.JobStep
 import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.ShutdownOutcome
 import com.lomo.nativebridge.WorkspaceDescriptor
-import com.lomo.nativebridge.planSyncEnvelope
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -33,9 +32,7 @@ class NativeSmokeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
-            check(planSyncEnvelope(EMPTY_S3_REQUEST).contentEquals(EMPTY_PLAN)) {
-                "native planner returned unexpected sync v1 bytes"
-            }
+            // P5-13: sync-v1 planSyncEnvelope absorbed with lomo-sync-core.
             runFormalEngineSmoke()
             runConcurrentCloseUseSmoke()
             runSafCrudMatrix()
@@ -145,6 +142,7 @@ class NativeSmokeActivity : Activity() {
                     exchangeRoot = exchange.absolutePath,
                     workspace =
                         WorkspaceDescriptor.Saf(
+                            stableWorkspaceId = "ws-saf-smoke-callback",
                             capabilityToken = "smoke-saf-callback",
                         ),
                     bootstrapDeadlineMillis = 30_000uL,
@@ -396,11 +394,5 @@ class NativeSmokeActivity : Activity() {
 
     private companion object {
         const val LOG_TAG = "LomoNativeSmoke"
-        val EMPTY_S3_REQUEST =
-            hex("4c4f4d4f010001000000000000000000000000000000000000000000000000000000000000000000")
-        val EMPTY_PLAN = hex("4c4f4d4f01000000000000000000")
-
-        fun hex(value: String): ByteArray =
-            value.chunked(2).map { Integer.parseInt(it, 16).toByte() }.toByteArray()
     }
 }

@@ -18,6 +18,7 @@ xtask; they are not public quality orchestrators.
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
 | Real API ≥ 26 device native load/engine smoke (arm64 or x86_64) | `just device-smoke` |
+| Real remote provider round trip (credential-gated) | `just sync-provider-smoke [line]` |
 | Check or update dependencies | `just deps check`, `just deps update` |
 | Planner/size/LLVM diagnostics | `just perf` |
 | Audit or clean generated state | `just cache audit`, `just cache clean` |
@@ -36,6 +37,7 @@ configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PA
 | `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
 | `just device-smoke` | Builds a minimal smoke APK, installs it on an attached API ≥ 26 device with a packaged ABI (`arm64-v8a` or `x86_64`), loads `liblomo_native_jni.so`, and exercises the formal engine/planner smoke surface. Stage-1 hard gate on this line is arm64 API ≥ 26; API 26 AVD is optional non-claim | the rest of the quality gate |
+| `just sync-provider-smoke` | Six locked Stage-5 provider lines (Nutstore, Nextcloud, AWS S3, Cloudflare R2, GitHub, GitLab). Each line resolves its `LOMO_SMOKE_*` credentials, then drives the production remote port through an isolated snapshot → publish → verify → conditional delete → verify-absent round trip. Lines without credentials stay `OPEN / pending_env` and the command exits non-zero | everything else; never invoked by `just check` / `just ci` (the smoke targets are `#[ignore]`d so a credential-less run can never report a provider pass) |
 
 ### Format corpora
 
@@ -95,8 +97,8 @@ GREEN.
 Current production native transport is BoltFFI/JNI. Historical UniFFI/JNA numbers remain
 immutable in `fixtures/baseline/ffi-transport-baseline.v1.json` and
 `fixtures/baseline/size-baseline.v1.json`. Host size gates and arm64 `just device-smoke` are GREEN
-per [BOLTFFI-MIGRATION-PLAN.md](../BOLTFFI-MIGRATION-PLAN.md) and
-`fixtures/baseline/STAGE1-EVIDENCE.md`; UniFFI is not restored for any open residual product work.
+per `fixtures/baseline/STAGE1-EVIDENCE.md` and
+`fixtures/baseline/size-baseline.v1.json`; UniFFI is not restored for any open residual product work.
 
 - Rust: channel from `rust/rust-toolchain.toml` (currently `1.97`), matching
   `workspace.package.rust-version`, Edition 2024, components `rustfmt`, `clippy`,

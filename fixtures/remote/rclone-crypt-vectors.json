@@ -26,7 +26,7 @@
     {
       "id": "plain-data-block",
       "mode": "data",
-      "plaintext_utf8": "hello-lomo-fixture",
+      "plaintext_utf8": "hello-lomo-fixture\n",
       "ciphertext_hex": "52434c4f4e4500007857de49c7e359904998557133953426208b5d0996883bda1da7bc641c9b9602b4b28f2d1a7deefac8a11b4eeb4475ebe780f986829c88768ee961",
       "ciphertext_name": "9mlek2dfi2om0vokast1sgpa00",
       "notes": "Verified data encryption for file data.txt with RCLONE header magic."

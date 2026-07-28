@@ -39,7 +39,7 @@ import com.lomo.domain.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.testing.fakes.FakeMediaRepository
 import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
 import com.lomo.domain.testing.fakes.FakeMemoStore
-import com.lomo.domain.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.domain.testing.fakes.FakeWorkspaceMutationLease
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
@@ -50,7 +50,8 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
     private val memoRepository = FakeMemoStore()
     private val directorySettingsRepository = FakeDirectorySettingsRepository()
     private val engineReadinessRepository = FakeEngineReadinessRepository()
-    private val writeFreezeRepository = FakeWriteFreezeRepository()
+    private val workspaceMutationLease =
+        FakeWorkspaceMutationLease(engineReadiness = engineReadinessRepository)
     private val initializeWorkspaceUseCase =
         InitializeWorkspaceUseCase(
             directorySettingsRepository = directorySettingsRepository,
@@ -62,8 +63,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             FakeMemoMutationRepository(memoRepository),
             initializeWorkspaceUseCase,
             validator,
-            engineReadinessRepository,
-            writeFreezeRepository,
+            workspaceMutationLease,
         )
 
     init {
@@ -90,15 +90,16 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("invoke fails closed when write freeze is active") {
+        test("invoke fails closed while a workspace transition holds the lease") {
             runTest {
                 directorySettingsRepository.setLocation(StorageArea.ROOT, StorageLocation("/workspace"))
-                writeFreezeRepository.begin()
 
                 val error =
-                    runCatching {
-                        useCase(content = "new memo", timestampMillis = 123L)
-                    }.exceptionOrNull()
+                    workspaceMutationLease.withExclusiveTransition {
+                        runCatching {
+                            useCase(content = "new memo", timestampMillis = 123L)
+                        }.exceptionOrNull()
+                    }
 
                 val blocked = error.shouldBeInstanceOf<IllegalStateException>()
                 blocked.message.shouldContain("switch is in progress")

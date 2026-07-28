@@ -5,26 +5,28 @@ package com.lomo.domain.usecase
  * - Unit under test: SwitchRootStorageUseCase.
  * - Owning layer: domain.
  * - Priority tier: P0.
- * - Capability: prepare/validate candidate, freeze writes, persist selection, activate engine,
- *   rebuild, then unfreeze. Failure before or during switch leaves the previous selection,
- *   previous engine, and previous index authoritative and releases freeze. Soft non-Ready activate
+ * - Capability: prepare/validate candidate, take an exclusive mutation transition, persist selection, activate
+ *   engine, rebuild, then reopen admissions. Failure before or during switch leaves the previous
+ *   selection, previous engine, and previous index authoritative and always reopens admissions.
+ *   Soft non-Ready activate
  *   is a failure. Rebuild failure after Room clear restores previous index via mandatory rebuild.
  *
  * Scenarios:
- * - Given a valid candidate, when switch succeeds, then freeze begins, selection persists, engine
- *   activates, rebuild runs, freeze ends.
- * - Given candidate validation fails, when switch is requested, then nothing is persisted and freeze
+ * - Given a valid candidate, when switch succeeds, then the transition opens, selection persists,
+ *   engine activates, rebuild runs, and admissions reopen.
+ * - Given candidate validation fails, when switch is requested, then nothing is persisted and no
+ *   transition
  *   never begins.
- * - Given persist fails after freeze begins, when switch aborts, then freeze is released and rebuild
+ * - Given persist fails inside the transition, when switch aborts, then admissions reopen and rebuild
  *   does not run.
  * - Given activate fails after persist, when switch aborts, then previous selection is restored,
- *   previous index is rebuilt, and freeze ends.
+ *   previous index is rebuilt, and admissions reopen.
  * - Given activate succeeds but rebuild fails after clear, when switch aborts, then previous
  *   selection+engine are restored and previous index is rebuilt (not left empty).
  *
- * Observable outcomes: ordered event log, freeze begin/end counts, applied updates, activate calls,
+ * Observable outcomes: ordered event log, transition count, admissibility, applied updates, activate calls,
  * rebuild counts.
- * TDD proof: fails before freeze/validate/activate ordering is required by SwitchRootStorageUseCase;
+ * TDD proof: fails before transition/validate/activate ordering is required by SwitchRootStorageUseCase;
  * A-SW-002 RED: rebuild-fail-after-clear left rebuildCount=1 without restore rebuild.
  * Excludes: concrete SAF/engine open validation and UI navigation.
  *
@@ -34,7 +36,7 @@ package com.lomo.domain.usecase
  *   sole index authority after root change.
  * - Why old assertion is no longer correct: rebuild now targets the Rust store-backed index; Room
  *   clear is no longer the production recovery path.
- * - Coverage preserved by: freeze/validate/persist/activate/rebuild ordering and restore-on-failure
+ * - Coverage preserved by: transition/validate/persist/activate/rebuild ordering and restore-on-failure
  *   scenarios remain asserted.
  * - Why this is not fitting the test to the implementation: outcomes stay use-case event order and
  *   authority restore, not store SQL.
@@ -48,7 +50,7 @@ import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
 import com.lomo.domain.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.testing.fakes.FakeWorkspaceStateResolver
-import com.lomo.domain.testing.fakes.FakeWriteFreezeRepository
+import com.lomo.domain.testing.fakes.FakeWorkspaceMutationLease
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
@@ -57,7 +59,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
     private val eventLog = mutableListOf<String>()
     private val directorySettingsRepository = FakeDirectorySettingsRepository(eventLog)
     private val workspaceStateResolver = FakeWorkspaceStateResolver(eventLog)
-    private val writeFreezeRepository = FakeWriteFreezeRepository()
+    private val workspaceMutationLease = FakeWorkspaceMutationLease()
     private val engineReadinessRepository = FakeEngineReadinessRepository()
     private lateinit var useCase: SwitchRootStorageUseCase
 
@@ -68,8 +70,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             workspaceStateResolver.rebuildFailure = null
             workspaceStateResolver.remainingRebuildFailures = 0
             workspaceStateResolver.remainingRebuildFailure = null
-            writeFreezeRepository.beginResult = true
-            engineReadinessRepository.remainingActivateFailures = 0
+                        engineReadinessRepository.remainingActivateFailures = 0
             engineReadinessRepository.activateCount = 0
             engineReadinessRepository.clearCount = 0
             engineReadinessRepository.activateFailure = IllegalStateException("open failed")
@@ -77,7 +78,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 SwitchRootStorageUseCase(
                     directorySettingsRepository = directorySettingsRepository,
                     workspaceStateResolver = workspaceStateResolver,
-                    writeFreezeRepository = writeFreezeRepository,
+                    workspaceMutationLease = workspaceMutationLease,
                     engineReadinessRepository = engineReadinessRepository,
                     workspaceCandidateValidator =
                         WorkspaceCandidateValidator { location ->
@@ -87,7 +88,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 )
         }
 
-        test("updateRootLocation freezes writes, persists, activates engine, rebuilds, then unfreezes") {
+        test("updateRootLocation takes a transition, persists, activates engine, rebuilds, then reopens") {
             runTest {
                 val previous = StorageLocation("/tmp/previous")
                 directorySettingsRepository.setLocation(StorageArea.ROOT, previous)
@@ -100,9 +101,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 workspaceStateResolver.rebuildCallCount shouldBe 1
                 engineReadinessRepository.activateCount shouldBe 1
                 engineReadinessRepository.lastActivated shouldBe location
-                writeFreezeRepository.beginCount shouldBe 1
-                writeFreezeRepository.endCount shouldBe 1
-                writeFreezeRepository.isFrozen.value shouldBe false
+                workspaceMutationLease.transitionCount shouldBe 1
+                workspaceMutationLease.isWritable() shouldBe true
                 eventLog shouldBe
                     listOf(
                         "workspace.validateCandidate",
@@ -112,13 +112,13 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             }
         }
 
-        test("updateRootLocation does not freeze or persist when candidate validation fails") {
+        test("updateRootLocation takes no transition and persists nothing when candidate validation fails") {
             runTest {
                 val failing =
                     SwitchRootStorageUseCase(
                         directorySettingsRepository = directorySettingsRepository,
                         workspaceStateResolver = workspaceStateResolver,
-                        writeFreezeRepository = writeFreezeRepository,
+                        workspaceMutationLease = workspaceMutationLease,
                         engineReadinessRepository = engineReadinessRepository,
                         workspaceCandidateValidator =
                             WorkspaceCandidateValidator {
@@ -133,13 +133,12 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 directorySettingsRepository.appliedUpdates shouldBe emptyList()
                 workspaceStateResolver.rebuildCallCount shouldBe 0
                 engineReadinessRepository.activateCount shouldBe 0
-                writeFreezeRepository.beginCount shouldBe 0
-                writeFreezeRepository.endCount shouldBe 0
+                workspaceMutationLease.transitionCount shouldBe 0
                 eventLog shouldBe listOf("workspace.validateCandidate")
             }
         }
 
-        test("updateRootLocation releases freeze when persist fails") {
+        test("updateRootLocation reopens admissions when persist fails") {
             runTest {
                 directorySettingsRepository.applyFailure = IllegalStateException("failed")
 
@@ -151,9 +150,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 directorySettingsRepository.appliedUpdates shouldBe emptyList()
                 workspaceStateResolver.rebuildCallCount shouldBe 0
                 engineReadinessRepository.activateCount shouldBe 0
-                writeFreezeRepository.beginCount shouldBe 1
-                writeFreezeRepository.endCount shouldBe 1
-                writeFreezeRepository.isFrozen.value shouldBe false
+                workspaceMutationLease.transitionCount shouldBe 1
+                workspaceMutationLease.isWritable() shouldBe true
             }
         }
 
@@ -179,9 +177,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 workspaceStateResolver.rebuildCallCount shouldBe 1
                 // activate attempted for candidate then for restore
                 engineReadinessRepository.activateCount shouldBe 2
-                writeFreezeRepository.beginCount shouldBe 1
-                writeFreezeRepository.endCount shouldBe 1
-                writeFreezeRepository.isFrozen.value shouldBe false
+                workspaceMutationLease.transitionCount shouldBe 1
+                workspaceMutationLease.isWritable() shouldBe true
             }
         }
 
@@ -199,9 +196,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
 
                 val restoreError = error.shouldBeInstanceOf<WorkspaceAuthorityRestoreException>()
                 restoreError.suppressed.single().shouldBeInstanceOf<IllegalStateException>()
-                writeFreezeRepository.beginCount shouldBe 1
-                writeFreezeRepository.endCount shouldBe 1
-                writeFreezeRepository.isFrozen.value shouldBe false
+                workspaceMutationLease.transitionCount shouldBe 1
+                workspaceMutationLease.isWritable() shouldBe true
             }
         }
 
@@ -227,9 +223,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 workspaceStateResolver.rebuildCallCount shouldBe 1
                 engineReadinessRepository.activateCount shouldBe 2
                 engineReadinessRepository.lastActivated shouldBe previous
-                writeFreezeRepository.beginCount shouldBe 1
-                writeFreezeRepository.endCount shouldBe 1
-                writeFreezeRepository.isFrozen.value shouldBe false
+                workspaceMutationLease.transitionCount shouldBe 1
+                workspaceMutationLease.isWritable() shouldBe true
                 eventLog shouldBe
                     listOf(
                         "workspace.validateCandidate",

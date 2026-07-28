@@ -609,8 +609,12 @@ set -euo pipefail
 REAL_CLANG={real}
 PATCH_SCRIPT={patch}
 EXTRA=()
+SHARED=0
 for arg in "$@"; do
   case "$arg" in
+    -shared)
+      SHARED=1
+      ;;
     *jni_glue.c)
       if [[ -f "$arg" ]]; then
         # Fail closed: a missing helper or failed inject must stop the link.
@@ -621,6 +625,13 @@ for arg in "$@"; do
       ;;
   esac
 done
+# libgit2 (via lomo-git) needs zlib. libz-sys on Android emits only `cargo:rustc-link-lib=z`
+# against the system libz. That dependency is retained for cdylib crates, but BoltFFI's
+# staticlib → final liblomo_native_jni.so link can drop DT_NEEDED libz.so and leave crc32/
+# deflate undefined. Force -lz on every shared-object link so the packaged SO loads on device.
+if [[ "$SHARED" -eq 1 ]]; then
+  EXTRA+=(-lz)
+fi
 exec "$REAL_CLANG" "$@" "${{EXTRA[@]}}"
 "#,
         real = shell_quote(&real_clang.display().to_string()),
@@ -944,14 +955,14 @@ pub fn verify_native_tree(
     // libraries for faster host iteration and must not be cited as shipping GREEN.
     let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
     if shipping && abis.len() == Abi::ALL.len() {
-        // Stage-3 `lomo-store` + stage-4 `lomo-media`/archive path-only FFI expand the shipping surface
-        // beyond the stage-2 workspace owner total (~3.28 MiB / 3.6 MiB ceiling). Observed stripped
-        // `release-android` four-ABI total after media cutover is ~9.2 MiB; keep modest headroom for
-        // non-semantic native churn without absorbing Dev packs.
-        const MAX_FOUR_ABI_BYTES: u64 = 10_500_000;
+        // Stage-5 production SO includes vendored libgit2/OpenSSL via `lomo-git` composition.
+        // Host-measured stripped release-android four-ABI sum is ~42.3 MiB (see
+        // fixtures/baseline/stage5-native-size-ceiling.v1.json MEASURED_HOST); ceiling is that
+        // sum + 10% margin. Hard APK gate remains Stage-0 compressed baseline × 1.15 separately.
+        const MAX_FOUR_ABI_BYTES: u64 = 46_530_532;
         if total_bytes > MAX_FOUR_ABI_BYTES {
             bail!(
-                "shipping four-ABI native total {total_bytes} exceeds stage-4 media shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
+                "shipping four-ABI native total {total_bytes} exceeds stage-5 git-native shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
             );
         }
         crate::util::emit_stderr(format_args!(
@@ -1000,6 +1011,20 @@ fn verify_one_library(readelf: &Path, abi: Abi, path: &Path) -> Result<()> {
                 path.display()
             );
         }
+    }
+    // libgit2 needs zlib. Android system libz is the approved resolution path (libz-sys does not
+    // vendor on Android). If zlib entry points remain undefined, DT_NEEDED must include libz.so —
+    // otherwise device dlopen fails with UnsatisfiedLinkError (crc32/deflate).
+    let needs_zlib = [" crc32", " deflate", " inflate"].iter().any(|symbol| {
+        exports
+            .lines()
+            .any(|line| line.contains("UND") && line.contains(symbol))
+    });
+    if needs_zlib && !dynamic.contains("libz.so") {
+        bail!(
+            "{} has undefined zlib symbols without DT_NEEDED libz.so; force -lz on the final shared link",
+            path.display()
+        );
     }
     Ok(())
 }

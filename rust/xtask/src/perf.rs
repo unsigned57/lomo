@@ -310,7 +310,7 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
                 "lomo-native".to_owned(),
                 "staticlib+rlib+BoltFFI JNI (liblomo_native_jni.so)".to_owned(),
             ),
-            ("lomo-sync-core".to_owned(), "planner-v1".to_owned()),
+            ("lomo-sync".to_owned(), "durable-sync-core".to_owned()),
             (
                 "feasibility".to_owned(),
                 "rusqlite+pulldown-cmark+reqwest/rustls+git2 probes".to_owned(),
@@ -329,11 +329,12 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
 
 /// Required host metrics other than the 100k scale owner (planner/sqlite/fixture).
 fn measure_required_non_scale_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
-    let mut metrics = Vec::new();
-    metrics.extend(measure_planner_metrics(workspace)?);
-    metrics.push(measure_sqlite_metric(workspace)?);
-    metrics.push(measure_markdown_metric(workspace)?);
-    Ok(metrics)
+    // P5-13: frozen sync-v1 planner crate deleted; durable lomo-sync hermetic contracts own planning.
+    // No host planner trio metrics remain under the Stage-0 UniFFI surface.
+    Ok(vec![
+        measure_sqlite_metric(workspace)?,
+        measure_markdown_metric(workspace)?,
+    ])
 }
 
 /// Optional noisy I/O / device probes. Exclusion never invents Pass.
@@ -508,66 +509,6 @@ fn average_metric(left: &BaselineMetricV1, right: &BaselineMetricV1) -> Baseline
 const fn hard_gate_max_bytes(apk_compressed_bytes: u64) -> u64 {
     // 115% hard gate using integer arithmetic (ceil via +99/100).
     apk_compressed_bytes.saturating_mul(115).saturating_add(99) / 100
-}
-
-fn measure_planner_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
-    let mut command = cargo(workspace);
-    command.args([
-        "run",
-        "--locked",
-        "--release",
-        "-p",
-        "lomo-sync-core",
-        "--example",
-        "planner_benchmark",
-        "--",
-        "1000",
-    ]);
-    let stdout = text_output(&mut command)?;
-    let mut metrics = Vec::new();
-    for line in stdout.lines().skip(1) {
-        let columns: Vec<&str> = line.split(',').collect();
-        if columns.len() < 5 {
-            continue;
-        }
-        let scenario = columns.first().copied().unwrap_or("");
-        let size = columns.get(1).copied().unwrap_or("");
-        let iterations: u32 = columns
-            .get(2)
-            .copied()
-            .unwrap_or("0")
-            .parse()
-            .context("planner iterations from benchmark CSV")?;
-        let p50: f64 = columns
-            .get(3)
-            .copied()
-            .unwrap_or("0")
-            .parse()
-            .context("planner p50")?;
-        let p95: f64 = columns
-            .get(4)
-            .copied()
-            .unwrap_or("0")
-            .parse()
-            .context("planner p95")?;
-        metrics.push(BaselineMetricV1 {
-            name: format!("planner_{scenario}_{size}"),
-            unit: "ms".to_owned(),
-            p50,
-            p95,
-            // Planner runs as a cargo subprocess; xtask /proc/self HWM is not the workload RSS.
-            peak_rss_bytes: None,
-            network_request_count: None,
-            samples: Some(iterations),
-            workload_summary: format!("sync_v1_{scenario}_size_{size}_iterations_{iterations}"),
-            result_count: None,
-            warm_path_p50_ms: None,
-        });
-    }
-    if metrics.is_empty() {
-        bail!("planner_benchmark produced no CSV metrics");
-    }
-    Ok(metrics)
 }
 
 fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {

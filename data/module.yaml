@@ -26,13 +26,9 @@ repositories:
 dependencies:
   - //domain: exported
   - //native-bindings
-  - bom: aws.sdk.kotlin:bom:1.6.73
   - androidx.core:core-ktx:1.18.0
   - androidx.paging:paging-common:3.5.0
-  - aws.sdk.kotlin:s3
-  - aws.smithy.kotlin:http-client-engine-okhttp
   - org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0: runtime-only
-  - org.bouncycastle:bcprov-jdk18on:1.84
   - io.insert-koin:koin-android:4.0.0: exported
   - io.insert-koin:koin-androidx-workmanager:4.0.0: exported
   - androidx.documentfile:documentfile:1.1.0
@@ -45,7 +41,6 @@ dependencies:
   - io.ktor:ktor-client-content-negotiation:3.5.0
   - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
   - com.squareup.okio:okio:3.17.0
-  - org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r: exported
   - com.jakewharton.timber:timber:5.0.1
 
 test-dependencies:

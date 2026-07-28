@@ -7,6 +7,7 @@ import com.lomo.data.source.WorkspaceConfigSource
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.OutputStream
+import com.lomo.domain.repository.WorkspaceMutationLease
 
 
 data class WorkspaceMediaDescriptor(
@@ -47,7 +48,7 @@ interface WorkspaceMediaAccess {
 class DefaultWorkspaceMediaAccess(
     private val context: Context,
     private val workspaceConfigSource: WorkspaceConfigSource,
-    private val writeAuthority: WorkspaceWriteAuthority,
+    private val writeLease: WorkspaceMutationLease,
 ) : WorkspaceMediaAccess {
         override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
@@ -86,15 +87,16 @@ class DefaultWorkspaceMediaAccess(
             filename: String,
             source: suspend (OutputStream) -> Unit,
         ) {
-            writeAuthority.requireWritable()
-            val safeFilename = requireWorkspaceMediaFilename(filename)
-            val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
-                "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
-            }
-            if (isContentUriRoot(root)) {
-                writeWorkspaceSafFileFromStream(context, category, root, safeFilename, source)
-            } else {
-                writeWorkspaceDirectFileFromStream(File(root), safeFilename, source)
+            writeLease.withWrite {
+                val safeFilename = requireWorkspaceMediaFilename(filename)
+                val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
+                    "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
+                }
+                if (isContentUriRoot(root)) {
+                    writeWorkspaceSafFileFromStream(context, category, root, safeFilename, source)
+                } else {
+                    writeWorkspaceDirectFileFromStream(File(root), safeFilename, source)
+                }
             }
         }
 
@@ -102,11 +104,12 @@ class DefaultWorkspaceMediaAccess(
             category: WorkspaceMediaCategory,
             filename: String,
         ) {
-            writeAuthority.requireWritable()
-            // D6: permanent committed-media reclaim is media-trash / orphan sweep only.
-            throw UnsupportedOperationException(
-                "WorkspaceMediaAccess.deleteFile is retired after P4-10A; use MediaRepository remove paths",
-            )
+            writeLease.withWrite {
+                // D6: permanent committed-media reclaim is media-trash / orphan sweep only.
+                throw UnsupportedOperationException(
+                    "WorkspaceMediaAccess.deleteFile is retired after P4-10A; use MediaRepository remove paths",
+                )
+            }
         }
     }
 

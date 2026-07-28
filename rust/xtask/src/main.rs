@@ -6,6 +6,7 @@ mod cli;
 mod deps;
 mod native;
 mod perf;
+mod provider_smoke;
 mod quality;
 mod rust_pin;
 mod tools;

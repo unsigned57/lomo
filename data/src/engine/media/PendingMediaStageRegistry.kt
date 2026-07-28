@@ -42,24 +42,30 @@ class PendingMediaStageRegistry {
     ): List<MediaPromotePlan> {
         val plans = ArrayList<MediaPromotePlan>()
         val seenDigests = HashSet<String>()
-        for (raw in destinations) {
-            val key = raw.trim()
-            if (key.isEmpty()) continue
-            val staged = remove(key) ?: remove(key.substringAfterLast('/')) ?: continue
-            if (!seenDigests.add(staged.digest)) continue
-            val finalRel =
-                staged.suggestedFinalRelativePath.ifBlank {
-                    if (key.contains('/')) key else "media/$key"
+        destinations
+            .asSequence()
+            .map { raw -> raw.trim() }
+            .filter { key -> key.isNotEmpty() }
+            .mapNotNull { key -> resolveStaged(key)?.let { key to it } }
+            .forEach { (key, staged) ->
+                if (seenDigests.add(staged.digest)) {
+                    val finalRel =
+                        staged.suggestedFinalRelativePath.ifBlank {
+                            if (key.contains('/')) key else "media/$key"
+                        }
+                    plans +=
+                        MediaPromotePlan(
+                            operationId = operationId,
+                            staged = staged,
+                            finalRelativePath = finalRel,
+                        )
                 }
-            plans +=
-                MediaPromotePlan(
-                    operationId = operationId,
-                    staged = staged,
-                    finalRelativePath = finalRel,
-                )
-        }
+            }
         return plans
     }
+
+    private fun resolveStaged(key: String): MediaStagedFacts? =
+        remove(key) ?: remove(key.substringAfterLast('/'))
 
     fun clear() {
         byKey.clear()
