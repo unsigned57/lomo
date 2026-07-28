@@ -956,6 +956,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lomo-lan"
+version = "0.1.0"
+dependencies = [
+ "aws-lc-rs",
+ "lomo-core",
+ "lomo-store",
+ "lomo-workspace",
+ "serde",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "lomo-media"
 version = "0.1.0"
 dependencies = [

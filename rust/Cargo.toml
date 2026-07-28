@@ -6,6 +6,7 @@ members = [
     "core",
     "feasibility",
     "feasibility-device",
+    "lan",
     "media",
     "native",
     "store",
@@ -40,6 +41,10 @@ cipher = { version = "=0.4.4", default-features = false }
 scrypt = { version = "=0.11.0", default-features = false }
 # Successor of deprecated `xsalsa20poly1305` (RUSTSEC-2023-0037 rename).
 crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["alloc", "salsa20"] }
+# LAN (stage 6) crypto provider: already linked for four ABIs through rustls/reqwest. Supplies
+# X25519 agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verify and the system CSPRNG,
+# so `lomo-lan` adds no second crypto generation and no new native code.
+aws-lc-rs = { version = "=1.17.3", default-features = false, features = ["alloc", "aws-lc-sys"] }
 rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 # Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl).
 git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }
