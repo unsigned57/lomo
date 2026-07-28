@@ -8,6 +8,10 @@ publish = false
 autotests = false
 
 [[test]]
+name = "batch_contract"
+path = "tests/batch_contract.rs"
+
+[[test]]
 name = "frame_codec_contract"
 path = "tests/frame_codec_contract.rs"
 

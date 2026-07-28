@@ -14,6 +14,7 @@
 
 #![deny(unsafe_code)]
 
+mod batch;
 mod error;
 mod frame;
 mod identity;
@@ -21,6 +22,10 @@ mod limits;
 mod pairing;
 mod session;
 
+pub use batch::{
+    LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchPreview, LanBatchSnapshot,
+    LanItemId, LanItemOutcome, LanItemPlan,
+};
 pub use error::{
     authentication as lan_authentication, cancelled as lan_cancelled, conflict as lan_conflict,
     corrupt_state as lan_corrupt_state, network as lan_network, permission as lan_permission,
