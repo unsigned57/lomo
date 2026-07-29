@@ -12,6 +12,10 @@ name = "batch_contract"
 path = "tests/batch_contract.rs"
 
 [[test]]
+name = "commit_contract"
+path = "tests/commit_contract.rs"
+
+[[test]]
 name = "frame_codec_contract"
 path = "tests/frame_codec_contract.rs"
 
@@ -29,6 +33,7 @@ path = "tests/session_crypto_contract.rs"
 
 [dependencies]
 lomo-core = { path = "../core" }
+lomo-store = { path = "../store" }
 # LAN crypto reuses the audited provider already linked for four ABIs through rustls: X25519
 # agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verification and the system CSPRNG.
 # A second (RustCrypto) generation would duplicate rand_core/cpufeatures and grow every ABI.

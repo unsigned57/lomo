@@ -15,6 +15,7 @@
 #![deny(unsafe_code)]
 
 mod batch;
+mod commit;
 mod error;
 mod frame;
 mod identity;
@@ -27,6 +28,7 @@ pub use batch::{
     LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchPreview, LanBatchSnapshot,
     LanItemId, LanItemOutcome, LanItemPlan,
 };
+pub use commit::{ApprovedGeneration, ReceivedItem, authorize_item_commit};
 pub use error::{
     authentication as lan_authentication, cancelled as lan_cancelled, conflict as lan_conflict,
     corrupt_state as lan_corrupt_state, network as lan_network, permission as lan_permission,
