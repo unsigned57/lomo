@@ -2507,6 +2507,51 @@ mod tests {
     }
 
     #[test]
+    fn stage_six_lan_ffi_is_conversion_only_and_not_yet_production_wired() {
+        // The LAN FFI must convert and delegate. A rule re-implemented here would silently become
+        // a second authority beside `lomo-lan`.
+        let ffi = read("rust/native/src/lan_ffi.rs");
+        for delegated in [
+            "PairingTranscript::build",
+            "verify_pairing_confirmation",
+            "derive_pairing_code",
+            "LanBatchPlan::new",
+            "LanJournal::open",
+        ] {
+            assert!(
+                ffi.contains(delegated),
+                "the LAN FFI must delegate to lomo-lan rather than reimplement: {delegated}"
+            );
+        }
+
+        // Until the P6-10 cutover, production Kotlin must not reach any LAN FFI symbol: LAN
+        // production is still the Kotlin wire, and a half-wired second path is exactly the
+        // dual-stack this migration forbids.
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                for forbidden in [
+                    "lan_pairing_short_code",
+                    "lan_confirm_pairing",
+                    "lan_list_peers",
+                    "lan_revoke_peer",
+                    "lan_prepare_send",
+                    "lan_approve_receive",
+                    "lan_unconfirmed_chunks",
+                    "LanPeerPageDto",
+                    "LanBatchPreviewDto",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "LAN FFI must stay unwired until the P6-10 cutover: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn stage_five_provider_smoke_gate_stays_credential_fenced() {
         // plan3 §1 decision 15: a standalone `just sync-provider-smoke` owns the six locked lines.
         let justfile = read("Justfile");
