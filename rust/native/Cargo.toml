@@ -20,9 +20,12 @@ lomo-media = { path = "../media" }
 lomo-sync = { path = "../sync" }
 # Sole git2 adapter composition at the conversion edge (not lomo-sync → lomo-git cycle).
 lomo-git = { path = "../git" }
+# Stage-6 LAN conversion surface. `lomo-lan` never depends on `lomo-sync`; both meet only here.
+lomo-lan = { path = "../lan" }
 serde_json.workspace = true
 
 [dev-dependencies]
+aws-lc-rs.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 git2.workspace = true
@@ -30,6 +33,7 @@ lomo-workspace = { path = "../workspace" }
 lomo-media = { path = "../media" }
 lomo-sync = { path = "../sync" }
 lomo-git = { path = "../git" }
+lomo-lan = { path = "../lan" }
 
 [lints]
 workspace = true

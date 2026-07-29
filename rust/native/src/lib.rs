@@ -20,9 +20,16 @@ use lomo_core as core;
 use lomo_workspace::{self as workspace, workspace_driver_registry};
 
 // Public so BoltFFI type resolution can name `crate::media_ffi::*` wire DTOs from store_ffi.
+pub mod lan_ffi;
 pub mod media_ffi;
 mod store_ffi;
 pub mod sync_ffi;
+pub use lan_ffi::{
+    LanAttachmentDto, LanBatchPreviewDto, LanPairingTranscriptDto, LanPeerDto, LanPeerPageDto,
+    LanSendItemDto, lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing,
+    lan_list_peers, lan_pairing_short_code, lan_prepare_send, lan_revoke_peer,
+    lan_unconfirmed_chunks,
+};
 pub use media_ffi::{
     ArchiveExportResultDto, ArchiveInspectResultDto, MediaAttachmentRefDto, MediaCommittedEntryDto,
     MediaManifestDto, MediaOrphanSweepResultDto, MediaPromotePlanDto, MediaPromoteResultDto,

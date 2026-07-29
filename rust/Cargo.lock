@@ -982,10 +982,12 @@ dependencies = [
 name = "lomo-native"
 version = "0.1.0"
 dependencies = [
+ "aws-lc-rs",
  "boltffi",
  "git2",
  "lomo-core",
  "lomo-git",
+ "lomo-lan",
  "lomo-media",
  "lomo-store",
  "lomo-sync",

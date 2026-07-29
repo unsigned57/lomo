@@ -1,14 +1,14 @@
 # Stage-6 implementation evidence
 
-> Status: **P6-01…P6-07 host GREEN (2026-07-29)** — `lomo-lan` owns the LAN v2 frame codec, device
+> Status: **P6-01…P6-08 host GREEN (2026-07-29)** — `lomo-lan` owns the LAN v2 frame codec, device
 > identity, pairing transcript and short authentication code, session authentication and chunk AEAD,
 > the batch/approval/outcome model, the durable app-private journal, the per-item commit fences, and
-> the blocking transport. Two endpoints complete pairing, session authentication, chunked transfer
-> and resume over **real loopback TCP sockets**.
+> the blocking transport, and the `BoltFFI` conversion surface. Two endpoints complete pairing,
+> session authentication, chunked transfer and resume over **real loopback TCP sockets**.
 >
-> **P6-08…P6-10 OPEN** — FFI surface, Kotlin adapters, production cutover and the Kotlin tail
-> deletion have **not** landed. LAN production remains the old Kotlin HTTP wire. API ≥ 26 arm64 LAN
-> device evidence is **OPEN / `pending_env`**.
+> **P6-09…P6-10 OPEN** — Kotlin adapters, production cutover and the Kotlin tail deletion have
+> **not** landed, and the FFI surface is **not registered in production DI**. LAN production remains
+> the old Kotlin HTTP wire. API ≥ 26 arm64 LAN device evidence is **OPEN / `pending_env`**.
 
 **Honesty (this file):** nothing here is a device or production claim. Every entry below is a host
 contract run whose command and result are recorded. The transport matrix uses **real loopback TCP
@@ -36,8 +36,9 @@ remain `OPEN / pending_env` and are **not** Stage-6 blockers. See `STAGE5-EVIDEN
 | P6-05 durable journal | `rust/lan/src/journal.rs` | 10 tests |
 | P6-06 commit fences | `rust/lan/src/commit.rs` | 8 tests |
 | P6-07 transport + two-endpoint matrix | `rust/lan/src/transport.rs` | 7 tests (real sockets) |
+| P6-08 `BoltFFI` conversion surface | `rust/native/src/lan_ffi.rs` | 10 tests |
 
-### First principles (P6-01…P6-07)
+### First principles (P6-01…P6-08)
 
 1. **Invariant:** every byte that reaches the workspace is bound to one authenticated session
    transcript, one user-approved batch, one active `WorkspaceGenerationId`, and one idempotent
@@ -75,6 +76,10 @@ $ cargo test -p lomo-lan --test identity_pairing_contract --locked
 $ cargo test -p lomo-lan --test transport_contract --locked
 # GREEN: 7 passed, including
 #   two_endpoints_pair_authenticate_transfer_and_resume_over_real_sockets
+
+$ cargo test -p lomo-native --test lan_ffi_contract
+# GREEN: 10 passed (short code, transcript boundary rejects, confirm/revoke, preview limits,
+#   approval TTL, resume indices, .lomo root rejection)
 
 $ cargo test -p lomo-lan --locked
 # EXIT:0 — 62 passed
@@ -123,6 +128,11 @@ $ just check
 - **End-to-end resume.** Two endpoints pair, authenticate a session, ship two chunks, drop the
   connection, reopen the journal, retransmit exactly the unconfirmed indices, and reassemble a body
   whose digest equals the sender's plan digest — then commit exactly once under replay.
+- **Conversion-only FFI.** Every rejection observed across the `BoltFFI` boundary carries the same
+  stable `lomo-lan` code (`lan_device_key_invalid`, `lan_pairing_signature_invalid`,
+  `lan_batch_too_many_items`, `lan_attachment_too_large`, `lan_journal_root_invalid`,
+  `lan_session_id_invalid`, `lan_peer_unknown`), so no decision was re-implemented at the boundary.
+  A rejected confirmation stores no peer; an over-limit batch is refused before a socket opens.
 
 ### Approved divergences (recorded, not silent)
 
@@ -138,8 +148,9 @@ Rationale and scope are in `STAGE6-CONTRACT.md` §"Approved divergences from `RO
 
 | Residual | Status |
 | --- | --- |
-| P6-08 `lomo-native` LAN FFI surface | **OPEN** |
 | P6-09 Kotlin NSD / network / Keystore adapters + Compose | **OPEN** |
+| LAN FFI registered in production DI | **OPEN** (deliberate: cutover is P6-10) |
+| LAN session lifecycle (`start`/`stop`, live batch query) | **OPEN** (no session manager yet; no placeholder exports added) |
 | P6-10 production cutover + Kotlin tail deletion + i18n both locales | **OPEN** |
 | API ≥ 26 arm64 LAN device smoke | **OPEN / `pending_env`** |
 | Four-ABI size measure after LAN lands | **OPEN** |
