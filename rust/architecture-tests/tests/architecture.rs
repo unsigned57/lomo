@@ -2432,11 +2432,28 @@ mod tests {
 
     #[test]
     fn stage_six_lan_owner_is_unique_and_independent_of_sync() {
-        let contract = repository_root().join("fixtures/baseline/STAGE6-CONTRACT.md");
-        assert!(
-            contract.exists(),
-            "stage 6 requires versioned fixtures/baseline/STAGE6-CONTRACT.md"
-        );
+        for required_file in [
+            "fixtures/baseline/STAGE6-CONTRACT.md",
+            "fixtures/baseline/STAGE6-EVIDENCE.md",
+        ] {
+            assert!(
+                repository_root().join(required_file).exists(),
+                "stage 6 requires versioned {required_file}"
+            );
+        }
+        let evidence_text = read("fixtures/baseline/STAGE6-EVIDENCE.md");
+        for required in [
+            "RED",
+            "GREEN",
+            "First principles",
+            "pending_env",
+            "Non-claims",
+        ] {
+            assert!(
+                evidence_text.contains(required),
+                "STAGE6-EVIDENCE.md is missing required evidence text: {required}"
+            );
+        }
         let contract_text = read("fixtures/baseline/STAGE6-CONTRACT.md");
         for required in [
             "Capability",
