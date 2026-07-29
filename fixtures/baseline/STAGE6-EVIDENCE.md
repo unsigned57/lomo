@@ -1,17 +1,21 @@
 # Stage-6 implementation evidence
 
-> Status: **P6-01…P6-06 host GREEN (2026-07-29)** — `lomo-lan` owns the LAN v2 frame codec, device
+> Status: **P6-01…P6-07 host GREEN (2026-07-29)** — `lomo-lan` owns the LAN v2 frame codec, device
 > identity, pairing transcript and short authentication code, session authentication and chunk AEAD,
-> the batch/approval/outcome model, the durable app-private journal, and the per-item commit fences.
+> the batch/approval/outcome model, the durable app-private journal, the per-item commit fences, and
+> the blocking transport. Two endpoints complete pairing, session authentication, chunked transfer
+> and resume over **real loopback TCP sockets**.
 >
-> **P6-07…P6-10 OPEN** — transport sockets, FFI surface, Kotlin adapters, production cutover and the
-> Kotlin tail deletion have **not** landed. LAN production remains the old Kotlin HTTP wire.
-> API ≥ 26 arm64 LAN device evidence is **OPEN / `pending_env`**.
+> **P6-08…P6-10 OPEN** — FFI surface, Kotlin adapters, production cutover and the Kotlin tail
+> deletion have **not** landed. LAN production remains the old Kotlin HTTP wire. API ≥ 26 arm64 LAN
+> device evidence is **OPEN / `pending_env`**.
 
-**Honesty (this file):** nothing here is a device, wire-interop or production claim. Every entry
-below is a host contract run whose command and result are recorded. Do not describe Stage 6 as
-complete, do not claim a real two-device pairing, a real 100-item / 100 MB transfer, a resumed
-transfer over a real socket, an APK size measure, or arm64 device smoke from this file.
+**Honesty (this file):** nothing here is a device or production claim. Every entry below is a host
+contract run whose command and result are recorded. The transport matrix uses **real loopback TCP
+sockets between two threads in one host process** — that is a real socket, not two devices. Do not
+describe Stage 6 as complete, and do not claim a two-device pairing, a Wi-Fi transfer, NSD
+discovery, a real Android Keystore signature, a 100-item / 100 MB transfer, an APK size measure, or
+arm64 device smoke from this file.
 
 Behavior contract: `fixtures/baseline/STAGE6-CONTRACT.md`.
 
@@ -31,8 +35,9 @@ remain `OPEN / pending_env` and are **not** Stage-6 blockers. See `STAGE5-EVIDEN
 | P6-04 batch model | `rust/lan/src/batch.rs` | 10 tests |
 | P6-05 durable journal | `rust/lan/src/journal.rs` | 10 tests |
 | P6-06 commit fences | `rust/lan/src/commit.rs` | 8 tests |
+| P6-07 transport + two-endpoint matrix | `rust/lan/src/transport.rs` | 7 tests (real sockets) |
 
-### First principles (P6-01…P6-06)
+### First principles (P6-01…P6-07)
 
 1. **Invariant:** every byte that reaches the workspace is bound to one authenticated session
    transcript, one user-approved batch, one active `WorkspaceGenerationId`, and one idempotent
@@ -49,7 +54,7 @@ remain `OPEN / pending_env` and are **not** Stage-6 blockers. See `STAGE5-EVIDEN
 4. **Edge enforcement:** frame header validated before the declared length is reserved; unknown
    kind/version rejected; curve points validated at parse; replay ledger for sessions and chunks;
    batch limits checked before transfer; approval TTL and generation fence re-checked at commit.
-5. **Tail deletion:** deferred to the P6-09 cutover. The Kotlin wire is still production and is
+5. **Tail deletion:** deferred to the P6-10 cutover. The Kotlin wire is still production and is
    listed for deletion in `STAGE6-CONTRACT.md`.
 
 ### RED/GREEN (real commands, 2026-07-29)
@@ -67,10 +72,15 @@ $ cargo test -p lomo-lan --test identity_pairing_contract --locked
 #   verify_pairing_confirmation
 # GREEN after: 9 passed
 
+$ cargo test -p lomo-lan --test transport_contract --locked
+# GREEN: 7 passed, including
+#   two_endpoints_pair_authenticate_transfer_and_resume_over_real_sockets
+
 $ cargo test -p lomo-lan --locked
-# EXIT:0 — 55 passed
+# EXIT:0 — 62 passed
 #   batch_contract 10, commit_contract 8, frame_codec_contract 10,
-#   identity_pairing_contract 9, journal_contract 10, session_crypto_contract 8
+#   identity_pairing_contract 9, journal_contract 10, session_crypto_contract 8,
+#   transport_contract 7
 
 $ cargo clippy -p lomo-lan --all-targets --locked -- -D warnings
 # EXIT:0
@@ -103,6 +113,16 @@ $ just check
   and never replaced with an empty set, so a peer is never silently un-trusted.
 - **Generation fence.** A workspace switch between approval and commit fails closed and the new
   workspace is not written.
+- **Wire-level allocation safety.** Over a real socket, a header declaring `u32::MAX`, or a control
+  kind claiming the chunk ceiling, fails closed before the declared length is reserved.
+- **Bounded socket lifetime.** A peer that connects and stays silent trips the read deadline with a
+  typed transient network error instead of pinning the worker; a zero deadline is rejected at
+  construction.
+- **Mid-frame close.** A peer that closes after a partial payload reports `lan_frame_incomplete`
+  rather than decoding a truncated frame.
+- **End-to-end resume.** Two endpoints pair, authenticate a session, ship two chunks, drop the
+  connection, reopen the journal, retransmit exactly the unconfirmed indices, and reassemble a body
+  whose digest equals the sender's plan digest — then commit exactly once under replay.
 
 ### Approved divergences (recorded, not silent)
 
@@ -118,20 +138,19 @@ Rationale and scope are in `STAGE6-CONTRACT.md` §"Approved divergences from `RO
 
 | Residual | Status |
 | --- | --- |
-| P6-07 blocking TCP transport (listener, dialer, deadlines, chunk pump) | **OPEN** |
 | P6-08 `lomo-native` LAN FFI surface | **OPEN** |
 | P6-09 Kotlin NSD / network / Keystore adapters + Compose | **OPEN** |
 | P6-10 production cutover + Kotlin tail deletion + i18n both locales | **OPEN** |
-| Hermetic two-endpoint peer matrix over real sockets | **OPEN** |
 | API ≥ 26 arm64 LAN device smoke | **OPEN / `pending_env`** |
 | Four-ABI size measure after LAN lands | **OPEN** |
 | `just ci` for the Stage-6 surface | **OPEN** (only `just check` run so far) |
 
 ## Non-claims
 
-- No two-device pairing has ever run; the MITM property is proven by a host model of the attacker,
-  not by a real network.
-- No transfer, resume, or partial-batch recovery has run over a socket.
+- The two-endpoint matrix runs both endpoints in one host process over loopback. No **two physical
+  devices** have ever paired, and the MITM property is proven by a host model of the attacker, not
+  by a real network path.
+- No transfer has run over Wi-Fi, through NSD discovery, or against a real Android Keystore.
 - No LAN code is reachable from production Kotlin. `LomoShareServer` / `LomoShareClient` and the
   pairing-code UI are still the production LAN path and are still present.
 - No APK, ELF, four-ABI or size result is claimed for Stage 6.

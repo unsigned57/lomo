@@ -31,6 +31,10 @@ path = "tests/journal_contract.rs"
 name = "session_crypto_contract"
 path = "tests/session_crypto_contract.rs"
 
+[[test]]
+name = "transport_contract"
+path = "tests/transport_contract.rs"
+
 [dependencies]
 lomo-core = { path = "../core" }
 lomo-store = { path = "../store" }
@@ -41,6 +45,7 @@ aws-lc-rs.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+sha2.workspace = true
 tempfile.workspace = true
 
 [lints]

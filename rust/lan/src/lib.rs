@@ -23,6 +23,7 @@ mod journal;
 mod limits;
 mod pairing;
 mod session;
+mod transport;
 
 pub use batch::{
     LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchPreview, LanBatchSnapshot,
@@ -55,6 +56,8 @@ pub use pairing::{
 pub use session::{
     ATTACHMENT_SLOT_BODY, ChunkBinding, LanSessionId, ReplayLedger, SessionKey, SessionTranscript,
 };
+
+pub use transport::{FrameStream, LanDeadlines, accept_peer, bind_listener, connect_peer};
 
 /// Crate package identity for architecture ownership locks.
 pub const LAN_CRATE_NAME: &str = "lomo-lan";
