@@ -25,13 +25,10 @@ path = "tests/session_crypto_contract.rs"
 
 [dependencies]
 lomo-core = { path = "../core" }
-lomo-store = { path = "../store" }
-lomo-workspace = { path = "../workspace" }
 # LAN crypto reuses the audited provider already linked for four ABIs through rustls: X25519
 # agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verification and the system CSPRNG.
 # A second (RustCrypto) generation would duplicate rand_core/cpufeatures and grow every ABI.
 aws-lc-rs.workspace = true
-serde.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
