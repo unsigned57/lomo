@@ -2431,6 +2431,65 @@ mod tests {
     }
 
     #[test]
+    fn stage_six_lan_owner_is_unique_and_independent_of_sync() {
+        let contract = repository_root().join("fixtures/baseline/STAGE6-CONTRACT.md");
+        assert!(
+            contract.exists(),
+            "stage 6 requires versioned fixtures/baseline/STAGE6-CONTRACT.md"
+        );
+        let contract_text = read("fixtures/baseline/STAGE6-CONTRACT.md");
+        for required in [
+            "Capability",
+            "Given",
+            "When",
+            "Then",
+            "Observable outcomes",
+            "Excludes",
+            "lomo-lan",
+            "Tail deletion",
+            "pending_env",
+            "arm64",
+        ] {
+            assert!(
+                contract_text.contains(required),
+                "STAGE6-CONTRACT.md is missing required lock text: {required}"
+            );
+        }
+
+        // LAN peer trust is device-scoped. Depending on `lomo-sync` would let a baseline,
+        // tombstone or remote conflict session leak into device trust.
+        let manifest = read("rust/lan/Cargo.toml");
+        assert!(
+            !manifest.contains("lomo-sync"),
+            "lomo-lan must not depend on lomo-sync: LAN trust is device-scoped, not workspace-scoped"
+        );
+        assert!(
+            !manifest.contains("lomo-git"),
+            "lomo-lan must not depend on the Git adapter"
+        );
+
+        // A second crypto generation would duplicate rand_core / cpufeatures (a cargo deny ban)
+        // and grow every ABI; LAN reuses the provider rustls already links.
+        for banned in ["x25519-dalek", "chacha20poly1305", "p256 ", "hkdf"] {
+            assert!(
+                !manifest.contains(banned),
+                "lomo-lan must source LAN crypto from aws-lc-rs, not a second generation: {banned}"
+            );
+        }
+        assert!(
+            manifest.contains("aws-lc-rs"),
+            "lomo-lan sources LAN crypto from the already-linked aws-lc-rs provider"
+        );
+
+        // The durable LAN journal is app-private. Nothing in the crate may address `.lomo`.
+        let journal = read("rust/lan/src/journal.rs");
+        assert!(
+            journal.contains("lan_journal_root_invalid"),
+            "the LAN journal must reject a root inside a .lomo control tree"
+        );
+    }
+
+    #[test]
     fn stage_five_provider_smoke_gate_stays_credential_fenced() {
         // plan3 §1 decision 15: a standalone `just sync-provider-smoke` owns the six locked lines.
         let justfile = read("Justfile");

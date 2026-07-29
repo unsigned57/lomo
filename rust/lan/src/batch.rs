@@ -437,6 +437,18 @@ impl LanApproval {
         &self.batch_id
     }
 
+    /// Instant the user granted the approval.
+    #[must_use]
+    pub const fn approved_at_ms(&self) -> i64 {
+        self.approved_at_ms
+    }
+
+    /// How long the approval stays usable after the grant.
+    #[must_use]
+    pub const fn ttl_ms(&self) -> i64 {
+        self.ttl_ms
+    }
+
     /// Fails closed when the approval no longer covers `now`.
     ///
     /// # Errors

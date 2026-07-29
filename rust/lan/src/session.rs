@@ -311,6 +311,26 @@ impl ChunkBinding {
     }
 
     #[must_use]
+    pub const fn session_id(&self) -> &LanSessionId {
+        &self.session_id
+    }
+
+    #[must_use]
+    pub fn batch_id(&self) -> &str {
+        &self.batch_id
+    }
+
+    #[must_use]
+    pub const fn item_index(&self) -> u16 {
+        self.item_index
+    }
+
+    #[must_use]
+    pub const fn attachment_slot(&self) -> u16 {
+        self.attachment_slot
+    }
+
+    #[must_use]
     pub const fn chunk_index(&self) -> u32 {
         self.chunk_index
     }

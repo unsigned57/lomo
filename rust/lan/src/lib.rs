@@ -18,6 +18,7 @@ mod batch;
 mod error;
 mod frame;
 mod identity;
+mod journal;
 mod limits;
 mod pairing;
 mod session;
@@ -38,6 +39,7 @@ pub use frame::{
 pub use identity::{
     DEVICE_PUBLIC_KEY_BYTES, DeviceId, DevicePublicKey, DeviceSigner, DisplayName, PeerRecord,
 };
+pub use journal::{LAN_RECORD_MAGIC, LanJournal, LanJournalPaths, decode_record, encode_record};
 pub use limits::{
     AEAD_TAG_BYTES, CHUNK_PLAINTEXT_BYTES, LAN_DURABLE_SCHEMA, MAX_ATTACHMENT_BYTES,
     MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES, MAX_DISPLAY_NAME_BYTES,

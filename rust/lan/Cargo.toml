@@ -20,6 +20,10 @@ name = "identity_pairing_contract"
 path = "tests/identity_pairing_contract.rs"
 
 [[test]]
+name = "journal_contract"
+path = "tests/journal_contract.rs"
+
+[[test]]
 name = "session_crypto_contract"
 path = "tests/session_crypto_contract.rs"
 
