@@ -1,21 +1,24 @@
 # Stage-6 implementation evidence
 
-> Status: **P6-01…P6-08 host GREEN (2026-07-29)** — `lomo-lan` owns the LAN v2 frame codec, device
+> Status: **P6-01…P6-10 host/production cutover and formal non-performance gates GREEN
+> (2026-08-03)** — `lomo-lan` owns the LAN v2 frame codec, device
 > identity, pairing transcript and short authentication code, session authentication and chunk AEAD,
 > the batch/approval/outcome model, the durable app-private journal, the per-item commit fences, and
 > the blocking transport, and the `BoltFFI` conversion surface. Two endpoints complete pairing,
 > session authentication, chunked transfer and resume over **real loopback TCP sockets**.
 >
-> **P6-09…P6-10 OPEN** — Kotlin adapters, production cutover and the Kotlin tail deletion have
-> **not** landed, and the FFI surface is **not registered in production DI**. LAN production remains
-> the old Kotlin HTTP wire. API ≥ 26 arm64 LAN device evidence is **OPEN / `pending_env`**.
+> P6-09 adapters and P6-10 production DI/tail deletion are host-verified. The old Kotlin HTTP wire,
+> pairing secret, E2E/OPEN settings, and direct-write path are deleted; `RustLanShareService` is
+> the sole production domain adapter over the managed Rust engine. The packaged native engine
+> passes `just device-smoke` on API 36 arm64; two-physical-device LAN/Wi-Fi/NSD evidence remains
+> **OPEN / `pending_env`** and is not inferred from that single-device smoke.
 
-**Honesty (this file):** nothing here is a device or production claim. Every entry below is a host
-contract run whose command and result are recorded. The transport matrix uses **real loopback TCP
-sockets between two threads in one host process** — that is a real socket, not two devices. Do not
-describe Stage 6 as complete, and do not claim a two-device pairing, a Wi-Fi transfer, NSD
-discovery, a real Android Keystore signature, a 100-item / 100 MB transfer, an APK size measure, or
-arm64 device smoke from this file.
+**Honesty (this file):** physical LAN and runtime-performance claims remain open. Host production
+wiring, the release SO ceiling and packaged-engine arm64 smoke below are backed by real commands.
+The transport matrix uses **real loopback TCP sockets between two threads in one host process** —
+that is a real socket, not two devices. Do not describe the physical LAN matrix as complete, and do
+not claim a two-device pairing, a Wi-Fi transfer, NSD discovery, a real Android Keystore signature,
+a 100-item / 100 MB transfer or runtime performance from this file.
 
 Behavior contract: `fixtures/baseline/STAGE6-CONTRACT.md`.
 
@@ -55,8 +58,8 @@ remain `OPEN / pending_env` and are **not** Stage-6 blockers. See `STAGE5-EVIDEN
 4. **Edge enforcement:** frame header validated before the declared length is reserved; unknown
    kind/version rejected; curve points validated at parse; replay ledger for sessions and chunks;
    batch limits checked before transfer; approval TTL and generation fence re-checked at commit.
-5. **Tail deletion:** deferred to the P6-10 cutover. The Kotlin wire is still production and is
-   listed for deletion in `STAGE6-CONTRACT.md`.
+5. **Tail deletion:** completed in the P6-10 atomic cutover. Kotlin retains only the platform
+   adapter boundary described by `STAGE6-CONTRACT.md`.
 
 ### RED/GREEN (real commands, 2026-07-29)
 
@@ -97,7 +100,16 @@ $ cargo deny check
 # advisories ok, bans ok, licenses ok, sources ok
 
 $ just check
-# EXIT:0 — xtask: check complete
+# EXIT:0 (2026-08-03) — strict Rust/Kotlin/Android host graph; app tests 613/613.
+
+$ just ci
+# EXIT:0 (2026-08-03) — Rust/Kotlin coverage, cargo deny, four-ABI release pack,
+# Android lint/static analysis and packaged APK ABI validation; release SO total 43,654,804 bytes
+# <= 46,530,532-byte ceiling. This is the shipping-size gate, not runtime performance evidence.
+
+$ just device-smoke
+# EXIT:0 (2026-08-03) — SM_S9110, API 36, arm64-v8a; install, launch and durable-recovery relaunch.
+# This loads the packaged engine on one device; it is not two-device LAN evidence.
 ```
 
 ### Security properties actually proven on host
@@ -148,13 +160,14 @@ Rationale and scope are in `STAGE6-CONTRACT.md` §"Approved divergences from `RO
 
 | Residual | Status |
 | --- | --- |
-| P6-09 Kotlin NSD / network / Keystore adapters + Compose | **OPEN** |
-| LAN FFI registered in production DI | **OPEN** (deliberate: cutover is P6-10) |
-| LAN session lifecycle (`start`/`stop`, live batch query) | **OPEN** (no session manager yet; no placeholder exports added) |
-| P6-10 production cutover + Kotlin tail deletion + i18n both locales | **OPEN** |
-| API ≥ 26 arm64 LAN device smoke | **OPEN / `pending_env`** |
-| Four-ABI size measure after LAN lands | **OPEN** |
-| `just ci` for the Stage-6 surface | **OPEN** (only `just check` run so far) |
+| P6-09 Kotlin NSD / network / Keystore adapters + Compose | **GREEN (host compile/tests)** |
+| LAN FFI registered in production DI | **GREEN (architecture + data compile)** |
+| LAN session lifecycle (`start`/`stop`, live batch query) | **GREEN (Rust coordinator adapter host tests)** |
+| P6-10 production cutover + Kotlin tail deletion + i18n both locales | **GREEN (host source/compile checks)** |
+| API ≥ 26 arm64 packaged-engine device smoke | **GREEN** (SM_S9110, API 36, arm64-v8a) |
+| Two physical devices over Wi-Fi/NSD/Keystore LAN path | **OPEN / `pending_env`** |
+| Four-ABI release SO shipping-size gate | **GREEN** (43,654,804 <= 46,530,532 bytes) |
+| `just check` / `just ci` for the Stage-6 surface | **GREEN** (2026-08-03) |
 
 ## Non-claims
 
@@ -162,6 +175,7 @@ Rationale and scope are in `STAGE6-CONTRACT.md` §"Approved divergences from `RO
   devices** have ever paired, and the MITM property is proven by a host model of the attacker, not
   by a real network path.
 - No transfer has run over Wi-Fi, through NSD discovery, or against a real Android Keystore.
-- No LAN code is reachable from production Kotlin. `LomoShareServer` / `LomoShareClient` and the
-  pairing-code UI are still the production LAN path and are still present.
-- No APK, ELF, four-ABI or size result is claimed for Stage 6.
+- No physical-device LAN code path is claimed here; host evidence verifies the production Rust
+  adapter graph and the deleted Kotlin v1 tail, not Android Wi-Fi behavior.
+- Four-ABI build/ELF/APK packaging and the release SO ceiling are GREEN through `just ci`; no
+  startup/query/parse or LAN throughput result is claimed for Stage 6.
