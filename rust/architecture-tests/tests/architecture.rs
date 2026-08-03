@@ -10,6 +10,8 @@
 //!   those outputs is tracked.
 //! - Given public developer and CI entrypoints, when repository text is inspected, then one
 //!   xtask owns orchestration and exactly one NDK version is named.
+//! - Given caller-owned Cargo, Gradle, Kotlin, and XDG caches, when orchestration resolves build
+//!   paths, then user configuration is preserved and every Kotlin gate uses one shared build tree.
 //! - Given production Rust sources, when their layout is inspected, then tests are physically
 //!   separate and first-party unsafe code is absent.
 //! - Given the stage-1 application kernel, when ownership is inspected, then `lomo-core` is the
@@ -26,6 +28,9 @@
 //! - Given meaningful-test fixtures, when their storage paths are inspected, then fixed phase and
 //!   source buckets replace mirrored temporary-repository directory trees.
 //! - Given repository Markdown, when local links are inspected, then every relative target exists.
+//! - Given the Stage-7 Kotlin-shell convergence, when final ownership and recovery surfaces are
+//!   inspected, then the versioned contract/evidence exist, stale Room/planner claims are absent,
+//!   and recovery exposes only typed derived-index rebuild plus bounded diagnostic export.
 //!
 //! Observable outcomes: structural test failures name the missing invariant.
 //! TDD proof: the initial architecture work failed against the pre-xtask tree; the `BoltFFI` size
@@ -310,23 +315,65 @@ mod tests {
     }
 
     #[test]
-    fn kotlin_toolchain_jvms_are_confined_to_the_repository_home() {
+    fn build_orchestration_preserves_caller_caches_and_one_kotlin_build_tree() {
+        let justfile = read("Justfile");
         let util = read("rust/xtask/src/util.rs");
+        let workspace = read("rust/xtask/src/workspace.rs");
+        let quality = read("rust/xtask/src/quality.rs");
+        let policy_cache_scripts = [
+            read("quality/scripts/kotlin_detekt_env.sh"),
+            read("quality/scripts/kotlin_coverage_check.sh"),
+            read("quality/scripts/kotlin_compose_static_analysis.sh"),
+            read("quality/scripts/kotlin_android_lint_check.sh"),
+        ];
 
         assert!(
             util.contains("GRADLE_OPTS") && util.contains("-Duser.home="),
-            "Kotlin and Gradle JVMs must not write through the host user.home"
+            "Kotlin and Gradle JVMs must agree on the resolved caller home"
         );
-    }
-
-    #[test]
-    fn nested_cargo_commands_do_not_inherit_the_outer_cargo_context() {
-        let util = read("rust/xtask/src/util.rs");
-
+        assert!(
+            !justfile.contains("CARGO_HOME=") && !justfile.contains("CARGO_TARGET_DIR="),
+            "the public command entrypoint must preserve user Cargo configuration and sccache"
+        );
         assert!(
             util.contains("env_remove(\"CARGO\")")
-                && util.contains("env_remove(\"CARGO_TARGET_DIR\")"),
-            "xtask cargo commands must not inherit cargo run's process or target context"
+                && util.contains(".env(\"CARGO_TARGET_DIR\", workspace.rust_target())")
+                && !util.contains("env_remove(\"CARGO_TARGET_DIR\")")
+                && !util.contains(".env(\"CARGO_HOME\""),
+            "nested Cargo commands must keep user configuration and use one absolute target"
+        );
+        for standard in [
+            "CARGO_HOME",
+            "CARGO_TARGET_DIR",
+            "HOME",
+            "XDG_CACHE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "ANDROID_USER_HOME",
+            "KOTLIN_CLI_BOOTSTRAP_CACHE_DIR",
+            "GRADLE_USER_HOME",
+        ] {
+            assert!(
+                workspace.contains(&format!("env_path(\"{standard}\")")),
+                "workspace must honor {standard}"
+            );
+        }
+        assert!(
+            quality.contains("&workspace.kotlin_build")
+                && !quality.contains(".kotlin/toolchain-build/"),
+            "all Kotlin gates must use the single resolved build directory"
+        );
+        assert!(
+            workspace.contains("prepare_kotlin_invocation")
+                && workspace.contains("self.kotlin_build.join(\"logs\")")
+                && !workspace.contains("std::process::id()"),
+            "per-invocation logs and native scratch must be bounded instead of PID-accumulating"
+        );
+        assert!(
+            policy_cache_scripts.iter().all(|script| {
+                script.contains("XDG_CACHE_HOME") && !script.contains("$repo_root/.cache")
+            }),
+            "downloaded Kotlin policy tools must use the caller's XDG cache"
         );
     }
 
@@ -1858,7 +1905,8 @@ mod tests {
     }
 
     fn assert_wave_a_media_delete_law() {
-        // Broader production scan: committed media delete tails outside MediaEdge must fail closed.
+        // Broader production scan: committed media delete capabilities outside MediaEdge must be
+        // absent. Stage-7 removes the transitional always-throwing methods after the Rust cutover.
         // LocalMediaSyncStore was deleted with Kotlin sync media mirror ownership (P5-13).
         let media_delete_owners = [
             "data/src/source/DirectMediaStorageBackendDelegate.kt",
@@ -1870,12 +1918,12 @@ mod tests {
         ];
         for relative in media_delete_owners {
             let text = read(relative);
-            assert!(
-                text.contains("retired after P4-10A")
-                    || text.contains("media-trash")
-                    || text.contains("UnsupportedOperationException"),
-                "{relative} must fail-closed permanent media delete (D6 media-trash law)"
-            );
+            for forbidden_capability in ["deleteImage", "deleteVoiceFile", "deleteFile("] {
+                assert!(
+                    !text.contains(forbidden_capability),
+                    "{relative} must not expose permanent media delete capability after Stage-7: {forbidden_capability}"
+                );
+            }
             let active_hard_delete = text.lines().any(|line| {
                 let trimmed = line.trim();
                 if trimmed.starts_with("//") || trimmed.starts_with('*') {
@@ -2507,7 +2555,7 @@ mod tests {
     }
 
     #[test]
-    fn stage_six_lan_ffi_is_conversion_only_and_not_yet_production_wired() {
+    fn stage_six_lan_ffi_is_conversion_only_and_is_the_only_production_wire() {
         // The LAN FFI must convert and delegate. A rule re-implemented here would silently become
         // a second authority beside `lomo-lan`.
         let ffi = read("rust/native/src/lan_ffi.rs");
@@ -2524,30 +2572,204 @@ mod tests {
             );
         }
 
-        // Until the P6-10 cutover, production Kotlin must not reach any LAN FFI symbol: LAN
-        // production is still the Kotlin wire, and a half-wired second path is exactly the
-        // dual-stack this migration forbids.
-        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+        // P6-10 is an atomic production switch. Data must reach the generated LAN surface through
+        // the managed engine, while app/domain remain independent of generated DTOs.
+        let data = format!(
+            "{}\n{}\n{}\n{}\n{}",
+            read("data/src/di/MediaShareModule.kt"),
+            read("data/src/engine/ManagedEngineSession.kt"),
+            read("data/src/engine/RustEngineAdapter.kt"),
+            read("data/src/engine/WorkspaceNativeAdapter.kt"),
+            read("data/src/engine/lan/LanRuntimeCoordinator.kt"),
+        );
+        for required in [
+            "LanNativeBridge",
+            "LanRuntimeCoordinator",
+            "beginLanPairing",
+            "approveLanBatch",
+            "commitReceivedLanItem",
+        ] {
+            assert!(
+                data.contains(required),
+                "the production data adapter must wire the Rust LAN owner: {required}"
+            );
+        }
+        for relative in ["app/src", "domain/src", "ui-components/src"] {
             for source in kotlin_sources(&repository_root().join(relative)) {
                 let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
                 for forbidden in [
-                    "lan_pairing_short_code",
-                    "lan_confirm_pairing",
-                    "lan_list_peers",
-                    "lan_revoke_peer",
-                    "lan_prepare_send",
-                    "lan_approve_receive",
-                    "lan_unconfirmed_chunks",
                     "LanPeerPageDto",
                     "LanBatchPreviewDto",
+                    "com.lomo.nativebridge",
                 ] {
                     assert!(
                         !text.contains(forbidden),
-                        "LAN FFI must stay unwired until the P6-10 cutover: {forbidden} in {}",
+                        "generated LAN DTOs must stay behind data: {forbidden} in {}",
                         source.display()
                     );
                 }
             }
+        }
+
+        // No v1 decoder, fallback, OPEN mode, pairing secret, or Kotlin protocol state machine may
+        // survive the same wave. Old peers intentionally re-pair with the device key.
+        for deleted in [
+            "data/src/share/LomoShareServer.kt",
+            "data/src/share/LomoShareClient.kt",
+            "data/src/share/ShareTransferOrchestrator.kt",
+            "data/src/share/ShareIncomingMemoSaver.kt",
+            "data/src/share/ShareCryptoUtils.kt",
+            "data/src/share/ShareAuthUtils.kt",
+            "data/src/share/SharePairingConfig.kt",
+            "data/src/security/LanShareCredentialStore.kt",
+            "domain/src/usecase/LanSharePairingCodePolicy.kt",
+        ] {
+            assert!(
+                !repository_root().join(deleted).exists(),
+                "P6-10 must delete the Kotlin LAN v1 tail: {deleted}"
+            );
+        }
+
+        for relative in ["app/src", "data/src", "domain/src", "ui-components/src"] {
+            for source in kotlin_sources(&repository_root().join(relative)) {
+                let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+                for forbidden in [
+                    "lanShareE2eEnabled",
+                    "LanSharePairingCodePolicy",
+                    "LAN_SHARE_PAIRING_KEY_HEX",
+                    "OPEN mode",
+                ] {
+                    assert!(
+                        !text.contains(forbidden),
+                        "deleted LAN v1 authority must not survive P6-10: {forbidden} in {}",
+                        source.display()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stage_seven_shell_convergence_and_recovery_are_structurally_locked() {
+        assert_stage_seven_documentation_and_profile();
+        assert_stage_seven_recovery_surface();
+        assert_stage_seven_tail_deletion();
+    }
+
+    fn assert_stage_seven_documentation_and_profile() {
+        for required_file in [
+            "fixtures/baseline/STAGE7-CONTRACT.md",
+            "fixtures/baseline/STAGE7-EVIDENCE.md",
+        ] {
+            assert!(
+                repository_root().join(required_file).exists(),
+                "stage 7 requires versioned {required_file}"
+            );
+        }
+
+        let contract = read("fixtures/baseline/STAGE7-CONTRACT.md");
+        for required in [
+            "Capability",
+            "Fundamental invariant",
+            "Given/When/Then",
+            "Observable outcomes",
+            "Tail deletion",
+            "Owner matrix",
+            "pending_env",
+        ] {
+            assert!(
+                contract.contains(required),
+                "STAGE7-CONTRACT.md is missing required lock text: {required}"
+            );
+        }
+        let evidence = read("fixtures/baseline/STAGE7-EVIDENCE.md");
+        for required in ["RED", "GREEN", "Residual OPEN", "Non-claims"] {
+            assert!(
+                evidence.contains(required),
+                "STAGE7-EVIDENCE.md is missing honest evidence text: {required}"
+            );
+        }
+
+        let architecture = read("ARCHITECTURE.md");
+        assert!(
+            architecture.contains("Stage 7 Kotlin shell convergence"),
+            "ARCHITECTURE.md must name the final Stage-7 owner boundary"
+        );
+        for readme in [read("README.md"), read("README_CN.md")] {
+            assert!(
+                !readme.contains("Room (FTS indexing and cache)")
+                    && !readme.contains("Room（FTS 索引与缓存）"),
+                "README data ownership must not claim deleted Room production authority"
+            );
+        }
+
+        let profile = read("app/src/main/baselineProfiles/generated.txt");
+        for deleted_owner in [
+            "RemoteSyncPlannerCore",
+            "S3SyncPlanner",
+            "WebDavSyncPlanner",
+        ] {
+            assert!(
+                !profile.contains(deleted_owner),
+                "baseline profile must be regenerated after deleting Kotlin owner: {deleted_owner}"
+            );
+        }
+    }
+
+    fn assert_stage_seven_recovery_surface() {
+        let readiness = read("domain/src/model/EngineReadiness.kt");
+        assert!(
+            readiness.contains("toDiagnosticReport")
+                && readiness.contains("canRebuildDerivedIndex")
+                && readiness.contains("MAX_BYTES"),
+            "domain must own bounded diagnostic redaction and derived-index recovery policy"
+        );
+        let recovery_screen = read("app/src/feature/main/EngineReadOnlyRecoveryScreen.kt");
+        assert!(
+            recovery_screen.contains("engine_recovery_rebuild_index")
+                && recovery_screen.contains("engine_recovery_export_diagnostics"),
+            "read-only recovery UI must expose rebuildable-index and diagnostic actions"
+        );
+        let session = read("data/src/engine/ManagedEngineSession.kt");
+        assert!(
+            session.contains("override suspend fun rebuildDerivedIndex")
+                && session.contains("override suspend fun createRecoveryDiagnosticReport"),
+            "the sole managed engine session must own recovery execution"
+        );
+    }
+
+    fn assert_stage_seven_tail_deletion() {
+        for deleted_tail in [
+            "data/src/repository/RoomCutover.kt",
+            "data/test/repository/RoomCutoverTest.kt",
+        ] {
+            assert!(
+                !repository_root().join(deleted_tail).exists(),
+                "Stage-7 must delete the completed one-shot Room cutover tail: {deleted_tail}"
+            );
+        }
+        let data_module = read("data/module.yaml");
+        assert!(
+            !data_module.contains("org.xerial:sqlite-jdbc"),
+            "Stage-7 must delete the JDBC dependency used only by the completed Room cutover test"
+        );
+        let migration_archive = read("domain/src/repository/MigrationArchiveRepository.kt");
+        assert!(
+            !migration_archive.contains("UnsupportedOperationException"),
+            "archive inspection is a required capability and cannot have an unsupported default"
+        );
+        for source in kotlin_sources(&repository_root().join("data/src")) {
+            let text = fs::read_to_string(&source).expect("Kotlin source is UTF-8");
+            assert!(
+                !text.contains("android.database.sqlite"),
+                "post-cutover Kotlin data must never open SQLite: {}",
+                source.display()
+            );
+            assert!(
+                !text.contains("UnsupportedOperationException"),
+                "Stage-7 data capabilities must be modeled by types, not unsupported sentinels: {}",
+                source.display()
+            );
         }
     }
 

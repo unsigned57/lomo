@@ -113,6 +113,14 @@ class DataDiBoundaryTest : DataFunSpec() {
                 dataModules.contains("engineModule") shouldBe true
             }
         }
+
+        test("given LAN preferences when DI is inspected then the canonical data store is bound by interface") {
+            val module = resolveModuleRoot("data").resolve("src/di/CoreDataRepositoryModule.kt").readText()
+
+            withClue("LAN share preferences must resolve from the one LomoDataStore singleton") {
+                module.contains("single<LomoLanSharePreferencesStore> { get<LomoDataStore>() }") shouldBe true
+            }
+        }
     }
 
     private fun collectKotlinFiles(root: File): List<File> =

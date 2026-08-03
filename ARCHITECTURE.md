@@ -85,6 +85,19 @@ This document is the stable architecture entrypoint for the repository. It descr
   free-function / Kotlin adapter land; still P5-13+ / `pending_env` for device).
 - New repository implementations belong here, typically under `data/repository`.
 
+- **Stage 6 LAN production owner (P6-10 atomic cutover):** `lomo-lan`, reached only through the
+  sole managed `LomoEngine` handle, owns device trust, pairing/session transcripts, the versioned
+  TCP wire, approval/batch/chunk journals, resume, and per-item workspace commit fences. The
+  production `RustLanShareService` is a thin adapter: Kotlin supplies NSD discovery, validated
+  Android network snapshots, local-network permission, multicast-lock lifetime, Keystore public
+  identity/signatures, source-byte streams, preferences, and Compose projections. Kotlin no longer
+  contains an HTTP LAN server/client, pairing secret or E2E toggle, OPEN mode, peer-UUID trust,
+  protocol crypto, transfer state machine, or direct incoming workspace writer. The Rust runtime
+  remains single-writer through the same engine; no second listener or fallback wire is permitted.
+  **Architecture Impact:** owner is `lomo-lan`; the boundary moves all LAN protocol/state decisions
+  behind the existing managed engine, while Android platform facts and non-exportable Keystore
+  operations remain the explicit platform exception.
+
 ### `native-bindings`
 
 - Ignored, generated Android/Kotlin binding layer for repository-owned Rust infrastructure.
@@ -791,3 +804,20 @@ shipping proof after cutover.
   presence).
 - **Exception:** six-provider smoke and signed shipping APK×1.15 formal measure stay OPEN /
   `pending_env`. Host SO sum and CI debug APK are not signed shipping claims.
+
+## Architecture Impact (Stage 7 Kotlin shell convergence, 2026-08-01)
+
+- **Owner:** Rust is the sole production authority for Markdown/reminder/store/media/archive/sync/LAN
+  rules. Domain owns only language-neutral application contracts and the typed recovery policy;
+  `ManagedEngineSession` is the single lifecycle and recovery executor over the Rust engine.
+- **Boundary effect:** Kotlin `data` is restricted to engine conversion plus Android SAF, Keystore,
+  WorkManager, notification, NSD/network, media codec, preferences and update adapters. `app` and
+  `ui-components` remain presentation-only and cannot import generated native bindings. Recovery
+  opens a restricted same-workspace candidate, rebuilds only the derived SQLite index, closes it,
+  and promotes only a newly opened Ready candidate.
+- **Tail deletion:** no Room/JGit/AWS Kotlin/Kotlin Markdown parser/remote-sync planner production
+  owner, differential runtime, migration flag, compatibility overload, raw diagnostic export or
+  stale generated-profile rule may survive final convergence.
+- **Exception:** Android platform operations and the explicitly non-migrated preferences/update
+  loop remain Kotlin-owned. API >= 26 arm64, real-provider, signed APK, capacity, performance and
+  soak claims remain `pending_env` until backed by recorded runs.

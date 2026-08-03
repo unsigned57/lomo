@@ -107,8 +107,8 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 - **DI:** Koin
 - **Async:** Coroutines & Flow
 - **Data:**
-  - File-system storage (Storage Access Framework)
-  - Room (FTS indexing and cache)
+  - Markdown workspace storage through the Storage Access Framework
+  - Rust-owned SQLite derived index and durable `.lomo` state
 
 </details>
 

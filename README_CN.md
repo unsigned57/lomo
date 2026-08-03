@@ -106,8 +106,8 @@ Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很�
 - **依赖注入：** Koin
 - **异步：** Coroutines & Flow
 - **数据：**
-  - 基于文件系统的存储（Storage Access Framework）
-  - Room（FTS 索引与缓存）
+  - 通过 Storage Access Framework 管理 Markdown 工作区
+  - Rust 管理的 SQLite 派生索引与耐久 `.lomo` 状态
 
 </details>
 
