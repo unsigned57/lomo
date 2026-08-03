@@ -44,12 +44,12 @@ pub use lomo_format::{
 };
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSummary, StoreStats, get_memo, query_memos,
-    query_stats,
+    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSummary, StoreStats, get_memo,
+    get_memo_projection, query_memos, query_stats,
 };
 pub use rebuild::{
-    RebuildCheckpoint, RebuildPhase, RebuildResult, ensure_writable, run_rebuild,
-    write_gate_for_checkpoint,
+    RebuildCheckpoint, RebuildPhase, RebuildResult, ScannedMemoProjection, ensure_writable,
+    rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
 };
 pub use reminder::{
     PlannedAlarm, ReminderCommand, ReminderCommandResult, ReminderPlan, ReminderQuery,
@@ -70,7 +70,7 @@ pub use tokenizer::{
 };
 pub use transaction::{
     CrashPoint, MemoCommand, MemoCommitResult, WriteGate, apply_memo_command,
-    cleanup_expired_operations, refuse_v1_writers_on_layout_v2,
+    cleanup_expired_operations, create_received_memo, refuse_v1_writers_on_layout_v2,
 };
 
 use std::path::{Path, PathBuf};
@@ -158,6 +158,27 @@ impl Store {
         })
     }
 
+    /// Opens an app-private query projection without creating workspace durable facts.
+    ///
+    /// SAF user bytes and `.lomo` authority remain behind platform actions; this handle can query
+    /// only the rebuildable `SQLite` projection published by [`rebuild_scanned_projection`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates open/schema/integrity failures from [`open_store`].
+    pub fn open_projection(projection_root: impl AsRef<Path>) -> Result<Self, LomoError> {
+        let workspace_root = projection_root.as_ref().to_path_buf();
+        let opened = open_store(&workspace_root)?;
+        let high_water_revision = read_meta_u64(&opened.connection, "high_water_revision")?;
+        let event_sequence = read_meta_u64(&opened.connection, "event_sequence")?;
+        Ok(Self {
+            workspace_root,
+            opened,
+            high_water_revision,
+            event_sequence,
+        })
+    }
+
     /// Workspace root this store is bound to.
     #[must_use]
     pub fn workspace_root(&self) -> &Path {
@@ -218,6 +239,34 @@ impl Store {
         Ok(result)
     }
 
+    /// Allocates and creates one received memo using its original timestamp and next ordinal.
+    ///
+    /// # Errors
+    ///
+    /// See [`create_received_memo`].
+    pub fn create_received_memo(
+        &mut self,
+        operation_id: lomo_core::OperationId,
+        expected_workspace_generation: &str,
+        timestamp_ms: i64,
+        content: String,
+        pending_promotes: Vec<lomo_media::PromotePlan>,
+    ) -> Result<MemoCommitResult, LomoError> {
+        let gate = self.write_gate();
+        create_received_memo(
+            &self.workspace_root,
+            &self.opened.connection,
+            gate,
+            operation_id,
+            expected_workspace_generation,
+            timestamp_ms,
+            content,
+            pending_promotes,
+            &mut self.high_water_revision,
+            &mut self.event_sequence,
+        )
+    }
+
     /// Bounded memo query.
     ///
     /// # Errors
@@ -245,6 +294,15 @@ impl Store {
     /// See [`get_memo`].
     pub fn get_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
         get_memo(&self.opened.connection, &self.workspace_root, memo_id)
+    }
+
+    /// Single memo projection without reading workspace bytes.
+    ///
+    /// # Errors
+    ///
+    /// See [`get_memo_projection`].
+    pub fn get_memo_projection(&self, memo_id: &str) -> Result<Option<MemoSummary>, LomoError> {
+        get_memo_projection(&self.opened.connection, memo_id)
     }
 
     /// Attachment paths still referenced by durable history revision bodies (D6 orphan keep-set).

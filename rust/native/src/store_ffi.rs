@@ -3,6 +3,9 @@
 //! Conversion-only mapping between `BoltFFI` DTOs and `lomo-store`. Business rules stay in
 //! `lomo-store`.
 
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -15,6 +18,80 @@ use lomo_store::{
 };
 
 use crate::EngineError;
+
+/// Materializes one already bounded LAN attachment into the app-private staging path.
+///
+/// The media owner deliberately accepts paths, not full byte buffers. This conversion edge is the
+/// only place where the verified LAN payload crosses into the filesystem-backed media pipeline.
+fn stage_received_attachment(
+    workspace_root: &Path,
+    attachment: &lomo_lan::AuthorizedReceivedAttachment,
+) -> Result<lomo_media::MediaStaged, LomoError> {
+    let digest = lomo_media::ContentDigest::parse(attachment.digest())?;
+    let expected_size = u64::try_from(attachment.bytes().len()).map_err(|_error| {
+        lomo_media::media_validation(
+            "media_stage_received_size_invalid",
+            "received media size does not fit the durable size width",
+        )
+    })?;
+    let incoming_dir = workspace_root
+        .join(lomo_media::STAGE_DIR_NAME)
+        .join("incoming");
+    fs::create_dir_all(&incoming_dir).map_err(|error| {
+        lomo_media::media_storage(
+            "media_stage_incoming_dir_create_failed",
+            &format!("failed to create received media scratch: {error}"),
+        )
+    })?;
+    let incoming_path = incoming_dir.join(digest.as_str());
+    if incoming_path.exists() {
+        let (existing_digest, existing_size) =
+            lomo_media::ContentDigest::stream_from_path(&incoming_path)?;
+        if existing_digest != digest || existing_size != expected_size {
+            return Err(lomo_media::media_corruption(
+                "media_stage_incoming_collision",
+                "received media scratch path contains different bytes",
+            ));
+        }
+    } else {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&incoming_path)
+            .map_err(|error| {
+                lomo_media::media_storage(
+                    "media_stage_incoming_create_failed",
+                    &format!("failed to create received media scratch: {error}"),
+                )
+            })?;
+        file.write_all(attachment.bytes()).map_err(|error| {
+            lomo_media::media_storage(
+                "media_stage_incoming_write_failed",
+                &format!("failed to write received media scratch: {error}"),
+            )
+        })?;
+        file.sync_all().map_err(|error| {
+            lomo_media::media_storage(
+                "media_stage_incoming_sync_failed",
+                &format!("failed to sync received media scratch: {error}"),
+            )
+        })?;
+    }
+    let staged = lomo_media::stage_media(
+        workspace_root,
+        lomo_media::MediaSource::StagedTemp {
+            path: incoming_path,
+        },
+        attachment.name(),
+    )?;
+    if staged.digest.as_str() != attachment.digest() || staged.size != expected_size {
+        return Err(lomo_media::media_validation(
+            "lan_attachment_media_digest_mismatch",
+            "media staging digest differs from the authorized LAN digest",
+        ));
+    }
+    Ok(staged)
+}
 
 /// Opaque page cursor for Kotlin (pipe-encoded store cursor; not SQL).
 #[data]
@@ -229,11 +306,34 @@ pub struct StoreRebuildResult {
     pub high_water_revision: u64,
 }
 
-/// Process-local store handle for one engine (dark-build; not dual production DI).
+/// One memo already parsed by the Rust workspace scan for an Android SAF tree.
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSafMemoProjection {
+    pub memo_id: String,
+    pub source_path: String,
+    pub file_fingerprint: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub attachment_paths: Vec<String>,
+    pub has_todo: bool,
+    pub has_url: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StoreWorkspaceMode {
+    Direct,
+    Saf,
+}
+
+/// Process-local store handle for one engine.
 pub struct StoreHandle {
     workspace_root: PathBuf,
+    mode: StoreWorkspaceMode,
     store: Mutex<Option<Store>>,
     snooze: Mutex<SnoozeStore>,
+    saf_bodies: Mutex<BTreeMap<String, String>>,
+    projection_gate: Mutex<()>,
 }
 
 impl std::fmt::Debug for StoreHandle {
@@ -244,6 +344,7 @@ impl std::fmt::Debug for StoreHandle {
         };
         f.debug_struct("StoreHandle")
             .field("workspace_root", &self.workspace_root)
+            .field("mode", &self.mode)
             .field("store_open", &store_open)
             .finish_non_exhaustive()
     }
@@ -260,9 +361,38 @@ impl StoreHandle {
         let snooze = SnoozeStore::open_app_private(&snooze_dir).map_err(EngineError::from)?;
         Ok(Self {
             workspace_root,
+            mode: StoreWorkspaceMode::Direct,
             store: Mutex::new(None),
             snooze: Mutex::new(snooze),
+            saf_bodies: Mutex::new(BTreeMap::new()),
+            projection_gate: Mutex::new(()),
         })
+    }
+
+    /// Opens a generation-stable app-private projection for one SAF workspace identity.
+    ///
+    /// # Errors
+    ///
+    /// Snooze open failures.
+    pub fn new_saf(projection_root: PathBuf, app_private_root: &Path) -> Result<Self, EngineError> {
+        let snooze_dir = app_private_root.join("reminder_snooze");
+        let snooze = SnoozeStore::open_app_private(&snooze_dir).map_err(EngineError::from)?;
+        Ok(Self {
+            workspace_root: projection_root,
+            mode: StoreWorkspaceMode::Saf,
+            store: Mutex::new(None),
+            snooze: Mutex::new(snooze),
+            saf_bodies: Mutex::new(BTreeMap::new()),
+            projection_gate: Mutex::new(()),
+        })
+    }
+
+    fn open_store(&self) -> Result<Store, EngineError> {
+        match self.mode {
+            StoreWorkspaceMode::Direct => Store::open(&self.workspace_root),
+            StoreWorkspaceMode::Saf => Store::open_projection(&self.workspace_root),
+        }
+        .map_err(EngineError::from)
     }
 
     fn lock_store(&self) -> Result<std::sync::MutexGuard<'_, Option<Store>>, EngineError> {
@@ -277,7 +407,7 @@ impl StoreHandle {
     ) -> Result<R, EngineError> {
         let mut guard = self.lock_store()?;
         if guard.is_none() {
-            *guard = Some(Store::open(&self.workspace_root).map_err(EngineError::from)?);
+            *guard = Some(self.open_store()?);
         }
         let store = guard.as_ref().ok_or_else(|| {
             EngineError::from(boundary_err(
@@ -294,6 +424,12 @@ impl StoreHandle {
         &self,
         f: impl FnOnce(&mut Store) -> Result<R, LomoError>,
     ) -> Result<R, EngineError> {
+        if self.mode == StoreWorkspaceMode::Saf {
+            return Err(EngineError::from(boundary_err(
+                "saf_store_mutation_requires_platform_job",
+                "SAF memo mutations must execute through the workspace platform-action job",
+            )));
+        }
         let mut guard = self.lock_store()?;
         if guard.is_none() {
             *guard = Some(Store::open(&self.workspace_root).map_err(EngineError::from)?);
@@ -307,6 +443,79 @@ impl StoreHandle {
         let result = f(store).map_err(EngineError::from)?;
         drop(guard);
         Ok(result)
+    }
+
+    /// Commits a Rust-authorized received memo through the store single writer.
+    ///
+    /// # Errors
+    ///
+    /// Invalid operation identity, generation mismatch, or store transaction failure.
+    pub(crate) fn create_received_memo(
+        &self,
+        command: &lomo_lan::AuthorizedReceivedCreate,
+    ) -> Result<store::MemoCommitResult, EngineError> {
+        let operation_id =
+            OperationId::parse(command.item_id().as_str()).map_err(EngineError::from)?;
+        self.with_store_mut(|store| {
+            command.approved_generation().assert_matches(
+                lomo_workspace::load_workspace_generation(store.workspace_root())?.as_str(),
+            )?;
+            let mut promotes_by_digest: BTreeMap<
+                String,
+                (lomo_media::PromotePlan, lomo_media::MediaRelativePath),
+            > = BTreeMap::new();
+            let mut remaps = BTreeMap::new();
+            for attachment in command.attachments() {
+                let final_relative_path = if let Some((_plan, final_relative_path)) =
+                    promotes_by_digest.get(attachment.digest())
+                {
+                    final_relative_path.clone()
+                } else {
+                    let staged = stage_received_attachment(store.workspace_root(), attachment)?;
+                    if staged.digest.as_str() != attachment.digest() {
+                        return Err(lomo_media::media_validation(
+                            "lan_attachment_media_digest_mismatch",
+                            "media staging digest differs from the authorized LAN digest",
+                        ));
+                    }
+                    let final_relative_path = lomo_media::resolve_received_final_relative_path(
+                        store.workspace_root(),
+                        &staged,
+                    )?;
+                    let plan = lomo_media::PromotePlan {
+                        operation_id: operation_id.as_str().to_owned(),
+                        staged,
+                        final_relative_path: final_relative_path.clone(),
+                    };
+                    promotes_by_digest.insert(
+                        attachment.digest().to_owned(),
+                        (plan, final_relative_path.clone()),
+                    );
+                    final_relative_path
+                };
+                let stored = final_relative_path.as_str().to_owned();
+                if let Some(previous) = remaps.insert(attachment.source_reference().to_owned(), stored)
+                    && previous != final_relative_path.as_str()
+                {
+                    return Err(lomo_media::media_validation(
+                        "lan_attachment_source_reference_conflict",
+                        "one Markdown attachment reference cannot resolve to multiple received files",
+                    ));
+                }
+            }
+            let content = lomo_workspace::remap_attachment_destinations(command.content(), &remaps)?;
+            let pending_promotes = promotes_by_digest
+                .into_values()
+                .map(|(plan, _final_relative_path)| plan)
+                .collect();
+            store.create_received_memo(
+                operation_id,
+                command.approved_generation().as_str(),
+                command.timestamp_ms(),
+                content,
+                pending_promotes,
+            )
+        })
     }
 
     /// See plan `query_memos`.
@@ -324,6 +533,12 @@ impl StoreHandle {
         cursor: Option<StorePageCursor>,
         page_size: u32,
     ) -> Result<StoreMemoPage, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
         let page_size = PageSize::new(page_size).map_err(EngineError::from)?;
         let decoded_cursor = cursor
             .as_ref()
@@ -361,6 +576,35 @@ impl StoreHandle {
     ///
     /// Store errors.
     pub fn get_memo(&self, memo_id: &str) -> Result<Option<StoreMemoSnapshot>, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        if self.mode == StoreWorkspaceMode::Saf {
+            let Some(summary) = self.with_store(|store| store.get_memo_projection(memo_id))? else {
+                return Ok(None);
+            };
+            let body = {
+                let bodies = self.saf_bodies.lock().map_err(|_error| {
+                    EngineError::from(boundary_err(
+                        "saf_store_body_mutex_poisoned",
+                        "SAF memo body snapshot mutex poisoned",
+                    ))
+                })?;
+                bodies.get(memo_id).cloned().ok_or_else(|| {
+                    EngineError::from(boundary_err(
+                        "saf_store_body_unavailable",
+                        "SAF memo body is absent from the current workspace scan",
+                    ))
+                })?
+            };
+            return Ok(Some(StoreMemoSnapshot {
+                summary: summary_to_ffi(summary),
+                body,
+            }));
+        }
         let snap = self.with_store(|store| store.get_memo(memo_id))?;
         Ok(snap.map(|s| StoreMemoSnapshot {
             summary: summary_to_ffi(s.summary),
@@ -536,6 +780,12 @@ impl StoreHandle {
     ///
     /// Rebuild errors.
     pub fn start_rebuild(&self, batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
+        if self.mode == StoreWorkspaceMode::Saf {
+            return Err(EngineError::from(boundary_err(
+                "saf_store_rebuild_requires_workspace_scan",
+                "SAF projection rebuild requires a completed workspace scan",
+            )));
+        }
         let batch = if batch_size == 0 {
             64
         } else {
@@ -552,20 +802,93 @@ impl StoreHandle {
             let mut guard = self.lock_store()?;
             *guard = Some(store);
         }
-        Ok(StoreRebuildResult {
-            memos_indexed: result.memos_indexed,
-            file_count: result.file_count,
-            attachment_count: result.attachment_count,
-            workspace_digest: result.workspace_digest,
-            store_digest: result.store_digest,
-            corrupt_lomo_isolated: result.corrupt_lomo_isolated,
-            high_water_revision: result.high_water_revision,
-        })
+        Ok(rebuild_result_to_ffi(result))
+    }
+
+    /// Replaces the SAF query projection and current-process body snapshots atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a Direct handle, malformed scan facts, or projection I/O failures.
+    pub fn rebuild_saf_projection(
+        &self,
+        memos: Vec<StoreSafMemoProjection>,
+    ) -> Result<StoreRebuildResult, EngineError> {
+        if self.mode != StoreWorkspaceMode::Saf {
+            return Err(EngineError::from(boundary_err(
+                "saf_store_projection_requires_saf_workspace",
+                "SAF projection input cannot be applied to a Direct workspace",
+            )));
+        }
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let mut bodies = BTreeMap::new();
+        let projections = memos
+            .into_iter()
+            .map(|memo| {
+                if bodies
+                    .insert(memo.memo_id.clone(), memo.body.clone())
+                    .is_some()
+                {
+                    return Err(EngineError::from(boundary_err(
+                        "duplicate_saf_memo_id",
+                        "SAF workspace scan produced a duplicate memo identity",
+                    )));
+                }
+                Ok(store::ScannedMemoProjection {
+                    memo_id: memo.memo_id,
+                    source_path: memo.source_path,
+                    file_fingerprint: memo.file_fingerprint,
+                    body: memo.body,
+                    tags: memo.tags,
+                    attachment_paths: memo.attachment_paths,
+                    has_todo: memo.has_todo,
+                    has_url: memo.has_url,
+                })
+            })
+            .collect::<Result<Vec<_>, EngineError>>()?;
+        {
+            let mut guard = self.lock_store()?;
+            drop(guard.take());
+        }
+        let result = store::rebuild_scanned_projection(&self.workspace_root, &projections)
+            .map_err(EngineError::from)?;
+        let reopened = Store::open_projection(&self.workspace_root).map_err(EngineError::from)?;
+        {
+            let mut body_guard = self.saf_bodies.lock().map_err(|_error| {
+                EngineError::from(boundary_err(
+                    "saf_store_body_mutex_poisoned",
+                    "SAF memo body snapshot mutex poisoned",
+                ))
+            })?;
+            *body_guard = bodies;
+        }
+        {
+            let mut store_guard = self.lock_store()?;
+            *store_guard = Some(reopened);
+        }
+        Ok(rebuild_result_to_ffi(result))
     }
 
     #[must_use]
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
+    }
+}
+
+fn rebuild_result_to_ffi(result: store::RebuildResult) -> StoreRebuildResult {
+    StoreRebuildResult {
+        memos_indexed: result.memos_indexed,
+        file_count: result.file_count,
+        attachment_count: result.attachment_count,
+        workspace_digest: result.workspace_digest,
+        store_digest: result.store_digest,
+        corrupt_lomo_isolated: result.corrupt_lomo_isolated,
+        high_water_revision: result.high_water_revision,
     }
 }
 

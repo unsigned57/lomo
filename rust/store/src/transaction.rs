@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use lomo_core::{CoreRevision, EventSequence, InvalidationScope, OperationId};
+use lomo_workspace::MemoIdentity;
 
 use crate::content_facts::{fingerprint_content, merge_tags, project_content_facts};
 use crate::error::{busy, conflict, from_sqlite, storage, validation};
@@ -100,6 +101,32 @@ pub fn apply_memo_command(
     event_sequence: &mut u64,
     crash_point: Option<CrashPoint>,
 ) -> Result<MemoCommitResult, lomo_core::LomoError> {
+    apply_memo_command_with_created_at(
+        workspace_root,
+        connection,
+        gate,
+        command,
+        None,
+        high_water_revision,
+        event_sequence,
+        crash_point,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "transaction core carries durable store counters and an optional source timestamp"
+)]
+fn apply_memo_command_with_created_at(
+    workspace_root: &Path,
+    connection: &Connection,
+    gate: WriteGate,
+    command: &MemoCommand,
+    created_at_ms: Option<i64>,
+    high_water_revision: &mut u64,
+    event_sequence: &mut u64,
+    crash_point: Option<CrashPoint>,
+) -> Result<MemoCommitResult, lomo_core::LomoError> {
     if gate == WriteGate::RebuildingReadOnly {
         return Err(busy(
             "store_rebuilding",
@@ -178,6 +205,7 @@ pub fn apply_memo_command(
         content: command.content.clone(),
         tags,
         pin: command.pin,
+        created_at_ms,
         status: OperationStatus::IntentAppended,
         content_revision_after: None,
         file_fingerprint_after: None,
@@ -202,6 +230,177 @@ pub fn apply_memo_command(
         event_sequence,
         crash_point,
     )
+}
+
+/// Allocates and creates one received memo under the store's single-writer lock.
+///
+/// The identity is `${timestamp_ms}_epochms_${ordinal}`. It is content-independent, preserves the
+/// exact transferred instant without depending on Android timezone/preferences, and remains a
+/// valid workspace [`MemoIdentity`]. Both projected memos and durable unfinished operations occupy
+/// ordinals, so a crash after intent persistence cannot let a later transfer reuse the identity.
+///
+/// # Errors
+///
+/// Propagates operation journal, identity allocation, validation and transaction failures. A replay
+/// with different timestamp/content fails closed instead of reusing an operation id ambiguously.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "store transaction boundary carries the two monotonic publication counters"
+)]
+pub fn create_received_memo(
+    workspace_root: &Path,
+    connection: &Connection,
+    gate: WriteGate,
+    operation_id: OperationId,
+    expected_workspace_generation: &str,
+    timestamp_ms: i64,
+    content: String,
+    pending_promotes: Vec<lomo_media::PromotePlan>,
+    high_water_revision: &mut u64,
+    event_sequence: &mut u64,
+) -> Result<MemoCommitResult, lomo_core::LomoError> {
+    if gate == WriteGate::RebuildingReadOnly {
+        return Err(busy(
+            "store_rebuilding",
+            "mutations are rejected while rebuild is active",
+        ));
+    }
+    let paths = LomoPaths::for_workspace(workspace_root);
+    refuse_v1_writers_on_layout_v2(&paths)?;
+    paths.ensure_layout()?;
+    let live_generation = lomo_workspace::load_workspace_generation(workspace_root)?;
+    if live_generation.as_str() != expected_workspace_generation {
+        return Err(conflict(
+            "lan_workspace_generation_changed",
+            "workspace generation changed after LAN approval; the current workspace is not written",
+        ));
+    }
+    let op_path = operation_path(&paths, operation_id.as_str());
+
+    let memo_id = if op_path.exists() {
+        let record = read_record(&op_path)?;
+        let intent: OperationIntent =
+            serde_json::from_str(&record.payload.body_json).map_err(|error| {
+                validation(
+                    "operation_intent_decode_failed",
+                    &format!("cannot decode operation intent: {error}"),
+                )
+            })?;
+        if intent.command != MemoCommandKind::Create
+            || intent.created_at_ms != Some(timestamp_ms)
+            || intent.content.as_deref() != Some(content.as_str())
+            || intent.pending_promotes != pending_promotes
+        {
+            return Err(conflict(
+                "operation_replay_mismatch",
+                "received memo operation id was already bound to different create facts",
+            ));
+        }
+        intent.memo_id
+    } else {
+        allocate_received_memo_identity(connection, &paths, timestamp_ms)?
+            .as_str()
+            .to_owned()
+    };
+
+    apply_memo_command_with_created_at(
+        workspace_root,
+        connection,
+        gate,
+        &MemoCommand {
+            operation_id,
+            kind: MemoCommandKind::Create,
+            memo_id,
+            expected_revision: 0,
+            expected_fingerprint: None,
+            content: Some(content),
+            tags: Vec::new(),
+            pin: None,
+            pending_promotes,
+        },
+        Some(timestamp_ms),
+        high_water_revision,
+        event_sequence,
+        None,
+    )
+}
+
+fn allocate_received_memo_identity(
+    connection: &Connection,
+    paths: &LomoPaths,
+    timestamp_ms: i64,
+) -> Result<MemoIdentity, lomo_core::LomoError> {
+    let date_key = timestamp_ms.to_string();
+    let prefix = format!("{date_key}_epochms_");
+    let mut highest_ordinal = None;
+    let mut statement = connection
+        .prepare("SELECT memo_id FROM memo WHERE memo_id GLOB ?1")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map(params![format!("{prefix}*")], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?;
+    for row in rows {
+        let raw = row.map_err(|error| from_sqlite(&error))?;
+        include_received_ordinal(&raw, &date_key, &mut highest_ordinal)?;
+    }
+
+    for entry in std::fs::read_dir(&paths.operations).map_err(|error| {
+        storage(
+            "operations_list_failed",
+            &format!("cannot list operations for identity allocation: {error}"),
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            storage(
+                "operations_list_failed",
+                &format!("cannot read operation entry for identity allocation: {error}"),
+            )
+        })?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rec") {
+            continue;
+        }
+        let record = read_record(&path)?;
+        let intent: OperationIntent =
+            serde_json::from_str(&record.payload.body_json).map_err(|error| {
+                validation(
+                    "operation_intent_decode_failed",
+                    &format!("cannot decode operation intent during identity allocation: {error}"),
+                )
+            })?;
+        if intent.memo_id.starts_with(&prefix) {
+            include_received_ordinal(&intent.memo_id, &date_key, &mut highest_ordinal)?;
+        }
+    }
+
+    let ordinal = match highest_ordinal {
+        Some(value) => value.checked_add(1).ok_or_else(|| {
+            conflict(
+                "memo_identity_ordinal_exhausted",
+                "received memo timestamp exhausted the identity ordinal range",
+            )
+        })?,
+        None => 0,
+    };
+    MemoIdentity::try_new(&date_key, "epochms", ordinal)
+}
+
+fn include_received_ordinal(
+    raw: &str,
+    date_key: &str,
+    highest_ordinal: &mut Option<u32>,
+) -> Result<(), lomo_core::LomoError> {
+    let identity = MemoIdentity::parse(raw)?;
+    if identity.date_key() != date_key || identity.time_part() != "epochms" {
+        return Err(validation(
+            "received_memo_identity_invalid",
+            "received memo identity prefix does not match its parsed timestamp facts",
+        ));
+    }
+    *highest_ordinal = Some(highest_ordinal.map_or(identity.ordinal(), |current| {
+        current.max(identity.ordinal())
+    }));
+    Ok(())
 }
 
 #[expect(
@@ -715,6 +914,7 @@ fn update_projections(
                     )
                     .map_err(|err| from_sqlite(&err))?;
             } else {
+                let created_at_ms = intent.created_at_ms.map_or(now, |original| original);
                 connection
                     .execute(
                         "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
@@ -727,7 +927,7 @@ fn update_projections(
                             has_todo,
                             has_url,
                             has_attachment,
-                            now,
+                            created_at_ms,
                             preview,
                             search_content,
                             revision

@@ -15,6 +15,14 @@
 //! - Given active rebuild gate, when a mutation is submitted, then it is rejected with
 //!   `store_rebuilding`.
 //! - Given `SQLite` file deleted while `.lomo` remains, when rebuild runs, then `.lomo` is intact.
+//! - Given bounded memo facts scanned from a SAF workspace, when its app-private projection is
+//!   rebuilt, then queries succeed without creating a Markdown body mirror.
+//!
+//! Observable outcomes: query rows, error codes, rebuild evidence, durable `.lomo` preservation,
+//! and absence of user Markdown bytes under the SAF projection root.
+//! TDD proof: SAF projection rebuild was RED on 2026-08-02 because `lomo-store` could only rebuild
+//! by traversing a Direct filesystem workspace.
+//! Excludes: Android `DocumentsContract` execution and FFI conversion.
 
 #[cfg(test)]
 #[expect(
@@ -27,8 +35,9 @@ mod tests {
 
     use lomo_core::{ErrorCategory, OperationId, PageSize};
     use lomo_store::{
-        LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase, StateBody,
-        Store, WriteGate, ensure_writable, read_record, run_rebuild, write_gate_for_checkpoint,
+        LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase,
+        ScannedMemoProjection, StateBody, Store, WriteGate, ensure_writable, fingerprint_content,
+        read_record, rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
     };
     use tempfile::tempdir;
 
@@ -70,6 +79,57 @@ mod tests {
             .expect("query")
             .items
             .len()
+    }
+
+    #[test]
+    fn scanned_saf_facts_rebuild_query_projection_without_markdown_mirror() {
+        let projection = tempdir().expect("projection root");
+        let body = format!(
+            "# daily\n\nsearchable SAF body\n\n{}raw-tail-8f7431b6",
+            "bounded projection input ".repeat(20)
+        );
+        let source = ScannedMemoProjection {
+            memo_id: "2026-08-02_19:30:00_0".to_owned(),
+            source_path: "2026-08-02.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body),
+            body: body.clone(),
+            tags: vec!["device".to_owned()],
+            attachment_paths: Vec::new(),
+            has_todo: false,
+            has_url: false,
+        };
+
+        let result = rebuild_scanned_projection(projection.path(), &[source]).expect("rebuild");
+        let store = Store::open_projection(projection.path()).expect("open projection");
+        let page = store
+            .query_memos(
+                &MemoQuery {
+                    search_text: Some("searchable".to_owned()),
+                    filters: MemoFilters::default(),
+                },
+                None,
+                PageSize::new(10).expect("page size"),
+            )
+            .expect("query projection");
+
+        assert_eq!(result.memos_indexed, 1);
+        assert_eq!(result.workspace_digest, result.store_digest);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(
+            page.items.first().expect("projected memo").source_path,
+            "2026-08-02.md"
+        );
+        assert!(
+            !projection.path().join("2026-08-02.md").exists(),
+            "SAF projection must not mirror the user Markdown file"
+        );
+        let database = fs::read(store.open_info().database_path).expect("projection database");
+        assert!(
+            !database
+                .windows(body.len())
+                .any(|window| window == body.as_bytes()),
+            "SAF projection must not persist the complete raw Markdown body"
+        );
     }
 
     #[test]

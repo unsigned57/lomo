@@ -25,6 +25,8 @@
 //!   tokens or snooze-only flags match store rules; missing required fields fail closed.
 //! - Given zone transitions on the reminder query, when planned, then the plan succeeds without
 //!   dropping the session.
+//! - Given a SAF engine and memo facts produced by the Rust workspace scan, when its app-private
+//!   projection is rebuilt, then bounded queries and full in-memory snapshots are readable.
 //!
 //! Observable outcomes: FFI DTO fields, structured `EngineError` codes.
 //! TDD proof: RED before store methods exist on `LomoEngine`.
@@ -45,8 +47,8 @@ mod tests {
     use lomo_native::{
         EngineConfig, LomoEngine, StoreMemoCommand, StoreMemoCommandKind, StoreMemoFilters,
         StoreMemoQuery, StorePageCursor, StoreReminderCommand, StoreReminderCommandKind,
-        StoreReminderQuery, StoreReminderSession, StoreTimeZoneContext, StoreZoneTransition,
-        WorkspaceDescriptor,
+        StoreReminderQuery, StoreReminderSession, StoreSafMemoProjection, StoreTimeZoneContext,
+        StoreZoneTransition, WorkspaceDescriptor,
     };
     use tempfile::tempdir;
 
@@ -115,6 +117,50 @@ mod tests {
         assert!(snap.is_some());
         let missing = engine.get_memo("nope".to_owned()).test_ok("missing");
         assert!(missing.is_none());
+    }
+
+    #[test]
+    fn saf_scan_projection_is_queryable_without_a_direct_workspace_path() {
+        let temporary = tempdir().test_ok("temp");
+        let control = temporary.path().join("control");
+        let exchange = temporary.path().join("exchange");
+        fs::create_dir_all(&control).test_ok("control");
+        fs::create_dir_all(&exchange).test_ok("exchange");
+        let engine = LomoEngine::open(EngineConfig {
+            control_root: control.display().to_string(),
+            exchange_root: exchange.display().to_string(),
+            workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-store-test".to_owned(),
+                capability_token: "cap-saf-store-test".to_owned(),
+            }),
+            bootstrap_deadline_millis: 30_000,
+        })
+        .test_ok("open SAF engine");
+        let body = "readable body from SAF";
+
+        let rebuilt = engine
+            .rebuild_saf_store_projection(vec![StoreSafMemoProjection {
+                memo_id: "2026-08-02_19:30:00_0".to_owned(),
+                source_path: "2026-08-02.md".to_owned(),
+                file_fingerprint: lomo_store::fingerprint_content(body),
+                body: body.to_owned(),
+                tags: vec!["device".to_owned()],
+                attachment_paths: Vec::new(),
+                has_todo: false,
+                has_url: false,
+            }])
+            .test_ok("rebuild SAF projection");
+        let page = engine
+            .query_memos(StoreMemoQuery::default(), None, 10)
+            .test_ok("query SAF projection");
+        let memo = engine
+            .get_memo("2026-08-02_19:30:00_0".to_owned())
+            .test_ok("get SAF memo")
+            .test_ok("SAF memo snapshot");
+
+        assert_eq!(rebuilt.memos_indexed, 1);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(memo.body, body);
     }
 
     #[test]

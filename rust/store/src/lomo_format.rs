@@ -23,6 +23,10 @@ pub struct OperationIntent {
     pub content: Option<String>,
     pub tags: Vec<String>,
     pub pin: Option<bool>,
+    /// Original creation timestamp for imported/received creates. `None` means the ordinary local
+    /// create contract uses the transaction commit clock.
+    #[serde(default)]
+    pub created_at_ms: Option<i64>,
     pub status: OperationStatus,
     pub content_revision_after: Option<u64>,
     pub file_fingerprint_after: Option<String>,

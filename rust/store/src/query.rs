@@ -337,6 +337,48 @@ pub fn get_memo(
     workspace_root: &Path,
     memo_id: &str,
 ) -> Result<Option<MemoSnapshot>, lomo_core::LomoError> {
+    let Some(summary) = get_memo_projection(connection, memo_id)? else {
+        return Ok(None);
+    };
+    let body_path = workspace_root.join(&summary.source_path);
+    let body = match std::fs::read_to_string(&body_path) {
+        Ok(body) => body,
+        Err(error) if summary.is_trashed && error.kind() == std::io::ErrorKind::NotFound => {
+            // A trashed memo is physically recoverable under the workspace trash root while its
+            // projection retains the canonical memo source path. Reading that durable location
+            // is the domain state; an unreadable non-trashed body remains fail-closed.
+            let trash_path = workspace_root
+                .join("trash")
+                .join(format!("{}.md", summary.memo_id));
+            std::fs::read_to_string(&trash_path).map_err(|trash_error| {
+                storage(
+                    "memo_body_read_failed",
+                    &format!(
+                        "cannot read trashed memo body {}: {trash_error}",
+                        trash_path.display()
+                    ),
+                )
+            })?
+        }
+        Err(error) => {
+            return Err(storage(
+                "memo_body_read_failed",
+                &format!("cannot read memo body {}: {error}", body_path.display()),
+            ));
+        }
+    };
+    Ok(Some(MemoSnapshot { summary, body }))
+}
+
+/// Loads one memo projection by id without touching workspace user bytes.
+///
+/// # Errors
+///
+/// Returns `SQLite` failures. `Ok(None)` means the projection has no such memo.
+pub fn get_memo_projection(
+    connection: &Connection,
+    memo_id: &str,
+) -> Result<Option<MemoSummary>, lomo_core::LomoError> {
     let row = connection
         .query_row(
             "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
@@ -383,34 +425,7 @@ pub fn get_memo(
         .into_iter()
         .next()
         .ok_or_else(|| validation("memo_projection_missing", "summary vanished after attach"))?;
-    let body_path = workspace_root.join(&summary.source_path);
-    let body = match std::fs::read_to_string(&body_path) {
-        Ok(body) => body,
-        Err(error) if summary.is_trashed && error.kind() == std::io::ErrorKind::NotFound => {
-            // A trashed memo is physically recoverable under the workspace trash root while its
-            // projection retains the canonical memo source path. Reading that durable location
-            // is the domain state; an unreadable non-trashed body remains fail-closed.
-            let trash_path = workspace_root
-                .join("trash")
-                .join(format!("{}.md", summary.memo_id));
-            std::fs::read_to_string(&trash_path).map_err(|trash_error| {
-                storage(
-                    "memo_body_read_failed",
-                    &format!(
-                        "cannot read trashed memo body {}: {trash_error}",
-                        trash_path.display()
-                    ),
-                )
-            })?
-        }
-        Err(error) => {
-            return Err(storage(
-                "memo_body_read_failed",
-                &format!("cannot read memo body {}: {error}", body_path.display()),
-            ));
-        }
-    };
-    Ok(Some(MemoSnapshot { summary, body }))
+    Ok(Some(summary))
 }
 
 /// Loads tag names and non-audio attachment paths for each summary in place.

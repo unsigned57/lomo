@@ -86,6 +86,63 @@ pub struct RebuildResult {
     pub high_water_revision: u64,
 }
 
+/// One memo projection already parsed by the Rust workspace owner through a SAF scan.
+///
+/// `body` is an in-memory indexing input only. The projection persists bounded preview/search
+/// facts, never a Markdown file mirror.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScannedMemoProjection {
+    pub memo_id: String,
+    pub source_path: String,
+    pub file_fingerprint: String,
+    pub body: String,
+    pub tags: Vec<String>,
+    pub attachment_paths: Vec<String>,
+    pub has_todo: bool,
+    pub has_url: bool,
+}
+
+/// Atomically replaces an app-private query projection from bounded SAF scan facts.
+///
+/// # Errors
+///
+/// Returns validation for malformed scan facts, storage/SQLite failures, or corruption when the
+/// rebuilt projection does not match the supplied memo fingerprints and attachment count.
+pub fn rebuild_scanned_projection(
+    projection_root: &Path,
+    memos: &[ScannedMemoProjection],
+) -> Result<RebuildResult, lomo_core::LomoError> {
+    let sqlite_dir = projection_root.join(SQLITE_DIR_NAME);
+    fs::create_dir_all(&sqlite_dir).map_err(|error| {
+        storage(
+            "sqlite_dir_create_failed",
+            &format!("cannot create SAF projection sqlite directory: {error}"),
+        )
+    })?;
+    let live_db = database_path(projection_root);
+    let temp_db = sqlite_dir.join("store.saf.rebuild.db");
+    let live_bak = sqlite_dir.join(LIVE_BAK_NAME);
+    drop(fs::remove_file(&temp_db));
+    let connection = create_schema_db(&temp_db)?;
+    for memo in memos {
+        index_scanned_memo(&connection, memo)?;
+    }
+    recompute_stats(&connection)?;
+    ensure_quick_check(&connection, "SAF projection temp")?;
+    let evidence = compare_scanned_to_store(memos, &connection)?;
+    drop(connection);
+    finish_atomic_replace(&live_db, &temp_db, &live_bak)?;
+    Ok(RebuildResult {
+        memos_indexed: u64::try_from(memos.len()).unwrap_or(u64::MAX),
+        file_count: evidence.file_count,
+        attachment_count: evidence.attachment_count,
+        workspace_digest: evidence.workspace_digest,
+        store_digest: evidence.store_digest,
+        corrupt_lomo_isolated: 0,
+        high_water_revision: 0,
+    })
+}
+
 /// Runs or resumes rebuild. Never deletes `.lomo/` because `SQLite` is damaged.
 ///
 /// # Errors
@@ -328,6 +385,54 @@ fn compare_workspace_to_store(
     Ok(CompareEvidence {
         file_count,
         attachment_count: store_attachments_u,
+        workspace_digest,
+        store_digest,
+    })
+}
+
+fn compare_scanned_to_store(
+    memos: &[ScannedMemoProjection],
+    connection: &Connection,
+) -> Result<CompareEvidence, lomo_core::LomoError> {
+    let mut workspace_pairs = memos
+        .iter()
+        .map(|memo| (memo.memo_id.clone(), memo.file_fingerprint.clone()))
+        .collect::<Vec<_>>();
+    workspace_pairs.sort();
+    let workspace_digest = aggregate_memo_digest(&workspace_pairs);
+    let file_count = u64::try_from(workspace_pairs.len()).unwrap_or(u64::MAX);
+    let attachment_count = memos.iter().try_fold(0_u64, |count, memo| {
+        count
+            .checked_add(u64::try_from(memo.attachment_paths.len()).unwrap_or(u64::MAX))
+            .ok_or_else(|| corruption("rebuild_compare_failed", "attachment count overflow"))
+    })?;
+
+    let mut store_pairs = Vec::new();
+    let mut statement = connection
+        .prepare("SELECT memo_id, file_fingerprint FROM memo ORDER BY memo_id")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    for row in rows {
+        store_pairs.push(row.map_err(|error| from_sqlite(&error))?);
+    }
+    let store_digest = aggregate_memo_digest(&store_pairs);
+    let store_attachments: i64 = connection
+        .query_row("SELECT COUNT(*) FROM attachment_ref", [], |row| row.get(0))
+        .map_err(|error| from_sqlite(&error))?;
+    let store_attachment_count = u64::try_from(store_attachments).unwrap_or(u64::MAX);
+    if workspace_pairs != store_pairs || attachment_count != store_attachment_count {
+        return Err(corruption(
+            "rebuild_compare_failed",
+            "SAF scan facts and rebuilt store projection diverge",
+        ));
+    }
+    Ok(CompareEvidence {
+        file_count,
+        attachment_count,
         workspace_digest,
         store_digest,
     })
@@ -620,26 +725,53 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
         .and_then(|s| s.to_str())
         .ok_or_else(|| validation("invalid_memo_filename", "memo file stem must be utf-8"))?
         .to_owned();
-    let search_content = index_tokens(&content);
-    let preview: String = content.chars().take(200).collect();
     let fingerprint = fingerprint_content(&content);
     let facts = project_content_facts(&content)?;
-    let has_todo = i64::from(facts.has_todo);
-    let has_url = i64::from(facts.has_url);
-    let has_attachment = i64::from(!facts.attachment_paths.is_empty());
     let parent_name = path
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .unwrap_or("memos");
     let source_path = format!("{parent_name}/{memo_id}.md");
+    index_scanned_memo(
+        conn,
+        &ScannedMemoProjection {
+            memo_id,
+            source_path,
+            file_fingerprint: fingerprint,
+            body: content,
+            tags: facts.tags,
+            attachment_paths: facts.attachment_paths,
+            has_todo: facts.has_todo,
+            has_url: facts.has_url,
+        },
+    )
+}
+
+fn index_scanned_memo(
+    conn: &Connection,
+    memo: &ScannedMemoProjection,
+) -> Result<(), lomo_core::LomoError> {
+    if memo.memo_id.is_empty() || memo.memo_id.len() > 512 {
+        return Err(validation(
+            "invalid_memo_id",
+            "scanned memo id is empty or too long",
+        ));
+    }
+    let _path = lomo_workspace::WorkspaceRelativePath::parse(&memo.source_path)?;
+    let _fingerprint = lomo_workspace::SourceFingerprint::parse(&memo.file_fingerprint)?;
+    let search_content = index_tokens(&memo.body);
+    let preview: String = memo.body.chars().take(200).collect();
+    let has_todo = i64::from(memo.has_todo);
+    let has_url = i64::from(memo.has_url);
+    let has_attachment = i64::from(!memo.attachment_paths.is_empty());
     let now = 0_i64;
 
     // Skip if already indexed (resume).
     let exists: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM memo WHERE memo_id = ?1",
-            params![memo_id],
+            params![memo.memo_id],
             |row| row.get(0),
         )
         .map_err(|err| from_sqlite(&err))?;
@@ -652,9 +784,9 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
          created_at_ms, updated_at_ms, body_preview, search_content, content_revision) \
          VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,1)",
         params![
-            memo_id,
-            source_path,
-            fingerprint,
+            &memo.memo_id,
+            &memo.source_path,
+            &memo.file_fingerprint,
             has_todo,
             has_url,
             has_attachment,
@@ -667,7 +799,7 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
     let rowid: i64 = conn
         .query_row(
             "SELECT rowid FROM memo WHERE memo_id = ?1",
-            params![memo_id],
+            params![&memo.memo_id],
             |row| row.get(0),
         )
         .map_err(|err| from_sqlite(&err))?;
@@ -676,10 +808,10 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
         params![rowid, search_content],
     )
     .map_err(|err| from_sqlite(&err))?;
-    for tag in &facts.tags {
-        rehydrate_tag(conn, &memo_id, tag)?;
+    for tag in &memo.tags {
+        rehydrate_tag(conn, &memo.memo_id, tag)?;
     }
-    for rel in &facts.attachment_paths {
+    for rel in &memo.attachment_paths {
         if rel.is_empty() || rel.len() > 1024 {
             return Err(validation(
                 "invalid_attachment_path",
@@ -688,7 +820,7 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
         }
         conn.execute(
             "INSERT OR IGNORE INTO attachment_ref(memo_id, relative_path) VALUES(?1, ?2)",
-            params![memo_id, rel],
+            params![memo.memo_id, rel],
         )
         .map_err(|err| from_sqlite(&err))?;
     }

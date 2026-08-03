@@ -29,6 +29,17 @@
 //!   promote runs before Markdown/`attachment_ref` and recovery never leaves body refs without files.
 //! - Given body attachment without a matching promote (or missing file), when create runs, then
 //!   `attachment_file_missing_after_promote` fails closed with no memo body.
+//! - Given the atomic Markdown temp path returns `ENOSPC`, when create runs, then the typed storage
+//!   error is observable, no revision or body publishes, and the same operation resumes once after
+//!   storage becomes writable.
+//!
+//! Observable outcomes: typed error category/code, durable operation recovery, Markdown bytes,
+//! query results, revision/event counters and invalidation scopes.
+//!
+//! TDD proof: Not applicable - test-only characterization of the existing atomic-write boundary;
+//! no production change.
+//!
+//! Excludes: physical-device storage exhaustion, filesystem quota configuration and performance.
 
 #[cfg(test)]
 #[expect(
@@ -602,6 +613,52 @@ mod tests {
             .expect_err("missing body must fail closed");
         assert_eq!(err.code(), "memo_body_read_failed");
         assert_eq!(err.category(), ErrorCategory::Storage);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn disk_full_during_markdown_write_fails_closed_and_resumes_once() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().expect("tempdir");
+        let mut store = Store::open(dir.path()).expect("open");
+        let memo_path = dir.path().join("memos").join("disk-full.md");
+        let temp_path = memo_path.with_extension("md.tmp");
+        fs::create_dir_all(memo_path.parent().expect("memo parent")).expect("create memo dir");
+        symlink("/dev/full", &temp_path).expect("route atomic temp write to ENOSPC device");
+        let command = create_cmd("op-disk-full", "disk-full", "survives retry");
+
+        let error = store
+            .apply_memo_command(&command, None)
+            .expect_err("ENOSPC must fail before publish");
+
+        assert_eq!(error.category(), ErrorCategory::Storage);
+        assert_eq!(error.code(), "memo_temp_write_failed");
+        assert_eq!(store.high_water_revision(), 0);
+        assert_eq!(store.event_sequence(), 0);
+        assert!(
+            !memo_path.exists(),
+            "failed write must not publish Markdown"
+        );
+
+        fs::remove_file(&temp_path).expect("remove ENOSPC device link");
+        let recovered = store
+            .apply_memo_command(&command, None)
+            .expect("resume durable operation after storage recovers");
+        assert!(!recovered.idempotent_replay);
+        assert_eq!(store.high_water_revision(), 1);
+        assert_eq!(store.event_sequence(), 1);
+        assert_eq!(
+            fs::read_to_string(&memo_path).expect("memo body"),
+            "survives retry"
+        );
+
+        let replay = store
+            .apply_memo_command(&command, None)
+            .expect("committed replay");
+        assert!(replay.idempotent_replay);
+        assert_eq!(store.high_water_revision(), 1);
+        assert_eq!(store.event_sequence(), 1);
     }
 
     #[test]
