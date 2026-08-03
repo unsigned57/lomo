@@ -961,7 +961,6 @@ version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
  "lomo-core",
- "lomo-store",
  "sha2",
  "tempfile",
 ]

@@ -32,6 +32,10 @@ name = "transaction_contract"
 path = "tests/transaction_contract.rs"
 
 [[test]]
+name = "received_create_contract"
+path = "tests/received_create_contract.rs"
+
+[[test]]
 name = "rebuild_contract"
 path = "tests/rebuild_contract.rs"
 

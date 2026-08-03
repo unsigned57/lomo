@@ -8,4 +8,6 @@ disallowed-methods = [
     { path = "core::result::Result::ok", reason = "Do not erase Result errors; propagate them or model the intentional result boundary." },
     { path = "core::result::Result::unwrap_or_default", reason = "Default must not swallow Result errors; match, map_err, or model an intentional domain default." },
     { path = "core::option::Option::unwrap_or_default", reason = "Empty vs legitimate default must be distinguishable; use explicit unwrap_or_else or a typed domain default." },
+    { path = "std::env::set_var", reason = "Modifying environment variables is unsound in multi-threaded Rust." },
+    { path = "std::env::remove_var", reason = "Modifying environment variables is unsound in multi-threaded Rust." },
 ]
