@@ -24,6 +24,8 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.canRebuildDerivedIndex
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
@@ -35,6 +37,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -120,6 +123,7 @@ class MainViewModel(
             data class ReadOnlyRecovery(
                 val code: String,
                 val diagnostic: String,
+                val canRebuildDerivedIndex: Boolean,
             ) : MainScreenState
 
             data object Ready : MainScreenState
@@ -189,7 +193,9 @@ class MainViewModel(
                 dispatcherProvider = dispatcherProvider,
             )
 
-        val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
+    val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
+    private val _diagnosticExports = MutableSharedFlow<RecoveryDiagnosticReport>(extraBufferCapacity = 1)
+    val diagnosticExports: Flow<RecoveryDiagnosticReport> = _diagnosticExports
 
         val uiState: StateFlow<MainScreenState> =
             combine(
@@ -210,6 +216,7 @@ class MainViewModel(
                         MainScreenState.ReadOnlyRecovery(
                             code = readiness.code,
                             diagnostic = readiness.diagnostic,
+                            canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
                         )
                     readiness is EngineReadiness.Opening ||
                         readiness is EngineReadiness.ShuttingDown ->
@@ -681,7 +688,7 @@ class MainViewModel(
             }
         }
 
-        fun retryEngineOpen() {
+        val retryEngineOpen: () -> Unit = {
             viewModelScope.launch {
                 val location = _rootDirectory.value ?: return@launch
                 runCatching {
@@ -689,6 +696,30 @@ class MainViewModel(
                 }.onFailure { throwable ->
                     Timber.w(throwable, "Engine reopen failed")
                     _errorMessage.value = throwable.toUserMessage("Failed to reopen workspace")
+                }
+            }
+        }
+
+        val rebuildDerivedIndex: () -> Unit = {
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    workspaceCoordinator.rebuildDerivedIndex()
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Derived index rebuild failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to rebuild the derived index")
+                }
+            }
+        }
+
+        val exportRecoveryDiagnostics: () -> Unit = {
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    workspaceCoordinator.createRecoveryDiagnosticReport()
+                }.onSuccess { report ->
+                    _diagnosticExports.emit(report)
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Recovery diagnostic export failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to prepare recovery diagnostics")
                 }
             }
         }

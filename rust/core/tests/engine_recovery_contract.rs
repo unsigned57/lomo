@@ -12,6 +12,8 @@
 //!   of reclaiming a creator that may still be initializing.
 //! - Given a dead owner or a reused PID with different process start identity, when engines race to
 //!   reclaim, then exactly one becomes owner.
+//! - Given a dead reclaimer leaves its atomic claim directory behind, when a later engine opens,
+//!   then it removes the stale claim and reclaims the dead workspace lock.
 //! - Given an old owner observes a replacement nonce during Drop, then it preserves the replacement
 //!   lock instead of deleting another engine's authority.
 //! - Given a direct workspace completes bootstrap, when it reopens, then `CoreRevision` remains
@@ -24,7 +26,9 @@
 //! Observable outcomes: `EngineState`, stable workspace identity, error category/code, lock
 //! release, and exact durable journal bytes.
 //! TDD proof: P0-02 was RED on 2026-07-27 with E0061; P0-03 is RED while a fresh lock directory
-//! without `owner.pid` is immediately reclaimed and an old owner Drop removes any replacement.
+//! without `owner.pid` is immediately reclaimed and an old owner Drop removes any replacement;
+//! Android-safe stale claim recovery was RED on 2026-08-02 with `workspace_lock_unavailable`
+//! because the file-based protocol tried to read the claim directory as a file.
 //! Excludes: actor scheduling, listener delivery, cancellation races, SAF execution, and FFI.
 
 #[cfg(test)]
@@ -285,6 +289,32 @@ mod tests {
         let reopened = LomoEngine::open(fixture.config)
             .must_succeed("stale lock with dead owner must reclaim");
         assert!(matches!(reopened.state(), EngineState::Ready { .. }));
+    }
+
+    #[test]
+    fn workspace_lock_reclaims_claim_abandoned_by_dead_process() {
+        let fixture = Fixture::new();
+        let first = LomoEngine::open(fixture.config.clone()).must_succeed("seed journal + lock");
+        let lock = lock_dir(&fixture.config);
+        let control = lock
+            .parent()
+            .must_succeed("workspace control directory")
+            .to_path_buf();
+        drop(first);
+
+        fs::create_dir(&lock).must_succeed("stale lock directory");
+        let dead_owner =
+            br#"{"pid":4294967294,"process_start_identity":"dead-boot:1","nonce":"00000000000000000000000000000000","created_unix_millis":1}"#;
+        fs::write(lock.join("owner.json"), dead_owner).must_succeed("stale lock owner");
+        let stale_claim = control.join("engine.lock.reclaim");
+        fs::create_dir(&stale_claim).must_succeed("stale reclaim claim directory");
+        fs::write(stale_claim.join("owner.json"), dead_owner).must_succeed("stale reclaim owner");
+
+        let reopened = LomoEngine::open(fixture.config)
+            .must_succeed("dead reclaim claim must not brick the workspace");
+
+        assert!(matches!(reopened.state(), EngineState::Ready { .. }));
+        assert!(!stale_claim.exists());
     }
 
     #[test]

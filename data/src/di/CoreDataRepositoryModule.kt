@@ -39,6 +39,7 @@ import com.lomo.data.repository.TypographyPreferencesRepositoryImpl
 import com.lomo.data.repository.ColorSchemePreferencesRepositoryImpl
 import com.lomo.data.repository.FontPreferencesRepositoryImpl
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.local.datastore.LomoLanSharePreferencesStore
 import com.lomo.data.security.DataStoreSecuritySessionPolicy
 import com.lomo.data.security.DefaultCredentialRepository
 import com.lomo.data.git.GitCredentialStore
@@ -73,6 +74,7 @@ val coreDataRepositoryModule = module {
     singleOf(::ShareImageRepositoryImpl) bind ShareImageRepository::class
 
     single { LomoDataStore(androidContext()) }
+    single<LomoLanSharePreferencesStore> { get<LomoDataStore>() }
 
     // Pref delegates
     single { DirectorySettingsRepositoryImpl(get(), get()) }

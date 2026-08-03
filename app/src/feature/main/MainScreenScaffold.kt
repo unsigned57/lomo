@@ -63,6 +63,8 @@ internal fun MainScreenScaffoldContent(
     memoListFilterController: com.lomo.app.feature.common.MemoListFilterController,
     onDismissMemoFilterSheet: () -> Unit,
     onRetryEngine: () -> Unit,
+    onRebuildDerivedIndex: () -> Unit,
+    onExportDiagnostics: () -> Unit,
 ) {
     val isFabVisible =
         rememberMainScreenFabVisibility(scrollBehavior) &&
@@ -115,6 +117,8 @@ internal fun MainScreenScaffoldContent(
             onReminderClick = onReminderClick,
             onSettings = actions.onSettings,
             onRetryEngine = onRetryEngine,
+            onRebuildDerivedIndex = onRebuildDerivedIndex,
+            onExportDiagnostics = onExportDiagnostics,
             isFilterActive = isFilterActive,
         )
     }
@@ -199,6 +203,8 @@ private fun MainScreenScaffoldBody(
     onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
     onRetryEngine: () -> Unit,
+    onRebuildDerivedIndex: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     isFilterActive: Boolean,
 ) {
     Box(
@@ -230,6 +236,8 @@ private fun MainScreenScaffoldBody(
             onReminderClick = onReminderClick,
             onSettings = onSettings,
             onRetryEngine = onRetryEngine,
+            onRebuildDerivedIndex = onRebuildDerivedIndex,
+            onExportDiagnostics = onExportDiagnostics,
             isFilterActive = isFilterActive,
         )
     }

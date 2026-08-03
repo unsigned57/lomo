@@ -1,6 +1,8 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.DerivedIndexRebuildSummary
+import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,19 @@ interface EngineReadinessRepository {
 
     /** Reloads the authoritative snapshot after foreground resume or suspected notification loss. */
     fun resnapshot()
+
+    /**
+     * Builds a bounded, secret-free report from typed recovery facts only.
+     *
+     * Raw native diagnostics and workspace paths are intentionally excluded.
+     */
+    suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport
+
+    /**
+     * Rebuilds only the disposable Rust SQLite projection for a known rebuildable SQLite failure,
+     * then reopens the same workspace. Markdown, media and `.lomo` durable facts are never deleted.
+     */
+    suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary
 
     /**
      * Opens or reopens the engine for [location].

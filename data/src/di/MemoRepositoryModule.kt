@@ -66,7 +66,7 @@ val memoRepositoryModule =
 
         singleOf(::StoreMemoSearchRepository) bind MemoSearchRepository::class
         single {
-            StoreMemoStatisticsRepository(port = get(), invalidation = get())
+            StoreMemoStatisticsRepository(port = get(), invalidation = get(), readiness = get())
         } bind MemoStatisticsRepository::class
         single {
             StoreMemoTrashRepository(

@@ -90,7 +90,6 @@ internal class MainMemoListStateHolder(
                     initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
                     prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
                     enablePlaceholders = DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS,
-                    jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
                     pagingSourceFactory = {
                         mainMemoListQueryUseCase.getMainListPagingSource(
                             queryInput.query,

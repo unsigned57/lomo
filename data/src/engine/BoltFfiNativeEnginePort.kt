@@ -1,7 +1,30 @@
 package com.lomo.data.engine
 
+import com.lomo.data.engine.lan.LanBatchRecovery
+import com.lomo.data.engine.lan.LanCommittableItem
+import com.lomo.data.engine.lan.LanDeviceIdentity
+import com.lomo.data.engine.lan.LanBatchPreview
+import com.lomo.data.engine.lan.LanDiscoveredPeer
+import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanLocalIdentity
+import com.lomo.data.engine.lan.LanNetworkFacts
+import com.lomo.data.engine.lan.LanOutgoingBatch
+import com.lomo.data.engine.lan.LanOutgoingBatchPhase
+import com.lomo.data.engine.lan.LanPairingChallenge
+import com.lomo.data.engine.lan.LanPendingBatch
+import com.lomo.data.engine.lan.LanPeer
+import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanReceivedBatchDecision
+import com.lomo.data.engine.lan.LanReceivedItemRecovery
+import com.lomo.data.engine.lan.LanRuntimeInbox
+import com.lomo.data.engine.lan.LanServicePhase
+import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanSessionChallenge
+import com.lomo.data.engine.lan.LanSessionPhase
+import com.lomo.data.engine.lan.LanSessionState
+import com.lomo.data.engine.lan.LanTransferShape
 import com.lomo.nativebridge.CoreEventListener
-import com.lomo.nativebridge.EngineState
 import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.PlatformBatchResult
 import com.lomo.nativebridge.RenderRequest
@@ -43,6 +66,174 @@ internal class BoltFfiNativeEnginePort(
             engine.state().toSnapshot()
         }
 
+    override fun lanTransferShape(): LanTransferShape =
+        withReadLease { engine ->
+            engine.lanTransferShape().let { shape ->
+                LanTransferShape(shape.bodySlot, shape.chunkPlaintextBytes)
+            }
+        }
+
+    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
+        withReadLease { engine -> engine.updateLanNetworkSnapshot(snapshot.toBridge()) }
+    }
+
+    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) {
+        withReadLease { engine -> engine.updateLanDiscoverySnapshot(snapshot.toBridge()) }
+    }
+
+    override fun startLanService(): LanServiceState =
+        withReadLease { engine -> engine.startLanService().toSnapshot() }
+
+    override fun stopLanService(): LanServiceState =
+        withReadLease { engine -> engine.stopLanService().toSnapshot() }
+
+    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> =
+        withReadLease { engine -> engine.listLanDiscoveredPeers().map { peer -> peer.toSnapshot() } }
+
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
+        withReadLease { engine ->
+            engine.configureLanIdentity(
+                com.lomo.nativebridge.LanDeviceIdentityDto(
+                    publicKey = identity.publicKey,
+                    displayName = identity.displayName,
+                ),
+            ).let { configured ->
+                LanLocalIdentity(
+                    deviceId = configured.deviceId,
+                    displayName = configured.displayName,
+                )
+            }
+        }
+
+    override fun beginLanPairing(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanPairingChallenge =
+        withReadLease { engine ->
+            engine.beginLanPairing(peerDeviceId, nowMs, ttlMs).toSnapshot()
+        }
+
+    override fun pollLanListener(nowMs: Long): LanRuntimeInbox =
+        withReadLease { engine -> engine.pollLanListener(nowMs).toSnapshot() }
+
+    override fun lanRuntimeInbox(): LanRuntimeInbox =
+        withReadLease { engine -> engine.lanRuntimeInbox().toSnapshot() }
+
+    override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
+        withReadLease { engine -> engine.lanPairingChallenge(pairingId).toSnapshot() }
+
+    override fun confirmLanPairing(
+        pairingId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) {
+        withReadLease { engine -> engine.confirmLanPairing(pairingId, signature, nowMs) }
+    }
+
+    override fun declineLanPairing(pairingId: String) {
+        withReadLease { engine -> engine.declineLanPairing(pairingId) }
+    }
+
+    override fun beginLanSession(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanSessionChallenge =
+        withReadLease { engine -> engine.beginLanSession(peerDeviceId, nowMs, ttlMs).toSnapshot() }
+
+    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge =
+        withReadLease { engine -> engine.lanSessionChallenge(sessionId).toSnapshot() }
+
+    override fun confirmLanSession(
+        sessionId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) {
+        withReadLease { engine -> engine.confirmLanSession(sessionId, signature, nowMs) }
+    }
+
+    override fun lanSessionState(sessionId: String): LanSessionState =
+        withReadLease { engine -> engine.lanSessionSnapshot(sessionId).toSnapshot() }
+
+    override fun prepareLanBatch(
+        sessionId: String,
+        batchId: String,
+        items: List<LanSendItemPlan>,
+    ) {
+        withReadLease { engine ->
+            engine.prepareLanBatch(sessionId, batchId, items.map(LanSendItemPlan::toBridge))
+        }
+    }
+
+    override fun lanBatchPreview(batchId: String): LanBatchPreview =
+        withReadLease { engine -> engine.lanBatchPreview(batchId).toSnapshot() }
+
+    override fun approveLanBatch(
+        sessionId: String,
+        batchId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ) {
+        withReadLease { engine ->
+            engine.approveLanBatch(sessionId, batchId, nowMs, ttlMs)
+        }
+    }
+
+    override fun rejectLanBatch(
+        sessionId: String,
+        batchId: String,
+        rejectedAtMs: Long,
+    ) {
+        withReadLease { engine -> engine.rejectLanBatch(sessionId, batchId, rejectedAtMs) }
+    }
+
+    override fun sendLanBatchChunk(
+        sessionId: String,
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+        chunkIndex: UInt,
+        plaintext: ByteArray,
+    ) {
+        withReadLease { engine ->
+            engine.sendLanBatchChunk(
+                sessionId,
+                batchId,
+                itemIndex,
+                attachmentSlot,
+                chunkIndex,
+                plaintext,
+            )
+        }
+    }
+
+    @OptIn(ExperimentalUnsignedTypes::class)
+    override fun lanUnconfirmedBatchChunks(
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+    ): List<UInt> =
+        withReadLease { engine ->
+            engine.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot).toList()
+        }
+
+    override fun commitReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        nowMs: Long,
+    ): String =
+        withReadLease { engine -> engine.commitReceivedLanItem(batchId, itemIndex, nowMs) }
+
+    override fun listLanPeers(): LanPeerPage =
+        withReadLease { engine -> engine.listLanPeers().toSnapshot() }
+
+    override fun revokeLanPeer(
+        deviceId: String,
+        revokedAtMs: Long,
+    ): LanPeerPage =
+        withReadLease { engine -> engine.revokeLanPeer(deviceId, revokedAtMs).toSnapshot() }
+
     override fun pollJob(jobId: String): NativeJobStep =
         withReadLease { engine ->
             engine.pollJob(jobId).toNative()
@@ -82,6 +273,26 @@ internal class BoltFfiNativeEnginePort(
     override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
         withReadLease { engine ->
             engine.readWorkspaceScanPage(jobId).toSnapshot(exchangeResolver)
+        }
+
+    override fun rebuildSafStoreProjection(
+        memos: List<SafMemoProjectionSnapshot>,
+    ): com.lomo.nativebridge.StoreRebuildResult =
+        withReadLease { engine ->
+            engine.rebuildSafStoreProjection(
+                memos.map { memo ->
+                    com.lomo.nativebridge.StoreSafMemoProjection(
+                        memoId = memo.memoId,
+                        sourcePath = memo.sourcePath,
+                        fileFingerprint = memo.fileFingerprint,
+                        body = memo.body,
+                        tags = memo.tags,
+                        attachmentPaths = memo.attachmentPaths,
+                        hasTodo = memo.hasTodo,
+                        hasUrl = memo.hasUrl,
+                    )
+                },
+            )
         }
 
     override fun startWorkspaceDocumentCommand(
@@ -305,19 +516,187 @@ internal class BoltFfiNativeEnginePort(
     }
 }
 
-private fun EngineState.toSnapshot(): NativeEngineSnapshot =
-    when (this) {
-        EngineState.AwaitingWorkspaceSelection -> NativeEngineSnapshot.AwaitingWorkspaceSelection
-        is EngineState.Opening -> NativeEngineSnapshot.Opening(jobId = jobId)
-        is EngineState.Ready -> NativeEngineSnapshot.Ready(coreRevision, eventSequence)
-        is EngineState.ReadOnlyRecovery ->
-            NativeEngineSnapshot.ReadOnlyRecovery(
-                EngineFailureSnapshot(
-                    category = failure.category,
-                    code = failure.code,
-                    retryDisposition = failure.retryDisposition,
-                    diagnostic = failure.diagnostic,
-                ),
-            )
-        EngineState.ShuttingDown -> NativeEngineSnapshot.ShuttingDown
-    }
+private fun LanDiscoveryFacts.toBridge(): com.lomo.nativebridge.LanDiscoverySnapshotDto =
+    com.lomo.nativebridge.LanDiscoverySnapshotDto(
+        revision = revision,
+        peers =
+            peers.map { peer ->
+                com.lomo.nativebridge.LanDiscoveredPeerDto(
+                    deviceId = peer.deviceId,
+                    displayName = peer.displayName,
+                    host = peer.host,
+                    port = peer.port,
+                    protocolVersion = peer.protocolVersion,
+                )
+            },
+    )
+
+private fun com.lomo.nativebridge.LanServiceSnapshotDto.toSnapshot(): LanServiceState =
+    LanServiceState(
+        phase =
+            when (phase) {
+                com.lomo.nativebridge.LanServicePhaseDto.STOPPED -> LanServicePhase.Stopped
+                com.lomo.nativebridge.LanServicePhaseDto.LISTENING -> LanServicePhase.Listening
+            },
+        listenAddress = listenAddress,
+    )
+
+private fun com.lomo.nativebridge.LanDiscoveredPeerDto.toSnapshot(): LanDiscoveredPeer =
+    LanDiscoveredPeer(
+        deviceId = deviceId,
+        displayName = displayName,
+        host = host,
+        port = port,
+        protocolVersion = protocolVersion,
+    )
+
+private fun com.lomo.nativebridge.LanPairingChallengeDto.toSnapshot(): LanPairingChallenge =
+    LanPairingChallenge(
+        pairingId = pairingId,
+        peerDeviceId = peerDeviceId,
+        peerDisplayName = peerDisplayName,
+        shortCode = shortCode,
+        transcriptToSign = transcriptToSign,
+        deadlineMs = deadlineMs,
+    )
+
+private fun com.lomo.nativebridge.LanSessionChallengeDto.toSnapshot(): LanSessionChallenge =
+    LanSessionChallenge(
+        sessionId = sessionId,
+        peerDeviceId = peerDeviceId,
+        transcriptToSign = transcriptToSign,
+        deadlineMs = deadlineMs,
+    )
+
+private fun com.lomo.nativebridge.LanSessionSnapshotDto.toSnapshot(): LanSessionState =
+    LanSessionState(
+        sessionId = sessionId,
+        peerDeviceId = peerDeviceId,
+        phase =
+            when (phase) {
+                com.lomo.nativebridge.LanSessionPhaseDto.AUTHENTICATED -> LanSessionPhase.Authenticated
+            },
+    )
+
+private fun LanSendItemPlan.toBridge(): com.lomo.nativebridge.LanSendItemDto =
+    com.lomo.nativebridge.LanSendItemDto(
+        timestampMs = timestampMs,
+        contentDigest = contentDigest,
+        contentBytes = contentBytes,
+        title = title,
+        attachments =
+            attachments.map { attachment ->
+                com.lomo.nativebridge.LanAttachmentDto(
+                    slot = attachment.slot,
+                    sourceReference = attachment.sourceReference,
+                    name = attachment.name,
+                    digest = attachment.digest,
+                    sizeBytes = attachment.sizeBytes,
+                )
+            },
+    )
+
+private fun com.lomo.nativebridge.LanBatchPreviewDto.toSnapshot(): LanBatchPreview =
+    LanBatchPreview(
+        batchId = batchId,
+        senderDeviceId = senderDeviceId,
+        senderDisplayName = senderDisplayName,
+        itemCount = itemCount,
+        attachmentCount = attachmentCount,
+        totalBytes = totalBytes,
+        titles = titles,
+    )
+
+private fun com.lomo.nativebridge.LanRuntimeInboxDto.toSnapshot(): LanRuntimeInbox =
+    LanRuntimeInbox(
+        pairingChallenges = pairingChallenges.map { challenge -> challenge.toSnapshot() },
+        sessionChallenges = sessionChallenges.map { challenge -> challenge.toSnapshot() },
+        activeSessions = activeSessions.map { session -> session.toSnapshot() },
+        pendingBatches =
+            pendingBatches.map { pending ->
+                LanPendingBatch(
+                    sessionId = pending.sessionId,
+                    preview = pending.preview.toSnapshot(),
+                )
+            },
+        batchRecoveries =
+            batchRecoveries.map { recovery ->
+                LanBatchRecovery(
+                    sessionId = recovery.sessionId,
+                    preview = recovery.preview.toSnapshot(),
+                    decision =
+                        when (recovery.decision) {
+                            com.lomo.nativebridge.LanReceivedBatchDecisionDto.PENDING ->
+                                LanReceivedBatchDecision.Pending
+                            com.lomo.nativebridge.LanReceivedBatchDecisionDto.APPROVED ->
+                                LanReceivedBatchDecision.Approved
+                            com.lomo.nativebridge.LanReceivedBatchDecisionDto.REJECTED ->
+                                LanReceivedBatchDecision.Rejected
+                        },
+                    items =
+                        buildList {
+                            recovery.pendingItems.forEach { item ->
+                                add(
+                                    LanReceivedItemRecovery.Pending(
+                                        itemId = item.itemId,
+                                        itemIndex = item.itemIndex,
+                                    ),
+                                )
+                            }
+                            recovery.committedItems.forEach { item ->
+                                add(
+                                    LanReceivedItemRecovery.Committed(
+                                        itemId = item.itemId,
+                                        itemIndex = item.itemIndex,
+                                        memoId = item.memoId,
+                                    ),
+                                )
+                            }
+                            recovery.failedItems.forEach { item ->
+                                add(
+                                    LanReceivedItemRecovery.Failed(
+                                        itemId = item.itemId,
+                                        itemIndex = item.itemIndex,
+                                        code = item.code,
+                                    ),
+                                )
+                            }
+                        }.sortedBy(LanReceivedItemRecovery::itemIndex),
+                )
+            },
+        committableItems =
+            committableItems.map { item ->
+                LanCommittableItem(batchId = item.batchId, itemIndex = item.itemIndex)
+            },
+        outgoingBatches =
+            outgoingBatches.map { batch ->
+                LanOutgoingBatch(
+                    batchId = batch.batchId,
+                    phase =
+                        when (batch.phase) {
+                            com.lomo.nativebridge.LanOutgoingBatchPhaseDto.AWAITING_APPROVAL ->
+                                LanOutgoingBatchPhase.AwaitingApproval
+                            com.lomo.nativebridge.LanOutgoingBatchPhaseDto.APPROVED ->
+                                LanOutgoingBatchPhase.Approved
+                            com.lomo.nativebridge.LanOutgoingBatchPhaseDto.REJECTED ->
+                                LanOutgoingBatchPhase.Rejected
+                        },
+                )
+            },
+    )
+
+private fun com.lomo.nativebridge.LanPeerDto.toSnapshot(): LanPeer =
+    LanPeer(
+        deviceId = deviceId,
+        displayName = displayName,
+        publicKey = publicKey,
+        pairedAtMs = pairedAtMs,
+        revoked = revoked,
+        revokedAtMs = revokedAtMs,
+    )
+
+private fun com.lomo.nativebridge.LanPeerPageDto.toSnapshot(): LanPeerPage =
+    LanPeerPage(
+        peers = peers.map { peer -> peer.toSnapshot() },
+        total = total,
+    )

@@ -14,12 +14,17 @@ package com.lomo.data.engine
  * - Given no configured root, when the session starts, then readiness is AwaitingWorkspaceSelection.
  * - Given bootstrap engine acquisition fails, when the session is constructed, then the graph
  *   remains available in structured ReadOnlyRecovery without a placeholder adapter.
+ * - Given SQLite integrity recovery on cold restore, when the user requests derived-index rebuild,
+ *   then the recovery candidate rebuilds only the Rust projection and the same workspace reopens
+ *   Ready without a Kotlin database fallback.
  * - Given Direct selection, when activate succeeds with Ready, then Ready is published and previous
  *   adapter closes once.
  * - Given open throws, when activate fails, then previous readiness remains and candidate is not
  *   installed.
  * - Given repeated SAF selection, when activation rotates the capability token, then the stable
  *   workspace ID supplied to native remains unchanged.
+ * - Given SAF scan projection rebuild fails, when activation runs, then the candidate is rejected
+ *   and the previous Ready workspace remains authoritative.
  * - Given candidate opens as ReadOnlyRecovery, when activate runs, then previous engine stays and
  *   the soft failure is thrown without installing Recovery as success.
  * - Given a soft-failed candidate whose close also throws, when activate runs, then the structured
@@ -38,6 +43,14 @@ package com.lomo.data.engine
  *   adapter and native port serve the request without constructing another engine.
  * - Given a Rust-scanned reminder reference, when queried and rewritten, then typed facts are
  *   mapped without raw parsing and the complete reference is sent through the same session port.
+ * - Given no workspace, when a trusted LAN session begins, then it uses the bootstrap engine
+ *   handle and remains independent of workspace readiness.
+ * - Given a Ready workspace, when an authenticated LAN batch is prepared and queried, then the
+ *   active engine handle owns the batch runtime rather than a free-function side channel.
+ * - Given an approved LAN batch, when chunk send/resume is routed, then coordinates and bytes use
+ *   that same managed handle and no Kotlin wire owner is constructed.
+ * - Given Rust reports a durable received batch outcome, when the runtime inbox is queried, then
+ *   the same managed handle exposes its decision and typed per-item recovery result.
  *
  * Observable outcomes: readiness StateFlow, open request workspace shape, adapter close counts,
  * workspace port identity and engine-open count.
@@ -45,6 +58,8 @@ package com.lomo.data.engine
  * repeated activation could only send the newly randomized capability token to native.
  * TDD proof: RED on 2026-07-27 because a throwing engine close skipped capability revoke, terminal
  * readiness and candidate release, and a failed previous retirement still published the candidate.
+ * TDD proof: RED on 2026-08-02 because a SAF candidate reached Ready without publishing a queryable
+ * store projection, so projection failure was never observed before authority changed.
  * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
  *
  * Test Change Justification:
@@ -62,6 +77,27 @@ package com.lomo.data.engine
  */
 
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.engine.lan.LanBindCandidate
+import com.lomo.data.engine.lan.LanBatchPreview
+import com.lomo.data.engine.lan.LanBatchRecovery
+import com.lomo.data.engine.lan.LanDeviceIdentity
+import com.lomo.data.engine.lan.LanDiscoveredPeer
+import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanLocalIdentity
+import com.lomo.data.engine.lan.LanNetworkFacts
+import com.lomo.data.engine.lan.LanPairingChallenge
+import com.lomo.data.engine.lan.LanPendingBatch
+import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanReceivedBatchDecision
+import com.lomo.data.engine.lan.LanReceivedItemRecovery
+import com.lomo.data.engine.lan.LanRuntimeInbox
+import com.lomo.data.engine.lan.LanServicePhase
+import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanSessionChallenge
+import com.lomo.data.engine.lan.LanSessionPhase
+import com.lomo.data.engine.lan.LanSessionState
+import com.lomo.data.engine.lan.LanTransferShape
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
@@ -83,6 +119,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -234,6 +271,136 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
+        test("given no workspace when LAN starts then the bootstrap engine owns the listener") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-lan-bootstrap").toFile()
+                try {
+                    val port =
+                        SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { testRustEngineAdapter(port) },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+
+                    session.updateLanNetworkSnapshot(
+                        LanNetworkFacts(
+                            revision = 1uL,
+                            localNetworkPermissionGranted = true,
+                            candidates = listOf(LanBindCandidate(host = "127.0.0.1", port = 0u)),
+                        ),
+                    )
+                    session.startLanService() shouldBe
+                        LanServiceState(
+                            phase = LanServicePhase.Listening,
+                            listenAddress = "127.0.0.1:43123",
+                        )
+                    port.lanStartCount shouldBe 1
+                    session.readiness.value shouldBe EngineReadiness.AwaitingWorkspaceSelection
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given no workspace when a LAN session begins then the bootstrap engine owns it") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-lan-session").toFile()
+                try {
+                    val port =
+                        SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { testRustEngineAdapter(port) },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+
+                    val challenge = session.beginLanSession("a".repeat(64), 1_000, 60_000)
+
+                    challenge shouldBe port.sessionChallenge
+                    port.lanSessionBegins shouldBe 1
+                    session.lanRuntimeInbox() shouldBe port.runtimeInbox
+                    session.lanRuntimeInbox().batchRecoveries shouldBe
+                        port.runtimeInbox.batchRecoveries
+                    session.pollLanListener(1_100) shouldBe port.runtimeInbox
+                    session.lanSessionState(challenge.sessionId) shouldBe
+                        LanSessionState(
+                            sessionId = challenge.sessionId,
+                            peerDeviceId = challenge.peerDeviceId,
+                            phase = LanSessionPhase.Authenticated,
+                        )
+                    session.readiness.value shouldBe EngineReadiness.AwaitingWorkspaceSelection
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given Ready workspace when a LAN batch is prepared then the active engine owns it") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-lan-batch").toFile()
+                try {
+                    val port =
+                        SessionFakeNativeEnginePort(
+                            NativeEngineSnapshot.Ready(coreRevision = 8uL, eventSequence = 13uL),
+                        )
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { testRustEngineAdapter(port) },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+                    val item =
+                        LanSendItemPlan(
+                            timestampMs = 1_700_000_000_000,
+                            contentDigest = "0".repeat(64),
+                            contentBytes = 4uL,
+                            title = "Preview",
+                            attachments = emptyList(),
+                        )
+
+                    session.prepareLanBatch("b".repeat(32), "batch-managed", listOf(item))
+
+                    port.preparedLanBatchId shouldBe "batch-managed"
+                    session.lanBatchPreview("batch-managed") shouldBe port.batchPreview
+                    session.lanUnconfirmedBatchChunks("batch-managed", 0u, 65_535u) shouldBe
+                        listOf(0u)
+                    session.sendLanBatchChunk(
+                        "b".repeat(32),
+                        "batch-managed",
+                        0u,
+                        65_535u,
+                        0u,
+                        byteArrayOf(1, 2, 3, 4),
+                    )
+                    port.sentLanChunk shouldBe byteArrayOf(1, 2, 3, 4)
+                    session.commitReceivedLanItem("batch-managed", 0u, 1_500) shouldBe "memo-received"
+                    port.committedLanBatchId shouldBe "batch-managed"
+                    port.committedLanItemIndex shouldBe 0u
+                    session.rejectLanBatch("b".repeat(32), "batch-managed", 2_000)
+                    port.rejectedLanBatchId shouldBe "batch-managed"
+                    session.readiness.value shouldBe
+                        EngineReadiness.Ready(coreRevision = 8uL, eventSequence = 13uL)
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
         test("given bootstrap acquisition failure when session starts then Recovery remains available") {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-bootstrap-fail").toFile()
@@ -255,6 +422,73 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given SQLite recovery when derived index is rebuilt then the same workspace reopens Ready") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-recovery-rebuild").toFile()
+                val workspace = kotlin.io.path.createTempDirectory("ws-recovery-rebuild").toFile()
+                try {
+                    val settings = InMemoryDirectorySettingsRepository()
+                    settings.setLocation(StorageArea.ROOT, StorageLocation(workspace.absolutePath))
+                    var rebuilt = false
+                    val workspacePorts = mutableListOf<SessionFakeNativeEnginePort>()
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                val port =
+                                    if (request.workspace == null) {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.AwaitingWorkspaceSelection,
+                                        )
+                                    } else if (rebuilt) {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.Ready(
+                                                coreRevision = 3uL,
+                                                eventSequence = 5uL,
+                                            ),
+                                        )
+                                    } else {
+                                        SessionFakeNativeEnginePort(
+                                            NativeEngineSnapshot.ReadOnlyRecovery(
+                                                EngineFailureSnapshot(
+                                                    category = "corruption",
+                                                    code = "sqlite_integrity_failed",
+                                                    retryDisposition = "after_user_action",
+                                                    diagnostic = "PRAGMA quick_check did not return ok",
+                                                ),
+                                            ),
+                                        ).also { recoveryPort ->
+                                            recoveryPort.onRebuild = { rebuilt = true }
+                                        }
+                                    }
+                                if (request.workspace != null) workspacePorts += port
+                                testRustEngineAdapter(port)
+                            },
+                            directorySettingsRepository = settings,
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+                    advanceUntilIdle()
+                    session.readiness.value
+                        .shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
+                        .code shouldBe "sqlite_integrity_failed"
+
+                    val result = session.rebuildDerivedIndex()
+
+                    result.memosIndexed shouldBe 2uL
+                    workspacePorts.sumOf { it.rebuildCount } shouldBe 1
+                    session.readiness.value shouldBe
+                        EngineReadiness.Ready(coreRevision = 3uL, eventSequence = 5uL)
+                    session.activeWorkspaceLocation.value shouldBe StorageLocation(workspace.absolutePath)
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                    workspace.deleteRecursively()
                 }
             }
         }
@@ -413,6 +647,68 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given SAF projection failure when activation runs then previous Ready authority remains") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-projection-fail").toFile()
+                val previousRoot = kotlin.io.path.createTempDirectory("ws-saf-projection-previous").toFile()
+                try {
+                    val registry = CapabilityRegistry()
+                    val ports = mutableListOf<SessionFakeNativeEnginePort>()
+                    var safToken: String? = null
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = registry,
+                            openAdapter = { request ->
+                                val port =
+                                    when (request.workspace) {
+                                        null ->
+                                            SessionFakeNativeEnginePort(
+                                                NativeEngineSnapshot.AwaitingWorkspaceSelection,
+                                            )
+                                        is NativeWorkspaceSelection.Direct ->
+                                            SessionFakeNativeEnginePort(
+                                                NativeEngineSnapshot.Ready(coreRevision = 7uL, eventSequence = 9uL),
+                                            )
+                                        is NativeWorkspaceSelection.Saf -> {
+                                            safToken = request.workspace.capabilityToken
+                                            SessionFakeNativeEnginePort(
+                                                NativeEngineSnapshot.Ready(coreRevision = 11uL, eventSequence = 13uL),
+                                            ).apply {
+                                                safProjectionFailure = IllegalStateException("SAF projection refused")
+                                            }
+                                        }
+                                    }
+                                ports += port
+                                testRustEngineAdapter(port)
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(StorageLocation(previousRoot.absolutePath))
+
+                    val error =
+                        shouldThrow<IllegalStateException> {
+                            session.activateWorkspace(
+                                StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
+                            )
+                        }
+
+                    error.message shouldBe "SAF projection refused"
+                    session.readiness.value shouldBe
+                        EngineReadiness.Ready(coreRevision = 7uL, eventSequence = 9uL)
+                    ports.last().portCloseCount shouldBe 1
+                    ports.last().safProjectionRebuildCount shouldBe 1
+                    shouldThrow<CapabilityRegistryException> { registry.resolve(checkNotNull(safToken)) }
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                    previousRoot.deleteRecursively()
                 }
             }
         }
@@ -833,6 +1129,187 @@ private class InMemoryDirectorySettingsRepository : DirectorySettingsRepository 
 private class SessionFakeNativeEnginePort(
     initialSnapshot: NativeEngineSnapshot,
 ) : WorkspaceNativeEnginePort {
+    var lanStartCount: Int = 0
+    var lastLanNetworkFacts: LanNetworkFacts? = null
+    var lanSessionBegins: Int = 0
+    var preparedLanBatchId: String? = null
+    var rejectedLanBatchId: String? = null
+    var sentLanChunk: ByteArray? = null
+    var committedLanBatchId: String? = null
+    var committedLanItemIndex: UInt? = null
+    val batchPreview =
+        LanBatchPreview(
+            batchId = "batch-managed",
+            senderDeviceId = "a".repeat(64),
+            senderDisplayName = "Tablet",
+            itemCount = 1u,
+            attachmentCount = 0u,
+            totalBytes = 4uL,
+            titles = listOf("Preview"),
+        )
+    val sessionChallenge =
+        LanSessionChallenge(
+            sessionId = "b".repeat(32),
+            peerDeviceId = "a".repeat(64),
+            transcriptToSign = byteArrayOf(1, 2, 3),
+            deadlineMs = 61_000,
+        )
+    val runtimeInbox =
+        LanRuntimeInbox(
+            pairingChallenges = emptyList(),
+            sessionChallenges = listOf(sessionChallenge),
+            activeSessions = emptyList(),
+            pendingBatches =
+                listOf(
+                    LanPendingBatch(
+                        sessionId = sessionChallenge.sessionId,
+                        preview = batchPreview,
+                    ),
+                ),
+            batchRecoveries =
+                listOf(
+                    LanBatchRecovery(
+                        sessionId = sessionChallenge.sessionId,
+                        preview = batchPreview,
+                        decision = LanReceivedBatchDecision.Approved,
+                        items =
+                            listOf(
+                                LanReceivedItemRecovery.Committed(
+                                    itemId = "item-managed",
+                                    itemIndex = 0u,
+                                    memoId = "memo-managed",
+                                ),
+                            ),
+                    ),
+                ),
+            committableItems = emptyList(),
+            outgoingBatches = emptyList(),
+        )
+
+    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
+        lastLanNetworkFacts = snapshot
+    }
+
+    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) = Unit
+
+    override fun startLanService(): LanServiceState {
+        lanStartCount += 1
+        return LanServiceState(LanServicePhase.Listening, "127.0.0.1:43123")
+    }
+
+    override fun stopLanService(): LanServiceState =
+        LanServiceState(LanServicePhase.Stopped, null)
+
+    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> = emptyList()
+
+    override fun lanTransferShape(): LanTransferShape = LanTransferShape(bodySlot = 0u, chunkPlaintextBytes = 0u)
+
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
+        LanLocalIdentity(deviceId = "c".repeat(64), displayName = identity.displayName)
+
+    override fun beginLanPairing(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanPairingChallenge = error("pairing not expected")
+
+    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = runtimeInbox
+
+    override fun lanRuntimeInbox(): LanRuntimeInbox = runtimeInbox
+
+    override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
+        error("pairing not expected")
+
+    override fun confirmLanPairing(
+        pairingId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) = Unit
+
+    override fun declineLanPairing(pairingId: String) = Unit
+
+    override fun beginLanSession(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanSessionChallenge {
+        lanSessionBegins += 1
+        return sessionChallenge
+    }
+
+    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge = sessionChallenge
+
+    override fun confirmLanSession(
+        sessionId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) = Unit
+
+    override fun lanSessionState(sessionId: String): LanSessionState =
+        LanSessionState(
+            sessionId = sessionChallenge.sessionId,
+            peerDeviceId = sessionChallenge.peerDeviceId,
+            phase = LanSessionPhase.Authenticated,
+        )
+
+    override fun prepareLanBatch(
+        sessionId: String,
+        batchId: String,
+        items: List<LanSendItemPlan>,
+    ) {
+        preparedLanBatchId = batchId
+    }
+
+    override fun lanBatchPreview(batchId: String): LanBatchPreview = batchPreview
+
+    override fun approveLanBatch(
+        sessionId: String,
+        batchId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ) = Unit
+
+    override fun rejectLanBatch(
+        sessionId: String,
+        batchId: String,
+        rejectedAtMs: Long,
+    ) {
+        rejectedLanBatchId = batchId
+    }
+
+    override fun sendLanBatchChunk(
+        sessionId: String,
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+        chunkIndex: UInt,
+        plaintext: ByteArray,
+    ) {
+        sentLanChunk = plaintext
+    }
+
+    override fun lanUnconfirmedBatchChunks(
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+    ): List<UInt> = listOf(0u)
+
+    override fun commitReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        nowMs: Long,
+    ): String {
+        committedLanBatchId = batchId
+        committedLanItemIndex = itemIndex
+        return "memo-received"
+    }
+
+    override fun listLanPeers(): LanPeerPage = LanPeerPage(emptyList(), 0u)
+
+    override fun revokeLanPeer(
+        deviceId: String,
+        revokedAtMs: Long,
+    ): LanPeerPage = error("revoke not expected")
 
     override fun stageMedia(
         mediaRoot: String,
@@ -949,6 +1426,11 @@ private class SessionFakeNativeEnginePort(
     var documentTerminal: NativeJobStep = NativeJobStep.Completed
     var lastDocumentCommand: WorkspaceNativeCommandSpec? = null
     var lastExpectedFingerprint: String? = null
+    var rebuildCount: Int = 0
+    var onRebuild: (() -> Unit)? = null
+    var safProjectionRebuildCount: Int = 0
+    var safProjectionFailure: Throwable? = null
+    var projectedSafMemos: List<SafMemoProjectionSnapshot> = emptyList()
     private var listener: ((NativeCoreEvent) -> Unit)? = null
 
     override fun state(): NativeEngineSnapshot = snapshot
@@ -1004,6 +1486,23 @@ private class SessionFakeNativeEnginePort(
             ?: WorkspaceScanPageSnapshot(items = emptyList(), nextCursor = null)
     }
 
+    override fun rebuildSafStoreProjection(
+        memos: List<SafMemoProjectionSnapshot>,
+    ): com.lomo.nativebridge.StoreRebuildResult {
+        safProjectionRebuildCount += 1
+        safProjectionFailure?.let { throw it }
+        projectedSafMemos = memos
+        return com.lomo.nativebridge.StoreRebuildResult(
+            memosIndexed = memos.size.toULong(),
+            fileCount = memos.size.toULong(),
+            attachmentCount = memos.sumOf { it.attachmentPaths.size }.toULong(),
+            workspaceDigest = "a".repeat(64),
+            storeDigest = "a".repeat(64),
+            corruptLomoIsolated = 0uL,
+            highWaterRevision = memos.size.toULong(),
+        )
+    }
+
     override fun startWorkspaceDocumentCommand(
         path: String,
         expectedFingerprint: String,
@@ -1038,8 +1537,19 @@ private class SessionFakeNativeEnginePort(
         command: com.lomo.nativebridge.StoreMemoCommand,
     ): com.lomo.nativebridge.StoreMemoCommit = error("store apply not expected")
 
-    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
-        error("store rebuild not expected")
+    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult {
+        rebuildCount += 1
+        onRebuild?.invoke() ?: error("store rebuild not expected")
+        return com.lomo.nativebridge.StoreRebuildResult(
+            memosIndexed = 2uL,
+            fileCount = 1uL,
+            attachmentCount = 0uL,
+            workspaceDigest = "a".repeat(64),
+            storeDigest = "a".repeat(64),
+            corruptLomoIsolated = 0uL,
+            highWaterRevision = 3uL,
+        )
+    }
 
     override fun close() {
         portCloseCount += 1

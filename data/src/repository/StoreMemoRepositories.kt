@@ -14,6 +14,7 @@ import com.lomo.data.reminder.MemoMutationReminderScheduler
 import com.lomo.domain.model.DailyReviewCandidateBoundary
 import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoFilterCriterion
 import com.lomo.domain.model.MemoQuerySpec
@@ -22,6 +23,7 @@ import com.lomo.domain.model.MemoStatisticsCalculator
 import com.lomo.domain.model.MemoStatisticsMemoProjection
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MainListQueryRepository
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MemoListQueryRepository
 import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoQueryRepository
@@ -39,6 +41,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -455,6 +458,7 @@ class StoreMemoSearchRepository(
 class StoreMemoStatisticsRepository(
     private val port: StorePort,
     private val invalidation: StoreInvalidationBus,
+    private val readiness: EngineReadinessRepository,
 ) : MemoStatisticsRepository {
     override suspend fun getMemoStatistics(
         zone: ZoneId,
@@ -478,26 +482,26 @@ class StoreMemoStatisticsRepository(
         }
 
     override fun getMemoCountFlow(): Flow<Int> =
-        invalidation.ticks.map { collectActiveSummaries().size }.flowOn(Dispatchers.IO)
+        activeSummaries().map { it.size }.flowOn(Dispatchers.IO)
 
     override fun getMemoTimestampsFlow(): Flow<List<Long>> =
-        invalidation.ticks
-            .map { collectActiveSummaries().map { it.createdAtMs } }
+        activeSummaries()
+            .map { summaries -> summaries.map { it.createdAtMs } }
             .flowOn(Dispatchers.IO)
 
     override fun getMemoCountByDateFlow(): Flow<Map<String, Int>> =
-        invalidation.ticks
-            .map {
-                collectActiveSummaries()
+        activeSummaries()
+            .map { summaries ->
+                summaries
                     .groupingBy { summary ->
                         formatLocalDate(summary.createdAtMs)
                     }.eachCount()
             }.flowOn(Dispatchers.IO)
 
     override fun getTagCountsFlow(): Flow<List<MemoTagCount>> =
-        invalidation.ticks
-            .map {
-                collectActiveSummaries()
+        activeSummaries()
+            .map { summaries ->
+                summaries
                     .asSequence()
                     .flatMap { summary -> summary.tags.asSequence() }
                     .groupingBy { tag -> tag }
@@ -511,7 +515,20 @@ class StoreMemoStatisticsRepository(
         getMemoCountByDateFlow().map { it.size }
 
     private fun collectActiveSummaries(): List<com.lomo.data.engine.store.StoreMemoSummary> =
-        walkStorePages(port, StoreMemoQuery()).toList()
+        if (readiness.readiness.value is EngineReadiness.Ready) {
+            walkStorePages(port, StoreMemoQuery()).toList()
+        } else {
+            emptyList()
+        }
+
+    private fun activeSummaries(): Flow<List<com.lomo.data.engine.store.StoreMemoSummary>> =
+        combine(invalidation.ticks, readiness.readiness) { _, engineReadiness ->
+            if (engineReadiness is EngineReadiness.Ready) {
+                walkStorePages(port, StoreMemoQuery()).toList()
+            } else {
+                emptyList()
+            }
+        }
 
     private fun formatLocalDate(ms: Long): String =
         java.time.Instant

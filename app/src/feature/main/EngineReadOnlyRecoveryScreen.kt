@@ -26,6 +26,9 @@ fun EngineReadOnlyRecoveryScreen(
     diagnostic: String,
     onRetry: () -> Unit,
     onReselectWorkspace: () -> Unit,
+    canRebuildDerivedIndex: Boolean,
+    onRebuildDerivedIndex: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -53,6 +56,14 @@ fun EngineReadOnlyRecoveryScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (canRebuildDerivedIndex) {
+            Button(onClick = onRebuildDerivedIndex) {
+                Text(stringResource(R.string.engine_recovery_rebuild_index))
+            }
+        }
+        OutlinedButton(onClick = onExportDiagnostics) {
+            Text(stringResource(R.string.engine_recovery_export_diagnostics))
+        }
         Button(onClick = onRetry) {
             Text(stringResource(R.string.engine_recovery_retry))
         }

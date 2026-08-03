@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.feature.common.memoPagingConfig
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.lang.reflect.Field
@@ -34,6 +35,10 @@ import java.lang.reflect.Modifier
  * - Why this is not fitting the test to the implementation: the test locks the intended paging contract, not a private branch or incidental call sequence.
  */
 class MainPagingConfigTest : FunSpec({
+    test("given cursor-backed memo sources when paging is configured then jumping is disabled") {
+        memoPagingConfig().jumpThreshold shouldBe Int.MIN_VALUE
+    }
+
     test("given MainMemoListStateHolder when constants are read then initial load size is 60 and placeholders are enabled") {
         val clazz = Class.forName("com.lomo.app.feature.main.MainMemoListStateHolderKt")
         val field = clazz.getDeclaredField("DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE")

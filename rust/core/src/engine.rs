@@ -2224,15 +2224,17 @@ impl WorkspaceReclaimClaim {
         ensure_no_reclaim_in_progress(control_directory)?;
         let owner = WorkspaceLockOwner::current()?;
         let path = control_directory.join(WORKSPACE_RECLAIM_CLAIM_FILE);
-        let candidate = control_directory.join(format!("reclaim.{}.candidate", owner.nonce));
-        write_owner_file(&candidate, &owner)?;
-        let link_result = fs::hard_link(&candidate, &path);
-        drop(fs::remove_file(&candidate));
-        match link_result {
-            Ok(()) => Ok(Self {
-                path,
-                nonce: owner.nonce,
-            }),
+        match fs::create_dir(&path) {
+            Ok(()) => {
+                if let Err(error) = publish_workspace_lock_owner(&path, &owner) {
+                    cleanup_failed_workspace_lock(&path, &owner.nonce);
+                    return Err(error);
+                }
+                Ok(Self {
+                    path,
+                    nonce: owner.nonce,
+                })
+            }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 Err(LomoError::busy(
                     "workspace_busy",
@@ -2249,7 +2251,7 @@ impl WorkspaceReclaimClaim {
 
 impl Drop for WorkspaceReclaimClaim {
     fn drop(&mut self) {
-        release_owner_file_if_owned(&self.path, &self.nonce);
+        release_workspace_lock_if_owned(&self.path, &self.nonce);
     }
 }
 
@@ -2300,12 +2302,45 @@ fn write_owner_file(path: &Path, owner: &WorkspaceLockOwner) -> Result<(), LomoE
 
 fn ensure_no_reclaim_in_progress(control_directory: &Path) -> Result<(), LomoError> {
     let path = control_directory.join(WORKSPACE_RECLAIM_CLAIM_FILE);
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
             return Err(workspace_lock_error(
-                "workspace reclaim claim cannot be read",
+                "workspace reclaim claim cannot be inspected",
+                &error,
+            ));
+        }
+    };
+    if !metadata.is_dir() {
+        if !path_is_older_than_initialization_grace(&path)? {
+            return Err(reclaim_already_active());
+        }
+        return match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::IsADirectory => {
+                Err(reclaim_already_active())
+            }
+            Err(error) => Err(workspace_lock_error(
+                "stale workspace reclaim claim cannot be removed",
+                &error,
+            )),
+        };
+    }
+
+    let owner_path = path.join(WORKSPACE_LOCK_OWNER_FILE);
+    let bytes = match fs::read(&owner_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if !path_is_older_than_initialization_grace(&path)? {
+                return Err(reclaim_already_active());
+            }
+            return remove_empty_reclaim_claim(&path);
+        }
+        Err(error) => {
+            return Err(workspace_lock_error(
+                "workspace reclaim owner cannot be read",
                 &error,
             ));
         }
@@ -2315,29 +2350,61 @@ fn ensure_no_reclaim_in_progress(control_directory: &Path) -> Result<(), LomoErr
         Err(_error) => path_is_older_than_initialization_grace(&path)?,
     };
     if !reclaimable {
-        return Err(LomoError::busy(
-            "workspace_busy",
-            "workspace stale reclaim is already active",
-        ));
+        return Err(reclaim_already_active());
     }
-    remove_owner_file_if_unchanged(&path, &bytes)
+    remove_reclaim_owner_if_unchanged(&owner_path, &bytes)?;
+    remove_empty_reclaim_claim(&path)
 }
 
-fn remove_owner_file_if_unchanged(path: &Path, expected: &[u8]) -> Result<(), LomoError> {
+fn remove_reclaim_owner_if_unchanged(path: &Path, expected: &[u8]) -> Result<(), LomoError> {
     match fs::read(path) {
-        Ok(current) if current == expected => fs::remove_file(path).map_err(|error| {
-            workspace_lock_error("stale workspace reclaim claim cannot be removed", &error)
-        }),
-        Ok(_) => Err(LomoError::busy(
-            "workspace_busy",
-            "workspace reclaim ownership changed",
-        )),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(current) if current == expected => {}
+        Ok(_) => return Err(reclaim_ownership_changed()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(reclaim_ownership_changed());
+        }
+        Err(error) => {
+            return Err(workspace_lock_error(
+                "workspace reclaim owner cannot be re-read",
+                &error,
+            ));
+        }
+    }
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(reclaim_ownership_changed())
+        }
         Err(error) => Err(workspace_lock_error(
-            "workspace reclaim claim cannot be re-read",
+            "stale workspace reclaim owner cannot be removed",
             &error,
         )),
     }
+}
+
+fn remove_empty_reclaim_claim(path: &Path) -> Result<(), LomoError> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+            Err(reclaim_ownership_changed())
+        }
+        Err(error) => Err(workspace_lock_error(
+            "stale workspace reclaim directory cannot be removed",
+            &error,
+        )),
+    }
+}
+
+fn reclaim_already_active() -> LomoError {
+    LomoError::busy(
+        "workspace_busy",
+        "workspace stale reclaim is already active",
+    )
+}
+
+fn reclaim_ownership_changed() -> LomoError {
+    LomoError::busy("workspace_busy", "workspace reclaim ownership changed")
 }
 
 fn cleanup_failed_workspace_lock(path: &Path, nonce: &str) {
@@ -2350,12 +2417,6 @@ fn cleanup_failed_workspace_lock(path: &Path, nonce: &str) {
 fn release_workspace_lock_if_owned(path: &Path, nonce: &str) {
     if owner_file_has_nonce(&path.join(WORKSPACE_LOCK_OWNER_FILE), nonce) {
         drop(fs::remove_dir_all(path));
-    }
-}
-
-fn release_owner_file_if_owned(path: &Path, nonce: &str) {
-    if owner_file_has_nonce(path, nonce) {
-        drop(fs::remove_file(path));
     }
 }
 

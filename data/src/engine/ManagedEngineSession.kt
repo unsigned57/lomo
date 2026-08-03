@@ -1,11 +1,16 @@
 package com.lomo.data.engine
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.Recurrence
+import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.canRebuildDerivedIndex
+import com.lomo.domain.model.toDiagnosticReport
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
@@ -13,10 +18,12 @@ import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.model.MarkdownWorkspaceCommandException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -51,11 +58,11 @@ internal class ManagedEngineSession(
     private val directorySettingsRepository: DirectorySettingsRepository,
     private val appScope: CoroutineScope,
     private val isContentUri: (String) -> Boolean,
-) : EngineReadinessRepository,
+) : ManagedEngineCapabilities(),
+    EngineReadinessRepository,
     MarkdownWorkspaceRepository,
     MarkdownReminderRepository,
     WorkspaceMarkdownOwner,
-    WorkspaceNativeAdapter,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
     private val activationMutex = Mutex()
@@ -111,10 +118,57 @@ internal class ManagedEngineSession(
         }
     }
 
-    override fun renderMarkdown(
-        content: String,
-        schemaVersion: UInt,
-    ) = withActiveWorkspaceAdapter { adapter -> adapter.renderMarkdown(content, schemaVersion) }
+    override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {
+        check(!closed.get()) { "Managed engine session is closed" }
+        val recovery =
+            _readiness.value as? EngineReadiness.ReadOnlyRecovery
+                ?: error("Recovery diagnostic export requires ReadOnlyRecovery")
+        val location = _activeWorkspaceLocation.value ?: directorySettingsRepository.currentRootLocation()
+        val workspaceKind =
+            when {
+                location == null -> RecoveryWorkspaceKind.NONE
+                isContentUri(location.raw) -> RecoveryWorkspaceKind.SAF
+                else -> RecoveryWorkspaceKind.DIRECT
+            }
+        return recovery.toDiagnosticReport(workspaceKind)
+    }
+
+    override suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary {
+        check(!closed.get()) { "Managed engine session is closed" }
+        return activationMutex.withLock {
+            val recovery =
+                _readiness.value as? EngineReadiness.ReadOnlyRecovery
+                    ?: error("Derived-index rebuild requires ReadOnlyRecovery")
+            require(recovery.canRebuildDerivedIndex()) {
+                "Recovery ${recovery.code} is not a rebuildable SQLite failure"
+            }
+            val location =
+                checkNotNull(directorySettingsRepository.currentRootLocation()) {
+                    "Derived-index rebuild requires a selected workspace"
+                }
+
+            val repairSelection = selectionFor(location)
+            val repairAdapter = openWorkspaceAdapter(repairSelection)
+            val rebuild = rebuildAndReleaseRepairAdapter(repairAdapter, repairSelection.capabilityToken)
+
+            // Reopen from the repaired projection and promote only a fully Ready candidate. The
+            // previous bootstrap/recovery owner remains non-writable until this atomic install.
+            val readySelection = selectionFor(location)
+            promoteCandidate(
+                candidate = prepareCandidate(readySelection),
+                candidateToken = readySelection.capabilityToken,
+                location = location,
+                workspaceId = readySelection.stableWorkspaceId,
+            )
+            DerivedIndexRebuildSummary(
+                memosIndexed = rebuild.memosIndexed,
+                fileCount = rebuild.fileCount,
+                attachmentCount = rebuild.attachmentCount,
+                corruptLomoIsolated = rebuild.corruptLomoIsolated,
+                highWaterRevision = rebuild.highWaterRevision,
+            )
+        }
+    }
 
     override fun renderMarkdown(content: String) =
         renderMarkdown(content = content, schemaVersion = com.lomo.domain.model.markdown.MarkdownRenderDocument.SCHEMA_VERSION)
@@ -207,157 +261,6 @@ internal class ManagedEngineSession(
             adapter.findMemoSnapshot(memoIdentity).content
         }
 
-    override fun startWorkspaceScan(
-        pageSize: UInt,
-        cursor: String?,
-        rootPath: String?,
-        deadlineMillis: ULong,
-    ): String =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.startWorkspaceScan(pageSize, cursor, rootPath, deadlineMillis)
-        }
-
-    override fun driveJob(jobId: String): NativeJobStep =
-        withActiveWorkspaceAdapter { adapter -> adapter.driveJob(jobId) }
-
-    override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
-        withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceScanPage(jobId) }
-
-    override fun startWorkspaceDocumentCommand(
-        path: String,
-        expectedFingerprint: String,
-        command: WorkspaceNativeCommandSpec,
-        deadlineMillis: ULong,
-    ): String =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.startWorkspaceDocumentCommand(
-                path,
-                expectedFingerprint,
-                command,
-                deadlineMillis,
-            )
-        }
-
-    override fun queryMemos(
-        query: com.lomo.nativebridge.StoreMemoQuery,
-        cursor: com.lomo.nativebridge.StorePageCursor?,
-        pageSize: UInt,
-    ): com.lomo.nativebridge.StoreMemoPage =
-        withActiveWorkspaceAdapter { adapter -> adapter.queryMemos(query, cursor, pageSize) }
-
-    override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
-        withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
-
-    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
-        withActiveWorkspaceAdapter { adapter -> adapter.listHistoryAttachmentRefs() }
-
-    override fun applyMemoCommand(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.applyMemoCommand(command) }
-
-    override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
-        withActiveWorkspaceAdapter { adapter -> adapter.startRebuild(batchSize) }
-
-    override fun stageMedia(
-        mediaRoot: String,
-        sourceKind: com.lomo.nativebridge.MediaSourceKind,
-        sourcePath: String,
-        humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
-        }
-
-    override fun allocateRecordingTarget(
-        mediaRoot: String,
-        extension: String,
-    ): String =
-        withActiveWorkspaceAdapter { adapter -> adapter.allocateRecordingTarget(mediaRoot, extension) }
-
-    override fun finalizeRecording(
-        mediaRoot: String,
-        recordingPath: String,
-        humanNameHint: String,
-    ): com.lomo.nativebridge.MediaStagedDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.finalizeRecording(mediaRoot, recordingPath, humanNameHint)
-        }
-
-    override fun promoteMedia(
-        workspaceRoot: String,
-        plan: com.lomo.nativebridge.MediaPromotePlanDto,
-    ): com.lomo.nativebridge.MediaPromoteResultDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.promoteMedia(workspaceRoot, plan) }
-
-    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.queryMediaManifest(workspaceRoot) }
-
-    override fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
-        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
-        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
-        nowMs: ULong?,
-        recoveryWindowMs: ULong,
-    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.mediaOrphanSweep(
-                mediaRoot,
-                committed,
-                refs,
-                existingTrash,
-                nowMs,
-                recoveryWindowMs,
-            )
-        }
-
-    override fun archiveExport(
-        workspaceRoot: String,
-        archivePath: String,
-    ): com.lomo.nativebridge.ArchiveExportResultDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.archiveExport(workspaceRoot, archivePath) }
-
-    override fun archiveInspect(
-        archivePath: String,
-        stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.archiveInspect(archivePath, stagingRoot) }
-
-    override fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.archiveImport(archivePath, stagingRoot) }
-
-    override fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    ) {
-        withActiveWorkspaceAdapter { adapter -> adapter.archiveActivate(stagingRoot, liveRoot, backupRoot) }
-    }
-
-    override fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: UInt,
-    ): com.lomo.nativebridge.StoreRebuildResult =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.archiveImportActivateRebuild(
-                archivePath,
-                stagingRoot,
-                liveRoot,
-                backupRoot,
-                rebuildBatchSize,
-            )
-        }
-
-    override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
-        withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceDocumentCommandResult(jobId) }
-
     override suspend fun activateWorkspace(location: StorageLocation) {
         check(!closed.get()) { "Managed engine session is closed" }
         require(location.raw.isNotBlank()) { "Workspace location must be non-blank" }
@@ -416,18 +319,28 @@ internal class ManagedEngineSession(
      * Hard open failure and soft non-Ready both leave the previous engine authoritative and release
      * the capability this selection registered.
      */
-    private fun prepareCandidate(selection: PreparedSelection): RustEngineAdapter {
-        val candidate =
-            runCatching {
-                openAdapter(
-                    NativeEngineOpenRequest
-                        .forAppFilesDir(filesDir)
-                        .copy(workspace = selection.workspace),
-                )
-            }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
-                .getOrThrow()
+    private suspend fun prepareCandidate(selection: PreparedSelection): RustEngineAdapter {
+        val candidate = openWorkspaceAdapter(selection)
         val candidateReadiness = candidate.readiness.value
-        if (candidateReadiness is EngineReadiness.Ready) return candidate
+        if (candidateReadiness is EngineReadiness.Ready) {
+            val preparation =
+                runCatching {
+                    if (selection.workspace is NativeWorkspaceSelection.Saf) {
+                        withContext(Dispatchers.IO) {
+                            val projection =
+                                candidate
+                                    .scanAllMemoSnapshots(rootPath = null)
+                                    .map(WorkspaceMemoSummarySnapshot::toSafProjectionSnapshot)
+                            candidate.rebuildSafStoreProjection(projection)
+                        }
+                    }
+                    candidate
+                }
+            preparation.exceptionOrNull()?.let { error ->
+                releaseCandidate(candidate, selection.capabilityToken, error, capabilityRegistry)
+            }
+            return preparation.getOrThrow()
+        }
         // Soft open (Recovery / Opening / Awaiting): never promote; release the candidate.
         val activation =
             WorkspaceActivationException(
@@ -441,8 +354,54 @@ internal class ManagedEngineSession(
                                 "(${candidateReadiness::class.simpleName})",
                     ),
             )
-        releaseCandidate(candidate, selection.capabilityToken, activation)
+        releaseCandidate(candidate, selection.capabilityToken, activation, capabilityRegistry)
         throw activation
+    }
+
+    override fun rebuildActiveStore(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
+        withActiveWorkspaceAdapter { adapter ->
+            val location =
+                checkNotNull(_activeWorkspaceLocation.value) {
+                    "Ready workspace has no active storage location"
+                }
+            if (isContentUri(location.raw)) {
+                val projection =
+                    adapter
+                        .scanAllMemoSnapshots(rootPath = null)
+                        .map(WorkspaceMemoSummarySnapshot::toSafProjectionSnapshot)
+                adapter.rebuildSafStoreProjection(projection)
+            } else {
+                adapter.startRebuild(batchSize)
+            }
+        }
+
+    private fun openWorkspaceAdapter(selection: PreparedSelection): RustEngineAdapter =
+        runCatching {
+            openAdapter(
+                NativeEngineOpenRequest
+                    .forAppFilesDir(filesDir)
+                    .copy(workspace = selection.workspace),
+            )
+        }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
+            .getOrThrow()
+
+    private fun rebuildAndReleaseRepairAdapter(
+        adapter: RustEngineAdapter,
+        capabilityToken: String?,
+    ): com.lomo.nativebridge.StoreRebuildResult {
+        val rebuildResult = runCatching { adapter.startRebuild(RECOVERY_REBUILD_BATCH_SIZE) }
+        val closeFailure = runCatching(adapter::close).exceptionOrNull()
+        capabilityToken?.let(capabilityRegistry::revoke)
+        return rebuildResult.fold(
+            onSuccess = { rebuild ->
+                if (closeFailure != null) throw closeFailure
+                rebuild
+            },
+            onFailure = { rebuildFailure ->
+                closeFailure?.let(rebuildFailure::addSuppressed)
+                throw rebuildFailure
+            },
+        )
     }
 
     /**
@@ -462,7 +421,7 @@ internal class ManagedEngineSession(
         val failure = retirement.failure ?: return
         // The previous owner could not be retired, so two writers could otherwise hold the same
         // workspace. Publish neither and freeze the session in structured recovery instead.
-        releaseCandidate(candidate, candidateToken, failure)
+        releaseCandidate(candidate, candidateToken, failure, capabilityRegistry)
         holdRecoveryAuthority(
             EngineReadiness.ReadOnlyRecovery(
                 category = EngineReadiness.FailureCategory.INTERNAL,
@@ -503,17 +462,6 @@ internal class ManagedEngineSession(
             AdapterRetirement(previousToken = token, failure = failure)
         }
 
-    /** Releases a candidate that will never be published, reporting its close failure on [primary]. */
-    private fun releaseCandidate(
-        candidate: RustEngineAdapter,
-        candidateToken: String?,
-        primary: Throwable,
-    ) {
-        runCatching(candidate::close).exceptionOrNull()?.let(primary::addSuppressed)
-        // Capability revoke is never skipped by a failing candidate close.
-        candidateToken?.let(capabilityRegistry::revoke)
-    }
-
     private fun holdRecoveryAuthority(recovery: EngineReadiness.ReadOnlyRecovery) {
         recoveryAuthority.set(recovery)
         _readiness.value = recovery
@@ -551,12 +499,21 @@ internal class ManagedEngineSession(
         _workspaceAuthority.value = null
     }
 
-    private inline fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {
+    protected override fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {
         check(!closed.get()) { "Managed engine session is closed" }
         return adapterLease.read {
             check(_readiness.value is EngineReadiness.Ready) {
                 "Workspace engine is not Ready"
             }
+            val adapter = activeAdapter ?: error("Managed engine session has no active adapter")
+            block(adapter)
+        }
+    }
+
+    /** Installation-level capabilities remain available on the bootstrap Awaiting engine. */
+    protected override fun <T> withActiveEngineAdapter(block: (RustEngineAdapter) -> T): T {
+        check(!closed.get()) { "Managed engine session is closed" }
+        return adapterLease.read {
             val adapter = activeAdapter ?: error("Managed engine session has no active adapter")
             block(adapter)
         }
@@ -583,18 +540,6 @@ internal class ManagedEngineSession(
         }
     }
 
-    private fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery =
-        when (error) {
-            is WorkspaceActivationException -> error.recovery
-            else ->
-                EngineReadiness.ReadOnlyRecovery(
-                    category = EngineReadiness.FailureCategory.INTERNAL,
-                    code = "workspace_open_failed",
-                    retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
-                    diagnostic = error.message ?: "Workspace open failed",
-                )
-        }
-
     private data class PreparedSelection(
         val workspace: NativeWorkspaceSelection,
         val capabilityToken: String?,
@@ -606,7 +551,35 @@ internal class ManagedEngineSession(
         val previousToken: String?,
         val failure: Throwable?,
     )
+
+    companion object {
+        private const val RECOVERY_REBUILD_BATCH_SIZE: UInt = 64u
+    }
 }
+
+/** Releases a candidate that will never be published, reporting its close failure on [primary]. */
+private fun releaseCandidate(
+    candidate: RustEngineAdapter,
+    candidateToken: String?,
+    primary: Throwable,
+    capabilityRegistry: CapabilityRegistry,
+) {
+    runCatching(candidate::close).exceptionOrNull()?.let(primary::addSuppressed)
+    // Capability revoke is never skipped by a failing candidate close.
+    candidateToken?.let(capabilityRegistry::revoke)
+}
+
+private fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery =
+    when (error) {
+        is WorkspaceActivationException -> error.recovery
+        else ->
+            EngineReadiness.ReadOnlyRecovery(
+                category = EngineReadiness.FailureCategory.INTERNAL,
+                code = "workspace_open_failed",
+                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                diagnostic = error.message ?: "Workspace open failed",
+            )
+    }
 
 /**
  * Soft workspace activation failure: candidate opened but never reached Ready.
@@ -740,4 +713,6 @@ private fun UInt.toIntExact(field: String): Int {
     return toInt()
 }
 
-private const val MAX_WORKSPACE_SCAN_PAGE_SIZE: UInt = 256u
+// A scan page emits one list batch plus one read batch per document. Keep the page below the
+// platform driver's hard batch budget so large SAF trees paginate instead of failing activation.
+private const val MAX_WORKSPACE_SCAN_PAGE_SIZE: UInt = 63u

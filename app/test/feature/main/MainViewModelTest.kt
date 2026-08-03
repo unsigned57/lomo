@@ -28,6 +28,7 @@ import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.usecase.FakeDispatcherProvider
 import com.lomo.domain.model.MemoRevision
@@ -74,6 +75,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -104,6 +106,9 @@ import kotlinx.coroutines.test.runTest
  *   memo actions are emitted in command order.
  * - Given a delete operation is triggered, when the repository completes, then visual stability collapse markers are removed.
  * - Given a memo has a reminder, when the user marks it done, then the repository is updated via the reminder coordinator.
+ * - Given read-only SQLite recovery, when the user exports diagnostics or rebuilds the derived
+ *   index, then a secret-free report event is emitted and successful rebuild returns the screen to
+ *   Ready.
  *
  * Observable outcomes:
  * - uiState reflects root availability.
@@ -1059,6 +1064,34 @@ class MainViewModelTest : AppFunSpec() {
                 reminderCoordinator.markDoneCalledCount shouldBe 1
             }
         }
+
+        test("given SQLite recovery when export and rebuild are requested then report emits and readiness returns Ready") {
+            runTest(testDispatcher) {
+                val recovery =
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineReadiness.FailureCategory.CORRUPTION,
+                        code = "sqlite_integrity_failed",
+                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "secret=do-not-export",
+                    )
+                engineReadinessRepository.publish(recovery)
+                val viewModel = createViewModel()
+                val exported = async { viewModel.diagnosticExports.first() }
+                runCurrent()
+
+                viewModel.exportRecoveryDiagnostics()
+                advanceUntilIdle()
+                val report = exported.await()
+
+                report.content.contains("do-not-export") shouldBe false
+                engineReadinessRepository.diagnosticExportCount shouldBe 1
+                viewModel.rebuildDerivedIndex()
+                advanceUntilIdle()
+                engineReadinessRepository.derivedIndexRebuildCount shouldBe 1
+                engineReadinessRepository.readiness.value shouldBe
+                    EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
+            }
+        }
     }
 
     private fun createViewModel(): MainViewModel {
@@ -1213,5 +1246,4 @@ class MainViewModelTest : AppFunSpec() {
         }
     }
 }
-
 

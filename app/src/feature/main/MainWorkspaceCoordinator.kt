@@ -1,6 +1,8 @@
 package com.lomo.app.feature.main
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.DerivedIndexRebuildSummary
+import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
@@ -39,6 +41,12 @@ class MainWorkspaceCoordinator(
     suspend fun rebuildCurrentWorkspace() {
         switchRootStorageUseCase.rebuildCurrentWorkspace()
     }
+
+    suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary =
+        engineReadinessRepository.rebuildDerivedIndex()
+
+    suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport =
+        engineReadinessRepository.createRecoveryDiagnosticReport()
 
     suspend fun refreshMemos() {
         refreshMemosUseCase()

@@ -106,7 +106,9 @@ internal fun MainScreenNavigationRender(
         onScrollToTop = onScrollToTop,
         onSidebarTagReorder = onSidebarTagReorder,
         onReminderClick = onReminderClick,
-        onRetryEngine = viewModel::retryEngineOpen,
+        onRetryEngine = viewModel.retryEngineOpen,
+        onRebuildDerivedIndex = viewModel.rebuildDerivedIndex,
+        onExportDiagnostics = viewModel.exportRecoveryDiagnostics,
     )
 }
 
@@ -144,6 +146,8 @@ internal fun MainScreenRenderHost(
     onSidebarTagReorder: (List<String>) -> Unit,
     onReminderClick: (String, String) -> Unit,
     onRetryEngine: () -> Unit,
+    onRebuildDerivedIndex: () -> Unit,
+    onExportDiagnostics: () -> Unit,
 ) {
     MainScreenDrawerLayout(
         isExpanded = isExpanded,
@@ -185,6 +189,8 @@ internal fun MainScreenRenderHost(
             onDismissMemoFilterSheet = onDismissMemoFilterSheet,
             onReminderClick = onReminderClick,
             onRetryEngine = onRetryEngine,
+            onRebuildDerivedIndex = onRebuildDerivedIndex,
+            onExportDiagnostics = onExportDiagnostics,
         )
     }
 }
@@ -272,6 +278,8 @@ internal fun MainScreenAnimatedBody(
     onReminderClick: (String, String) -> Unit,
     onSettings: () -> Unit,
     onRetryEngine: () -> Unit,
+    onRebuildDerivedIndex: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     isFilterActive: Boolean,
 ) {
     AnimatedContent(
@@ -306,6 +314,9 @@ internal fun MainScreenAnimatedBody(
                     diagnostic = state.diagnostic,
                     onRetry = onRetryEngine,
                     onReselectWorkspace = onSettings,
+                    canRebuildDerivedIndex = state.canRebuildDerivedIndex,
+                    onRebuildDerivedIndex = onRebuildDerivedIndex,
+                    onExportDiagnostics = onExportDiagnostics,
                 )
             }
 

@@ -51,10 +51,12 @@ import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.component.common.HeadEnterBaseline
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -122,6 +124,10 @@ fun MainScreen(
         }
     val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
     val hostState = rememberMainScreenHostState()
+    RecoveryDiagnosticExportEffect(
+        viewModel = dependencies.mainViewModel,
+        snackbarHostState = hostState.snackbarHostState,
+    )
     val pagedUiMemos: LazyPagingItems<MemoUiModel> =
         dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
     val pagedItemSnapshotList = pagedUiMemos.itemSnapshotList
@@ -197,6 +203,51 @@ fun MainScreen(
         onNavigateToShare = onNavigateToShare,
         lanShareEnabled = lanShareEnabled,
     )
+}
+
+@Composable
+private fun RecoveryDiagnosticExportEffect(
+    viewModel: MainViewModel,
+    snackbarHostState: SnackbarHostState,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val savedMessage = stringResource(R.string.engine_recovery_diagnostics_saved)
+    val failedMessage = stringResource(R.string.engine_recovery_diagnostics_failed)
+    var pendingReport by remember { mutableStateOf<RecoveryDiagnosticReport?>(null) }
+    val launcher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("text/plain"),
+        ) { uri ->
+            val report = pendingReport
+            pendingReport = null
+            if (uri != null && report != null) {
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val output =
+                                checkNotNull(context.contentResolver.openOutputStream(uri)) {
+                                    "Document provider did not open the diagnostic destination"
+                                }
+                            output.bufferedWriter(Charsets.UTF_8).use { writer ->
+                                writer.write(report.content)
+                            }
+                        }
+                        snackbarHostState.showSnackbar(savedMessage)
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        snackbarHostState.showSnackbar(failedMessage)
+                    }
+                }
+            }
+        }
+
+    LaunchedEffect(viewModel, launcher) {
+        viewModel.diagnosticExports.collect { report ->
+            pendingReport = report
+            launcher.launch(report.fileName)
+        }
+    }
 }
 
 @Composable
@@ -310,12 +361,6 @@ private fun LazyPagingItems<MemoUiModel>.resolveHeadEnterBaseline(): HeadEnterBa
         else -> null
     }
 }
-
-private fun HeadEnterBaseline.isResolvedByHeadId(headId: String): Boolean =
-    when (this) {
-        HeadEnterBaseline.EmptyList -> true
-        is HeadEnterBaseline.ExistingHead -> id != headId
-    }
 
 internal data class DraftAutosaveState(
     val editingMemoId: String?,

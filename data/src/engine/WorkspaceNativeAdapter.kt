@@ -55,6 +55,17 @@ internal data class WorkspaceScanPageSnapshot(
     val nextCursor: String?,
 )
 
+internal data class SafMemoProjectionSnapshot(
+    val memoId: String,
+    val sourcePath: String,
+    val fileFingerprint: String,
+    val body: String,
+    val tags: List<String>,
+    val attachmentPaths: List<String>,
+    val hasTodo: Boolean,
+    val hasUrl: Boolean,
+)
+
 internal data class WorkspaceNativeCommandResultSnapshot(
     val path: String,
     val resultFingerprint: String,
@@ -110,6 +121,7 @@ internal sealed interface WorkspaceNativeCommandSpec {
  * Implementations hold the generated engine handle only through [NativeEnginePort] + lease rules.
  */
 internal interface WorkspaceNativeAdapter :
+    com.lomo.data.engine.lan.LanNativeBridge,
     com.lomo.data.engine.store.StoreNativeBridge,
     com.lomo.data.engine.media.MediaNativeBridge,
     com.lomo.data.engine.archive.ArchiveNativeBridge {
@@ -147,6 +159,7 @@ internal interface WorkspaceNativeAdapter :
 /** One native handle carrying engine lifecycle and workspace/store/media/archive capabilities. */
 internal interface WorkspaceNativeEnginePort :
     NativeEnginePort,
+    com.lomo.data.engine.lan.LanNativeBridge,
     com.lomo.data.engine.store.StoreNativeBridge,
     com.lomo.data.engine.media.MediaNativeBridge,
     com.lomo.data.engine.archive.ArchiveNativeBridge {
@@ -163,6 +176,10 @@ internal interface WorkspaceNativeEnginePort :
     ): String
 
     fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot
+
+    fun rebuildSafStoreProjection(
+        memos: List<SafMemoProjectionSnapshot>,
+    ): com.lomo.nativebridge.StoreRebuildResult
 
     fun startWorkspaceDocumentCommand(
         path: String,

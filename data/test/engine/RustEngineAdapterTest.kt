@@ -57,6 +57,20 @@ package com.lomo.data.engine
  */
 
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.engine.lan.LanDeviceIdentity
+import com.lomo.data.engine.lan.LanBatchPreview
+import com.lomo.data.engine.lan.LanDiscoveredPeer
+import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanLocalIdentity
+import com.lomo.data.engine.lan.LanNetworkFacts
+import com.lomo.data.engine.lan.LanPairingChallenge
+import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanRuntimeInbox
+import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanSessionChallenge
+import com.lomo.data.engine.lan.LanSessionState
+import com.lomo.data.engine.lan.LanTransferShape
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.nativebridge.PlatformBatchResult
 import io.kotest.matchers.shouldBe
@@ -266,6 +280,106 @@ class RustEngineAdapterTest : DataFunSpec() {
 private class FakeNativeEnginePort(
     initialSnapshot: NativeEngineSnapshot,
 ) : WorkspaceNativeEnginePort {
+    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) = error("LAN not expected")
+
+    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) = error("LAN not expected")
+
+    override fun startLanService(): LanServiceState = error("LAN not expected")
+
+    override fun stopLanService(): LanServiceState = error("LAN not expected")
+
+    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> = error("LAN not expected")
+
+    override fun lanTransferShape(): LanTransferShape = error("LAN not expected")
+
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
+        error("LAN not expected")
+
+    override fun beginLanPairing(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanPairingChallenge = error("LAN not expected")
+
+    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = error("LAN not expected")
+
+    override fun lanRuntimeInbox(): LanRuntimeInbox = error("LAN not expected")
+
+    override fun lanPairingChallenge(pairingId: String): LanPairingChallenge = error("LAN not expected")
+
+    override fun confirmLanPairing(
+        pairingId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) = error("LAN not expected")
+
+    override fun declineLanPairing(pairingId: String) = error("LAN not expected")
+
+    override fun beginLanSession(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanSessionChallenge = error("LAN not expected")
+
+    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge =
+        error("LAN not expected")
+
+    override fun confirmLanSession(
+        sessionId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) = error("LAN not expected")
+
+    override fun lanSessionState(sessionId: String): LanSessionState = error("LAN not expected")
+
+    override fun prepareLanBatch(
+        sessionId: String,
+        batchId: String,
+        items: List<LanSendItemPlan>,
+    ) = error("LAN not expected")
+
+    override fun lanBatchPreview(batchId: String): LanBatchPreview = error("LAN not expected")
+
+    override fun approveLanBatch(
+        sessionId: String,
+        batchId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ) = error("LAN not expected")
+
+    override fun rejectLanBatch(
+        sessionId: String,
+        batchId: String,
+        rejectedAtMs: Long,
+    ) = error("LAN not expected")
+
+    override fun sendLanBatchChunk(
+        sessionId: String,
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+        chunkIndex: UInt,
+        plaintext: ByteArray,
+    ) = error("LAN not expected")
+
+    override fun lanUnconfirmedBatchChunks(
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+    ): List<UInt> = error("LAN not expected")
+
+    override fun commitReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        nowMs: Long,
+    ): String = error("LAN not expected")
+
+    override fun listLanPeers(): LanPeerPage = error("LAN not expected")
+
+    override fun revokeLanPeer(
+        deviceId: String,
+        revokedAtMs: Long,
+    ): LanPeerPage = error("LAN not expected")
 
     override fun stageMedia(
         mediaRoot: String,
@@ -431,6 +545,10 @@ private class FakeNativeEnginePort(
 
     override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
         error("scan page not expected")
+
+    override fun rebuildSafStoreProjection(
+        memos: List<SafMemoProjectionSnapshot>,
+    ): com.lomo.nativebridge.StoreRebuildResult = error("SAF projection rebuild not expected")
 
     override fun startWorkspaceDocumentCommand(
         path: String,

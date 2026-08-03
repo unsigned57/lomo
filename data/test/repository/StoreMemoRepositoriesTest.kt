@@ -74,6 +74,7 @@ import kotlinx.coroutines.test.runTest
 
 private class RecordingStorePort : StorePort {
     val commands = mutableListOf<StoreMemoCommand>()
+    var queryCount = 0
     var rebuildCount = 0
     private val memos = linkedMapOf<String, StoreMemoSnapshot>()
     private var nextId = 1
@@ -87,6 +88,7 @@ private class RecordingStorePort : StorePort {
         cursor: StorePageCursor?,
         pageSize: Int,
     ): StoreMemoPage {
+        queryCount += 1
         val all =
             memos.values
                 .map { it.summary }
@@ -383,7 +385,12 @@ class StoreMemoRepositoriesTest : FunSpec({
                 ),
             )
             val invalidation = StoreInvalidationBus()
-            val stats = StoreMemoStatisticsRepository(port, invalidation)
+            val stats =
+                StoreMemoStatisticsRepository(
+                    port = port,
+                    invalidation = invalidation,
+                    readiness = FakeEngineReadinessRepository(),
+                )
 
             stats.getMemoCountFlow().test {
                 awaitItem() shouldBe 2
@@ -399,6 +406,24 @@ class StoreMemoRepositoriesTest : FunSpec({
             val tagCounts = stats.getTagCountsFlow().first()
             tagCounts.map { it.name to it.count } shouldContainExactly
                 listOf("work" to 2, "life" to 1)
+        }
+    }
+
+    test("statistics repository stays empty until a workspace engine is ready") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(seededSnapshot("cold", "must not be queried"))
+            val stats =
+                StoreMemoStatisticsRepository(
+                    port = port,
+                    invalidation = StoreInvalidationBus(),
+                    readiness = FakeEngineReadinessRepository(EngineReadiness.AwaitingWorkspaceSelection),
+                )
+
+            stats.getMemoCountFlow().first() shouldBe 0
+            stats.getTagCountsFlow().first() shouldBe emptyList()
+            stats.getMemoStatistics(ZoneId.of("UTC"), LocalDate.of(2024, 7, 3)).totalMemos shouldBe 0
+            port.queryCount shouldBe 0
         }
     }
 })

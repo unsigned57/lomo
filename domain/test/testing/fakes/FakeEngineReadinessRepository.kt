@@ -1,8 +1,13 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.DerivedIndexRebuildSummary
+import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.canRebuildDerivedIndex
+import com.lomo.domain.model.toDiagnosticReport
 import com.lomo.domain.repository.EngineReadinessRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +45,26 @@ class FakeEngineReadinessRepository(
     override fun resnapshot() {
         resnapshotCount += 1
     }
+
+    override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {
+        val recovery = readiness.value as? EngineReadiness.ReadOnlyRecovery
+            ?: error("fake is not in recovery")
+        return recovery.toDiagnosticReport(workspaceKind())
+    }
+
+    override suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary {
+        val recovery = readiness.value as? EngineReadiness.ReadOnlyRecovery
+            ?: error("fake is not in recovery")
+        require(recovery.canRebuildDerivedIndex())
+        _readiness.value = EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
+        return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
+    }
+
+    private fun workspaceKind(): RecoveryWorkspaceKind =
+        when (val location = activeWorkspaceLocation.value?.raw) {
+            null -> RecoveryWorkspaceKind.NONE
+            else -> if (location.startsWith("content://")) RecoveryWorkspaceKind.SAF else RecoveryWorkspaceKind.DIRECT
+        }
 
     override suspend fun activateWorkspace(location: StorageLocation) {
         activateCount += 1

@@ -1,5 +1,19 @@
 package com.lomo.data.engine
 
+import com.lomo.data.engine.lan.LanDeviceIdentity
+import com.lomo.data.engine.lan.LanBatchPreview
+import com.lomo.data.engine.lan.LanDiscoveredPeer
+import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanLocalIdentity
+import com.lomo.data.engine.lan.LanNetworkFacts
+import com.lomo.data.engine.lan.LanPairingChallenge
+import com.lomo.data.engine.lan.LanPeerPage
+import com.lomo.data.engine.lan.LanRuntimeInbox
+import com.lomo.data.engine.lan.LanServiceState
+import com.lomo.data.engine.lan.LanSendItemPlan
+import com.lomo.data.engine.lan.LanSessionChallenge
+import com.lomo.data.engine.lan.LanSessionState
+import com.lomo.data.engine.lan.LanTransferShape
 import com.lomo.domain.model.EngineReadiness
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +48,135 @@ internal class RustEngineAdapter private constructor(
         publishBoundarySnapshot()
     }
 
+    override fun lanTransferShape(): LanTransferShape = native.lanTransferShape()
+
+    override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
+        native.updateLanNetworkSnapshot(snapshot)
+    }
+
+    override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) {
+        native.updateLanDiscoverySnapshot(snapshot)
+    }
+
+    override fun startLanService(): LanServiceState = native.startLanService()
+
+    override fun stopLanService(): LanServiceState = native.stopLanService()
+
+    override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> = native.listLanDiscoveredPeers()
+
+    override fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity =
+        native.configureLanIdentity(identity)
+
+    override fun beginLanPairing(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanPairingChallenge = native.beginLanPairing(peerDeviceId, nowMs, ttlMs)
+
+    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = native.pollLanListener(nowMs)
+
+    override fun lanRuntimeInbox(): LanRuntimeInbox = native.lanRuntimeInbox()
+
+    override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
+        native.lanPairingChallenge(pairingId)
+
+    override fun confirmLanPairing(
+        pairingId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) {
+        native.confirmLanPairing(pairingId, signature, nowMs)
+    }
+
+    override fun declineLanPairing(pairingId: String) {
+        native.declineLanPairing(pairingId)
+    }
+
+    override fun beginLanSession(
+        peerDeviceId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ): LanSessionChallenge = native.beginLanSession(peerDeviceId, nowMs, ttlMs)
+
+    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge =
+        native.lanSessionChallenge(sessionId)
+
+    override fun confirmLanSession(
+        sessionId: String,
+        signature: ByteArray,
+        nowMs: Long,
+    ) {
+        native.confirmLanSession(sessionId, signature, nowMs)
+    }
+
+    override fun lanSessionState(sessionId: String): LanSessionState =
+        native.lanSessionState(sessionId)
+
+    override fun prepareLanBatch(
+        sessionId: String,
+        batchId: String,
+        items: List<LanSendItemPlan>,
+    ) {
+        native.prepareLanBatch(sessionId, batchId, items)
+    }
+
+    override fun lanBatchPreview(batchId: String): LanBatchPreview =
+        native.lanBatchPreview(batchId)
+
+    override fun approveLanBatch(
+        sessionId: String,
+        batchId: String,
+        nowMs: Long,
+        ttlMs: Long,
+    ) {
+        native.approveLanBatch(sessionId, batchId, nowMs, ttlMs)
+    }
+
+    override fun rejectLanBatch(
+        sessionId: String,
+        batchId: String,
+        rejectedAtMs: Long,
+    ) {
+        native.rejectLanBatch(sessionId, batchId, rejectedAtMs)
+    }
+
+    override fun sendLanBatchChunk(
+        sessionId: String,
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+        chunkIndex: UInt,
+        plaintext: ByteArray,
+    ) {
+        native.sendLanBatchChunk(
+            sessionId,
+            batchId,
+            itemIndex,
+            attachmentSlot,
+            chunkIndex,
+            plaintext,
+        )
+    }
+
+    override fun lanUnconfirmedBatchChunks(
+        batchId: String,
+        itemIndex: UInt,
+        attachmentSlot: UInt,
+    ): List<UInt> = native.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot)
+
+    override fun commitReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        nowMs: Long,
+    ): String = native.commitReceivedLanItem(batchId, itemIndex, nowMs)
+
+    override fun listLanPeers(): LanPeerPage = native.listLanPeers()
+
+    override fun revokeLanPeer(
+        deviceId: String,
+        revokedAtMs: Long,
+    ): LanPeerPage = native.revokeLanPeer(deviceId, revokedAtMs)
+
     override fun renderMarkdown(
         content: String,
         schemaVersion: UInt,
@@ -50,6 +193,10 @@ internal class RustEngineAdapter private constructor(
 
     override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
         native.readWorkspaceScanPage(jobId)
+
+    fun rebuildSafStoreProjection(
+        memos: List<SafMemoProjectionSnapshot>,
+    ): com.lomo.nativebridge.StoreRebuildResult = native.rebuildSafStoreProjection(memos)
 
     override fun startWorkspaceDocumentCommand(
         path: String,
