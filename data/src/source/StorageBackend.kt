@@ -62,25 +62,8 @@ interface MarkdownStorageBackend {
     )
 }
 
-interface MediaStorageBackend :
-    ImageStorageBackend,
-    VoiceStorageBackend
-
-interface ImageStorageBackend {
-    suspend fun saveImage(
-        sourceUri: Uri,
-        filename: String,
-    )
-
+interface MediaStorageBackend {
     suspend fun listImageFiles(): List<Pair<String, String>>
 
     suspend fun getImageLocation(filename: String): String?
-
-    suspend fun deleteImage(filename: String)
-}
-
-interface VoiceStorageBackend {
-    suspend fun createVoiceFile(filename: String): Uri
-
-    suspend fun deleteVoiceFile(filename: String)
 }

@@ -3,12 +3,10 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
-
+import com.lomo.domain.repository.WorkspaceMutationLease
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.OutputStream
-import com.lomo.domain.repository.WorkspaceMutationLease
-
 
 data class WorkspaceMediaDescriptor(
     val filename: String,
@@ -39,10 +37,6 @@ interface WorkspaceMediaAccess {
         source: suspend (OutputStream) -> Unit,
     )
 
-    suspend fun deleteFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-    )
 }
 
 class DefaultWorkspaceMediaAccess(
@@ -100,17 +94,6 @@ class DefaultWorkspaceMediaAccess(
             }
         }
 
-        override suspend fun deleteFile(
-            category: WorkspaceMediaCategory,
-            filename: String,
-        ) {
-            writeLease.withWrite {
-                // D6: permanent committed-media reclaim is media-trash / orphan sweep only.
-                throw UnsupportedOperationException(
-                    "WorkspaceMediaAccess.deleteFile is retired after P4-10A; use MediaRepository remove paths",
-                )
-            }
-        }
     }
 
 internal fun requireWorkspaceMediaFilename(filename: String): String {

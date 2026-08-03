@@ -35,7 +35,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 /*
  * Behavior Contract:
  * - Unit under test: FileStorageBackendResolver
- * - Behavior focus: root-backend selection, cache invalidation on root changes, media-root precedence, and voice fallback behavior.
+ * - Behavior focus: root-backend selection, cache invalidation on root changes, and typed media-root precedence.
  * - Observable outcomes: resolved backend types, returned configured SAF uri markers, nullability for missing roots, and cache reuse vs refresh.
  * - TDD proof: Fails before the fix because the resolver does not expose an explicit WorkspaceVfs
  *   shape for resolved roots, leaving the media bridge to branch on concrete backend types.
@@ -59,17 +59,12 @@ class FileStorageBackendResolverTest : DataFunSpec() {
 
         test("root vfs prefers saf root when root uri is configured") { `root vfs prefers saf root when root uri is configured`() }
 
-        test("media and voice backends prefer typed roots and fall back to main root") { `media and voice backends prefer typed roots and fall back to main root`() }
-
         test("media backend returns direct backend and null marker for typed directory root") { `media backend returns direct backend and null marker for typed directory root`() }
 
         test("resolved media root exposes direct workspace vfs for typed directory root") { `resolved media root exposes direct workspace vfs for typed directory root`() }
 
         test("media backend prefers typed uri when both typed uri and typed path are configured") { `media backend prefers typed uri when both typed uri and typed path are configured`() }
 
-        test("voice backend prefers typed voice root over main root fallback") { `voice backend prefers typed voice root over main root fallback`() }
-
-        test("voice backend falls back to saf main root when typed voice root is missing") { `voice backend falls back to saf main root when typed voice root is missing`() }
     }
 
 
@@ -81,8 +76,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
     private val rootDirectory = MutableStateFlow<String?>(null)
     private val imageUri = MutableStateFlow<String?>(null)
     private val imageDirectory = MutableStateFlow<String?>(null)
-    private val voiceUri = MutableStateFlow<String?>(null)
-    private val voiceDirectory = MutableStateFlow<String?>(null)
 
     private lateinit var resolver: FileStorageBackendResolver
 
@@ -93,8 +86,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
         every { dataStore.rootDirectory } returns rootDirectory
         every { dataStore.imageUri } returns imageUri
         every { dataStore.imageDirectory } returns imageDirectory
-        every { dataStore.voiceUri } returns voiceUri
-        every { dataStore.voiceDirectory } returns voiceDirectory
         resolver = FileStorageBackendResolver(context, dataStore)
     }
 
@@ -148,19 +139,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
             ((vfs as WorkspaceVfs.Saf).rootUri === parsedUri("content://tree/root")).shouldBeTrue()
         }
 
-    private fun `media and voice backends prefer typed roots and fall back to main root`() =
-        runTest {
-            rootDirectory.value = "/vault/root"
-            imageUri.value = "content://tree/images"
-
-            val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE)
-            val voiceBackend = resolver.voiceBackend()
-
-            (imageRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
-            (voiceBackend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
-            (imageRoot?.configuredUriMarker == "content://tree/images").shouldBeTrue()
-        }
-
     private fun `media backend returns direct backend and null marker for typed directory root`() =
         runTest {
             imageDirectory.value = "/typed/images"
@@ -193,28 +171,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
 
             (imageRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
             (imageRoot?.configuredUriMarker == "content://tree/images").shouldBeTrue()
-        }
-
-    private fun `voice backend prefers typed voice root over main root fallback`() =
-        runTest {
-            rootDirectory.value = "/vault/root"
-            voiceDirectory.value = "/typed/voice"
-
-            val voiceBackend = resolver.voiceBackend()
-            val rootMedia = resolver.resolvedMediaRoot(StorageRootType.MAIN)
-
-            (voiceBackend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
-            (rootMedia?.backend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
-            (voiceBackend !== rootMedia?.backend).shouldBeTrue()
-        }
-
-    private fun `voice backend falls back to saf main root when typed voice root is missing`() =
-        runTest {
-            rootUri.value = "content://tree/main"
-
-            val voiceBackend = resolver.voiceBackend()
-
-            (voiceBackend?.javaClass?.simpleName == "VfsStorageBackend").shouldBeTrue()
         }
 
     private fun parsedUri(value: String): Uri =

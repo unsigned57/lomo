@@ -83,17 +83,9 @@ interface MarkdownStorageDataSource {
 }
 
 interface MediaStorageDataSource {
-    suspend fun saveImage(uri: Uri): String
-
     suspend fun listImageFiles(): List<Pair<String, String>>
 
     suspend fun getImageLocation(filename: String): String?
-
-    suspend fun deleteImage(filename: String)
-
-    suspend fun createVoiceFile(filename: String): Uri
-
-    suspend fun deleteVoiceFile(filename: String)
 }
 
 interface FileDataSource :

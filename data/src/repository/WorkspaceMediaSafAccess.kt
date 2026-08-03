@@ -64,19 +64,6 @@ internal suspend fun readWorkspaceSafFileToStream(
         true
     }
 
-internal suspend fun deleteWorkspaceSafFile(
-    context: Context,
-    rootUriString: String,
-    filename: String,
-) {
-    // D6: permanent reclaim is Rust media-trash / orphan sweep only.
-    throw UnsupportedOperationException(
-        "deleteWorkspaceSafFile is retired after P4-10A " +
-            "(pkg=${context.packageName}, root=$rootUriString, file=$filename); " +
-            "use MediaRepository.removeImage/removeVoiceCapture",
-    )
-}
-
 internal fun isContentUriRoot(value: String): Boolean =
     // behavior-contract: silent-result-ok: malformed URI → false (not a content URI)
     runCatching {

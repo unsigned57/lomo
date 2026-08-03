@@ -3,202 +3,82 @@
  * - Unit under test: FileMediaStorageDataSourceDelegate.
  * - Owning layer: data.
  * - Priority tier: P1.
- * - Capability: after Wave A, saveImage is retired (Rust MediaEdge owns import); list/get/delete
- *   still use resolved media backends for location surfaces.
+ * - Capability: resolve the configured image root for read-only image location surfaces.
  *
  * Scenarios:
- * - Given saveImage is invoked, when Wave A cutover is active, then IOException fails closed.
- * - Given image listing, location lookup, or deletion is requested, when an image root is configured,
- *   then those operations use the resolved media root backend.
+ * - Given a configured image root, when files are listed, then the resolved backend result returns.
+ * - Given a configured image root, when one filename is resolved, then its backend location returns.
  *
  * Observable outcomes:
- * - fail-closed saveImage, returned file listings/locations, and delete delegation.
+ * - returned image listing and location.
  *
  * TDD proof:
- * - Target: ./kotlin test --include-module=data --include-classes='com.lomo.data.source.FileMediaStorageDataSourceDelegateTest'
- * - RED: saveImage still invented basenames/magic identity after Wave A cutover.
- * - GREEN: saveImage fails closed; list/get/delete still use resolved media backends.
+ * - RED: Stage-7 architecture failed while the interface retained retired save/delete/voice
+ *   operations represented by unsupported sentinels.
  *
  * Excludes:
- * - MediaEdge import path (covered by MediaPort/edge tests), SAF traversal, magic validation.
+ * - Rust-owned image import/delete, Rust-owned recording allocation/finalize, and SAF traversal.
  *
  * Test Change Justification:
- * - Reason category: production media import ownership moved to MediaEdge / Rust.
- * - Old behavior/assertion being replaced: saveImage wrote files with Kotlin magic/basename identity.
- * - Why old assertion is no longer correct: Wave A cutover retires Kotlin saveImage identity; import
- *   stages through MediaPort with human path suggestions from Rust.
- * - Coverage preserved by: list/get/delete still assert resolved media-root backend delegation.
- * - Why this is not fitting the test to the implementation: locks fail-closed import boundary and
- *   remaining location surfaces, not digest algorithms.
+ * - Reason category: Stage-7 tail deletion after the P4-10A media cutover.
+ * - Old behavior/assertion being replaced: Kotlin save/delete methods failed closed after cutover.
+ * - Why old assertion is no longer correct: an unavailable operation must be absent from the type,
+ *   not shipped as a method that always throws.
+ * - Coverage preserved by: this test locks retained read surfaces; MediaEdge/Rust tests own import,
+ *   recording and media-trash behavior.
+ * - Why this is not fitting the test to the implementation: the production owner contract changed
+ *   from transitional fail-closed methods to a capability-minimal interface.
  */
 
 package com.lomo.data.source
 
-import android.content.Context
-import android.net.Uri
-import com.lomo.data.repository.ProcessWorkspaceMutationLease
 import com.lomo.data.testing.DataFunSpec
-import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
-import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
-import java.io.IOException
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
 
 class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
     init {
-        beforeTest {
-            setUp()
-        }
+        test("given configured image root when files are listed then resolved backend result returns") {
+            runTest {
+                val root = Files.createTempDirectory("file-media-storage-list").toFile()
+                val backend = fakeBackend(imageFiles = listOf("cover.jpg" to "file:///images/cover.jpg"))
+                val resolver = mockk<FileStorageBackendResolver>()
+                coEvery { resolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
+                    ResolvedMediaRoot(backend, WorkspaceVfs.Direct(root), configuredUriMarker = null)
 
-        afterTest {
-            tearDown()
-        }
+                FileMediaStorageDataSourceDelegate(resolver).listImageFiles() shouldBe
+                    listOf("cover.jpg" to "file:///images/cover.jpg")
 
-        test("saveImage fails closed after Wave A media cutover") {
-            `saveImage fails closed after Wave A media cutover`()
-        }
-
-        test("listImageFiles uses resolved media root instead of legacy mediaBackend accessor") {
-            `listImageFiles uses resolved media root instead of legacy mediaBackend accessor`()
-        }
-
-        test("getImageLocation uses resolved media root instead of legacy mediaBackend accessor") {
-            `getImageLocation uses resolved media root instead of legacy mediaBackend accessor`()
-        }
-
-        test("deleteImage is retired after Wave A and fails closed") {
-            `deleteImage is retired after Wave A and fails closed`()
-        }
-    }
-
-    private lateinit var context: Context
-    private lateinit var backendResolver: FileStorageBackendResolver
-    private lateinit var sourceUri: Uri
-    private lateinit var backend: RecordingMediaStorageBackend
-    private lateinit var tempDir: java.nio.file.Path
-
-    private fun setUp() {
-        context = mockk()
-        backendResolver = mockk()
-        sourceUri = mockk()
-        backend = RecordingMediaStorageBackend()
-        tempDir = Files.createTempDirectory("file-media-storage-vfs")
-        every { context.contentResolver } returns mockk(relaxed = true)
-    }
-
-    private fun tearDown() {
-        tempDir.toFile().deleteRecursively()
-    }
-
-    private fun `saveImage fails closed after Wave A media cutover`() =
-        runTest {
-            val delegate =
-                FileMediaStorageDataSourceDelegate(
-                    context,
-                    backendResolver,
-                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
-                )
-            shouldThrow<IOException> {
-                delegate.saveImage(sourceUri)
+                root.deleteRecursively()
             }
-            backend.savedImages shouldBe emptyList()
         }
 
-    private fun `listImageFiles uses resolved media root instead of legacy mediaBackend accessor`() =
-        runTest {
-            backend.imageFiles = listOf("cover.jpg" to "file:///images/cover.jpg")
-            coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
-                ResolvedMediaRoot(
-                    backend = backend,
-                    vfs = WorkspaceVfs.Direct(tempDir.toFile()),
-                    configuredUriMarker = null,
-                )
-            val delegate =
-                FileMediaStorageDataSourceDelegate(
-                    context,
-                    backendResolver,
-                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
-                )
+        test("given configured image root when filename is resolved then backend location returns") {
+            runTest {
+                val root = Files.createTempDirectory("file-media-storage-location").toFile()
+                val backend = fakeBackend(location = "file:///images/cover.jpg")
+                val resolver = mockk<FileStorageBackendResolver>()
+                coEvery { resolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
+                    ResolvedMediaRoot(backend, WorkspaceVfs.Direct(root), configuredUriMarker = null)
 
-            val files = delegate.listImageFiles()
+                FileMediaStorageDataSourceDelegate(resolver).getImageLocation("cover.jpg") shouldBe
+                    "file:///images/cover.jpg"
 
-            files shouldBe listOf("cover.jpg" to "file:///images/cover.jpg")
-        }
-
-    private fun `getImageLocation uses resolved media root instead of legacy mediaBackend accessor`() =
-        runTest {
-            backend.imageLocations["cover.jpg"] = "file:///images/cover.jpg"
-            coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
-                ResolvedMediaRoot(
-                    backend = backend,
-                    vfs = WorkspaceVfs.Direct(tempDir.toFile()),
-                    configuredUriMarker = null,
-                )
-            val delegate =
-                FileMediaStorageDataSourceDelegate(
-                    context,
-                    backendResolver,
-                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
-                )
-
-            val location = delegate.getImageLocation("cover.jpg")
-
-            location shouldBe "file:///images/cover.jpg"
-        }
-
-    private fun `deleteImage is retired after Wave A and fails closed`() =
-        runTest {
-            coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
-                ResolvedMediaRoot(
-                    backend = backend,
-                    vfs = WorkspaceVfs.Direct(tempDir.toFile()),
-                    configuredUriMarker = null,
-                )
-            val delegate =
-                FileMediaStorageDataSourceDelegate(
-                    context,
-                    backendResolver,
-                    ProcessWorkspaceMutationLease(FakeEngineReadinessRepository()),
-                )
-
-            shouldThrow<UnsupportedOperationException> {
-                delegate.deleteImage("cover.jpg")
+                root.deleteRecursively()
             }
-            backend.deletedImages shouldBe emptyList()
         }
-
-    private class RecordingMediaStorageBackend : MediaStorageBackend {
-        data class SavedImage(
-            val uri: Uri,
-            val filename: String,
-        )
-
-        val savedImages = mutableListOf<SavedImage>()
-        var imageFiles: List<Pair<String, String>> = emptyList()
-        val imageLocations = linkedMapOf<String, String>()
-        val deletedImages = mutableListOf<String>()
-
-        override suspend fun saveImage(
-            sourceUri: Uri,
-            filename: String,
-        ) {
-            savedImages += SavedImage(sourceUri, filename)
-        }
-
-        override suspend fun listImageFiles(): List<Pair<String, String>> = imageFiles
-
-        override suspend fun getImageLocation(filename: String): String? = imageLocations[filename]
-
-        override suspend fun deleteImage(filename: String) {
-            deletedImages += filename
-        }
-
-        override suspend fun createVoiceFile(filename: String): Uri = error("unused")
-
-        override suspend fun deleteVoiceFile(filename: String) = Unit
     }
 }
+
+private fun fakeBackend(
+    imageFiles: List<Pair<String, String>> = emptyList(),
+    location: String? = null,
+): MediaStorageBackend =
+    object : MediaStorageBackend {
+        override suspend fun listImageFiles(): List<Pair<String, String>> = imageFiles
+
+        override suspend fun getImageLocation(filename: String): String? = location
+    }

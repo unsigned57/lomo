@@ -1,15 +1,21 @@
 //! Behavior Contract
 //!
-//! Capability: stage DirectPath/StagedTemp with bounded streaming digest; discard unpromoted stage.
+//! Capability: stage DirectPath/StagedTemp inputs with verified digest and discard unpromoted
+//! stage without exposing a full-byte media API.
 //!
 //! Scenarios:
 //! - Given a PNG file, when `stage_media(DirectPath)` runs, then `MediaStaged` carries digest/size/mime
 //!   and a file under `.lomo-media-stage`.
 //! - Given `StagedTemp`, when staging completes, then the temp source is consumed.
+//! - Given Rust-owned received bytes materialized to a private temp path, when staging completes,
+//!   then the same media identity/path contract is used without exposing a full-byte media API.
+//! - Given the suggested destination is occupied by different bytes, when a received destination
+//!   is resolved, then a stable human-name suffix is selected; an existing same digest is reused.
 //! - Given `discard_staged`, when called, then the staged file is removed.
 //! - Given stream buffer capacity, when inspected, then it equals `DIGEST_STREAM_CHUNK_BYTES` (bounded).
 //!
 //! Observable outcomes: staged paths, digests, cleanup.
+//! TDD proof: the architecture test fails when `lomo-media` exposes a full-byte staging API.
 //! Excludes: memo promote, FFI, production DI.
 
 #[cfg(test)]
@@ -22,7 +28,8 @@ mod tests {
 
     use lomo_media::{
         ContentDigest, DIGEST_STREAM_CHUNK_BYTES, MediaSource, STAGE_DIR_NAME, discard_staged,
-        stage_media, stream_buffer_capacity, write_bytes_for_tests,
+        resolve_received_final_relative_path, stage_media, stream_buffer_capacity,
+        write_bytes_for_tests,
     };
     use tempfile::tempdir;
 
@@ -33,6 +40,19 @@ mod tests {
         0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xdd, 0x8d, 0xb4, 0x00, 0x00,
         0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
     ];
+
+    fn stage_received_bytes(
+        root: &std::path::Path,
+        bytes: &[u8],
+        name: &str,
+    ) -> lomo_media::MediaStaged {
+        let incoming = root.join("incoming");
+        fs::create_dir_all(&incoming).expect("create received temp root");
+        let source = incoming.join(name);
+        write_bytes_for_tests(&source, bytes).expect("write received temp");
+        stage_media(root, MediaSource::StagedTemp { path: source }, name)
+            .expect("stage received path")
+    }
 
     #[test]
     fn stream_buffer_is_bounded_chunk() {
@@ -83,6 +103,38 @@ mod tests {
         );
         assert!(staged.staging_path.is_file());
         assert!(src.is_file(), "DirectPath must not consume the source file");
+    }
+
+    #[test]
+    fn stage_rust_owned_received_bytes_uses_the_same_verified_media_identity() {
+        let root = tempdir().expect("temp");
+        let staged = stage_received_bytes(root.path(), PNG_1X1, "received.png");
+        assert_eq!(staged.size, PNG_1X1.len() as u64);
+        assert_eq!(staged.digest, ContentDigest::of_slice(PNG_1X1));
+        assert!(staged.staging_path.is_file());
+        assert!(
+            staged
+                .staging_path
+                .starts_with(root.path().join(STAGE_DIR_NAME))
+        );
+    }
+
+    #[test]
+    fn received_destination_reuses_same_digest_and_suffixes_a_conflict() {
+        let root = tempdir().expect("temp");
+        let staged = stage_received_bytes(root.path(), PNG_1X1, "received.png");
+        let base = root.path().join("media/received.png");
+        fs::create_dir_all(base.parent().expect("media parent")).expect("create media parent");
+        fs::write(&base, b"different bytes").expect("occupy suggested destination");
+
+        let suffixed = resolve_received_final_relative_path(root.path(), &staged)
+            .expect("different digest selects a suffix");
+        assert_eq!(suffixed.as_str(), "media/received_1.png");
+
+        fs::write(&base, PNG_1X1).expect("replace with same digest");
+        let reused = resolve_received_final_relative_path(root.path(), &staged)
+            .expect("same digest reuses the human path");
+        assert_eq!(reused.as_str(), "media/received.png");
     }
 
     #[test]

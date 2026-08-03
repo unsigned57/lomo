@@ -19,12 +19,8 @@ class FakeFileDataSource : FileDataSource {
     val documentIds = mutableMapOf<Pair<MemoDirectoryType, String>, String>()
     val fileUris = mutableMapOf<Pair<MemoDirectoryType, String>, Uri>()
 
-    // Media and voice
-    val savedImages = mutableListOf<Uri>()
+    // Read-only media locations; mutation is owned by MediaRepository/Rust.
     val imageLocations = mutableMapOf<String, String>()
-    val deletedImages = mutableListOf<String>()
-    val createdVoiceFiles = mutableListOf<String>()
-    val deletedVoiceFiles = mutableListOf<String>()
 
     // Roots
     private val roots = mutableMapOf<StorageRootType, String?>()
@@ -152,13 +148,6 @@ class FakeFileDataSource : FileDataSource {
         )
     }
 
-    override suspend fun saveImage(uri: Uri): String {
-        savedImages += uri
-        val filename = uri.lastPathSegment ?: "image_${System.currentTimeMillis()}.png"
-        imageLocations[filename] = uri.toString()
-        return filename
-    }
-
     override suspend fun listImageFiles(): List<Pair<String, String>> {
         return imageLocations.entries.map { it.key to it.value }
     }
@@ -167,19 +156,6 @@ class FakeFileDataSource : FileDataSource {
         return imageLocations[filename]
     }
 
-    override suspend fun deleteImage(filename: String) {
-        deletedImages += filename
-        imageLocations.remove(filename)
-    }
-
-    override suspend fun createVoiceFile(filename: String): Uri {
-        createdVoiceFiles += filename
-        return runCatching { Uri.parse("file:///voice/$filename") }.getOrNull() ?: io.mockk.mockk(relaxed = true)
-    }
-
-    override suspend fun deleteVoiceFile(filename: String) {
-        deletedVoiceFiles += filename
-    }
 }
 
 private fun ByteArray.md5Hex(): String =

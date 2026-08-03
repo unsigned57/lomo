@@ -33,7 +33,7 @@ pub use path::{MediaRelativePath, suggest_human_relative_path};
 pub use reference::{AttachmentRef, DigestRefcount, ReferenceSource, build_refcounts};
 pub use stage::{
     MediaSource, MediaStaged, STAGE_DIR_NAME, allocate_recording_target, discard_staged,
-    finalize_recording, stage_media, stream_buffer_capacity,
+    finalize_recording, resolve_received_final_relative_path, stage_media, stream_buffer_capacity,
 };
 
 use lomo_core::{ErrorCategory, LomoError};

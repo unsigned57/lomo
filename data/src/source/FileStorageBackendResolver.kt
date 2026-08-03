@@ -41,11 +41,6 @@ class FileStorageBackendResolver(
                 context = context,
             )
 
-        suspend fun voiceBackend(): MediaStorageBackend? {
-            val configuredVoiceBackend = resolvedMediaRoot(StorageRootType.VOICE)?.backend
-            return configuredVoiceBackend ?: rootMediaBackend()
-        }
-
         private suspend fun resolveRootBackendsLocked() {
             val rootConfig = dataStore.readStorageRootConfig(StorageRootType.MAIN)
             if (currentRootConfig == rootConfig && currentMarkdownBackend != null) {
@@ -66,12 +61,6 @@ class FileStorageBackendResolver(
             currentRootConfig = rootConfig
         }
 
-        private suspend fun rootMediaBackend(): MediaStorageBackend? {
-            return buildResolvedMediaRoot(
-                rootConfig = dataStore.readStorageRootConfig(StorageRootType.MAIN),
-                context = context,
-            )?.backend
-        }
     }
 
 private fun buildResolvedMediaRoot(

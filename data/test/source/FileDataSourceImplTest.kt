@@ -18,11 +18,11 @@ package com.lomo.data.source
 
 
 
-import com.lomo.data.repository.ProcessWorkspaceMutationLease
-import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.repository.ProcessWorkspaceMutationLease
 import com.lomo.data.source.StorageRootType
+import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import io.mockk.MockKAnnotations
 import io.mockk.coVerify
 import io.mockk.every
@@ -74,7 +74,7 @@ class FileDataSourceImplTest : DataFunSpec() {
             FileDataSourceImpl(
                 workspaceConfigSource = FileWorkspaceConfigSourceDelegate(context, dataStore, resolver),
                 markdownStorageDataSource = FileMarkdownStorageDataSourceDelegate(resolver, ProcessWorkspaceMutationLease(FakeEngineReadinessRepository())),
-                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(context, resolver, ProcessWorkspaceMutationLease(FakeEngineReadinessRepository())),
+                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(resolver),
             )
     }
 

@@ -38,7 +38,7 @@ private fun createVfsStorageDelegateBundle(
             VfsStorageDelegateBundle(
                 markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir),
                 workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir),
-                mediaDelegate = DirectMediaStorageBackendDelegate(context, rootVfs.rootDir),
+                mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir),
             )
 
         is WorkspaceVfs.Saf -> {
@@ -46,7 +46,7 @@ private fun createVfsStorageDelegateBundle(
             VfsStorageDelegateBundle(
                 markdownDelegate = SafMarkdownStorageBackendDelegate(context, rootVfs.rootUri, documentAccess),
                 workspaceDelegate = SafWorkspaceConfigBackendDelegate(documentAccess),
-                mediaDelegate = SafMediaStorageBackendDelegate(context, documentAccess),
+                mediaDelegate = SafMediaStorageBackendDelegate(documentAccess),
             )
         }
     }

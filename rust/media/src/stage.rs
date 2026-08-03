@@ -131,6 +131,88 @@ pub fn stage_media(
     build_staged(digest, size, mime, staging_path, human_name_hint)
 }
 
+/// Resolves the stable final path for received media without overwriting different bytes.
+///
+/// The human suggested path is reused when absent or when it already contains the same digest and
+/// size. A different occupant produces `_1`, `_2`, ... before the extension. This remains stable
+/// across operation recovery because a path promoted by the first attempt is recognized by digest.
+///
+/// # Errors
+///
+/// Storage when an occupied candidate cannot be inspected; validation when the staged suggestion
+/// cannot be represented as a canonical suffixed media path.
+pub fn resolve_received_final_relative_path(
+    workspace_root: &Path,
+    staged: &MediaStaged,
+) -> Result<crate::path::MediaRelativePath, LomoError> {
+    let suggested = crate::path::MediaRelativePath::parse(&staged.suggested_final_relative_path)?;
+    if candidate_is_available_or_same(workspace_root, &suggested, staged)? {
+        return Ok(suggested);
+    }
+
+    let path = Path::new(&staged.suggested_final_relative_path);
+    let parent = path.parent().ok_or_else(|| {
+        validation(
+            "media_received_path_invalid",
+            "received media suggestion has no relative parent",
+        )
+    })?;
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            validation(
+                "media_received_path_invalid",
+                "received media suggestion has no UTF-8 filename stem",
+            )
+        })?;
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            validation(
+                "media_received_path_invalid",
+                "received media suggestion has no UTF-8 extension",
+            )
+        })?;
+    for suffix in 1_u32..=u32::MAX {
+        let raw = parent
+            .join(format!("{stem}_{suffix}.{extension}"))
+            .to_str()
+            .ok_or_else(|| {
+                validation(
+                    "media_received_path_invalid",
+                    "received media destination is not valid UTF-8",
+                )
+            })?
+            .to_owned();
+        let candidate = crate::path::MediaRelativePath::parse(&raw)?;
+        if candidate_is_available_or_same(workspace_root, &candidate, staged)? {
+            return Ok(candidate);
+        }
+    }
+    Err(validation(
+        "media_received_path_exhausted",
+        "received media destination suffix range is exhausted",
+    ))
+}
+
+fn candidate_is_available_or_same(
+    workspace_root: &Path,
+    candidate: &crate::path::MediaRelativePath,
+    staged: &MediaStaged,
+) -> Result<bool, LomoError> {
+    let absolute = workspace_root.join(candidate.as_str());
+    if !absolute.exists() {
+        return Ok(true);
+    }
+    if !absolute.is_file() {
+        return Ok(false);
+    }
+    let (digest, size) = ContentDigest::stream_from_path(&absolute)?;
+    Ok(digest == staged.digest && size == staged.size)
+}
+
 fn build_staged(
     digest: ContentDigest,
     size: u64,

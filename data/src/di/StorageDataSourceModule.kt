@@ -29,7 +29,7 @@ val storageDataSourceModule = module {
         FileMarkdownStorageDataSourceDelegate(get(), get())
     } bind MarkdownStorageDataSource::class
     single {
-        FileMediaStorageDataSourceDelegate(androidContext(), get(), get())
+        FileMediaStorageDataSourceDelegate(get())
     } bind MediaStorageDataSource::class
 
     // Optional aggregate for call sites that still want the combined FileDataSource surface.

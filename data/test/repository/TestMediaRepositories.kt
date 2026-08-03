@@ -86,12 +86,6 @@ internal object ThrowingWorkspaceMediaAccess : WorkspaceMediaAccess {
         unexpected("WorkspaceMediaAccess.writeFileFromStream")
     }
 
-    override suspend fun deleteFile(
-        category: WorkspaceMediaCategory,
-        filename: String,
-    ) {
-        unexpected("WorkspaceMediaAccess.deleteFile")
-    }
 }
 
 internal class RecordingMediaRepository : MediaRepository {

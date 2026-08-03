@@ -88,17 +88,6 @@ internal suspend fun writeWorkspaceDirectFileFromStream(
     }
 }
 
-internal suspend fun deleteWorkspaceDirectFile(
-    root: File,
-    filename: String,
-) {
-    // D6: permanent reclaim is Rust media-trash / orphan sweep only.
-    throw UnsupportedOperationException(
-        "deleteWorkspaceDirectFile is retired after P4-10A (root=${root.path}, file=$filename); " +
-            "use MediaRepository.removeImage/removeVoiceCapture",
-    )
-}
-
 private fun workspaceMatchesDirectCategory(
     category: WorkspaceMediaCategory,
     filename: String,

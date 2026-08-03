@@ -1,48 +1,13 @@
 package com.lomo.data.source
 
-import android.content.Context
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.withContext
-import java.io.IOException
 
 internal class SafMediaStorageBackendDelegate(
-    private val context: Context,
     private val documentAccess: SafDocumentAccess,
 ) : MediaStorageBackend {
-    override suspend fun saveImage(
-        sourceUri: Uri,
-        filename: String,
-    ) {
-        withContext(SAF_IO_DISPATCHER) {
-            val root = requireImageRoot(documentAccess)
-            val inputStream = openRequiredInputStream(context, sourceUri)
-            val extension = filename.substringAfterLast(".", "jpg")
-            val newFile = createImageFile(root, filename, extension)
-            openRequiredOutputStream(context, newFile.uri).use { outputStream ->
-                inputStream.use { input -> input.copyTo(outputStream) }
-            }
-        }
-    }
-
     override suspend fun listImageFiles(): List<Pair<String, String>> = safListImageFiles(documentAccess)
 
     override suspend fun getImageLocation(filename: String): String? = safGetImageLocation(documentAccess, filename)
-
-    override suspend fun deleteImage(filename: String) {
-        // D6: permanent committed-media reclaim is Rust media-trash / orphan sweep only.
-        throw UnsupportedOperationException(
-            "deleteImage is retired after P4-10A; use MediaRepository.removeImage (media-trash law)",
-        )
-    }
-
-    override suspend fun createVoiceFile(filename: String): Uri = safCreateVoiceFile(documentAccess, filename)
-
-    override suspend fun deleteVoiceFile(filename: String) {
-        throw UnsupportedOperationException(
-            "deleteVoiceFile is retired after P4-10A; use MediaRepository.removeVoiceCapture (media-trash law)",
-        )
-    }
 }
 
 private suspend fun safListImageFiles(
@@ -70,45 +35,4 @@ private suspend fun safGetImageLocation(
 ): String? =
     withContext(SAF_IO_DISPATCHER) {
         documentAccess.root()?.findFile(filename)?.takeIf { it.isFile }?.uri?.toString()
-    }
-
-private fun requireImageRoot(documentAccess: SafDocumentAccess): DocumentFile =
-    documentAccess.root() ?: throw IOException("Cannot access image directory")
-
-private fun openRequiredInputStream(
-    context: Context,
-    sourceUri: Uri,
-) = context.contentResolver.openInputStream(sourceUri)
-    ?: throw IOException("Cannot open source image URI")
-
-private fun createImageFile(
-    root: DocumentFile,
-    filename: String,
-    extension: String,
-): DocumentFile =
-    root.createFile("image/$extension", filename)
-        ?: throw IOException("Cannot create image file")
-
-private fun openRequiredOutputStream(
-    context: Context,
-    uri: Uri,
-) = context.contentResolver.openOutputStream(uri)
-    ?: throw IOException("Cannot write to image file")
-
-private suspend fun safCreateVoiceFile(
-    documentAccess: SafDocumentAccess,
-    filename: String,
-): Uri =
-    withContext(SAF_IO_DISPATCHER) {
-        val root = documentAccess.root() ?: throw IOException("Cannot access voice directory")
-        val extension = filename.substringAfterLast('.', "m4a")
-        val mimeType =
-            when (extension) {
-                "m4a" -> "audio/mp4"
-                "mp3" -> "audio/mpeg"
-                "aac" -> "audio/aac"
-                else -> "audio/mp4"
-            }
-        val file = root.createFile(mimeType, filename) ?: throw IOException("Cannot create voice file")
-        file.uri
     }
