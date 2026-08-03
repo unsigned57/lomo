@@ -1,6 +1,5 @@
 package com.lomo.app.navigation
 
-import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,7 +36,6 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
 private const val MAIN_ROUTE_NAME = NavRouteSerialNames.MAIN
 
 /**
@@ -86,21 +84,6 @@ fun LomoNavHost(
         lanShareEnabled = lanShareEnabled,
         mainForegroundEntryId = mainForegroundEntryId,
     )
-}
-
-@Composable
-private fun rememberBackNavigationAction(navController: NavHostController): () -> Unit {
-    var lastBackNavigationTime by remember { mutableLongStateOf(0L) }
-
-    return remember(navController) {
-        {
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastBackNavigationTime >= BACK_NAVIGATION_THROTTLE_MILLIS) {
-                lastBackNavigationTime = now
-                navController.popBackStackOrNavigateMain()
-            }
-        }
-    }
 }
 
 @Composable
@@ -449,12 +432,4 @@ private fun buildFallbackImageViewerMemo(imageUrls: List<String>): MemoUiModel? 
         tags = persistentListOf(),
         imageUrls = imageUrls.toImmutableList(),
     )
-}
-
-private fun NavHostController.popBackStackOrNavigateMain() {
-    if (!popBackStack()) {
-        navigate(NavRoute.Main) {
-            launchSingleTop = true
-        }
-    }
 }
