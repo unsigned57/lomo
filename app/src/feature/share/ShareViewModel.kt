@@ -12,7 +12,6 @@ import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
-import com.lomo.domain.usecase.LanSharePairingCodePolicy
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +22,6 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 
-private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
 private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
 private const val LAN_SHARE_PERMISSION_REQUIRED_MESSAGE = "Local network permission is required for LAN sharing"
 private const val SHARE_PAYLOAD_KEY = "payloadKey"
@@ -60,17 +58,17 @@ class ShareViewModel(
             lanShareUiCoordinator.lanShareEnabled
                 .stateIn(viewModelScope, appWhileSubscribed(), true)
 
-        val lanShareE2eEnabled =
-            lanShareUiCoordinator.lanShareE2eEnabled
-                .stateIn(viewModelScope, appWhileSubscribed(), true)
+        val pendingPairing =
+            lanShareUiCoordinator.pendingPairing
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
-        val lanSharePairingConfigured =
-            lanShareUiCoordinator.lanSharePairingConfigured
-                .stateIn(viewModelScope, appWhileSubscribed(), false)
+        val incomingBatch =
+            lanShareUiCoordinator.incomingBatch
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
-        val lanSharePairingCode =
-            lanShareUiCoordinator.lanSharePairingCode
-                .stateIn(viewModelScope, appWhileSubscribed(), "")
+        val trustedPeers =
+            lanShareUiCoordinator.trustedPeers
+                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         val lanShareDeviceName =
             lanShareUiCoordinator.lanShareDeviceName
@@ -80,10 +78,6 @@ class ShareViewModel(
             lanShareUiCoordinator.lanShareDiscoveryDiagnostics
                 .stateIn(viewModelScope, appWhileSubscribed(), LanShareDiscoveryDiagnostics())
 
-        private val _pairingCodeError = MutableStateFlow<String?>(null)
-        val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
-        private val _pairingRequiredEvent = MutableStateFlow(0)
-        val pairingRequiredEvent: StateFlow<Int> = _pairingRequiredEvent.asStateFlow()
         private val _operationError = MutableStateFlow<String?>(null)
         val operationError: StateFlow<String?> = _operationError.asStateFlow()
         private val _lanSharePermissionState =
@@ -154,10 +148,6 @@ class ShareViewModel(
                         return@launch
                     }
 
-                    if (lanShareUiCoordinator.requiresPairingBeforeSend()) {
-                        _pairingRequiredEvent.value += PAIRING_REQUIRED_EVENT_INCREMENT
-                        return@launch
-                    }
                     val attachmentResult = extractShareAttachmentsUseCase(currentContent)
                     val result =
                         lanShareUiCoordinator.sendMemo(
@@ -178,50 +168,15 @@ class ShareViewModel(
             }
         }
 
-        fun updateLanShareE2eEnabled(enabled: Boolean) {
-            viewModelScope.launch {
-                runCatching {
-                    lanShareUiCoordinator.setLanShareE2eEnabled(enabled)
-                }.onFailure { throwable ->
-                    if (throwable is CancellationException) {
-                        throw throwable
-                    }
-                    reportOperationError(throwable, "Failed to update secure share setting")
-                }
-            }
-        }
+        val confirmPairing: (String) -> Unit = lanShareUiCoordinator::confirmPairing
 
-        fun updateLanSharePairingCode(pairingCode: String) {
-            viewModelScope.launch {
-                runCatching {
-                    lanShareUiCoordinator.setLanSharePairingCode(pairingCode)
-                    _pairingCodeError.value = null
-                }.onFailure { throwable ->
-                    if (throwable is CancellationException) {
-                        throw throwable
-                    }
-                    _pairingCodeError.value = LanSharePairingCodePolicy.saveFailureMessage(throwable)
-                }
-            }
-        }
+        val declinePairing: (String) -> Unit = lanShareUiCoordinator::declinePairing
 
-        fun clearLanSharePairingCode() {
-            viewModelScope.launch {
-                runCatching {
-                    lanShareUiCoordinator.clearLanSharePairingCode()
-                    _pairingCodeError.value = null
-                }.onFailure { throwable ->
-                    if (throwable is CancellationException) {
-                        throw throwable
-                    }
-                    reportOperationError(throwable, "Failed to clear pairing code")
-                }
-            }
-        }
+        val approveIncoming: (String, String) -> Unit = lanShareUiCoordinator::approveIncoming
 
-        val clearPairingCodeError: () -> Unit = {
-            _pairingCodeError.value = null
-        }
+        val rejectIncoming: (String, String) -> Unit = lanShareUiCoordinator::rejectIncoming
+
+        val revokePeer: (String) -> Unit = lanShareUiCoordinator::revokePeer
 
         val clearOperationError: () -> Unit = {
             _operationError.value = null

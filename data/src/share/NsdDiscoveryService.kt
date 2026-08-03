@@ -22,12 +22,12 @@ interface LanShareDiscoveryCoordinator {
     fun registerService(
         port: Int,
         deviceName: String,
-        uuid: String,
+        deviceId: String,
     ): Boolean
 
     fun unregisterService()
 
-    fun startDiscovery(uuid: String): Boolean
+    fun startDiscovery(deviceId: String): Boolean
 
     fun stopDiscovery()
 
@@ -49,12 +49,12 @@ class NsdDiscoveryService(
     private val endpointRegistry = LanShareNsdEndpointRegistry()
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
-    private var localUuid: String? = null
+    private var localDeviceId: String = ""
 
     override fun registerService(
         port: Int,
         deviceName: String,
-        uuid: String,
+        deviceId: String,
     ): Boolean {
         unregisterService()
         val serviceInfo =
@@ -62,7 +62,8 @@ class NsdDiscoveryService(
                 serviceName = "$SERVICE_NAME_PREFIX$deviceName"
                 serviceType = SERVICE_TYPE
                 setPort(port)
-                setAttribute("uuid", uuid)
+                setAttribute("device_id", deviceId)
+                setAttribute("protocol_version", "2")
             }
         val listener =
             object : NsdManager.RegistrationListener {
@@ -110,10 +111,10 @@ class NsdDiscoveryService(
             .onFailure { error -> logNsdOperationFailure(error, "Failed to unregister global NSD service") }
     }
 
-    override fun startDiscovery(uuid: String): Boolean {
-        localUuid = uuid
+    override fun startDiscovery(deviceId: String): Boolean {
+        localDeviceId = deviceId
         stopDiscovery()
-        localUuid = uuid
+        localDeviceId = deviceId
         val listener =
             object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(serviceType: String) {
@@ -265,7 +266,7 @@ class NsdDiscoveryService(
                 hostAddresses = resolvedHostAddresses(info),
                 port = info.port,
                 attributes = info.attributes,
-                localUuid = localUuid,
+                localDeviceId = localDeviceId,
             )
         if (device == null) {
             removeResolvedService(serviceKey)

@@ -2,71 +2,44 @@ package com.lomo.data.di
 
 import com.lomo.data.media.AudioPlaybackUriResolverImpl
 import com.lomo.data.media.AudioRecorder
-import com.lomo.data.security.LanShareCredentialStore
-import com.lomo.data.share.SharePairingConfig
-import com.lomo.data.share.ShareTransferOrchestrator
-import com.lomo.data.share.ShareServiceLifecycleController
-import com.lomo.data.share.OwnerShareAttachmentDestinationRemapper
-import com.lomo.data.share.ShareAttachmentDestinationRemapper
-import com.lomo.data.share.ShareAttachmentStorage
-import com.lomo.data.share.ShareIncomingMemoSaver
-import com.lomo.data.share.ShareIncomingStateHolder
-import com.lomo.data.share.LanShareStateDelegate
-import com.lomo.data.share.LanShareLifecycleControllerImpl
-import com.lomo.data.share.LanShareTransferControllerImpl
-import com.lomo.data.share.LanShareConfigurationControllerImpl
-import com.lomo.data.share.ShareServiceManager
-import com.lomo.data.share.DataStoreLanShareDeviceIdentityProvider
-import com.lomo.data.share.LanShareDeviceIdentityProvider
+import com.lomo.data.share.NsdDiscoveryService
+import com.lomo.data.engine.ManagedEngineSession
+import com.lomo.data.engine.lan.AndroidLanDeviceKey
+import com.lomo.data.engine.lan.LanDeviceKey
+import com.lomo.data.engine.lan.LanRuntimeCoordinator
+import com.lomo.data.engine.lan.RustLanShareService
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.VoiceRecordingRepository
 import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 
 val mediaShareModule = module {
     single { AudioRecorder(androidContext()) } bind VoiceRecordingRepository::class
     singleOf(::AudioPlaybackUriResolverImpl) bind AudioPlaybackResolverRepository::class
 
-    single { LanShareCredentialStore(androidContext()) }
-    single { SharePairingConfig(get(), get(), get()) }
-    single<LanShareDeviceIdentityProvider> { DataStoreLanShareDeviceIdentityProvider(get()) }
-    single { ShareTransferOrchestrator(androidContext(), get(), get()) }
-    single { ShareServiceLifecycleController(androidContext(), get(), get()) }
-    single { ShareAttachmentStorage(androidContext(), get(), get(), get()) }
-    single<ShareAttachmentDestinationRemapper> { OwnerShareAttachmentDestinationRemapper() }
-    single { ShareIncomingMemoSaver(get(), get(), get()) }
-    single { ShareIncomingStateHolder() }
-
+    single<LanDeviceKey> { AndroidLanDeviceKey() }
+    single { NsdDiscoveryService(androidContext()) }
     single {
-        LanShareStateDelegate(
-            lifecycleController = get(),
-            transferOrchestrator = get(),
-            pairingConfig = get(),
-            incomingStateHolder = get(),
-            attachmentStorage = get(),
-            incomingMemoSaver = get()
+        LanRuntimeCoordinator(
+            context = androidContext(),
+            engine = get<ManagedEngineSession>(),
+            discovery = get(),
+            deviceKey = get(),
+            scope = get(named("ApplicationScope")),
         )
     }
-    single { LanShareLifecycleControllerImpl(get(), get()) }
-    single {
-        LanShareTransferControllerImpl(
-            lifecycleController = get(),
-            transferOrchestrator = get(),
-            incomingStateHolder = get(),
-            pairingConfig = get()
+    single<LanShareService> {
+        RustLanShareService(
+            context = androidContext(),
+            preferences = get(),
+            engine = get(),
+            runtime = get(),
+            deviceKey = get(),
+            appScope = get(named("ApplicationScope")),
         )
     }
-    single { LanShareConfigurationControllerImpl(get(), get()) }
-
-    single {
-        ShareServiceManager(
-            stateRepository = get(),
-            lifecycleController = get(),
-            transferController = get(),
-            configurationController = get()
-        )
-    } bind LanShareService::class
 }

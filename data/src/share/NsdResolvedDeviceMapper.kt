@@ -2,7 +2,6 @@ package com.lomo.data.share
 
 import com.lomo.domain.model.DiscoveredDevice
 import java.net.Inet4Address
-import java.net.Inet6Address
 import java.net.InetAddress
 
 internal fun mapResolvedLanShareDevice(
@@ -10,33 +9,31 @@ internal fun mapResolvedLanShareDevice(
     hostAddresses: List<InetAddress>,
     port: Int,
     attributes: Map<String, ByteArray>,
-    localUuid: String?,
+    localDeviceId: String,
 ): DiscoveredDevice? {
-    if (port <= 0) return null
-
-    val remoteUuid =
-        LanSharePingProtocol.parseUuid(
-            attributes["uuid"]?.let { value -> String(value, Charsets.UTF_8) },
-        ) ?: return null
-    if (remoteUuid == LanSharePingProtocol.parseUuid(localUuid)) return null
-
-    val hostAddress = selectLanShareHostAddress(hostAddresses) ?: return null
-    return DiscoveredDevice(
-        uuid = remoteUuid,
-        name = serviceName.removePrefix(NsdDiscoveryService.SERVICE_NAME_PREFIX),
-        host = hostAddress.toLanShareHttpHost() ?: return null,
-        port = port,
-    )
+    val protocolVersion = attributes["protocol_version"]?.let { value -> String(value, Charsets.UTF_8) }
+    val remoteDeviceId =
+        attributes["device_id"]?.let { value -> String(value, Charsets.UTF_8) }
+        ?.takeIf { deviceId ->
+            deviceId.length == DEVICE_ID_HEX_LENGTH &&
+                deviceId.all { character -> character in '0'..'9' || character in 'a'..'f' }
+        }
+    val host = selectLanShareHostAddress(hostAddresses)?.hostAddress?.substringBefore('%')
+    val endpointIsValid =
+        port in 1..UShort.MAX_VALUE.toInt() && protocolVersion == "2" && host != null
+    return if (!endpointIsValid || remoteDeviceId == null || remoteDeviceId == localDeviceId) {
+        null
+    } else {
+        DiscoveredDevice(
+            deviceId = remoteDeviceId,
+            name = serviceName.removePrefix(NsdDiscoveryService.SERVICE_NAME_PREFIX),
+            host = checkNotNull(host),
+            port = port,
+        )
+    }
 }
 
 private fun selectLanShareHostAddress(hostAddresses: List<InetAddress>): InetAddress? =
-    hostAddresses.firstOrNull { it is Inet4Address }
-        ?: hostAddresses.firstOrNull { it is Inet6Address }
+    hostAddresses.firstOrNull { it is Inet4Address } ?: hostAddresses.firstOrNull()
 
-private fun InetAddress.toLanShareHttpHost(): String? {
-    val rawHost = hostAddress ?: return null
-    return when (this) {
-        is Inet6Address -> "[${rawHost.replace("%", "%25")}]"
-        else -> rawHost
-    }
-}
+private const val DEVICE_ID_HEX_LENGTH = 64

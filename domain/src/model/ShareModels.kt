@@ -4,10 +4,11 @@ package com.lomo.domain.model
  * Represents a discovered device on the LAN running Lomo.
  */
 data class DiscoveredDevice(
-    val uuid: String?,
+    val deviceId: String,
     val name: String,
     val host: String,
     val port: Int,
+    val trusted: Boolean = false,
 )
 
 /**
@@ -19,15 +20,60 @@ data class ShareAttachmentInfo(
     val size: Long,
 )
 
-/**
- * The payload sent when sharing a memo over LAN.
- */
-data class SharePayload(
-    val content: String,
-    val timestamp: Long,
-    val senderName: String,
-    val attachments: List<ShareAttachmentInfo> = emptyList(),
+data class LanTrustedPeer(
+    val deviceId: String,
+    val displayName: String,
+    val pairedAtMs: Long,
 )
+
+data class LanPairingRequest(
+    val pairingId: String,
+    val peerDeviceId: String,
+    val peerDisplayName: String,
+    val shortCode: String,
+    val deadlineMs: Long,
+)
+
+data class LanIncomingBatch(
+    val sessionId: String,
+    val batchId: String,
+    val senderDeviceId: String,
+    val senderDisplayName: String,
+    val itemCount: Int,
+    val attachmentCount: Int,
+    val totalBytes: Long,
+    val titles: List<String>,
+    val decision: LanBatchDecision,
+    val items: List<LanReceivedItemResult>,
+)
+
+enum class LanBatchDecision {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+sealed interface LanReceivedItemResult {
+    val itemId: String
+    val itemIndex: Int
+
+    data class Pending(
+        override val itemId: String,
+        override val itemIndex: Int,
+    ) : LanReceivedItemResult
+
+    data class Committed(
+        override val itemId: String,
+        override val itemIndex: Int,
+        val memoId: String,
+    ) : LanReceivedItemResult
+
+    data class Failed(
+        override val itemId: String,
+        override val itemIndex: Int,
+        val code: String,
+    ) : LanReceivedItemResult
+}
 
 /**
  * State of an outgoing share transfer (sender side).
@@ -57,6 +103,10 @@ sealed interface ShareTransferState {
 
     data object Sending : ShareTransferState
 
+    data class WaitingPairing(
+        val deviceName: String,
+    ) : ShareTransferState
+
     data class WaitingApproval(
         val deviceName: String,
     ) : ShareTransferState
@@ -72,15 +122,4 @@ sealed interface ShareTransferState {
     data class Error(
         val error: ShareTransferError,
     ) : ShareTransferState
-}
-
-/**
- * State of an incoming share request (receiver side).
- */
-sealed interface IncomingShareState {
-    data object None : IncomingShareState
-
-    data class Pending(
-        val payload: SharePayload,
-    ) : IncomingShareState
 }

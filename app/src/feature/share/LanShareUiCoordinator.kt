@@ -9,20 +9,18 @@ class LanShareUiCoordinator(
     private val lanShareService: LanShareService,
 ) {
         val discoveredDevices = lanShareService.discoveredDevices
+        val pendingPairing = lanShareService.pendingPairing
+        val incomingBatch = lanShareService.incomingBatch
+        val trustedPeers = lanShareService.trustedPeers
         val transferState = lanShareService.transferState
         val lanShareRuntimeState = lanShareService.lanShareRuntimeState
         val lanShareDiscoveryDiagnostics = lanShareService.lanShareDiscoveryDiagnostics
         val lanShareStartupFailures = lanShareService.lanShareStartupFailures
         val lanShareEnabled = lanShareService.lanShareEnabled
-        val lanShareE2eEnabled = lanShareService.lanShareE2eEnabled
-        val lanSharePairingConfigured = lanShareService.lanSharePairingConfigured
-        val lanSharePairingCode = lanShareService.lanSharePairingCode
         val lanShareDeviceName = lanShareService.lanShareDeviceName
         val refreshNetworkPermissionState: () -> Unit = lanShareService::refreshNetworkPermissionState
 
-        fun startDiscovery() {
-            lanShareService.startDiscovery()
-        }
+        val startDiscovery: () -> Unit = lanShareService::startDiscovery
 
         fun startServices() {
             lanShareService.startServices()
@@ -33,8 +31,6 @@ class LanShareUiCoordinator(
         }
 
         suspend fun isLanShareEnabled(): Boolean = lanShareService.lanShareEnabled.first()
-
-        suspend fun requiresPairingBeforeSend(): Boolean = lanShareService.requiresPairingBeforeSend()
 
         suspend fun sendMemo(
             device: DiscoveredDevice,
@@ -49,16 +45,24 @@ class LanShareUiCoordinator(
                 attachmentUris = attachmentUris,
             )
 
-        suspend fun setLanShareE2eEnabled(enabled: Boolean) {
-            lanShareService.setLanShareE2eEnabled(enabled)
+        fun confirmPairing(pairingId: String) {
+            lanShareService.confirmPairing(pairingId)
         }
 
-        suspend fun setLanSharePairingCode(pairingCode: String) {
-            lanShareService.setLanSharePairingCode(pairingCode)
+        fun declinePairing(pairingId: String) {
+            lanShareService.declinePairing(pairingId)
         }
 
-        suspend fun clearLanSharePairingCode() {
-            lanShareService.clearLanSharePairingCode()
+        fun approveIncoming(sessionId: String, batchId: String) {
+            lanShareService.approveIncoming(sessionId, batchId)
+        }
+
+        fun rejectIncoming(sessionId: String, batchId: String) {
+            lanShareService.rejectIncoming(sessionId, batchId)
+        }
+
+        fun revokePeer(deviceId: String) {
+            lanShareService.revokePeer(deviceId)
         }
 
         suspend fun setLanShareDeviceName(deviceName: String) {

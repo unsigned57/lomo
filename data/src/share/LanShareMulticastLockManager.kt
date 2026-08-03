@@ -1,8 +1,6 @@
 package com.lomo.data.share
 
 import android.net.wifi.WifiManager
-import timber.log.Timber
-import kotlin.coroutines.cancellation.CancellationException
 
 internal class LanShareMulticastLockManager(
     private val wifiManager: WifiManager?,
@@ -10,26 +8,18 @@ internal class LanShareMulticastLockManager(
     private var multicastLock: WifiManager.MulticastLock? = null
 
     fun acquire() {
-        runCatching {
-            if (multicastLock == null) {
-                multicastLock = wifiManager?.createMulticastLock("lomo_share_lock")
-                multicastLock?.setReferenceCounted(true)
+        if (wifiManager == null) return
+        if (multicastLock == null) {
+            multicastLock = wifiManager.createMulticastLock("lomo_share_lock").also {
+                it.setReferenceCounted(true)
             }
-            multicastLock?.acquire()
-        }.onFailure { error ->
-            if (error is CancellationException) throw error
-            Timber.tag("ShareServiceLifecycle").e(error, "Failed to acquire multicast lock")
         }
+        multicastLock?.acquire()
     }
 
     fun releaseIfHeld() {
-        runCatching {
-            if (multicastLock?.isHeld == true) {
-                multicastLock?.release()
-            }
-        }.onFailure { error ->
-            if (error is CancellationException) throw error
-            Timber.tag("ShareServiceLifecycle").e(error, "Failed to release multicast lock")
+        if (multicastLock?.isHeld == true) {
+            multicastLock?.release()
         }
     }
 }

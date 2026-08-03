@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -104,7 +105,7 @@ private fun DeviceCard(
                 )
             }
             Icon(
-                Icons.Outlined.Wifi,
+                if (device.trusted) Icons.Outlined.Lock else Icons.Outlined.Wifi,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.size(DEVICE_CARD_TRAILING_ICON_SIZE),
@@ -113,7 +114,7 @@ private fun DeviceCard(
     }
 }
 
-private fun DiscoveredDevice.motionKey(): String = uuid ?: "$host:$port"
+private fun DiscoveredDevice.motionKey(): String = deviceId
 
 private fun ShareTransferState.allowsDeviceSelection(): Boolean =
     this is ShareTransferState.Idle ||

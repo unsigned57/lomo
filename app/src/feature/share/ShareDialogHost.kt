@@ -2,121 +2,114 @@ package com.lomo.app.feature.share
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import com.lomo.app.R
+import com.lomo.domain.model.LanIncomingBatch
+import com.lomo.domain.model.LanPairingRequest
 import com.lomo.ui.theme.AppSpacing
 
-@Composable
-fun ShareDialogHost(
-    visible: Boolean,
-    pairingCodeInput: String,
-    pairingCodeVisible: Boolean,
-    pairingCodeError: String?,
-    pairingConfigured: Boolean,
-    isTechnicalMessage: (String) -> Boolean,
-    onDismiss: () -> Unit,
-    onPairingCodeInputChange: (String) -> Unit,
-    onToggleVisibility: () -> Unit,
-    onClearPairingCode: () -> Unit,
-    onSave: () -> Unit,
-) {
-    if (!visible) return
+private const val BYTES_PER_KIBIBYTE = 1_024L
+private const val BYTES_PER_MEBIBYTE = 1_048_576L
 
+@Composable
+internal fun LanPairingConfirmationDialog(
+    request: LanPairingRequest?,
+    onConfirm: (String) -> Unit,
+    onDecline: (String) -> Unit,
+) {
+    if (request == null) return
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.share_e2e_password_dialog_title)) },
+        onDismissRequest = { onDecline(request.pairingId) },
+        title = { Text(stringResource(R.string.lan_pairing_confirm_title)) },
         text = {
-            ShareDialogContent(
-                pairingCodeInput = pairingCodeInput,
-                pairingCodeVisible = pairingCodeVisible,
-                pairingCodeError = pairingCodeError,
-                pairingConfigured = pairingConfigured,
-                isTechnicalMessage = isTechnicalMessage,
-                onPairingCodeInputChange = onPairingCodeInputChange,
-                onToggleVisibility = onToggleVisibility,
-                onClearPairingCode = onClearPairingCode,
-            )
-        },
-        confirmButton = { TextButton(onClick = onSave) { Text(stringResource(R.string.action_save)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
-    )
-}
-
-@Composable
-private fun ShareDialogContent(
-    pairingCodeInput: String,
-    pairingCodeVisible: Boolean,
-    pairingCodeError: String?,
-    pairingConfigured: Boolean,
-    isTechnicalMessage: (String) -> Boolean,
-    onPairingCodeInputChange: (String) -> Unit,
-    onToggleVisibility: () -> Unit,
-    onClearPairingCode: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
-        Text(
-            text = stringResource(R.string.share_e2e_password_dialog_message),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        PairingCodeField(
-            pairingCodeInput = pairingCodeInput,
-            pairingCodeVisible = pairingCodeVisible,
-            pairingCodeError = pairingCodeError,
-            isTechnicalMessage = isTechnicalMessage,
-            onPairingCodeInputChange = onPairingCodeInputChange,
-            onToggleVisibility = onToggleVisibility,
-        )
-        if (pairingConfigured) {
-            TextButton(onClick = onClearPairingCode) {
-                Text(stringResource(R.string.action_clear_pairing_code))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PairingCodeField(
-    pairingCodeInput: String,
-    pairingCodeVisible: Boolean,
-    pairingCodeError: String?,
-    isTechnicalMessage: (String) -> Boolean,
-    onPairingCodeInputChange: (String) -> Unit,
-    onToggleVisibility: () -> Unit,
-) {
-    OutlinedTextField(
-        value = pairingCodeInput,
-        onValueChange = onPairingCodeInputChange,
-        label = { Text(stringResource(R.string.share_e2e_password_hint)) },
-        singleLine = true,
-        visualTransformation =
-            if (pairingCodeVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-        trailingIcon = {
-            TextButton(onClick = onToggleVisibility) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall)) {
+                Text(request.peerDisplayName, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (pairingCodeVisible) {
-                        stringResource(R.string.share_password_hide)
-                    } else {
-                        stringResource(R.string.share_password_show)
-                    },
+                    request.shortCode,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    stringResource(R.string.lan_pairing_confirm_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
-        isError = pairingCodeError != null,
-        supportingText =
-            pairingCodeError?.let {
-                { Text(ShareErrorPresenter.detail(it, isTechnicalMessage)) }
-            },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(request.pairingId) }) {
+                Text(stringResource(R.string.lan_pairing_code_matches))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onDecline(request.pairingId) }) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
     )
 }
+
+@Composable
+internal fun LanBatchApprovalDialog(
+    batch: LanIncomingBatch?,
+    onApprove: (String, String) -> Unit,
+    onReject: (String, String) -> Unit,
+) {
+    if (batch == null) return
+    AlertDialog(
+        onDismissRequest = { onReject(batch.sessionId, batch.batchId) },
+        title = { Text(stringResource(R.string.lan_batch_approval_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
+                Text(batch.senderDisplayName, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(
+                        R.string.lan_batch_approval_summary,
+                        batch.itemCount,
+                        batch.attachmentCount,
+                        formatLanBytes(batch.totalBytes),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                batch.titles.forEach { title ->
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (batch.items.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.lan_batch_item_results, batch.items.size),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApprove(batch.sessionId, batch.batchId) }) {
+                Text(stringResource(R.string.action_accept))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onReject(batch.sessionId, batch.batchId) }) {
+                Text(stringResource(R.string.action_reject))
+            }
+        },
+    )
+}
+
+private fun formatLanBytes(bytes: Long): String =
+    when {
+        bytes >= BYTES_PER_MEBIBYTE -> "${bytes / BYTES_PER_MEBIBYTE} MB"
+        bytes >= BYTES_PER_KIBIBYTE -> "${bytes / BYTES_PER_KIBIBYTE} KB"
+        else -> "$bytes B"
+    }

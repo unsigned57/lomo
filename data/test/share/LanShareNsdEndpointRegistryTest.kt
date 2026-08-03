@@ -17,6 +17,13 @@
  *
  * Excludes:
  * - Android NsdManager delivery and ServiceInfoCallback lifecycle.
+ *
+ * Test Change Justification:
+ * - Reason category: domain identity and product-port contract change.
+ * - Old behavior/assertion being replaced: UUID-shaped fixture values and the deleted LAN v1 discovery-port constant.
+ * - Why old assertion is no longer correct: discovered peers now carry the LAN v2 cryptographic deviceId and the test must not depend on a deleted wire constant.
+ * - Coverage preserved by: lost-service endpoint removal and stale-endpoint replacement assertions are unchanged.
+ * - Why this is not fitting the test to the implementation: fixture data now satisfies the public LAN v2 boundary while observable registry behavior remains identical.
  */
 package com.lomo.data.share
 
@@ -53,18 +60,19 @@ class LanShareNsdEndpointRegistryTest : DataFunSpec() {
 }
 
 private fun nsdDevice(
-    uuid: String,
+    deviceId: String,
     host: String,
 ): DiscoveredDevice =
     DiscoveredDevice(
-        uuid = uuid,
+        deviceId = deviceId,
         name = "Pixel",
         host = host,
-        port = LAN_SHARE_DISCOVERY_PORT,
+        port = TEST_PORT,
     )
 
 private const val SERVICE_A_KEY = "Lomo-Pixel|_lomo-share._tcp."
 private const val SERVICE_B_KEY = "Lomo-Pixel (2)|_lomo-share._tcp."
-private const val PEER_A_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-private const val PEER_B_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-private const val PEER_C_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+private const val PEER_A_UUID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+private const val PEER_B_UUID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+private const val PEER_C_UUID = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+private const val TEST_PORT = 53317

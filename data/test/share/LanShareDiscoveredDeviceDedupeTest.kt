@@ -3,12 +3,11 @@
  * - Unit under test: LAN share discovered-device merge policy.
  * - Owning layer: data.
  * - Priority tier: P0.
- * - Capability: merge NSD and active-probe results by stable device identity.
+ * - Capability: merge NSD results by stable device identity.
  *
  * Scenarios:
- * - Given the same UUID at a changed endpoint, when a fresh result arrives, then it replaces the stale endpoint.
- * - Given two peers with the same display name but different UUIDs, when results merge, then both remain visible.
- * - Given identity is unavailable, when the same endpoint arrives, then endpoint fallback replaces the stale entry.
+ * - Given the same device ID at a changed endpoint, when a fresh result arrives, then it replaces the stale endpoint.
+ * - Given two peers with the same display name but different IDs, when results merge, then both remain visible.
  *
  * Observable outcomes:
  * - The merged DiscoveredDevice list and retained UUID/endpoint values.
@@ -18,6 +17,13 @@
  *
  * Excludes:
  * - NSD callback timing, HTTP probing, and UI ordering.
+ *
+ * Test Change Justification:
+ * - Reason category: domain identity contract change.
+ * - Old behavior/assertion being replaced: nullable UUID allowed endpoint-only fallback when peer identity was absent.
+ * - Why old assertion is no longer correct: LAN v2 requires a non-empty cryptographic deviceId, so identity-less peers are rejected at the boundary and cannot reach merge policy.
+ * - Coverage preserved by: endpoint replacement for one stable peer and same-name separation for distinct peers remain asserted.
+ * - Why this is not fitting the test to the implementation: the removed case represented a state now made impossible by the public DiscoveredDevice type.
  */
 package com.lomo.data.share
 
@@ -27,41 +33,35 @@ import io.kotest.matchers.shouldBe
 
 class LanShareDiscoveredDeviceDedupeTest : DataFunSpec() {
     init {
-        test("same uuid at a fresh endpoint replaces the stale endpoint") {
-            val stale = device(uuid = PEER_A_UUID, name = "Pixel", host = "192.168.1.20")
-            val fresh = device(uuid = PEER_A_UUID, name = "Pixel", host = "192.168.1.21")
+        test("same device id at a fresh endpoint replaces the stale endpoint") {
+            val stale = device(deviceId = PEER_A_DEVICE_ID, name = "Pixel", host = "192.168.1.20")
+            val fresh = device(deviceId = PEER_A_DEVICE_ID, name = "Pixel", host = "192.168.1.21")
 
             mergeLanShareDiscoveredDevices(existing = listOf(stale), incoming = listOf(fresh)) shouldBe listOf(fresh)
         }
 
-        test("same display name with different uuids keeps both peers") {
-            val first = device(uuid = PEER_A_UUID, name = "Pixel", host = "192.168.1.20")
-            val second = device(uuid = PEER_B_UUID, name = "Pixel", host = "192.168.1.21")
+        test("same display name with different device ids keeps both peers") {
+            val first = device(deviceId = PEER_A_DEVICE_ID, name = "Pixel", host = "192.168.1.20")
+            val second = device(deviceId = PEER_B_DEVICE_ID, name = "Pixel", host = "192.168.1.21")
 
             mergeLanShareDiscoveredDevices(existing = listOf(first), incoming = listOf(second)) shouldBe
                 listOf(first, second)
-        }
-
-        test("missing uuid falls back to endpoint replacement") {
-            val stale = device(uuid = null, name = "Unknown", host = "192.168.1.20")
-            val fresh = device(uuid = null, name = "Renamed", host = "192.168.1.20")
-
-            mergeLanShareDiscoveredDevices(existing = listOf(stale), incoming = listOf(fresh)) shouldBe listOf(fresh)
         }
     }
 }
 
 private fun device(
-    uuid: String?,
+    deviceId: String,
     name: String,
     host: String,
 ): DiscoveredDevice =
     DiscoveredDevice(
-        uuid = uuid,
+        deviceId = deviceId,
         name = name,
         host = host,
-        port = LAN_SHARE_DISCOVERY_PORT,
+        port = TEST_PORT,
     )
 
-private const val PEER_A_UUID = "11111111-1111-1111-1111-111111111111"
-private const val PEER_B_UUID = "22222222-2222-2222-2222-222222222222"
+private const val PEER_A_DEVICE_ID = "1111111111111111111111111111111111111111111111111111111111111111"
+private const val PEER_B_DEVICE_ID = "2222222222222222222222222222222222222222222222222222222222222222"
+private const val TEST_PORT = 53317

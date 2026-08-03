@@ -108,6 +108,13 @@ private fun transferBannerState(
                 icon = null,
                 text = stringResource(R.string.share_status_waiting_approval, state.deviceName),
             )
+        is ShareTransferState.WaitingPairing ->
+            TransferBannerState(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                icon = null,
+                text = stringResource(R.string.lan_pairing_waiting, state.deviceName),
+            )
         is ShareTransferState.Transferring ->
             TransferBannerState(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,

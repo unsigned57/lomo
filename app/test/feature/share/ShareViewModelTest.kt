@@ -19,7 +19,7 @@
  *   URIs are forwarded with the memo payload.
  *
  * Observable outcomes:
- * - memoContent, operationError, pairingCodeError, lanSharePermissionState, pairingRequiredEvent, and
+ * - memoContent, operationError, lanSharePermissionState, and fake LAN service sent memo records.
  *   fake LAN service sent memo records.
  *
  * TDD proof:
@@ -52,7 +52,6 @@ import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -80,7 +79,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
-                        uuid = null,
+                        deviceId = TEST_PEER_DEVICE_ID,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -104,7 +103,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
-                        uuid = null,
+                        deviceId = TEST_PEER_DEVICE_ID,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -120,7 +119,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content with photo ![photo](images/photo.png)")
                 val device = DiscoveredDevice(
-                    uuid = null,
+                    deviceId = TEST_PEER_DEVICE_ID,
                     name = "Peer",
                     host = "192.168.1.2",
                     port = 1080,
@@ -139,26 +138,6 @@ class ShareViewModelTest : AppFunSpec() {
                         attachmentUris = mapOf("images/photo.png" to "images/photo.png"),
                     )
                 )
-            }
-        }
-
-        test("sendMemo emits pairing required event and skips send when pairing is required") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                val device = DiscoveredDevice(
-                    uuid = null,
-                    name = "Peer",
-                    host = "192.168.1.2",
-                    port = 1080,
-                )
-                shareService.requiresPairingValue = true
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.sendMemo(device)
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.pairingRequiredEvent.value shouldBe 1
-                shareService.sentMemos.isEmpty() shouldBe true
             }
         }
 
@@ -325,7 +304,7 @@ class ShareViewModelTest : AppFunSpec() {
 
                 viewModel.sendMemo(
                     DiscoveredDevice(
-                        uuid = null,
+                        deviceId = TEST_PEER_DEVICE_ID,
                         name = "Peer",
                         host = "192.168.1.2",
                         port = 1080,
@@ -342,7 +321,7 @@ class ShareViewModelTest : AppFunSpec() {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
                 val device = DiscoveredDevice(
-                    uuid = null,
+                    deviceId = TEST_PEER_DEVICE_ID,
                     name = "Peer",
                     host = "192.168.1.2",
                     port = 1080,
@@ -358,75 +337,6 @@ class ShareViewModelTest : AppFunSpec() {
             }
         }
 
-        test("updateLanSharePairingCode surfaces validation errors") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.setLanSharePairingCodeError = IllegalArgumentException("invalid code")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.updateLanSharePairingCode("bad")
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.pairingCodeError.value shouldBe "Pairing code must be 6-64 characters"
-            }
-        }
-
-        test("updateLanSharePairingCode keeps pairingCodeError clear on cancellation") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.setLanSharePairingCodeError = CancellationException("cancelled")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.updateLanSharePairingCode("123456")
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.pairingCodeError.value shouldBe null
-            }
-        }
-
-        test("updateLanSharePairingCode success clears prior pairingCodeError") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.setLanSharePairingCodeError = IllegalArgumentException("invalid code")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.updateLanSharePairingCode("bad")
-                testDispatcher.scheduler.advanceUntilIdle()
-                viewModel.pairingCodeError.value shouldBe "Pairing code must be 6-64 characters"
-
-                shareService.setLanSharePairingCodeError = null
-                viewModel.updateLanSharePairingCode("123456")
-                testDispatcher.scheduler.advanceUntilIdle()
-                viewModel.pairingCodeError.value shouldBe null
-            }
-        }
-
-        test("updateLanShareE2eEnabled surfaces operation error on failure") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.setLanShareE2eEnabledError = IllegalStateException("toggle failed")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.updateLanShareE2eEnabled(false)
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.operationError.value shouldBe "toggle failed"
-            }
-        }
-
-        test("clearLanSharePairingCode failure surfaces operation error") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.clearLanSharePairingCodeError = IllegalStateException("clear failed")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.clearLanSharePairingCode()
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.operationError.value shouldBe "clear failed"
-            }
-        }
-
         test("updateLanShareDeviceName surfaces operation error on failure") {
             runTest {
                 val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
@@ -437,28 +347,6 @@ class ShareViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 viewModel.operationError.value shouldBe "name invalid"
-            }
-        }
-
-        test("clear error actions reset operation and pairing error state") {
-            runTest {
-                val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-                shareService.setLanShareE2eEnabledError = IllegalStateException("toggle failed")
-                shareService.setLanSharePairingCodeError = IllegalArgumentException("invalid code")
-                val viewModel = createViewModel(payloadKey)
-
-                viewModel.updateLanShareE2eEnabled(false)
-                testDispatcher.scheduler.advanceUntilIdle()
-                viewModel.updateLanSharePairingCode("bad")
-                testDispatcher.scheduler.advanceUntilIdle()
-                viewModel.operationError.value shouldBe "toggle failed"
-                viewModel.pairingCodeError.value shouldBe "Pairing code must be 6-64 characters"
-
-                viewModel.clearOperationError()
-                viewModel.clearPairingCodeError()
-
-                viewModel.operationError.value shouldBe null
-                viewModel.pairingCodeError.value shouldBe null
             }
         }
 
@@ -503,3 +391,5 @@ class ShareViewModelTest : AppFunSpec() {
             savedStateHandle = savedStateHandle,
         )
 }
+
+private const val TEST_PEER_DEVICE_ID = "test-peer"

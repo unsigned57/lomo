@@ -20,9 +20,14 @@ internal class LanShareMulticastLockLease(
                 } else {
                     activeOwners.size == 1
                 }
-            }
+        }
         if (shouldAcquire) {
-            acquireLock()
+            try {
+                acquireLock()
+            } catch (error: Exception) {
+                synchronized(lock) { activeOwners.remove(owner) }
+                throw error
+            }
         }
     }
 

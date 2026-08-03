@@ -18,8 +18,7 @@ internal fun mergeLanShareDiscoveredDevices(
 internal fun DiscoveredDevice.lanShareEndpointKey(): String = "$host:$port"
 
 internal fun DiscoveredDevice.lanShareIdentityKey(): String =
-    uuid?.let { value -> "uuid:$value" } ?: "endpoint:${lanShareEndpointKey()}"
+    "device:$deviceId"
 
 private fun DiscoveredDevice.representsSameLanSharePeer(other: DiscoveredDevice): Boolean =
-    (uuid != null && other.uuid != null && uuid == other.uuid) ||
-        lanShareEndpointKey() == other.lanShareEndpointKey()
+    deviceId == other.deviceId || lanShareEndpointKey() == other.lanShareEndpointKey()

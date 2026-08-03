@@ -1,10 +1,12 @@
 package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.DiscoveredDevice
-import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanIncomingBatch
+import com.lomo.domain.model.LanPairingRequest
 import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
+import com.lomo.domain.model.LanTrustedPeer
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.flow.Flow
@@ -14,95 +16,98 @@ import kotlinx.coroutines.flow.flowOf
 
 class FakeLanShareService : LanShareService {
     override val discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
-    override val incomingShare = MutableStateFlow<IncomingShareState>(IncomingShareState.None)
+    override val pendingPairing = MutableStateFlow<LanPairingRequest?>(null)
+    override val incomingBatch = MutableStateFlow<LanIncomingBatch?>(null)
+    override val trustedPeers = MutableStateFlow<List<LanTrustedPeer>>(emptyList())
     override val transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
     override val lanShareRuntimeState = MutableStateFlow(LanShareRuntimeState.Stopped)
     override val lanShareDiscoveryDiagnostics = MutableStateFlow(LanShareDiscoveryDiagnostics())
     override val lanShareStartupFailures = MutableSharedFlow<LanShareStartupFailure>(extraBufferCapacity = 1)
-    override val lanSharePairingCode = MutableStateFlow("")
 
     var lanShareEnabledValue = true
     override val lanShareEnabled: Flow<Boolean> get() = flowOf(lanShareEnabledValue)
 
-    var lanShareE2eEnabledValue = true
-    override val lanShareE2eEnabled: Flow<Boolean> get() = flowOf(lanShareE2eEnabledValue)
-
-    var lanSharePairingConfiguredValue = true
-    override val lanSharePairingConfigured: Flow<Boolean> get() = flowOf(lanSharePairingConfiguredValue)
-
     var lanShareDeviceNameValue = "Local"
     override val lanShareDeviceName: Flow<String> get() = flowOf(lanShareDeviceNameValue)
 
-    // Call tracking
     var startServicesCalledCount = 0
     var stopServicesCalledCount = 0
     var startDiscoveryCalledCount = 0
     var stopDiscoveryCalledCount = 0
     var refreshNetworkPermissionStateCalledCount = 0
-    var acceptIncomingCalledCount = 0
-    var rejectIncomingCalledCount = 0
     var resetTransferStateCalledCount = 0
-
-    // Sent memo tracking
+    val confirmedPairings = mutableListOf<String>()
+    val declinedPairings = mutableListOf<String>()
+    val approvedBatches = mutableListOf<Pair<String, String>>()
+    val rejectedBatches = mutableListOf<Pair<String, String>>()
+    val revokedPeers = mutableListOf<String>()
     val sentMemos = mutableListOf<SentMemo>()
+
+    var sendMemoResult: Result<Unit> = Result.success(Unit)
+    var startDiscoveryError: Throwable? = null
+    var setLanShareDeviceNameError: Throwable? = null
+    var resetTransferStateError: Throwable? = null
+
     data class SentMemo(
         val device: DiscoveredDevice,
         val content: String,
         val timestamp: Long,
-        val attachmentUris: Map<String, String>
+        val attachmentUris: Map<String, String>,
     )
 
-    // Overrides/Stubs
-    var sendMemoResult: Result<Unit> = Result.success(Unit)
-    var requiresPairingValue = false
-    var startDiscoveryError: Throwable? = null
-    var setLanSharePairingCodeError: Throwable? = null
-    var setLanShareE2eEnabledError: Throwable? = null
-    var clearLanSharePairingCodeError: Throwable? = null
-    var setLanShareDeviceNameError: Throwable? = null
-    var resetTransferStateError: Throwable? = null
-
     override fun startServices() {
-        startServicesCalledCount++
+        startServicesCalledCount += 1
     }
 
     override fun stopServices() {
-        stopServicesCalledCount++
+        stopServicesCalledCount += 1
     }
 
     override fun startDiscovery() {
-        startDiscoveryCalledCount++
+        startDiscoveryCalledCount += 1
         startDiscoveryError?.let { throw it }
     }
 
     override fun stopDiscovery() {
-        stopDiscoveryCalledCount++
+        stopDiscoveryCalledCount += 1
     }
 
     override fun refreshNetworkPermissionState() {
-        refreshNetworkPermissionStateCalledCount++
+        refreshNetworkPermissionStateCalledCount += 1
     }
 
     override suspend fun sendMemo(
         device: DiscoveredDevice,
         content: String,
         timestamp: Long,
-        attachmentUris: Map<String, String>
+        attachmentUris: Map<String, String>,
     ): Result<Unit> {
-        sentMemos.add(SentMemo(device, content, timestamp, attachmentUris))
+        sentMemos += SentMemo(device, content, timestamp, attachmentUris)
         return sendMemoResult
     }
 
-    override fun acceptIncoming() {
-        acceptIncomingCalledCount++
+    override fun confirmPairing(pairingId: String) {
+        confirmedPairings += pairingId
     }
 
-    override fun rejectIncoming() {
-        rejectIncomingCalledCount++
+    override fun declinePairing(pairingId: String) {
+        declinedPairings += pairingId
+    }
+
+    override fun approveIncoming(sessionId: String, batchId: String) {
+        approvedBatches += sessionId to batchId
+    }
+
+    override fun rejectIncoming(sessionId: String, batchId: String) {
+        rejectedBatches += sessionId to batchId
+    }
+
+    override fun revokePeer(deviceId: String) {
+        revokedPeers += deviceId
     }
 
     override fun resetTransferState() {
-        resetTransferStateCalledCount++
+        resetTransferStateCalledCount += 1
         resetTransferStateError?.let { throw it }
     }
 
@@ -110,27 +115,8 @@ class FakeLanShareService : LanShareService {
         lanShareEnabledValue = enabled
     }
 
-    override suspend fun setLanShareE2eEnabled(enabled: Boolean) {
-        setLanShareE2eEnabledError?.let { throw it }
-        lanShareE2eEnabledValue = enabled
-    }
-
-    override suspend fun setLanSharePairingCode(pairingCode: String) {
-        setLanSharePairingCodeError?.let { throw it }
-        lanSharePairingCode.value = pairingCode
-    }
-
-    override suspend fun clearLanSharePairingCode() {
-        clearLanSharePairingCodeError?.let { throw it }
-        lanSharePairingCode.value = ""
-    }
-
     override suspend fun setLanShareDeviceName(deviceName: String) {
         setLanShareDeviceNameError?.let { throw it }
         lanShareDeviceNameValue = deviceName
-    }
-
-    override suspend fun requiresPairingBeforeSend(): Boolean {
-        return requiresPairingValue
     }
 }

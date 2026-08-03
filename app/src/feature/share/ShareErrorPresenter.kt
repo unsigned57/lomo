@@ -5,7 +5,6 @@ import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.ShareTransferError
 import com.lomo.domain.model.ShareTransferErrorCode
-import com.lomo.domain.usecase.LanSharePairingCodePolicy
 
 object ShareErrorPresenter {
     @Composable
@@ -15,7 +14,7 @@ object ShareErrorPresenter {
     ): String =
         when (error.code) {
             ShareTransferErrorCode.PAIRING_REQUIRED -> {
-                stringResource(R.string.share_error_set_password_first)
+                stringResource(R.string.lan_pairing_required)
             }
 
             ShareTransferErrorCode.ATTACHMENT_RESOLVE_FAILED -> {
@@ -73,8 +72,7 @@ object ShareErrorPresenter {
             if (detail.isBlank()) {
                 stringResource(R.string.share_error_unknown)
             } else {
-                resolvePairingDetail(detail)
-                    ?: resolveAttachmentDetail(detail)
+                resolveAttachmentDetail(detail)
                     ?: resolveTransportDetail(detail)
                     ?: if (isTechnicalMessage(detail)) {
                         stringResource(R.string.share_error_unknown)
@@ -85,23 +83,6 @@ object ShareErrorPresenter {
 
         return resolvedMessage
     }
-
-    @Composable
-    private fun resolvePairingDetail(detail: String): String? =
-        when {
-            detail.equals("Please set an end-to-end encryption password first", ignoreCase = true) ->
-                stringResource(R.string.share_error_set_password_first)
-            detail.equals("Please set a LAN share pairing code first", ignoreCase = true) ->
-                stringResource(R.string.share_error_set_password_first)
-            detail.contains("pairing code is not configured on receiver", ignoreCase = true) ->
-                stringResource(R.string.share_error_receiver_password_not_set)
-            detail.contains("pairing code is not configured", ignoreCase = true) ->
-                stringResource(R.string.share_error_set_password_first)
-            LanSharePairingCodePolicy.userMessageKey(detail) ==
-                LanSharePairingCodePolicy.UserMessageKey.INVALID_PAIRING_CODE ->
-                stringResource(R.string.share_error_invalid_pairing_code)
-            else -> null
-        }
 
     @Composable
     private fun resolveAttachmentDetail(detail: String): String? =
