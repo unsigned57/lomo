@@ -412,7 +412,6 @@ mod tests {
         // A fresh journal open must ask only for the unconfirmed chunks.
         let resumed_journal = LanJournal::open(paths).expect("journal reopens after process death");
         let remaining = resumed_journal.unconfirmed_chunk_indices(
-            &session_id,
             &batch_id,
             0,
             ATTACHMENT_SLOT_BODY,

@@ -23,6 +23,8 @@
 //!   so both commit as separate memos instead of de-duplicating.
 //! - Given several items referencing one attachment digest, then the transfer plan lists that
 //!   attachment once while each referencing item still tracks it.
+//! - Given an attachment claims the body-reserved slot or an item repeats a slot, then plan
+//!   construction rejects the ambiguous chunk coordinate before transfer.
 //!
 //! Observable outcomes: validation results and error codes, preview field values, approval
 //! validity decisions, `LanBatchSnapshot` outcomes and partial-completion state.
@@ -40,9 +42,9 @@
 mod tests {
     use lomo_core::ErrorCategory;
     use lomo_lan::{
-        DeviceId, DevicePublicKey, DisplayName, LanApproval, LanAttachmentRef, LanBatchId,
-        LanBatchPlan, LanBatchSnapshot, LanItemOutcome, LanItemPlan, MAX_ATTACHMENT_BYTES,
-        MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_PREVIEW_TITLE_CHARS,
+        ATTACHMENT_SLOT_BODY, DeviceId, DevicePublicKey, DisplayName, LanApproval,
+        LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchSnapshot, LanItemOutcome, LanItemPlan,
+        MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_PREVIEW_TITLE_CHARS,
     };
 
     const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -112,13 +114,51 @@ mod tests {
 
     #[test]
     fn a_single_oversize_attachment_is_rejected_before_transfer() {
-        let error = LanAttachmentRef::new(0, "huge.bin", DIGEST_B, MAX_ATTACHMENT_BYTES + 1)
-            .expect_err("an attachment above 100 MiB is rejected");
+        let error = LanAttachmentRef::new(
+            0,
+            "huge.bin",
+            "huge.bin",
+            DIGEST_B,
+            MAX_ATTACHMENT_BYTES + 1,
+        )
+        .expect_err("an attachment above 100 MiB is rejected");
         assert_eq!(error.category(), ErrorCategory::ResourceLimit);
         assert_eq!(error.code(), "lan_attachment_too_large");
 
-        LanAttachmentRef::new(0, "at-ceiling.bin", DIGEST_B, MAX_ATTACHMENT_BYTES)
-            .expect("exactly the ceiling is accepted");
+        LanAttachmentRef::new(
+            0,
+            "at-ceiling.bin",
+            "at-ceiling.bin",
+            DIGEST_B,
+            MAX_ATTACHMENT_BYTES,
+        )
+        .expect("exactly the ceiling is accepted");
+    }
+
+    #[test]
+    fn body_reserved_or_duplicate_attachment_slots_are_rejected_at_plan_construction() {
+        let reserved =
+            LanAttachmentRef::new(ATTACHMENT_SLOT_BODY, "body.bin", "body.bin", DIGEST_B, 4)
+                .expect_err("the body slot cannot be claimed by an attachment");
+        assert_eq!(reserved.code(), "lan_attachment_slot_reserved");
+
+        let id = batch_id("batch-duplicate-slots");
+        let duplicate = LanItemPlan::new(
+            &id,
+            0,
+            1_700_000_000_000,
+            DIGEST_A,
+            4,
+            "title",
+            vec![
+                LanAttachmentRef::new(7, "first.bin", "first.bin", DIGEST_A, 4)
+                    .expect("first attachment"),
+                LanAttachmentRef::new(7, "second.bin", "second.bin", DIGEST_B, 4)
+                    .expect("second attachment"),
+            ],
+        )
+        .expect_err("one item cannot map two attachments to one chunk slot");
+        assert_eq!(duplicate.code(), "lan_attachment_slot_duplicate");
     }
 
     #[test]
@@ -300,8 +340,10 @@ mod tests {
     #[test]
     fn a_shared_attachment_digest_is_listed_once_but_tracked_by_every_referencing_item() {
         let id = batch_id("batch-shared-attachment");
-        let shared = LanAttachmentRef::new(0, "shared.png", DIGEST_B, 2_048)
+        let shared = LanAttachmentRef::new(0, "media/shared.png", "shared.png", DIGEST_B, 2_048)
             .expect("attachment ref is valid");
+        assert_eq!(shared.source_reference(), "media/shared.png");
+        assert_eq!(shared.name(), "shared.png");
 
         let plan = LanBatchPlan::new(
             id.clone(),
@@ -345,5 +387,48 @@ mod tests {
             2,
             "each item still tracks its own reference"
         );
+        assert_eq!(
+            plan.attachment_transfer_coordinate(DIGEST_B),
+            Some((0, 0)),
+            "the first reference is the single canonical wire coordinate for the digest"
+        );
+    }
+
+    #[test]
+    fn one_digest_cannot_claim_conflicting_sizes_inside_a_batch() {
+        let id = batch_id("batch-conflicting-shared-attachment");
+        let first = LanAttachmentRef::new(0, "media/a.png", "a.png", DIGEST_B, 2_048)
+            .expect("first attachment ref is valid");
+        let conflicting = LanAttachmentRef::new(1, "media/b.png", "b.png", DIGEST_B, 4_096)
+            .expect("second attachment ref is individually valid");
+
+        let error = LanBatchPlan::new(
+            id.clone(),
+            vec![
+                LanItemPlan::new(
+                    &id,
+                    0,
+                    1_700_000_000_000,
+                    DIGEST_A,
+                    64,
+                    "first",
+                    vec![first],
+                )
+                .expect("first item is valid"),
+                LanItemPlan::new(
+                    &id,
+                    1,
+                    1_700_000_000_001,
+                    DIGEST_A,
+                    64,
+                    "second",
+                    vec![conflicting],
+                )
+                .expect("second item is valid"),
+            ],
+        )
+        .expect_err("one digest must describe one byte payload");
+
+        assert_eq!(error.code(), "lan_attachment_digest_facts_conflict");
     }
 }

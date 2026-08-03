@@ -55,11 +55,13 @@ pub enum FrameKind {
     BatchComplete,
     /// Structured error code (never secrets or bodies).
     Error,
+    /// Session confirmation: device signature over the canonical session transcript.
+    SessionConfirm,
 }
 
 impl FrameKind {
     /// Every frame kind, in wire-code order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::PairHello,
         Self::PairAccept,
         Self::PairConfirm,
@@ -72,6 +74,7 @@ impl FrameKind {
         Self::ChunkAck,
         Self::BatchComplete,
         Self::Error,
+        Self::SessionConfirm,
     ];
 
     /// Stable wire code for this kind.
@@ -90,6 +93,7 @@ impl FrameKind {
             Self::ChunkAck => 10,
             Self::BatchComplete => 11,
             Self::Error => 12,
+            Self::SessionConfirm => 13,
         }
     }
 
@@ -112,6 +116,7 @@ impl FrameKind {
             10 => Self::ChunkAck,
             11 => Self::BatchComplete,
             12 => Self::Error,
+            13 => Self::SessionConfirm,
             _ => {
                 return Err(validation(
                     "lan_frame_unknown_kind",
@@ -132,6 +137,7 @@ impl FrameKind {
             | Self::PairConfirm
             | Self::SessionHello
             | Self::SessionAccept
+            | Self::SessionConfirm
             | Self::BatchPrepare
             | Self::BatchApprove
             | Self::BatchReject

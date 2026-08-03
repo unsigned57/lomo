@@ -12,6 +12,14 @@ pub const MAX_ATTACHMENT_BYTES: u64 = 100 * 1_048_576;
 /// Plaintext bytes carried by one chunk before AEAD sealing (256 KiB).
 pub const CHUNK_PLAINTEXT_BYTES: usize = 256 * 1_024;
 
+/// Runtime payload reserves 128 bytes of the sealed-chunk ceiling for transport metadata.
+pub const RUNTIME_CHUNK_PLAINTEXT_BYTES: usize = CHUNK_PLAINTEXT_BYTES - 128;
+
+/// Exact `BoltFFI` representation of [`RUNTIME_CHUNK_PLAINTEXT_BYTES`].
+pub const RUNTIME_CHUNK_PLAINTEXT_BYTES_U32: u32 = 262_016;
+
+const _: () = assert!(RUNTIME_CHUNK_PLAINTEXT_BYTES == 262_016);
+
 /// ChaCha20-Poly1305 authentication tag length.
 pub const AEAD_TAG_BYTES: usize = 16;
 
@@ -37,7 +45,7 @@ pub const MAX_TRUSTED_PEERS: usize = 64;
 pub const PAIRING_CODE_DIGITS: usize = 6;
 
 /// Durable LAN journal schema version.
-pub const LAN_DURABLE_SCHEMA: u32 = 1;
+pub const LAN_DURABLE_SCHEMA: u32 = 3;
 
 /// Maximum bytes for one durable LAN journal record body (256 KiB).
 pub const MAX_LAN_RECORD_BYTES: usize = 256 * 1_024;

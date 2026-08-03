@@ -10,11 +10,9 @@
 //! 2. the active workspace generation must equal the one captured at approval, and
 //! 3. the item id must not already be committed — a replay returns the existing result.
 
-use lomo_core::LomoError;
-use lomo_store::{LocalSyncMutation, LocalSyncMutationBatch};
-
-use crate::batch::{LanApproval, LanBatchSnapshot, LanItemId, LanItemPlan};
+use crate::batch::{LanApproval, LanAttachmentRef, LanBatchSnapshot, LanItemId, LanItemPlan};
 use crate::error::{conflict, validation};
+use lomo_core::LomoError;
 
 /// The workspace generation an approval was bound to.
 ///
@@ -64,7 +62,7 @@ impl ApprovedGeneration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReceivedItem {
     item_id: LanItemId,
-    memo_id: String,
+    timestamp_ms: i64,
     content: String,
 }
 
@@ -73,14 +71,8 @@ impl ReceivedItem {
     ///
     /// # Errors
     ///
-    /// Validation when the body digest does not match the plan, or the memo id is empty.
-    pub fn verified(plan: &LanItemPlan, memo_id: &str, content: String) -> Result<Self, LomoError> {
-        if memo_id.is_empty() {
-            return Err(validation(
-                "lan_item_memo_id_invalid",
-                "received item requires a non-empty memo id",
-            ));
-        }
+    /// Validation when the body digest does not match the plan.
+    pub fn verified(plan: &LanItemPlan, content: String) -> Result<Self, LomoError> {
         let digest = format!(
             "{:x}",
             <sha2::Sha256 as sha2::Digest>::digest(content.as_bytes())
@@ -93,7 +85,7 @@ impl ReceivedItem {
         }
         Ok(Self {
             item_id: plan.item_id().clone(),
-            memo_id: memo_id.to_owned(),
+            timestamp_ms: plan.timestamp_ms(),
             content,
         })
     }
@@ -104,26 +96,118 @@ impl ReceivedItem {
     }
 
     #[must_use]
-    pub fn memo_id(&self) -> &str {
-        &self.memo_id
+    pub const fn timestamp_ms(&self) -> i64 {
+        self.timestamp_ms
     }
 
-    /// Builds the single-item store mutation batch for this received memo.
-    ///
-    /// Creating a memo means an expected revision of zero: LAN receive never overwrites an existing
-    /// memo, and identity collisions are resolved by the store's ordinal, not by de-duplication.
     #[must_use]
-    pub fn to_mutation_batch(&self) -> LocalSyncMutationBatch {
-        LocalSyncMutationBatch {
-            mutations: vec![LocalSyncMutation::UpsertMemo {
-                operation_id: self.item_id.as_str().to_owned(),
-                memo_id: self.memo_id.clone(),
-                expected_revision: 0,
-                expected_fingerprint: None,
-                content: self.content.clone(),
-                tags: Vec::new(),
-            }],
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+}
+
+/// Fully authorized facts for the store's atomic received-memo create boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedReceivedCreate {
+    item_id: LanItemId,
+    timestamp_ms: i64,
+    content: String,
+    attachments: Vec<AuthorizedReceivedAttachment>,
+    approved_generation: ApprovedGeneration,
+}
+
+/// One fully verified attachment carried by an authorized received create.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorizedReceivedAttachment {
+    source_reference: String,
+    name: String,
+    digest: String,
+    bytes: Vec<u8>,
+}
+
+impl AuthorizedReceivedAttachment {
+    pub(crate) fn verified(
+        reference: &LanAttachmentRef,
+        transfer: &LanAttachmentRef,
+        bytes: Vec<u8>,
+    ) -> Result<Self, LomoError> {
+        let size = u64::try_from(bytes.len()).map_err(|_error| {
+            validation(
+                "lan_attachment_size_invalid",
+                "received attachment size does not fit the plan width",
+            )
+        })?;
+        let digest = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes));
+        if reference.digest() != transfer.digest()
+            || size != transfer.size_bytes()
+            || digest != transfer.digest()
+        {
+            return Err(validation(
+                "lan_attachment_digest_mismatch",
+                "received attachment does not match its transferred size and digest",
+            ));
         }
+        Ok(Self {
+            source_reference: reference.source_reference().to_owned(),
+            name: transfer.name().to_owned(),
+            digest,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn source_reference(&self) -> &str {
+        &self.source_reference
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl AuthorizedReceivedCreate {
+    #[must_use]
+    pub const fn item_id(&self) -> &LanItemId {
+        &self.item_id
+    }
+
+    #[must_use]
+    pub const fn timestamp_ms(&self) -> i64 {
+        self.timestamp_ms
+    }
+
+    #[must_use]
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
+    #[must_use]
+    pub const fn approved_generation(&self) -> &ApprovedGeneration {
+        &self.approved_generation
+    }
+
+    #[must_use]
+    pub fn attachments(&self) -> &[AuthorizedReceivedAttachment] {
+        &self.attachments
+    }
+
+    pub(crate) fn with_attachments(
+        mut self,
+        attachments: Vec<AuthorizedReceivedAttachment>,
+    ) -> Self {
+        self.attachments = attachments;
+        self
     }
 }
 
@@ -143,7 +227,7 @@ pub fn authorize_item_commit(
     now_ms: i64,
     snapshot: &LanBatchSnapshot,
     item: &ReceivedItem,
-) -> Result<Option<LocalSyncMutationBatch>, LomoError> {
+) -> Result<Option<AuthorizedReceivedCreate>, LomoError> {
     approval.assert_covers(snapshot.batch_id())?;
     approval.assert_valid_at(now_ms)?;
     approved_generation.assert_matches(active_generation)?;
@@ -157,5 +241,11 @@ pub fn authorize_item_commit(
     if let crate::batch::LanItemOutcome::Committed { .. } = outcome {
         return Ok(None);
     }
-    Ok(Some(item.to_mutation_batch()))
+    Ok(Some(AuthorizedReceivedCreate {
+        item_id: item.item_id.clone(),
+        timestamp_ms: item.timestamp_ms,
+        content: item.content.clone(),
+        attachments: Vec::new(),
+        approved_generation: approved_generation.clone(),
+    }))
 }

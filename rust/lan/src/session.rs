@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 
 use aws_lc_rs::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 use aws_lc_rs::hkdf::{HKDF_SHA256, KeyType, Salt};
+use aws_lc_rs::hmac;
 
 use crate::error::{authentication, resource_limit, validation};
 use crate::identity::DevicePublicKey;
@@ -31,6 +32,9 @@ const SESSION_KEY_SALT: &[u8] = b"lomo-lan-session-key-v2";
 /// Domain separation prefix for chunk additional authenticated data.
 const CHUNK_AAD_LABEL: &[u8] = b"lomo-lan-chunk-v2";
 
+/// Domain separation prefix for authenticated session control frames.
+const CONTROL_AUTH_LABEL: &[u8] = b"lomo-lan-control-v2";
+
 /// Expected X25519 public key length.
 const EPHEMERAL_PUBLIC_KEY_BYTES: usize = 32;
 
@@ -42,6 +46,25 @@ const NONCE_BYTES: usize = 12;
 
 /// Attachment slot reserved for the memo body itself (attachments use `0..=0xFFFE`).
 pub const ATTACHMENT_SLOT_BODY: u16 = 0xFFFF;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionControlKind {
+    Prepare,
+    Approve,
+    Reject,
+    Complete,
+}
+
+impl SessionControlKind {
+    const fn code(self) -> u8 {
+        match self {
+            Self::Prepare => 1,
+            Self::Approve => 2,
+            Self::Reject => 3,
+            Self::Complete => 4,
+        }
+    }
+}
 
 /// A per-connection session identifier (32 lowercase hex characters).
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -175,6 +198,38 @@ impl SessionKey {
         &self.bytes
     }
 
+    pub(crate) fn authenticate_control(
+        &self,
+        session_id: &LanSessionId,
+        batch_id: &str,
+        kind: SessionControlKind,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let input = control_authentication_input(session_id, batch_id, kind, payload);
+        hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, &self.bytes), &input)
+            .as_ref()
+            .to_vec()
+    }
+
+    pub(crate) fn verify_control(
+        &self,
+        session_id: &LanSessionId,
+        batch_id: &str,
+        kind: SessionControlKind,
+        payload: &[u8],
+        tag: &[u8],
+    ) -> Result<(), LomoError> {
+        let input = control_authentication_input(session_id, batch_id, kind, payload);
+        hmac::verify(&hmac::Key::new(hmac::HMAC_SHA256, &self.bytes), &input, tag).map_err(
+            |_error| {
+                authentication(
+                    "lan_control_authentication_invalid",
+                    "session control frame does not authenticate under the active session key",
+                )
+            },
+        )
+    }
+
     /// Seals one chunk, returning ciphertext with the appended authentication tag.
     ///
     /// # Errors
@@ -246,6 +301,21 @@ impl SessionKey {
                 )
             })
     }
+}
+
+fn control_authentication_input(
+    session_id: &LanSessionId,
+    batch_id: &str,
+    kind: SessionControlKind,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut input = Vec::new();
+    push_field(&mut input, CONTROL_AUTH_LABEL);
+    push_field(&mut input, session_id.as_str().as_bytes());
+    push_field(&mut input, batch_id.as_bytes());
+    input.push(kind.code());
+    push_field(&mut input, payload);
+    input
 }
 
 /// The tuple every chunk is cryptographically bound to.

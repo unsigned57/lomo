@@ -12,11 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 
-use crate::error::{permission, resource_limit, validation};
+use crate::commit::ApprovedGeneration;
+use crate::error::{conflict, permission, resource_limit, validation};
 use crate::identity::{DeviceId, DisplayName};
 use crate::limits::{
     MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_PREVIEW_TITLE_CHARS,
 };
+use crate::session::{ATTACHMENT_SLOT_BODY, LanSessionId};
 use lomo_core::LomoError;
 
 /// Maximum bytes for a batch identifier.
@@ -86,6 +88,7 @@ impl LanItemId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LanAttachmentRef {
     slot: u16,
+    source_reference: String,
     name: String,
     digest: String,
     size_bytes: u64,
@@ -98,11 +101,32 @@ impl LanAttachmentRef {
     ///
     /// Validation for an empty/oversized name or a malformed digest; resource-limit when the
     /// attachment exceeds the per-attachment ceiling.
-    pub fn new(slot: u16, name: &str, digest: &str, size_bytes: u64) -> Result<Self, LomoError> {
+    pub fn new(
+        slot: u16,
+        source_reference: &str,
+        name: &str,
+        digest: &str,
+        size_bytes: u64,
+    ) -> Result<Self, LomoError> {
+        if slot == ATTACHMENT_SLOT_BODY {
+            return Err(validation(
+                "lan_attachment_slot_reserved",
+                "attachment slot 65535 is reserved for the memo body",
+            ));
+        }
         if name.is_empty() || name.len() > 255 || name.contains('/') || name.contains('\\') {
             return Err(validation(
                 "lan_attachment_name_invalid",
                 "attachment name must be a 1..=255 byte single path segment",
+            ));
+        }
+        if source_reference.is_empty()
+            || source_reference.len() > 1_024
+            || source_reference.chars().any(char::is_control)
+        {
+            return Err(validation(
+                "lan_attachment_source_reference_invalid",
+                "attachment source reference must be 1..=1024 UTF-8 bytes without controls",
             ));
         }
         if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -119,6 +143,7 @@ impl LanAttachmentRef {
         }
         Ok(Self {
             slot,
+            source_reference: source_reference.to_owned(),
             name: name.to_owned(),
             digest: digest.to_ascii_lowercase(),
             size_bytes,
@@ -128,6 +153,11 @@ impl LanAttachmentRef {
     #[must_use]
     pub const fn slot(&self) -> u16 {
         self.slot
+    }
+
+    #[must_use]
+    pub fn source_reference(&self) -> &str {
+        &self.source_reference
     }
 
     #[must_use]
@@ -191,13 +221,23 @@ impl LanItemPlan {
                 "item body exceeds the batch byte ceiling",
             ));
         }
+        let mut slots = BTreeSet::new();
+        if attachments
+            .iter()
+            .any(|attachment| !slots.insert(attachment.slot()))
+        {
+            return Err(validation(
+                "lan_attachment_slot_duplicate",
+                "attachment slots must be unique within one item",
+            ));
+        }
         Ok(Self {
             item_id: LanItemId::derive(batch_id, index),
             index,
             timestamp_ms,
             content_digest: content_digest.to_ascii_lowercase(),
             content_bytes,
-            title: title.to_owned(),
+            title: title.chars().take(MAX_PREVIEW_TITLE_CHARS).collect(),
             attachments,
         })
     }
@@ -232,10 +272,16 @@ impl LanItemPlan {
         &self.attachments
     }
 
+    /// Bounded title metadata stored for approval preview and recovery.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
     /// The title truncated to the preview ceiling on a character boundary.
     #[must_use]
     pub fn preview_title(&self) -> String {
-        self.title.chars().take(MAX_PREVIEW_TITLE_CHARS).collect()
+        self.title.clone()
     }
 }
 
@@ -245,6 +291,7 @@ pub struct LanBatchPlan {
     batch_id: LanBatchId,
     items: Vec<LanItemPlan>,
     total_bytes: u64,
+    attachment_transfers: BTreeMap<String, (u16, u16, u64)>,
 }
 
 impl LanBatchPlan {
@@ -280,11 +327,24 @@ impl LanBatchPlan {
         }
 
         let mut total_bytes = 0_u64;
-        let mut counted_digests = BTreeSet::new();
+        let mut attachment_transfers = BTreeMap::new();
         for item in &items {
             total_bytes = total_bytes.saturating_add(item.content_bytes());
             for attachment in item.attachments() {
-                if counted_digests.insert(attachment.digest().to_owned()) {
+                if let Some((_item_index, _slot, size_bytes)) =
+                    attachment_transfers.get(attachment.digest())
+                {
+                    if *size_bytes != attachment.size_bytes() {
+                        return Err(conflict(
+                            "lan_attachment_digest_facts_conflict",
+                            "one attachment digest cannot describe multiple payload sizes",
+                        ));
+                    }
+                } else {
+                    attachment_transfers.insert(
+                        attachment.digest().to_owned(),
+                        (item.index(), attachment.slot(), attachment.size_bytes()),
+                    );
                     total_bytes = total_bytes.saturating_add(attachment.size_bytes());
                 }
             }
@@ -300,6 +360,7 @@ impl LanBatchPlan {
             batch_id,
             items,
             total_bytes,
+            attachment_transfers,
         })
     }
 
@@ -332,11 +393,26 @@ impl LanBatchPlan {
     /// Distinct attachment digests, i.e. what actually travels on the wire.
     #[must_use]
     pub fn distinct_attachment_digests(&self) -> BTreeSet<String> {
-        self.items
+        self.attachment_transfers.keys().cloned().collect()
+    }
+
+    /// Canonical `(item index, attachment slot)` used to transfer one digest exactly once.
+    #[must_use]
+    pub fn attachment_transfer_coordinate(&self, digest: &str) -> Option<(u16, u16)> {
+        self.attachment_transfers
+            .get(digest)
+            .map(|(item_index, slot, _size_bytes)| (*item_index, *slot))
+    }
+
+    /// Canonical reference whose name and payload facts define one digest on the wire.
+    #[must_use]
+    pub fn attachment_transfer_reference(&self, digest: &str) -> Option<(u16, &LanAttachmentRef)> {
+        let (item_index, slot) = self.attachment_transfer_coordinate(digest)?;
+        let item = self.items.get(usize::from(item_index))?;
+        item.attachments()
             .iter()
-            .flat_map(LanItemPlan::attachments)
-            .map(|attachment| attachment.digest().to_owned())
-            .collect()
+            .find(|attachment| attachment.slot() == slot)
+            .map(|attachment| (item_index, attachment))
     }
 
     /// Builds the bounded preview shown before approval.
@@ -619,5 +695,170 @@ impl LanBatchSnapshot {
             })
             .cloned()
             .collect()
+    }
+}
+
+/// Durable user decision for one received batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LanBatchDecision {
+    Pending,
+    Approved {
+        approval: LanApproval,
+        generation: ApprovedGeneration,
+    },
+    Rejected {
+        rejected_at_ms: i64,
+    },
+}
+
+/// Complete process-recovery truth for one batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LanDurableBatch {
+    plan: LanBatchPlan,
+    session_id: LanSessionId,
+    sender_device_id: DeviceId,
+    sender_name: DisplayName,
+    snapshot: LanBatchSnapshot,
+    decision: LanBatchDecision,
+}
+
+impl LanDurableBatch {
+    /// Creates durable pending state before an approval preview becomes observable.
+    #[must_use]
+    pub fn pending(
+        plan: LanBatchPlan,
+        session_id: LanSessionId,
+        sender_device_id: DeviceId,
+        sender_name: DisplayName,
+    ) -> Self {
+        let snapshot = LanBatchSnapshot::pending(&plan);
+        Self {
+            plan,
+            session_id,
+            sender_device_id,
+            sender_name,
+            snapshot,
+            decision: LanBatchDecision::Pending,
+        }
+    }
+
+    #[must_use]
+    pub const fn plan(&self) -> &LanBatchPlan {
+        &self.plan
+    }
+
+    #[must_use]
+    pub const fn session_id(&self) -> &LanSessionId {
+        &self.session_id
+    }
+
+    pub(crate) fn rebind_session(&mut self, session_id: LanSessionId) {
+        self.session_id = session_id;
+    }
+
+    #[must_use]
+    pub const fn snapshot(&self) -> &LanBatchSnapshot {
+        &self.snapshot
+    }
+
+    #[must_use]
+    pub const fn sender_device_id(&self) -> &DeviceId {
+        &self.sender_device_id
+    }
+
+    #[must_use]
+    pub const fn sender_name(&self) -> &DisplayName {
+        &self.sender_name
+    }
+
+    /// Bounded approval preview reconstructed from durable metadata only.
+    #[must_use]
+    pub fn preview(&self) -> LanBatchPreview {
+        self.plan.preview(&self.sender_device_id, &self.sender_name)
+    }
+
+    #[must_use]
+    pub const fn decision(&self) -> &LanBatchDecision {
+        &self.decision
+    }
+
+    #[must_use]
+    pub const fn approval(&self) -> Option<&LanApproval> {
+        match &self.decision {
+            LanBatchDecision::Approved { approval, .. } => Some(approval),
+            LanBatchDecision::Pending | LanBatchDecision::Rejected { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn approved_generation(&self) -> Option<&ApprovedGeneration> {
+        match &self.decision {
+            LanBatchDecision::Approved { generation, .. } => Some(generation),
+            LanBatchDecision::Pending | LanBatchDecision::Rejected { .. } => None,
+        }
+    }
+
+    /// Binds one user approval to the active workspace generation.
+    ///
+    /// # Errors
+    ///
+    /// Permission when the approval belongs to another batch.
+    pub fn approve(
+        &mut self,
+        approval: LanApproval,
+        generation: ApprovedGeneration,
+    ) -> Result<(), LomoError> {
+        approval.assert_covers(self.plan.batch_id())?;
+        match &self.decision {
+            LanBatchDecision::Pending => {
+                self.decision = LanBatchDecision::Approved {
+                    approval,
+                    generation,
+                };
+                Ok(())
+            }
+            LanBatchDecision::Approved {
+                approval: current,
+                generation: current_generation,
+            } if current == &approval && current_generation == &generation => Ok(()),
+            LanBatchDecision::Approved { .. } | LanBatchDecision::Rejected { .. } => Err(conflict(
+                "lan_batch_decision_terminal",
+                "an approved or rejected batch decision cannot be replaced",
+            )),
+        }
+    }
+
+    /// Records an explicit rejection. Rejection is terminal for this batch identity.
+    ///
+    /// # Errors
+    ///
+    /// Conflict when an existing terminal decision differs.
+    pub fn reject(&mut self, rejected_at_ms: i64) -> Result<(), LomoError> {
+        match self.decision {
+            LanBatchDecision::Pending => {
+                self.decision = LanBatchDecision::Rejected { rejected_at_ms };
+                Ok(())
+            }
+            LanBatchDecision::Rejected {
+                rejected_at_ms: current,
+            } if current == rejected_at_ms => Ok(()),
+            LanBatchDecision::Approved { .. } | LanBatchDecision::Rejected { .. } => Err(conflict(
+                "lan_batch_decision_terminal",
+                "an approved or rejected batch decision cannot be replaced",
+            )),
+        }
+    }
+
+    /// Records one item outcome under the batch's idempotency rules.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the item does not belong to the batch.
+    pub fn record(
+        &mut self,
+        item_id: &LanItemId,
+        outcome: LanItemOutcome,
+    ) -> Result<LanItemOutcome, LomoError> {
+        self.snapshot.record(item_id, outcome)
     }
 }

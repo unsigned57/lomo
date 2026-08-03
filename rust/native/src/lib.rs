@@ -12,7 +12,7 @@
 
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use boltffi::{data, error, export};
@@ -25,8 +25,14 @@ pub mod media_ffi;
 mod store_ffi;
 pub mod sync_ffi;
 pub use lan_ffi::{
-    LanAttachmentDto, LanBatchPreviewDto, LanPairingTranscriptDto, LanPeerDto, LanPeerPageDto,
-    LanSendItemDto, lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing,
+    LanAttachmentDto, LanBatchPreviewDto, LanBatchRecoveryDto, LanBindCandidateDto,
+    LanCommittableItemDto, LanCommittedReceivedItemDto, LanDeviceIdentityDto, LanDiscoveredPeerDto,
+    LanDiscoverySnapshotDto, LanFailedReceivedItemDto, LanLocalIdentityDto, LanNetworkSnapshotDto,
+    LanOutgoingBatchDto, LanOutgoingBatchPhaseDto, LanPairingChallengeDto, LanPairingTranscriptDto,
+    LanPeerDto, LanPeerPageDto, LanPendingBatchDto, LanPendingReceivedItemDto,
+    LanReceivedBatchDecisionDto, LanRuntimeInboxDto, LanSendItemDto, LanServicePhaseDto,
+    LanServiceSnapshotDto, LanSessionChallengeDto, LanSessionPhaseDto, LanSessionSnapshotDto,
+    LanTransferShapeDto, lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing,
     lan_list_peers, lan_pairing_short_code, lan_prepare_send, lan_revoke_peer,
     lan_unconfirmed_chunks,
 };
@@ -40,7 +46,7 @@ pub use store_ffi::{
     StoreMemoCommit, StoreMemoFilters, StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot,
     StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
     StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
-    StoreReminderSession, StoreTimeZoneContext, StoreZoneTransition,
+    StoreReminderSession, StoreSafMemoProjection, StoreTimeZoneContext, StoreZoneTransition,
 };
 pub use sync_ffi::{
     SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
@@ -543,8 +549,10 @@ impl std::error::Error for EngineError {}
 #[derive(Debug)]
 pub struct LomoEngine {
     core: Arc<core::LomoEngine>,
-    /// Dark-build store handle for Direct workspaces (P3-09). Absent for SAF/no-workspace opens.
+    /// Store handle for Direct workspaces or the app-private projection of a SAF workspace.
     store: Option<StoreHandle>,
+    /// Sole process-owned Stage-6 LAN lifecycle. Kotlin publishes platform facts but never binds.
+    lan: Mutex<lomo_lan::LanServiceManager>,
 }
 
 struct ListenerAdapter {
@@ -586,25 +594,672 @@ impl LomoEngine {
     pub fn open(config: EngineConfig) -> Result<Self, EngineError> {
         let bootstrap_deadline = Duration::from_millis(config.bootstrap_deadline_millis);
         let control_root = PathBuf::from(&config.control_root);
-        let store = match &config.workspace {
-            Some(WorkspaceDescriptor::Direct { root_path }) => {
-                Some(StoreHandle::new(PathBuf::from(root_path), &control_root)?)
-            }
-            _ => None,
-        };
+        let lan = lomo_lan::LanServiceManager::open(&control_root).map_err(EngineError::from)?;
         let workspace = config.workspace.map(workspace_from_ffi).transpose()?;
+        let store = match &workspace {
+            Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
+                Some(StoreHandle::new(canonical_root.clone(), &control_root)?)
+            }
+            Some(core::WorkspaceDescriptor::Saf { identity, .. }) => Some(StoreHandle::new_saf(
+                control_root
+                    .join("store")
+                    .join("saf")
+                    .join(identity.as_str()),
+                &control_root,
+            )?),
+            None => None,
+        };
         let core_config =
             core::EngineConfig::new(control_root, PathBuf::from(config.exchange_root), workspace)
                 .and_then(|config| config.with_bootstrap_deadline(bootstrap_deadline))
                 .map(|config| config.with_drivers(workspace_driver_registry()))
                 .map_err(EngineError::from)?;
         let core = core::LomoEngine::open(core_config).map_err(EngineError::from)?;
-        Ok(Self { core, store })
+        Ok(Self {
+            core,
+            store,
+            lan: Mutex::new(lan),
+        })
     }
 
     #[must_use]
     pub fn state(&self) -> EngineState {
         state_to_ffi(self.core.state())
+    }
+
+    /// Returns the Rust-owned payload coordinates used by the thin Android streaming adapter.
+    #[must_use]
+    pub fn lan_transfer_shape(&self) -> LanTransferShapeDto {
+        lan_ffi::transfer_shape_to_ffi()
+    }
+
+    /// Publishes bounded, monotonic Android network facts to the Rust LAN owner.
+    ///
+    /// # Errors
+    ///
+    /// Validation/resource-limit from the conversion edge or runtime.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned wire DTOs for foreign callers"
+    )]
+    pub fn update_lan_network_snapshot(
+        &self,
+        snapshot: LanNetworkSnapshotDto,
+    ) -> Result<(), EngineError> {
+        let parsed = lan_ffi::network_snapshot_from_ffi(&snapshot).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .update_network(parsed)
+            .map_err(EngineError::from)
+    }
+
+    /// Publishes bounded, monotonic NSD facts to the Rust LAN owner.
+    ///
+    /// # Errors
+    ///
+    /// Validation/resource-limit from the conversion edge or runtime.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned wire DTOs for foreign callers"
+    )]
+    pub fn update_lan_discovery_snapshot(
+        &self,
+        snapshot: LanDiscoverySnapshotDto,
+    ) -> Result<(), EngineError> {
+        let parsed = lan_ffi::discovery_snapshot_from_ffi(&snapshot).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .update_discovery(parsed)
+            .map_err(EngineError::from)
+    }
+
+    /// Starts the sole Rust-owned LAN listener.
+    ///
+    /// # Errors
+    ///
+    /// Permission/network/lifecycle errors from `lomo-lan`.
+    pub fn start_lan_service(&self) -> Result<LanServiceSnapshotDto, EngineError> {
+        self.lan_manager()?
+            .start()
+            .map(|snapshot| lan_ffi::service_snapshot_to_ffi(&snapshot))
+            .map_err(EngineError::from)
+    }
+
+    /// Stops and releases the sole Rust-owned LAN listener.
+    ///
+    /// # Errors
+    ///
+    /// Internal when the lifecycle lock was poisoned by a prior panic.
+    pub fn stop_lan_service(&self) -> Result<LanServiceSnapshotDto, EngineError> {
+        let snapshot = self.lan_manager()?.stop();
+        Ok(lan_ffi::service_snapshot_to_ffi(&snapshot))
+    }
+
+    /// Lists the validated v2 discovery facts currently owned by Rust.
+    ///
+    /// # Errors
+    ///
+    /// Internal when the lifecycle lock was poisoned by a prior panic.
+    pub fn list_lan_discovered_peers(&self) -> Result<Vec<LanDiscoveredPeerDto>, EngineError> {
+        Ok(self
+            .lan_manager()?
+            .discovered_peers()
+            .iter()
+            .map(lan_ffi::discovered_peer_to_ffi)
+            .collect())
+    }
+
+    /// Installs the public half of the Android Keystore identity used by LAN pairing.
+    ///
+    /// The private key never crosses `BoltFFI`; Rust receives only the validated public key and
+    /// display name that it binds into every pairing transcript.
+    ///
+    /// # Errors
+    ///
+    /// Validation for malformed identity facts; conflict if identity changes while open.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned wire DTOs for foreign callers"
+    )]
+    pub fn configure_lan_identity(
+        &self,
+        identity: LanDeviceIdentityDto,
+    ) -> Result<LanLocalIdentityDto, EngineError> {
+        let (public_key, display_name) =
+            lan_ffi::identity_from_ffi(&identity).map_err(EngineError::from)?;
+        let local_identity = LanLocalIdentityDto {
+            device_id: lomo_lan::DeviceId::derive(&public_key).as_str().to_owned(),
+            display_name: display_name.as_str().to_owned(),
+        };
+        self.lan_manager()?
+            .configure_identity(public_key, display_name)
+            .map_err(EngineError::from)?;
+        Ok(local_identity)
+    }
+
+    /// Starts pairing with a v2 NSD endpoint already accepted into the Rust discovery snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown endpoint or invalid TTL; protocol/network/authentication from
+    /// the Rust pairing exchange.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn begin_lan_pairing(
+        &self,
+        peer_device_id: String,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<LanPairingChallengeDto, EngineError> {
+        let parsed_id = lomo_lan::DeviceId::parse(&peer_device_id).map_err(EngineError::from)?;
+        let mut manager = self.lan_manager()?;
+        let peer = manager
+            .discovered_peers()
+            .iter()
+            .find(|candidate| candidate.device_id() == &parsed_id)
+            .cloned()
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_discovered_peer_missing",
+                    "pairing requires a v2 endpoint from the current discovery snapshot",
+                ))
+            })?;
+        manager
+            .begin_pairing(&peer, now_ms, ttl_ms)
+            .map(|challenge| lan_ffi::pairing_challenge_to_ffi(&challenge))
+            .map_err(EngineError::from)
+    }
+
+    /// Processes one inbound Rust-owned LAN control connection.
+    ///
+    /// # Errors
+    ///
+    /// Lifecycle, network, validation or authentication errors from the Rust receive state.
+    pub fn poll_lan_listener(&self, now_ms: i64) -> Result<LanRuntimeInboxDto, EngineError> {
+        let mut manager = self.lan_manager()?;
+        manager.poll_listener(now_ms).map_err(EngineError::from)?;
+        let inbox = manager.inbox().map_err(EngineError::from)?;
+        drop(manager);
+        Ok(lan_ffi::runtime_inbox_to_ffi(&inbox))
+    }
+
+    /// Returns bounded live and durable LAN work without waiting for a socket connection.
+    ///
+    /// # Errors
+    ///
+    /// Internal when the lifecycle lock was poisoned by a prior panic.
+    pub fn lan_runtime_inbox(&self) -> Result<LanRuntimeInboxDto, EngineError> {
+        let inbox = self.lan_manager()?.inbox().map_err(EngineError::from)?;
+        Ok(lan_ffi::runtime_inbox_to_ffi(&inbox))
+    }
+
+    /// Returns the challenge that awaits the platform Keystore signature.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed or non-pending pairing id.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn lan_pairing_challenge(
+        &self,
+        pairing_id: String,
+    ) -> Result<LanPairingChallengeDto, EngineError> {
+        let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .pairing_challenge(&parsed)
+            .map(|challenge| lan_ffi::pairing_challenge_to_ffi(&challenge))
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_pairing_unknown",
+                    "pairing is not pending",
+                ))
+            })
+    }
+
+    /// Submits only the platform signature over the Rust-owned challenge transcript.
+    ///
+    /// # Errors
+    ///
+    /// Validation/authentication for a malformed id or signature, permission after expiry,
+    /// network on delivery, or storage when completed trust cannot be journaled.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned signature bytes for foreign callers"
+    )]
+    pub fn confirm_lan_pairing(
+        &self,
+        pairing_id: String,
+        signature: Vec<u8>,
+        now_ms: i64,
+    ) -> Result<(), EngineError> {
+        let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .confirm_pairing(&parsed, &signature, now_ms)
+            .map_err(EngineError::from)
+    }
+
+    /// Discards one pending pairing after the user rejects the short code.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed or non-pending pairing identity.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn decline_lan_pairing(&self, pairing_id: String) -> Result<(), EngineError> {
+        let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .decline_pairing(&parsed)
+            .map_err(EngineError::from)
+    }
+
+    /// Opens a fresh mutually authenticated session with a trusted discovered peer.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown endpoint/id/TTL; authentication for untrusted or revoked peers;
+    /// network/crypto errors from the Rust-owned hello/accept exchange.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn begin_lan_session(
+        &self,
+        peer_device_id: String,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<LanSessionChallengeDto, EngineError> {
+        let parsed_id = lomo_lan::DeviceId::parse(&peer_device_id).map_err(EngineError::from)?;
+        let mut manager = self.lan_manager()?;
+        let peer = manager
+            .discovered_peers()
+            .iter()
+            .find(|candidate| candidate.device_id() == &parsed_id)
+            .cloned()
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_discovered_peer_missing",
+                    "session requires a v2 endpoint from the current discovery snapshot",
+                ))
+            })?;
+        manager
+            .begin_session(&peer, now_ms, ttl_ms)
+            .map(|challenge| lan_ffi::session_challenge_to_ffi(&challenge))
+            .map_err(EngineError::from)
+    }
+
+    /// Returns the pending Rust-owned session transcript that Android Keystore must sign.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed or non-pending session id.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn lan_session_challenge(
+        &self,
+        session_id: String,
+    ) -> Result<LanSessionChallengeDto, EngineError> {
+        let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .session_challenge(&parsed)
+            .map(|challenge| lan_ffi::session_challenge_to_ffi(&challenge))
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_session_unknown",
+                    "session is not pending",
+                ))
+            })
+    }
+
+    /// Submits only the platform signature over the Rust-owned session transcript.
+    ///
+    /// # Errors
+    ///
+    /// Validation/authentication for malformed input, permission after expiry, network on
+    /// delivery, or storage when the replay identity cannot be journaled.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings and signature bytes"
+    )]
+    pub fn confirm_lan_session(
+        &self,
+        session_id: String,
+        signature: Vec<u8>,
+        now_ms: i64,
+    ) -> Result<(), EngineError> {
+        let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .confirm_session(&parsed, &signature, now_ms)
+            .map_err(EngineError::from)
+    }
+
+    /// Returns public state for an authenticated session; pending state is not invented.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed or unauthenticated session id.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn lan_session_snapshot(
+        &self,
+        session_id: String,
+    ) -> Result<LanSessionSnapshotDto, EngineError> {
+        let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .session_snapshot(&parsed)
+            .map(lan_ffi::session_snapshot_to_ffi)
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_session_unknown",
+                    "session is not authenticated",
+                ))
+            })
+    }
+
+    /// Validates and sends one batch plan through the authenticated Rust-owned session.
+    ///
+    /// # Errors
+    ///
+    /// Validation/resource-limit at the DTO edge, authentication for an inactive session, or
+    /// network errors while delivering the prepare control frame.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings and item DTOs"
+    )]
+    pub fn prepare_lan_batch(
+        &self,
+        session_id: String,
+        batch_id: String,
+        items: Vec<LanSendItemDto>,
+    ) -> Result<(), EngineError> {
+        self.lan_ready_store()?;
+        let parsed_session =
+            lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        let plan = lan_ffi::batch_plan_from_ffi(&batch_id, &items).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .prepare_batch(&parsed_session, plan)
+            .map_err(EngineError::from)
+    }
+
+    /// Returns the bounded approval preview rebuilt from durable runtime state.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed or unknown batch id.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn lan_batch_preview(&self, batch_id: String) -> Result<LanBatchPreviewDto, EngineError> {
+        let parsed = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .batch_preview(&parsed)
+            .map(|preview| lan_ffi::batch_preview_to_ffi(&preview))
+            .ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_batch_unknown",
+                    "batch is not present in durable recovery state",
+                ))
+            })
+    }
+
+    /// Captures the active Rust workspace generation and notifies the sender.
+    ///
+    /// # Errors
+    ///
+    /// Validation for malformed input, permission for session/batch mismatch, conflict for a
+    /// terminal decision, storage before notification, or network on delivery.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn approve_lan_batch(
+        &self,
+        session_id: String,
+        batch_id: String,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<(), EngineError> {
+        let generation =
+            workspace::load_or_mint_workspace_generation(self.lan_ready_store()?.workspace_root())
+                .map(|generation| generation.as_str().to_owned())
+                .map_err(EngineError::from)?;
+        let parsed_session =
+            lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        let generation =
+            lomo_lan::ApprovedGeneration::capture(&generation).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .approve_batch(&parsed_session, &parsed_batch, generation, now_ms, ttl_ms)
+            .map_err(EngineError::from)
+    }
+
+    /// Persists and sends one terminal batch rejection.
+    ///
+    /// # Errors
+    ///
+    /// Validation for malformed input, permission for session/batch mismatch, conflict for a
+    /// terminal decision, storage before notification, or network on delivery.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn reject_lan_batch(
+        &self,
+        session_id: String,
+        batch_id: String,
+        rejected_at_ms: i64,
+    ) -> Result<(), EngineError> {
+        let parsed_session =
+            lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        self.lan_manager()?
+            .reject_batch(&parsed_session, &parsed_batch, rejected_at_ms)
+            .map_err(EngineError::from)
+    }
+
+    /// Sends one approved plaintext chunk through the Rust-owned AEAD/wire/ACK state machine.
+    ///
+    /// # Errors
+    ///
+    /// Permission when the workspace/session/batch is not writable and approved; validation for
+    /// foreign coordinates; crypto/network errors or a mismatched acknowledgement.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings and chunk bytes"
+    )]
+    pub fn send_lan_batch_chunk(
+        &self,
+        session_id: String,
+        batch_id: String,
+        item_index: u32,
+        attachment_slot: u32,
+        chunk_index: u32,
+        plaintext: Vec<u8>,
+    ) -> Result<(), EngineError> {
+        self.lan_ready_store()?;
+        let parsed_session =
+            lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        let item_index = u16::try_from(item_index).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_item_index_invalid",
+                "batch item index does not fit the wire index width",
+            ))
+        })?;
+        let attachment_slot = u16::try_from(attachment_slot).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_attachment_slot_invalid",
+                "attachment slot does not fit the wire slot width",
+            ))
+        })?;
+        self.lan_manager()?
+            .send_batch_chunk(
+                &parsed_session,
+                &parsed_batch,
+                item_index,
+                attachment_slot,
+                chunk_index,
+                &plaintext,
+            )
+            .map_err(EngineError::from)
+    }
+
+    /// Returns only the durable missing chunk indices for one received payload.
+    ///
+    /// # Errors
+    ///
+    /// Validation for malformed or unknown batch/item/slot coordinates.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn lan_unconfirmed_batch_chunks(
+        &self,
+        batch_id: String,
+        item_index: u32,
+        attachment_slot: u32,
+    ) -> Result<Vec<u32>, EngineError> {
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        let item_index = u16::try_from(item_index).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_item_index_invalid",
+                "batch item index does not fit the wire index width",
+            ))
+        })?;
+        let attachment_slot = u16::try_from(attachment_slot).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_attachment_slot_invalid",
+                "attachment slot does not fit the wire slot width",
+            ))
+        })?;
+        self.lan_manager()?
+            .unconfirmed_batch_chunks(&parsed_batch, item_index, attachment_slot)
+            .map_err(EngineError::from)
+    }
+
+    /// Atomically commits one complete received body through the store single writer and records
+    /// the durable per-item outcome. Body bytes never cross the foreign boundary.
+    ///
+    /// # Errors
+    ///
+    /// Permission/validation when approval or payload facts are incomplete; conflict when the
+    /// workspace generation changed; store/journal failures during commit publication.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned batch identifier"
+    )]
+    pub fn commit_received_lan_item(
+        &self,
+        batch_id: String,
+        item_index: u32,
+        now_ms: i64,
+    ) -> Result<String, EngineError> {
+        let store = self.lan_ready_store()?;
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        let item_index = u16::try_from(item_index).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_item_index_invalid",
+                "batch item index does not fit the wire index width",
+            ))
+        })?;
+        let active_generation = workspace::load_workspace_generation(store.workspace_root())
+            .map_err(EngineError::from)?;
+        let command = self
+            .lan_manager()?
+            .authorize_received_item_create(
+                &parsed_batch,
+                item_index,
+                active_generation.as_str(),
+                now_ms,
+            )
+            .map_err(EngineError::from)?;
+        let Some(command) = command else {
+            let manager = self.lan_manager()?;
+            let batch = manager.batch_recovery(&parsed_batch).ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_batch_unknown",
+                    "batch disappeared while resolving committed item",
+                ))
+            })?;
+            let committed_memo_id = batch
+                .snapshot()
+                .outcome(
+                    batch
+                        .plan()
+                        .items()
+                        .get(usize::from(item_index))
+                        .ok_or_else(|| {
+                            EngineError::from(lomo_lan::lan_validation(
+                                "lan_item_not_in_batch",
+                                "received item index does not belong to the batch",
+                            ))
+                        })?
+                        .item_id(),
+                )
+                .and_then(|outcome| match outcome {
+                    lomo_lan::LanItemOutcome::Committed { memo_id } => Some(memo_id.clone()),
+                    lomo_lan::LanItemOutcome::Pending | lomo_lan::LanItemOutcome::Failed { .. } => {
+                        None
+                    }
+                })
+                .ok_or_else(|| {
+                    EngineError::from(lomo_lan::lan_validation(
+                        "lan_item_commit_outcome_missing",
+                        "committed item has no durable memo identity",
+                    ))
+                })?;
+            drop(manager);
+            return Ok(committed_memo_id);
+        };
+        let commit = store.create_received_memo(&command)?;
+        let memo_id = commit.memo_id;
+        self.lan_manager()?
+            .record_received_item_committed(&parsed_batch, command.item_id(), &memo_id)
+            .map_err(EngineError::from)?;
+        Ok(memo_id)
+    }
+
+    /// Lists the installation-level trusted peer registry owned by Rust.
+    ///
+    /// # Errors
+    ///
+    /// Internal when the lifecycle lock was poisoned by a prior panic.
+    pub fn list_lan_peers(&self) -> Result<LanPeerPageDto, EngineError> {
+        let manager = self.lan_manager()?;
+        Ok(lan_ffi::peer_page_from_manager(&manager))
+    }
+
+    /// Revokes one installation-level peer and retains the tombstone in the journal.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed/unknown peer, storage on journal failure, or internal lock
+    /// poisoning.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned strings for foreign callers"
+    )]
+    pub fn revoke_lan_peer(
+        &self,
+        device_id: String,
+        revoked_at_ms: i64,
+    ) -> Result<LanPeerPageDto, EngineError> {
+        let parsed = lomo_lan::DeviceId::parse(&device_id).map_err(EngineError::from)?;
+        let mut manager = self.lan_manager()?;
+        manager
+            .revoke_peer(&parsed, revoked_at_ms)
+            .map_err(EngineError::from)?;
+        let page = lan_ffi::peer_page_from_manager(&manager);
+        drop(manager);
+        Ok(page)
     }
 
     /// Polls a durable job snapshot.
@@ -897,6 +1552,7 @@ impl LomoEngine {
     ///
     /// Returns validation, journal, or engine lifecycle errors.
     pub fn shutdown(&self, deadline_millis: u64) -> Result<ShutdownOutcome, EngineError> {
+        let _stopped = self.lan_manager()?.stop();
         let deadline = core::ShutdownDeadline::new(Duration::from_millis(deadline_millis))
             .map_err(EngineError::from)?;
         self.core
@@ -905,87 +1561,126 @@ impl LomoEngine {
             .map_err(EngineError::from)
     }
 
+    fn lan_manager(&self) -> Result<MutexGuard<'_, lomo_lan::LanServiceManager>, EngineError> {
+        self.lan.lock().map_err(|_poisoned| {
+            EngineError::from(static_boundary_error(
+                core::ErrorCategory::Internal,
+                "lan_runtime_lock_poisoned",
+                core::RetryDisposition::AfterUserAction,
+                None,
+                "LAN runtime lock was poisoned by a prior panic",
+            ))
+        })
+    }
+
+    fn lan_ready_store(&self) -> Result<&StoreHandle, EngineError> {
+        if !matches!(self.core.state(), core::EngineState::Ready { .. }) {
+            return Err(EngineError::from(lomo_lan::lan_permission(
+                "lan_workspace_not_ready",
+                "LAN batch transfer requires a Ready workspace",
+            )));
+        }
+        self.store.as_ref().ok_or_else(|| {
+            EngineError::from(lomo_lan::lan_permission(
+                "lan_workspace_not_ready",
+                "LAN batch transfer requires an active writable store",
+            ))
+        })
+    }
+
     /// Dark-build `query_memos` (bounded page; no full list transfer).
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or store query errors.
+    /// No active workspace store, or store query errors.
     pub fn query_memos(
         &self,
         query: StoreMemoQuery,
         cursor: Option<StorePageCursor>,
         page_size: u32,
     ) -> Result<StoreMemoPage, EngineError> {
-        self.store_handle()?.query_memos(query, cursor, page_size)
+        self.active_store()?.query_memos(query, cursor, page_size)
     }
 
     /// Dark-build `get_memo`.
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or store errors.
+    /// No active workspace store, or store errors.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "BoltFFI boundary requires owned String for foreign callers"
     )]
     pub fn get_memo(&self, memo_id: String) -> Result<Option<StoreMemoSnapshot>, EngineError> {
-        self.store_handle()?.get_memo(&memo_id)
+        self.active_store()?.get_memo(&memo_id)
     }
 
     /// Dark-build history attachment paths for D6 orphan keep-set.
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or store history list errors.
+    /// No active workspace store, or store history list errors.
     pub fn list_history_attachment_refs(
         &self,
     ) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
-        self.store_handle()?.list_history_attachment_refs()
+        self.active_store()?.list_history_attachment_refs()
     }
 
     /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or transaction errors.
+    /// No active workspace store, or transaction errors.
     pub fn apply_memo_command(
         &self,
         command: StoreMemoCommand,
     ) -> Result<StoreMemoCommit, EngineError> {
-        self.store_handle()?.apply_memo_command(command)
+        self.active_store()?.apply_memo_command(command)
     }
 
     /// Dark-build `query_reminder_plan`.
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or plan errors.
+    /// No active workspace store, or plan errors.
     pub fn query_reminder_plan(
         &self,
         query: StoreReminderQuery,
     ) -> Result<StoreReminderPlan, EngineError> {
-        self.store_handle()?.query_reminder_plan(query)
+        self.active_store()?.query_reminder_plan(query)
     }
 
     /// Dark-build `apply_reminder_command`.
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or command errors.
+    /// No active workspace store, or command errors.
     pub fn apply_reminder_command(
         &self,
         command: StoreReminderCommand,
     ) -> Result<StoreReminderCommandResult, EngineError> {
-        self.store_handle()?.apply_reminder_command(command)
+        self.active_store()?.apply_reminder_command(command)
     }
 
     /// Dark-build `start_rebuild` (synchronous rebuild result).
     ///
     /// # Errors
     ///
-    /// Missing Direct store handle, or rebuild errors.
+    /// No active workspace store, or rebuild errors.
     pub fn start_rebuild(&self, batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
-        self.store_handle()?.start_rebuild(batch_size)
+        self.active_store()?.start_rebuild(batch_size)
+    }
+
+    /// Replaces the app-private query projection with facts from one completed SAF workspace scan.
+    ///
+    /// # Errors
+    ///
+    /// Missing store handle, non-SAF workspace, malformed scan facts, or projection I/O errors.
+    pub fn rebuild_saf_store_projection(
+        &self,
+        memos: Vec<StoreSafMemoProjection>,
+    ) -> Result<StoreRebuildResult, EngineError> {
+        self.active_store()?.rebuild_saf_projection(memos)
     }
 
     /// Dark-build path-only media stage (P4-09). No full media bytes.
@@ -1198,16 +1893,16 @@ impl LomoEngine {
         )
     }
 
-    fn store_handle(&self) -> Result<&StoreHandle, EngineError> {
+    fn active_store(&self) -> Result<&StoreHandle, EngineError> {
         self.store.as_ref().ok_or_else(|| {
             EngineError::from(
                 match core::LomoError::from_platform_boundary(
                     core::ErrorCategory::Validation,
-                    "store_unavailable",
+                    "workspace_store_unavailable",
                     core::RetryDisposition::Never,
                     None,
                     None,
-                    "store dark-build surface requires a Direct workspace",
+                    "store surface requires an active workspace",
                 ) {
                     Ok(error) | Err(error) => error,
                 },

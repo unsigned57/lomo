@@ -11,7 +11,9 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
 use lomo_core::{LomoError, RetryDisposition};
 
@@ -161,6 +163,30 @@ pub fn accept_peer(
         .map_err(|error| io_error("lan_listener_accept_failed", &error))?;
     apply_deadlines(&stream, deadlines)?;
     Ok((FrameStream::new(stream), address))
+}
+
+/// Waits for at most `timeout` for one connection on a non-blocking listener.
+pub fn poll_peer(
+    listener: &TcpListener,
+    timeout: Duration,
+    deadlines: LanDeadlines,
+) -> Result<Option<(FrameStream<TcpStream>, SocketAddr)>, LomoError> {
+    let started = Instant::now();
+    loop {
+        match listener.accept() {
+            Ok((stream, address)) => {
+                apply_deadlines(&stream, deadlines)?;
+                return Ok(Some((FrameStream::new(stream), address)));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if started.elapsed() >= timeout {
+                    return Ok(None);
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => return Err(io_error("lan_listener_accept_failed", &error)),
+        }
+    }
 }
 
 /// Connects to a peer with a connect deadline and applies the stream deadlines.

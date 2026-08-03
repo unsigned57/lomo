@@ -22,14 +22,18 @@ mod identity;
 mod journal;
 mod limits;
 mod pairing;
+mod runtime;
 mod session;
 mod transport;
 
 pub use batch::{
-    LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchPreview, LanBatchSnapshot,
-    LanItemId, LanItemOutcome, LanItemPlan,
+    LanApproval, LanAttachmentRef, LanBatchDecision, LanBatchId, LanBatchPlan, LanBatchPreview,
+    LanBatchSnapshot, LanDurableBatch, LanItemId, LanItemOutcome, LanItemPlan,
 };
-pub use commit::{ApprovedGeneration, ReceivedItem, authorize_item_commit};
+pub use commit::{
+    ApprovedGeneration, AuthorizedReceivedAttachment, AuthorizedReceivedCreate, ReceivedItem,
+    authorize_item_commit,
+};
 pub use error::{
     authentication as lan_authentication, cancelled as lan_cancelled, conflict as lan_conflict,
     corrupt_state as lan_corrupt_state, network as lan_network, permission as lan_permission,
@@ -48,10 +52,18 @@ pub use limits::{
     MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES, MAX_DISPLAY_NAME_BYTES,
     MAX_INFLIGHT_CHUNKS, MAX_LAN_RECORD_BYTES, MAX_PREVIEW_TITLE_CHARS,
     MAX_SEALED_CHUNK_PAYLOAD_BYTES, MAX_SNAPSHOT_ENTRIES, MAX_TRUSTED_PEERS, PAIRING_CODE_DIGITS,
+    RUNTIME_CHUNK_PLAINTEXT_BYTES, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32,
 };
 
 pub use pairing::{
     PairingRole, PairingTranscript, derive_pairing_code, verify_pairing_confirmation,
+};
+pub use runtime::{
+    DiscoveredPeerEndpoint, LanBatchRecovery, LanBindCandidate, LanCommittableItem,
+    LanDiscoverySnapshot, LanNetworkSnapshot, LanOutgoingBatch, LanOutgoingBatchPhase,
+    LanPairingChallenge, LanPairingId, LanPendingBatch, LanReceivedBatchDecision,
+    LanReceivedItemOutcome, LanReceivedItemRecovery, LanRuntimeInbox, LanServiceManager,
+    LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionPhase, LanSessionSnapshot,
 };
 pub use session::{
     ATTACHMENT_SLOT_BODY, ChunkBinding, LanSessionId, ReplayLedger, SessionKey, SessionTranscript,

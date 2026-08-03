@@ -343,6 +343,7 @@ mod tests {
         let mut oversized = item("first");
         oversized.attachments = vec![lomo_native::LanAttachmentDto {
             slot: 0,
+            source_reference: "huge.bin".to_owned(),
             name: "huge.bin".to_owned(),
             digest: "b".repeat(64),
             size_bytes: 100 * 1_048_576 + 1,

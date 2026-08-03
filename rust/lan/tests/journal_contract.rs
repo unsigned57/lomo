@@ -1,7 +1,8 @@
 //! Behavior Contract (Stage-6 P6-05 durable app-private LAN journal)
 //!
-//! Capability: LAN peer trust, batch approvals and confirmed chunk ranges survive process death in
-//! an app-private, checksummed journal that is never part of the workspace, sync or an archive.
+//! Capability: LAN peer trust, accepted session identities, batch approvals and confirmed chunk
+//! ranges survive process death in an app-private, checksummed journal that is never part of the
+//! workspace, sync or an archive.
 //!
 //! Scenarios:
 //! - Given a journal root inside a `.lomo` control tree, when opened, then it is rejected, because
@@ -12,7 +13,13 @@
 //!   connections are refused explicitly rather than silently re-trusted.
 //! - Given a transfer that confirmed some chunks, when it resumes, then only the unconfirmed
 //!   indices are reported, in order.
+//! - Given an accepted session id, when a second process tries to accept it as new, then replay is
+//!   rejected while recovery can still identify it as the same durable session.
 //! - Given confirming the same chunk twice, then the journal is idempotent.
+//! - Given opened chunk bytes, when staged before confirmation, then identical retry is idempotent,
+//!   different bytes fail closed, and confirmed payload bytes survive process restart.
+//! - Given a pending batch, approval generation and per-item outcome, when the process restarts,
+//!   then the complete recovery state is restored without re-approval or item duplication.
 //! - Given a record whose checksum, magic or schema does not match, when opened, then it fails
 //!   closed as corruption instead of resetting to an empty set.
 //! - Given a body above the record ceiling, when encoded, then it is rejected.
@@ -34,8 +41,9 @@
 mod tests {
     use lomo_core::ErrorCategory;
     use lomo_lan::{
-        ATTACHMENT_SLOT_BODY, ChunkBinding, DeviceId, DevicePublicKey, DisplayName, LanApproval,
-        LanBatchId, LanJournal, LanJournalPaths, LanSessionId, MAX_LAN_RECORD_BYTES, PeerRecord,
+        ATTACHMENT_SLOT_BODY, ApprovedGeneration, ChunkBinding, DeviceId, DevicePublicKey,
+        DisplayName, LanApproval, LanBatchId, LanBatchPlan, LanDurableBatch, LanItemOutcome,
+        LanItemPlan, LanJournal, LanJournalPaths, LanSessionId, MAX_LAN_RECORD_BYTES, PeerRecord,
         decode_record, encode_record,
     };
 
@@ -64,6 +72,21 @@ mod tests {
     fn chunk(index: u32) -> ChunkBinding {
         ChunkBinding::new(&session(), "batch-resume", 0, ATTACHMENT_SLOT_BODY, index)
             .expect("fixture binding is valid")
+    }
+
+    fn plan() -> LanBatchPlan {
+        let batch = batch();
+        let item = LanItemPlan::new(
+            &batch,
+            0,
+            1_700_000_000_000,
+            &"0".repeat(64),
+            12,
+            "Recovery title",
+            Vec::new(),
+        )
+        .expect("item plan is valid");
+        LanBatchPlan::new(batch, vec![item]).expect("batch plan is valid")
     }
 
     #[test]
@@ -115,6 +138,88 @@ mod tests {
         assert!(reopened.is_chunk_confirmed(&chunk(0)));
         assert!(reopened.is_chunk_confirmed(&chunk(2)));
         assert!(!reopened.is_chunk_confirmed(&chunk(1)));
+    }
+
+    #[test]
+    fn an_accepted_session_survives_restart_and_cannot_reenter_as_new() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            journal
+                .accept_session(&session())
+                .expect("fresh session is accepted durably");
+        }
+
+        let mut reopened = LanJournal::open(paths).expect("journal reopens");
+        assert!(
+            reopened.has_session(&session()),
+            "recovery identifies the accepted session"
+        );
+        let error = reopened
+            .accept_session(&session())
+            .expect_err("the same id cannot enter a second fresh session");
+        assert_eq!(error.category(), ErrorCategory::Authentication);
+        assert_eq!(error.code(), "lan_session_replayed");
+    }
+
+    #[test]
+    fn batch_plan_generation_and_item_outcomes_survive_restart() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let plan = plan();
+        let item_id = plan.items()[0].item_id().clone();
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            journal
+                .store_batch(LanDurableBatch::pending(
+                    plan.clone(),
+                    session(),
+                    DeviceId::derive(&device_key()),
+                    name("Sender"),
+                ))
+                .expect("pending batch stores");
+            journal
+                .approve_batch(
+                    plan.batch_id(),
+                    LanApproval::granted(plan.batch_id().clone(), 2_000, 60_000),
+                    ApprovedGeneration::capture("workspace-generation-7")
+                        .expect("generation captures"),
+                )
+                .expect("approval stores with its generation");
+            journal
+                .record_batch_outcome(
+                    plan.batch_id(),
+                    &item_id,
+                    LanItemOutcome::committed("memo-created-1"),
+                )
+                .expect("item outcome stores");
+        }
+
+        let reopened = LanJournal::open(paths).expect("journal reopens");
+        let recovered = reopened
+            .batch(plan.batch_id())
+            .expect("batch recovery state survives");
+        assert_eq!(recovered.plan(), &plan);
+        assert_eq!(recovered.session_id(), &session());
+        assert_eq!(
+            recovered
+                .approval()
+                .expect("approval survives")
+                .approved_at_ms(),
+            2_000
+        );
+        assert_eq!(
+            recovered
+                .approved_generation()
+                .expect("generation survives")
+                .as_str(),
+            "workspace-generation-7"
+        );
+        assert_eq!(
+            recovered.snapshot().outcome(&item_id),
+            Some(&LanItemOutcome::committed("memo-created-1"))
+        );
     }
 
     #[test]
@@ -171,7 +276,7 @@ mod tests {
         }
 
         assert_eq!(
-            journal.unconfirmed_chunk_indices(&session(), &batch(), 0, ATTACHMENT_SLOT_BODY, 6),
+            journal.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 6),
             vec![2, 3, 5],
             "resume must retransmit exactly the chunks that were never confirmed"
         );
@@ -190,7 +295,7 @@ mod tests {
 
         let reopened = LanJournal::open(paths).expect("journal reopens");
         assert_eq!(
-            reopened.unconfirmed_chunk_indices(&session(), &batch(), 0, ATTACHMENT_SLOT_BODY, 4),
+            reopened.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 4),
             vec![0, 1, 2],
             "a duplicate confirm must not duplicate the record"
         );
@@ -289,5 +394,37 @@ mod tests {
             .expect_err("an oversized record body is rejected");
         assert_eq!(error.category(), ErrorCategory::ResourceLimit);
         assert_eq!(error.code(), "lan_record_too_large");
+    }
+
+    #[test]
+    fn staged_chunk_bytes_survive_restart_and_reject_a_different_replay() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            journal
+                .stage_chunk(&chunk(0), b"first ")
+                .expect("first chunk stages");
+            journal
+                .stage_chunk(&chunk(1), b"payload")
+                .expect("second chunk stages");
+            journal
+                .stage_chunk(&chunk(0), b"first ")
+                .expect("identical retry is idempotent");
+            let replay = journal
+                .stage_chunk(&chunk(0), b"changed")
+                .expect_err("different bytes under one binding fail closed");
+            assert_eq!(replay.code(), "lan_chunk_replayed_with_different_bytes");
+            journal.confirm_chunk(&chunk(0)).expect("chunk 0 confirms");
+            journal.confirm_chunk(&chunk(1)).expect("chunk 1 confirms");
+        }
+
+        let reopened = LanJournal::open(paths).expect("journal reopens");
+        assert_eq!(
+            reopened
+                .read_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 2)
+                .expect("payload reads"),
+            Some(b"first payload".to_vec())
+        );
     }
 }
