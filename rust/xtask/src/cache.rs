@@ -9,12 +9,17 @@ use crate::workspace::Workspace;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CacheMode {
     Audit,
+    Paths,
     Clean,
 }
 
 pub fn run_cache(workspace: &Workspace, mode: CacheMode) -> Result<()> {
     match mode {
         CacheMode::Audit => audit(workspace),
+        CacheMode::Paths => {
+            paths(workspace);
+            Ok(())
+        }
         CacheMode::Clean => clean(workspace),
     }
 }
@@ -22,8 +27,27 @@ pub fn run_cache(workspace: &Workspace, mode: CacheMode) -> Result<()> {
 pub fn parse_mode(value: &str) -> Result<CacheMode> {
     match value {
         "audit" => Ok(CacheMode::Audit),
+        "paths" => Ok(CacheMode::Paths),
         "clean" => Ok(CacheMode::Clean),
-        _ => bail!("cache mode must be `audit` or `clean`, found `{value}`"),
+        _ => bail!("cache mode must be `audit`, `paths`, or `clean`, found `{value}`"),
+    }
+}
+
+fn paths(workspace: &Workspace) {
+    for (name, path) in [
+        ("home", &workspace.kotlin_home),
+        ("xdg_cache", &workspace.kotlin_cache),
+        ("xdg_data", &workspace.kotlin_data),
+        ("xdg_config", &workspace.kotlin_config),
+        ("android_user_home", &workspace.android_home),
+        ("kotlin_cli_cache", &workspace.kotlin_cli_cache),
+        ("gradle_user_home", &workspace.gradle_home),
+        ("cargo_home", &workspace.cargo_home),
+        ("cargo_target", &workspace.rust_target),
+        ("cargo_tools", &workspace.tool_root),
+        ("kotlin_build", &workspace.kotlin_build),
+    ] {
+        crate::util::emit_stderr(format_args!("{name}={}", path.display()));
     }
 }
 

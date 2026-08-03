@@ -11,11 +11,9 @@ rust_channel := `awk '
   }
 ' rust/rust-toolchain.toml`
 
-# Repository-local cargo home + absolute target dir so nested boltffi/cargo never inherits a
-# relative CARGO_TARGET_DIR into rust/native/rust/target (multi-GB accidental trees).
 # RUSTUP_TOOLCHAIN is forced from the pin because this invocation runs from the repository root
 # (rustup would otherwise ignore rust/rust-toolchain.toml and use the host default).
-xtask := "CARGO_HOME=\"$PWD/.cache/cargo-home\" CARGO_TARGET_DIR=\"$PWD/rust/target/xtask-host\" RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
+xtask := "RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
 
 # Show the canonical Lomo command surface.
 default:
@@ -46,13 +44,13 @@ preflight:
 check:
     {{xtask}} check
 
-# Generate release native libraries and UniFFI Kotlin bindings.
-native:
-    {{xtask}} native
+# Generate release native libraries and canonical Kotlin bindings.
+native abi="all":
+    {{xtask}} native {{abi}}
 
 # Build and validate an Android debug or signed release APK.
-android variant="debug":
-    {{xtask}} android {{variant}}
+android variant="debug" abi="all":
+    {{xtask}} android {{variant}} {{abi}}
 
 # Run the complete local/CI quality gate (coverage + fat-LTO release native).
 ci:

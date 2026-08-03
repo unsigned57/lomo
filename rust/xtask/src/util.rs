@@ -49,24 +49,20 @@ pub fn cargo(workspace: &Workspace) -> Command {
     command
         .current_dir(&workspace.rust)
         .env_remove("CARGO")
-        .env_remove("CARGO_TARGET_DIR")
-        .env("CARGO_HOME", &workspace.cargo_home);
+        .env("CARGO_TARGET_DIR", workspace.rust_target());
     prepend_tool_path(workspace, &mut command);
     command
 }
 
 pub fn repository_command(workspace: &Workspace, program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
-    command
-        .current_dir(&workspace.root)
-        .env_remove("CARGO")
-        .env_remove("CARGO_TARGET_DIR");
+    command.current_dir(&workspace.root).env_remove("CARGO");
     prepend_tool_path(workspace, &mut command);
     command
 }
 
 pub fn kotlin(workspace: &Workspace) -> Result<Command> {
-    workspace.prepare_directories()?;
+    workspace.prepare_kotlin_invocation()?;
     let wrapper = workspace.root.join("kotlin");
     if !wrapper.is_file() {
         bail!("Kotlin Toolchain wrapper is missing: {}", wrapper.display());

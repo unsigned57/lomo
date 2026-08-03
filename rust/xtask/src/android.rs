@@ -26,7 +26,34 @@ impl AndroidVariant {
     }
 }
 
-pub fn build(workspace: &Workspace, variant: AndroidVariant) -> Result<PathBuf> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApkModule {
+    App,
+    NativeSmoke,
+}
+
+impl ApkModule {
+    const fn task_prefix(self) -> &'static str {
+        match self {
+            Self::App => "_app_buildAndroid",
+            Self::NativeSmoke => "_native-smoke_buildAndroid",
+        }
+    }
+}
+
+pub fn abi_tag_name(abis: &[Abi]) -> String {
+    if abis.len() == Abi::ALL.len() && Abi::ALL.iter().all(|abi| abis.contains(abi)) {
+        "all".to_owned()
+    } else if let [abi] = abis {
+        abi.android_name().to_owned()
+    } else {
+        let mut names: Vec<_> = abis.iter().map(|abi| abi.android_name()).collect();
+        names.sort_unstable();
+        names.join("-")
+    }
+}
+
+pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Result<PathBuf> {
     let signing = if variant == AndroidVariant::Release {
         validate_baseline_sources(workspace)?;
         Some(SigningConfig::load(workspace)?)
@@ -37,12 +64,13 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant) -> Result<PathBuf> 
         AndroidVariant::Debug => NativeProfile::Dev,
         AndroidVariant::Release => NativeProfile::Release,
     };
-    native::generate_all(workspace, profile)?;
+    native::ensure_android_libraries(workspace, profile, abis)?;
 
-    let build_dir = workspace
-        .root
-        .join(".kotlin/toolchain-build")
-        .join(format!("android-{}", variant.name()));
+    let abi_tag = abi_tag_name(abis);
+    let build_dir = workspace.kotlin_build.clone();
+
+    let _stash_guard = native::AbiStashGuard::stash_unselected(workspace, abis)?;
+
     let mut command = kotlin(workspace)?;
     command.args([
         "build",
@@ -56,9 +84,15 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant) -> Result<PathBuf> 
         build_dir.to_string_lossy().as_ref(),
     ]);
     run(&mut command)?;
-    let apk = validate_built_apk(workspace, &build_dir, variant == AndroidVariant::Release)?;
+    let apk = validate_built_apk(
+        workspace,
+        &build_dir,
+        variant == AndroidVariant::Release,
+        abis,
+        ApkModule::App,
+    )?;
     if let Some(signing) = signing {
-        sign_release(workspace, &apk, &signing)
+        sign_release(workspace, &apk, &signing, &abi_tag)
     } else {
         Ok(apk)
     }
@@ -68,11 +102,13 @@ pub fn validate_built_apk(
     workspace: &Workspace,
     build_dir: impl AsRef<Path>,
     release: bool,
+    expected_abis: &[Abi],
+    module: ApkModule,
 ) -> Result<PathBuf> {
     let build_dir = workspace.root.join(build_dir.as_ref());
-    let apk = find_apk(&build_dir, release)?;
+    let apk = find_apk(&build_dir, release, module)?;
     let entries = apk_entries(&apk)?;
-    for abi in Abi::ALL {
+    for &abi in expected_abis {
         let expected = format!("lib/{}/{}", abi.android_name(), native::NATIVE_LIBRARY);
         if !entries.iter().any(|entry| entry == &expected) {
             bail!("{} is missing {expected}", apk.display());
@@ -85,6 +121,17 @@ pub fn validate_built_apk(
             if entries.iter().any(|entry| entry == &forbidden) {
                 bail!(
                     "{} retains forbidden legacy library {forbidden}",
+                    apk.display()
+                );
+            }
+        }
+    }
+    for abi in Abi::ALL {
+        if !expected_abis.contains(&abi) {
+            let forbidden = format!("lib/{}/{}", abi.android_name(), native::NATIVE_LIBRARY);
+            if entries.iter().any(|entry| entry == &forbidden) {
+                bail!(
+                    "{} contains unselected ABI native library {forbidden}",
                     apk.display()
                 );
             }
@@ -124,7 +171,7 @@ pub fn validate_built_apk(
 
 pub fn device_smoke(workspace: &Workspace) -> Result<()> {
     native::generate_all(workspace, NativeProfile::Dev)?;
-    let build_dir = workspace.root.join(".kotlin/toolchain-build/device-smoke");
+    let build_dir = workspace.kotlin_build.clone();
     let mut build = kotlin(workspace)?;
     build.args([
         "build",
@@ -140,7 +187,13 @@ pub fn device_smoke(workspace: &Workspace) -> Result<()> {
     run(&mut build)?;
     // Fail closed before install: stale Amper/Gradle jni merge can produce a dex-only APK that
     // boots then dies with UnsatisfiedLinkError (not authentic smoke GREEN).
-    let apk = validate_built_apk(workspace, &build_dir, false)?;
+    let apk = validate_built_apk(
+        workspace,
+        &build_dir,
+        false,
+        &Abi::ALL,
+        ApkModule::NativeSmoke,
+    )?;
     let adb = adb(workspace);
 
     let mut devices = Command::new(&adb);
@@ -268,15 +321,22 @@ fn validate_apk_elf(workspace: &Workspace, apk: &Path, entry: &str, abi: Abi) ->
     Ok(())
 }
 
-fn find_apk(build_dir: &Path, release: bool) -> Result<PathBuf> {
+fn find_apk(build_dir: &Path, release: bool, module: ApkModule) -> Result<PathBuf> {
     let mut apks = find_files(build_dir, "apk")?;
     apks.retain(|path| {
         let value = path.to_string_lossy();
-        if release {
+        let variant_matches = if release {
             value.contains("release")
         } else {
             value.contains("debug")
-        }
+        };
+        variant_matches
+            && path.components().any(|component| {
+                component
+                    .as_os_str()
+                    .to_string_lossy()
+                    .starts_with(module.task_prefix())
+            })
     });
     apks.sort_by_key(|path| path.components().count());
     apks.into_iter().next().with_context(|| {
@@ -313,11 +373,15 @@ fn validate_baseline_sources(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-fn sign_release(workspace: &Workspace, apk: &Path, signing: &SigningConfig) -> Result<PathBuf> {
+fn sign_release(
+    workspace: &Workspace,
+    apk: &Path,
+    signing: &SigningConfig,
+    abi_tag: &str,
+) -> Result<PathBuf> {
     let apksigner = apksigner(workspace)?;
-    let signed = workspace
-        .root
-        .join(".kotlin/toolchain-build/android-release/lomo-release.apk");
+    let output_name = format!("lomo-release-{abi_tag}.apk");
+    let signed = workspace.android_artifacts().join(&output_name);
     if let Some(parent) = signed.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -339,9 +403,23 @@ fn sign_release(workspace: &Workspace, apk: &Path, signing: &SigningConfig) -> R
         .arg(apk);
     run(&mut sign)?;
 
-    let mut verify = Command::new(apksigner);
+    let mut verify = Command::new(&apksigner);
     verify.args(["verify", "--verbose"]).arg(&signed);
     run(&mut verify)?;
+
+    if abi_tag == "all" {
+        let canonical = workspace.android_artifacts().join("lomo-release.apk");
+        if canonical != signed {
+            fs::copy(&signed, &canonical).with_context(|| {
+                format!(
+                    "failed to copy signed APK {} -> {}",
+                    signed.display(),
+                    canonical.display()
+                )
+            })?;
+        }
+    }
+
     crate::util::emit_stderr(format_args!("xtask: signed {}", signed.display()));
     Ok(signed)
 }

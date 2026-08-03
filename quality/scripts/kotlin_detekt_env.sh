@@ -10,9 +10,9 @@ lomo_detekt_repo_root() {
 }
 
 lomo_detekt_cli_jar() {
-  local repo_root cache_dir jar_path url
-  repo_root="$(lomo_detekt_repo_root)"
-  cache_dir="${LOMO_DETEKT_CACHE_DIR:-$repo_root/.cache/detekt}"
+  local cache_root cache_dir jar_path url
+  cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+  cache_dir="${LOMO_DETEKT_CACHE_DIR:-$cache_root/lomo/detekt}"
   jar_path="$cache_dir/detekt-cli-${DETEKT_VERSION}-all.jar"
   mkdir -p "$cache_dir"
   if [ ! -f "$jar_path" ]; then
@@ -27,7 +27,7 @@ lomo_detekt_cli_jar() {
 lomo_detekt_rules_jar() {
   local repo_root build_dir jar_path
   repo_root="$(lomo_detekt_repo_root)"
-  build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/detekt-gate}"
+  build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
   jar_path="$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
   if [ ! -f "$jar_path" ]; then
     echo "kotlin-detekt: detekt-rules jar missing at $jar_path; build detekt-rules first" >&2

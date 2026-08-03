@@ -10,10 +10,10 @@ Not packaged into production `app/jniLibs`.
 
 | ABI | Result | `.so` bytes |
 | --- | --- | --- |
-| `arm64-v8a` | pass (ELF + exact LOMO_LINK_MARKER_*) | 11988208 |
-| `armeabi-v7a` | pass (ELF + exact LOMO_LINK_MARKER_*) | 8591212 |
-| `x86_64` | pass (ELF + exact LOMO_LINK_MARKER_*) | 13585432 |
-| `x86` | pass (ELF + exact LOMO_LINK_MARKER_*) | 11227044 |
+| `arm64-v8a` | pass (ELF + exact LOMO_LINK_MARKER_*) | 11984112 |
+| `armeabi-v7a` | pass (ELF + exact LOMO_LINK_MARKER_*) | 8587244 |
+| `x86_64` | pass (ELF + exact LOMO_LINK_MARKER_*) | 13577240 |
+| `x86` | pass (ELF + exact LOMO_LINK_MARKER_*) | 11218852 |
 
 Host runtime: `cargo test -p lomo-feasibility-device --test device_bundle_contract` (SQLite+Markdown+exact markers).
 Device process load of this SO is optional tooling; production ownership still stage-gated.

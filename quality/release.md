@@ -25,24 +25,25 @@ or debug signing fallback exists.
 ## Build
 
 ```bash
-just android release
+just android release [abi]
 ```
 
 xtask performs the following as one graph:
 
 1. validates baseline profile sources and signing configuration;
-2. builds `lomo-native` for all four ABIs with NDK 29/API 26 and the release-android profile;
+2. builds `lomo-native` for the target ABI(s) with NDK 29/API 26 and the release-android profile;
 3. generates BoltFFI Kotlin/JNI into `native-bindings` / `com.lomo.nativebridge` and packages
    only `liblomo_native_jni.so` per ABI;
-4. builds the Kotlin Toolchain release APK;
-5. verifies the single native library for every ABI, absence of JNA/`libjnidispatch`/old
+4. builds the Kotlin Toolchain release APK with non-destructive ABI stashing isolation;
+5. verifies the single native library for every targeted ABI, absence of unselected ABIs or JNA/`libjnidispatch`/old
    `liblomo_native.so`, ELF architecture and dependencies, and embedded baseline profile assets;
 6. signs with `apksigner` using environment-backed passwords and verifies the signature.
 
-The final artifact is `.kotlin/toolchain-build/android-release/lomo-release.apk`.
+The final artifacts are `.kotlin/artifacts/android-release/lomo-release-<abi>.apk` (and
+`lomo-release.apk` for universal `all`). Build intermediates stay in the single configured shared
+Kotlin build directory.
 
-Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes that
-artifact. It must not grow a second native, Kotlin, signing, or APK validation implementation.
+Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes all split and universal release artifacts (`lomo-release-*.apk`). It must not grow a second native, Kotlin, signing, or APK validation implementation.
 
 ## Resource Review
 

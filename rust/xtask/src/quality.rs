@@ -62,7 +62,7 @@ pub fn test(workspace: &Workspace) -> Result<()> {
     tools::ensure_quality(workspace)?;
     rust_tests(workspace)?;
     native::generate_all(workspace, NativeProfile::Dev)?;
-    kotlin_tests(workspace, ".kotlin/toolchain-build/test")
+    kotlin_tests(workspace)
 }
 
 /// Path-aware commit gate used by pre-commit. Never weaker than the contracts that
@@ -98,7 +98,6 @@ pub fn preflight(workspace: &Workspace) -> Result<()> {
             KotlinGateOptions {
                 compose: false,
                 coverage: CoverageMode::Off,
-                build_dir: ".kotlin/toolchain-build/preflight",
             },
         )?;
     } else if changes.quality_infra || changes.native {
@@ -118,7 +117,6 @@ pub fn check(workspace: &Workspace) -> Result<()> {
         KotlinGateOptions {
             compose: false,
             coverage: CoverageMode::Off,
-            build_dir: ".kotlin/toolchain-build/check",
         },
     )?;
     crate::util::emit_stderr(format_args!("xtask: check complete"));
@@ -134,10 +132,15 @@ pub fn ci(workspace: &Workspace) -> Result<()> {
         KotlinGateOptions {
             compose: true,
             coverage: CoverageMode::On,
-            build_dir: ".kotlin/toolchain-build/ci",
         },
     )?;
-    crate::android::validate_built_apk(workspace, ".kotlin/toolchain-build/ci", false)?;
+    crate::android::validate_built_apk(
+        workspace,
+        &workspace.kotlin_build,
+        false,
+        &native::Abi::ALL,
+        crate::android::ApkModule::App,
+    )?;
     crate::util::emit_stderr(format_args!("xtask: ci complete"));
     Ok(())
 }
@@ -158,10 +161,15 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
         KotlinGateOptions {
             compose: true,
             coverage,
-            build_dir: ".kotlin/toolchain-build/ci-android",
         },
     )?;
-    crate::android::validate_built_apk(workspace, ".kotlin/toolchain-build/ci-android", false)?;
+    crate::android::validate_built_apk(
+        workspace,
+        &workspace.kotlin_build,
+        false,
+        &native::Abi::ALL,
+        crate::android::ApkModule::App,
+    )?;
     Ok(())
 }
 
@@ -169,7 +177,6 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
 struct KotlinGateOptions {
     compose: bool,
     coverage: CoverageMode,
-    build_dir: &'static str,
 }
 
 fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
@@ -263,7 +270,10 @@ fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> 
     run(&mut model)?;
 
     let mut build = kotlin(workspace)?;
-    build.args(["build", "--build-dir", options.build_dir]);
+    build
+        .arg("build")
+        .arg("--build-dir")
+        .arg(&workspace.kotlin_build);
     run(&mut build)?;
 
     for script in [
@@ -271,13 +281,12 @@ fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> 
         "quality/scripts/kotlin_test_style_check.sh",
         "quality/scripts/kotlin_android_lint_check.sh",
     ] {
-        run_policy(workspace, script, options.build_dir)?;
+        run_policy(workspace, script)?;
     }
     if options.compose {
         run_policy(
             workspace,
             "quality/scripts/kotlin_compose_static_analysis.sh",
-            options.build_dir,
         )?;
     }
     for script in [
@@ -286,21 +295,17 @@ fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> 
         "quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh",
         "quality/scripts/test/kotlin_quality_check_contract_test.sh",
     ] {
-        run_policy(workspace, script, options.build_dir)?;
+        run_policy(workspace, script)?;
     }
     if options.coverage == CoverageMode::On {
-        run_policy(
-            workspace,
-            "quality/scripts/kotlin_coverage_check.sh",
-            options.build_dir,
-        )
+        run_policy(workspace, "quality/scripts/kotlin_coverage_check.sh")
     } else {
-        kotlin_tests(workspace, options.build_dir)
+        kotlin_tests(workspace)
     }
 }
 
-fn kotlin_tests(workspace: &Workspace, build_dir: &str) -> Result<()> {
-    if build_dir.is_empty() {
+fn kotlin_tests(workspace: &Workspace) -> Result<()> {
+    if workspace.kotlin_build.as_os_str().is_empty() {
         bail!("Kotlin build directory must not be empty");
     }
     let mut command = kotlin(workspace)?;
@@ -308,17 +313,17 @@ fn kotlin_tests(workspace: &Workspace, build_dir: &str) -> Result<()> {
     for module in TEST_MODULES {
         command.arg(format!("--include-module={module}"));
     }
-    command.args(["--build-dir", build_dir]);
+    command.arg("--build-dir").arg(&workspace.kotlin_build);
     run(&mut command)
 }
 
-fn run_policy(workspace: &Workspace, script: &str, build_dir: &str) -> Result<()> {
+fn run_policy(workspace: &Workspace, script: &str) -> Result<()> {
     let mut command = policy_script(workspace, script);
     command
-        .env("LOMO_KOTLIN_BUILD_DIR", build_dir)
-        .env("LOMO_LINT_BUILD_DIR", build_dir)
-        .env("LOMO_COMPOSE_BUILD_DIR", build_dir)
-        .env("LOMO_COVERAGE_BUILD_DIR", build_dir);
+        .env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build)
+        .env("LOMO_LINT_BUILD_DIR", &workspace.kotlin_build)
+        .env("LOMO_COMPOSE_BUILD_DIR", &workspace.kotlin_build)
+        .env("LOMO_COVERAGE_BUILD_DIR", &workspace.kotlin_build);
     run(&mut command)
 }
 
@@ -328,7 +333,7 @@ fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
         "quality/scripts/test/kotlin_quality_check_contract_test.sh",
         "quality/scripts/check_string_resource_parity.sh",
     ] {
-        run_policy(workspace, script, ".kotlin/toolchain-build/preflight")
+        run_policy(workspace, script)
             .with_context(|| format!("shell contract failed: {script}"))?;
     }
     Ok(())

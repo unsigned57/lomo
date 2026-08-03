@@ -8,7 +8,8 @@ read -r -a toolchain_test_modules <<< "${LOMO_KOTLIN_TEST_MODULE_ARGS:?xtask mus
 
 JACOCO_VERSION="${LOMO_JACOCO_VERSION:-0.8.14}"
 coverage_min_bound="${LOMO_COVERAGE_MIN_BOUND:-70}"
-cache_dir="${LOMO_JACOCO_CACHE_DIR:-$repo_root/.cache/jacoco}"
+cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+cache_dir="${LOMO_JACOCO_CACHE_DIR:-$cache_root/lomo/jacoco}"
 agent_jar="$cache_dir/jacocoagent-${JACOCO_VERSION}.jar"
 cli_jar="$cache_dir/jacococli-${JACOCO_VERSION}.jar"
 work_dir="$repo_root/build/jacoco"
@@ -16,7 +17,7 @@ report_dir="$repo_root/build/reports/kover"
 exec_file="$work_dir/jacoco.exec"
 xml_report="$report_dir/coverage.xml"
 html_report="$report_dir/html"
-build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/coverage-gate}}"
+build_dir="${LOMO_COVERAGE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}}"
 mkdir -p "$cache_dir" "$work_dir" "$report_dir"
 
 download() {

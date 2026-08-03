@@ -6,7 +6,9 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-build_dir="${LOMO_COMPOSE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/compose-gate}}"
+build_dir="${LOMO_COMPOSE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}}"
+cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+compose_lint_cache_dir="${LOMO_COMPOSE_LINT_CACHE_DIR:-$cache_root/lomo/lint-checks}"
 
 report_root="$repo_root/build/reports/compose-compiler"
 mkdir -p "$report_root"
@@ -40,15 +42,16 @@ fi
 
 # Prove compose lint checks jar is available for the lint stage (parity with composeStaticAnalysisCheck deps).
 compose_lint_jar="$(
-  find "$repo_root/.gradle" "$repo_root/.cache" -path '*compose-lint-checks*.jar' 2>/dev/null | head -1 || true
+  find "${GRADLE_USER_HOME:-$HOME/.gradle}" "$compose_lint_cache_dir" \
+    -path '*compose-lint-checks*.jar' 2>/dev/null | head -1 || true
 )"
 if [ -z "$compose_lint_jar" ]; then
-  echo "kotlin-compose-static-analysis: missing compose-lint-checks jar under .gradle/.cache" >&2
+  echo "kotlin-compose-static-analysis: compose-lint-checks jar is not cached" >&2
   echo "kotlin-compose-static-analysis: downloading compose-lint-checks 1.4.3" >&2
-  mkdir -p "$repo_root/.cache/lint-checks"
-  curl -fsSL -o "$repo_root/.cache/lint-checks/compose-lint-checks-1.4.3.jar" \
+  mkdir -p "$compose_lint_cache_dir"
+  curl -fsSL -o "$compose_lint_cache_dir/compose-lint-checks-1.4.3.jar" \
     "https://repo1.maven.org/maven2/com/slack/lint/compose/compose-lint-checks/1.4.3/compose-lint-checks-1.4.3.jar"
-  compose_lint_jar="$repo_root/.cache/lint-checks/compose-lint-checks-1.4.3.jar"
+  compose_lint_jar="$compose_lint_cache_dir/compose-lint-checks-1.4.3.jar"
 fi
 echo "kotlin-compose-static-analysis: compose-lint-checks ready: $compose_lint_jar"
 echo "kotlin-compose-static-analysis: ok"

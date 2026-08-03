@@ -38,11 +38,22 @@ impl Abi {
 
     pub fn parse(value: &str) -> Result<Self> {
         match value {
-            "arm64-v8a" => Ok(Self::Arm64),
-            "armeabi-v7a" => Ok(Self::Arm),
+            "arm64-v8a" | "arm64" => Ok(Self::Arm64),
+            "armeabi-v7a" | "arm" => Ok(Self::Arm),
             "x86_64" => Ok(Self::X86_64),
             "x86" => Ok(Self::X86),
             _ => bail!("unsupported Android ABI: {value}"),
+        }
+    }
+
+    pub fn parse_selector(value: &str) -> Result<Vec<Self>> {
+        match value {
+            "all" | "universal" => Ok(Self::ALL.to_vec()),
+            "arm64-v8a" | "arm64" => Ok(vec![Self::Arm64]),
+            "armeabi-v7a" | "arm" => Ok(vec![Self::Arm]),
+            "x86_64" => Ok(vec![Self::X86_64]),
+            "x86" => Ok(vec![Self::X86]),
+            _ => bail!("unsupported Android ABI selector: {value}"),
         }
     }
 
@@ -120,6 +131,37 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
         elapsed_ms
     ));
     Ok(())
+}
+
+pub fn ensure_android_libraries(
+    workspace: &Workspace,
+    profile: NativeProfile,
+    abis: &[Abi],
+) -> Result<()> {
+    tools::ensure_quality(workspace)?;
+    tools::ensure_boltffi(workspace)?;
+    ensure_generated_not_tracked(workspace)?;
+    generate_bindings(workspace)?;
+
+    let jni_libs = workspace.jni_libs();
+    let stash_dir = workspace.root.join(".cache/stashed-jniLibs");
+
+    let all_exist = abis.iter().all(|abi| {
+        let name = abi.android_name();
+        let in_jni = jni_libs.join(name).join(NATIVE_LIBRARY).is_file();
+        let in_stash = stash_dir.join(name).join(NATIVE_LIBRARY).is_file();
+        in_jni || in_stash
+    });
+
+    if all_exist {
+        crate::util::emit_stderr(format_args!(
+            "xtask: native libraries for {} ABI(s) already exist; reusing cached .so files",
+            abis.len()
+        ));
+        return Ok(());
+    }
+
+    generate_android(workspace, profile, abis)
 }
 
 pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[Abi]) -> Result<()> {
@@ -316,7 +358,6 @@ fn run_boltffi_generate_kotlin(workspace: &Workspace, output: &Path) -> Result<(
     let mut command = Command::new(boltffi);
     command
         .current_dir(workspace.rust.join("native"))
-        .env("CARGO_HOME", &workspace.cargo_home)
         // Absolute target: boltffi may spawn cargo from rust/native; a relative
         // CARGO_TARGET_DIR would nest under rust/native/rust/target.
         .env("CARGO_TARGET_DIR", workspace.rust_target())
@@ -354,7 +395,6 @@ fn run_boltffi_pack_android(
     let mut command = Command::new(boltffi);
     command
         .current_dir(workspace.rust.join("native"))
-        .env("CARGO_HOME", &workspace.cargo_home)
         .env("CARGO_TARGET_DIR", workspace.rust_target())
         .env("ANDROID_NDK_HOME", &wrapped_ndk)
         .env("ANDROID_NDK_ROOT", &wrapped_ndk)
@@ -1254,6 +1294,82 @@ fn ndk_host_tag() -> Result<&'static str> {
         ("linux", "x86_64") => Ok("linux-x86_64"),
         ("macos", "x86_64" | "aarch64") => Ok("darwin-x86_64"),
         (os, architecture) => bail!("unsupported NDK host: {os}-{architecture}"),
+    }
+}
+
+pub struct AbiStashGuard {
+    stashed: Vec<(PathBuf, PathBuf)>,
+}
+
+impl AbiStashGuard {
+    pub fn stash_unselected(workspace: &Workspace, selected_abis: &[Abi]) -> Result<Self> {
+        let jni_libs = workspace.jni_libs();
+        let stash_dir = workspace.root.join(".cache/stashed-jniLibs");
+        fs::create_dir_all(&stash_dir)?;
+
+        let mut stashed = Vec::new();
+        if jni_libs.is_dir() {
+            for entry in fs::read_dir(&jni_libs)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    let folder_name = entry.file_name();
+                    let name_str = folder_name.to_string_lossy();
+                    let is_selected = selected_abis
+                        .iter()
+                        .any(|abi| abi.android_name() == name_str);
+                    if !is_selected {
+                        let target = stash_dir.join(&folder_name);
+                        remove_if_exists(&target)?;
+                        fs::rename(&path, &target).with_context(|| {
+                            format!("failed to stash {} -> {}", path.display(), target.display())
+                        })?;
+                        stashed.push((target, path));
+                    }
+                }
+            }
+        }
+
+        if !stashed.is_empty() {
+            crate::util::emit_stderr(format_args!(
+                "xtask: stashed {} unselected ABI directory(ies) for packaging isolation",
+                stashed.len()
+            ));
+        }
+
+        Ok(Self { stashed })
+    }
+}
+
+impl Drop for AbiStashGuard {
+    fn drop(&mut self) {
+        for (stashed_path, original_path) in self.stashed.drain(..) {
+            if stashed_path.exists() {
+                if let Some(parent) = original_path.parent()
+                    && let Err(err) = fs::create_dir_all(parent)
+                {
+                    crate::util::emit_stderr(format_args!(
+                        "xtask: warning: failed to prepare ABI restore directory {}: {err}",
+                        parent.display()
+                    ));
+                    continue;
+                }
+                if let Err(err) = remove_if_exists(&original_path) {
+                    crate::util::emit_stderr(format_args!(
+                        "xtask: warning: failed to clear ABI restore target {}: {err}",
+                        original_path.display()
+                    ));
+                    continue;
+                }
+                if let Err(err) = fs::rename(&stashed_path, &original_path) {
+                    crate::util::emit_stderr(format_args!(
+                        "xtask: warning: failed to restore stashed ABI {} -> {}: {err}",
+                        stashed_path.display(),
+                        original_path.display()
+                    ));
+                }
+            }
+        }
     }
 }
 

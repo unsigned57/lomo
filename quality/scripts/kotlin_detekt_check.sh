@@ -8,7 +8,7 @@ source "$script_dir/kotlin_detekt_env.sh"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/detekt-gate}"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
 
 report_root="$repo_root/build/reports/detekt"
 mkdir -p "$report_root"

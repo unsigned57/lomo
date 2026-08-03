@@ -8,7 +8,7 @@ source "$script_dir/kotlin_detekt_env.sh"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/format-gate}"
+build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
 
 if [ ! -f "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar" ]; then
   "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \

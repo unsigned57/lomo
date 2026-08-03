@@ -21,6 +21,7 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "test" => no_args(rest, || quality::test(workspace)),
         "preflight" => no_args(rest, || quality::preflight(workspace)),
         "check" => no_args(rest, || quality::check(workspace)),
+        "bindings" => no_args(rest, || native::generate_bindings(workspace)),
         "native" => native_command(workspace, rest),
         "android" => android_command(workspace, rest),
         "ci" => no_args(rest, || quality::ci(workspace)),
@@ -55,26 +56,45 @@ fn rust_toolchain_bump(workspace: &Workspace, arguments: &[String]) -> Result<()
 }
 
 fn native_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
-    match arguments {
-        [] => native::generate_all(workspace, NativeProfile::Release),
-        [abi] => native::generate_selected(workspace, NativeProfile::Release, &[Abi::parse(abi)?]),
-        _ => bail!("usage: just native"),
-    }
+    let abis = match arguments {
+        [] => Abi::ALL.to_vec(),
+        [abi] => Abi::parse_selector(abi)?,
+        _ => bail!("usage: just native [abi]"),
+    };
+    native::generate_selected(workspace, NativeProfile::Release, &abis)
 }
 
 fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
-    let variant = match arguments {
-        [] => AndroidVariant::Debug,
-        [value] if value == "debug" => AndroidVariant::Debug,
-        [value] if value == "release" => AndroidVariant::Release,
-        _ => bail!("usage: just android [debug|release]"),
+    let (variant, abis) = match arguments {
+        [] => (AndroidVariant::Debug, Abi::ALL.to_vec()),
+        [arg1] => {
+            if let Ok(variant) = parse_variant(arg1) {
+                (variant, Abi::ALL.to_vec())
+            } else if let Ok(abis) = Abi::parse_selector(arg1) {
+                (AndroidVariant::Debug, abis)
+            } else {
+                bail!(
+                    "invalid android argument: {arg1}; usage: just android [debug|release] [abi]"
+                );
+            }
+        }
+        [arg1, arg2] => (parse_variant(arg1)?, Abi::parse_selector(arg2)?),
+        _ => bail!("usage: just android [debug|release] [abi]"),
     };
-    let apk = android::build(workspace, variant)?;
+    let apk = android::build(workspace, variant, &abis)?;
     crate::util::emit_stderr(format_args!(
         "xtask: Android artifact ready: {}",
         apk.display()
     ));
     Ok(())
+}
+
+fn parse_variant(value: &str) -> Result<AndroidVariant> {
+    match value {
+        "debug" => Ok(AndroidVariant::Debug),
+        "release" => Ok(AndroidVariant::Release),
+        _ => bail!("unknown Android variant: {value}"),
+    }
 }
 
 fn deps_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
@@ -103,7 +123,7 @@ fn cache_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     let mode = match arguments {
         [] => cache::CacheMode::Audit,
         [value] => cache::parse_mode(value)?,
-        _ => bail!("usage: just cache [audit|clean]"),
+        _ => bail!("usage: just cache [audit|paths|clean]"),
     };
     cache::run_cache(workspace, mode)
 }
@@ -156,6 +176,6 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 
 fn print_help() {
     crate::util::emit_stderr(format_args!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]\n  deps [check|update]\n  perf\n  cache [audit|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  bindings\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]\n  deps [check|update]\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
     ));
 }

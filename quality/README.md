@@ -21,7 +21,8 @@ xtask; they are not public quality orchestrators.
 | Real remote provider round trip (credential-gated) | `just sync-provider-smoke [line]` |
 | Check or update dependencies | `just deps check`, `just deps update` |
 | Planner/size/LLVM diagnostics | `just perf` |
-| Audit or clean generated state | `just cache audit`, `just cache clean` |
+| Show, audit, or clean generated state | `just cache paths`, `just cache audit`, `just cache clean` |
+| Regenerate Kotlin bindings only | `just bindings` |
 
 Run commands from the repository root. `just android release` requires complete signing
 configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`,
@@ -114,7 +115,8 @@ per `fixtures/baseline/STAGE1-EVIDENCE.md` and
   disabled.
 - Shipping Android pack profile: `release-android` (`opt-level = "z"`, fat LTO) plus pack-path
   `immediate-abort` + `build-std` size policy owned by xtask.
-- Cargo tools: exact versions in `rust/tools.toml`, installed under `.cache/cargo-tools`.
+- Cargo tools: exact versions in `rust/tools.toml`, installed under `LOMO_CARGO_TOOLS_DIR` or the
+  standard XDG cache (`$XDG_CACHE_HOME/lomo/cargo-tools`).
 
 `lomo-xtask` is the only public orchestrator. No floating branch, automatic mutation, production
 dual stack, compatibility alias, or UniFFI fallback is permitted.
@@ -150,16 +152,21 @@ The retained scripts have one policy responsibility each:
 - `check_meaningful_tests.sh`, `check_string_resource_parity.sh`, and fixture/contract tests
 - `generate_static_baseline_profile.py`
 
-xtask supplies all repository-local homes, Android SDK paths, Kotlin wrapper paths, build
-directories, and test-module arguments. Do not add another environment bootstrap or quality
+xtask preserves the caller's standard `HOME`, XDG, `GRADLE_USER_HOME`,
+`KOTLIN_CLI_BOOTSTRAP_CACHE_DIR`, `CARGO_HOME`, `CARGO_TARGET_DIR`, and Cargo wrapper configuration.
+`LOMO_KOTLIN_*` variables remain explicit higher-priority overrides. Every Kotlin gate and Android
+build uses one `LOMO_KOTLIN_BUILD_DIR`, defaulting to `.kotlin/toolchain-build/shared`; task names
+must never create parallel build trees. Do not add another environment bootstrap or quality
 gradient script.
 
 ## Generated State
 
-Repository-owned generated state lives under `.cache`, `.gradle/kotlin-toolchain`, `.kotlin`,
-`.kotlin-cli`, `rust/target`, `native-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs`.
-Use `just cache audit` before cleanup and `just cache clean` to remove only the allowlisted
-recreatable outputs.
+Source-specific generated state lives under the configured Cargo target directory, the configured
+shared Kotlin build directory, `.kotlin/artifacts`, `native-bindings/src`, `app/jniLibs`, and
+`native-smoke/jniLibs`. Dependency caches stay in the caller's standard Cargo, Gradle, Kotlin, and
+XDG homes so successive gates and checkouts can reuse them. `just cache paths` reports the resolved
+paths. `just cache clean` removes only allowlisted repository outputs and never deletes caller-owned
+global caches.
 
 The Kotlin Toolchain may use an internal Gradle/AGP bridge for Android packaging. That is an
 implementation detail, not an additional project build entrypoint. Baseline profile sources remain

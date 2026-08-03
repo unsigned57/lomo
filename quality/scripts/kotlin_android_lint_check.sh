@@ -18,7 +18,9 @@ project_xml="$report_root/project.xml"
 report_xml="$report_root/lint-report.xml"
 report_html="$report_root/lint-report.html"
 expanded_dir="$report_root/expanded-aars"
-build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/lint-gate}}"
+build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}}"
+cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+compose_lint_cache_dir="${LOMO_COMPOSE_LINT_CACHE_DIR:-$cache_root/lomo/lint-checks}"
 
 echo "kotlin-android-lint-check: building Android app (debug) to materialize classpath"
 "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
@@ -39,12 +41,6 @@ sdk = Path(sys.argv[4])
 expanded_dir = Path(sys.argv[5])
 
 candidates = sorted(build_dir.glob("tasks/_app_prepareAndroid*/gradle-project/settings.gradle.kts"))
-if not candidates:
-    candidates = sorted(
-        Path(repo_root, ".kotlin/toolchain-build").glob(
-            "*/tasks/_app_prepareAndroid*/gradle-project/settings.gradle.kts"
-        )
-    )
 if not candidates:
     raise SystemExit("kotlin-android-lint-check: no Toolchain prepareAndroid bridge found")
 
@@ -171,7 +167,8 @@ print(
 PY
 
 compose_lint_jar="$(
-  find "$repo_root/.gradle" "$repo_root/.cache" -path '*compose-lint-checks*.jar' 2>/dev/null | head -1 || true
+  find "${GRADLE_USER_HOME:-$HOME/.gradle}" "$compose_lint_cache_dir" \
+    -path '*compose-lint-checks*.jar' 2>/dev/null | head -1 || true
 )"
 lint_rule_args=()
 if [ -n "$compose_lint_jar" ]; then

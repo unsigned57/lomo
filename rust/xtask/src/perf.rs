@@ -190,7 +190,7 @@ fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> 
         },
         "apk": {
             "debug_universal_compressed_bytes": report.sizes.apk_compressed_bytes,
-            "source": "just perf / find_latest_debug_apk under .kotlin/toolchain-build",
+            "source": "just perf / find_latest_debug_apk in the configured shared Kotlin build directory",
             "kind": "host_relative_baseline",
             "hard_gate_multiplier": 1.15,
             "hard_gate_max_compressed_bytes": hard_gate_max_bytes(report.sizes.apk_compressed_bytes)
@@ -945,21 +945,21 @@ fn rustc_version(_workspace: &Workspace) -> Result<String> {
 }
 
 fn find_latest_debug_apk(workspace: &Workspace) -> Result<PathBuf> {
-    let build_root = workspace.root.join(".kotlin/toolchain-build");
+    let build_root = &workspace.kotlin_build;
     if !build_root.exists() {
         bail!(
             "no Kotlin toolchain build directory; run `just check` or `just ci` before `just perf`"
         );
     }
 
-    let mut candidates = collect_debug_apks(&build_root)?;
+    let mut candidates = collect_debug_apks(build_root)?;
     candidates.sort_by_key(|(modified, _)| Reverse(*modified));
     candidates
         .iter()
         .find(|(_, path)| path.to_string_lossy().contains("_app_"))
         .or_else(|| candidates.first())
         .map(|(_, path)| path.clone())
-        .context("no debug APK found under .kotlin/toolchain-build")
+        .with_context(|| format!("no debug APK found under {}", build_root.display()))
 }
 
 fn collect_debug_apks(root: &Path) -> Result<Vec<(SystemTime, PathBuf)>> {

@@ -4,7 +4,7 @@
     "hard_gate_max_compressed_bytes": 129337975,
     "hard_gate_multiplier": 1.15,
     "kind": "host_relative_baseline",
-    "source": "just perf / find_latest_debug_apk under .kotlin/toolchain-build"
+    "source": "just perf / find_latest_debug_apk in the configured shared Kotlin build directory"
   },
   "description": "Exact package/native size baseline plus host/device relative time metrics from `just perf`.",
   "measurement_notes": [
