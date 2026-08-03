@@ -79,7 +79,6 @@ class SettingsStateProvider(
         val syncInboxEnabled: Boolean,
     )
 
-    val pairingCodeError: StateFlow<String?> = lanShareCoordinator.pairingCodeError
     val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = gitCoordinator.connectionTestState
     val webDavConnectionTestState: StateFlow<RemoteProviderConnectionTestState> = webDavCoordinator.connectionTestState
     private val s3StateProvider = SettingsS3StateProvider(s3Coordinator = s3Coordinator, scope = scope)
@@ -209,22 +208,16 @@ class SettingsStateProvider(
     private val lanShareState: StateFlow<LanShareSectionState> =
         combine(
             lanShareCoordinator.lanShareEnabled,
-            lanShareCoordinator.lanShareE2eEnabled,
-            lanShareCoordinator.lanSharePairingConfigured,
             lanShareCoordinator.lanShareDeviceName,
-            lanShareCoordinator.pairingCodeError,
-        ) { enabled, e2eEnabled, pairingConfigured, deviceName, pairingCodeError ->
-            LanShareSectionState(enabled, e2eEnabled, pairingConfigured, deviceName, pairingCodeError)
+        ) { enabled, deviceName ->
+            LanShareSectionState(enabled, deviceName)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
                 LanShareSectionState(
                     enabled = lanShareCoordinator.lanShareEnabled.value,
-                    e2eEnabled = lanShareCoordinator.lanShareE2eEnabled.value,
-                    pairingConfigured = lanShareCoordinator.lanSharePairingConfigured.value,
                     deviceName = lanShareCoordinator.lanShareDeviceName.value,
-                    pairingCodeError = lanShareCoordinator.pairingCodeError.value,
                 ),
         )
 

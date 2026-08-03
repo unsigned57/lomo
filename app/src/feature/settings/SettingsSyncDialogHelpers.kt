@@ -1,14 +1,5 @@
 package com.lomo.app.feature.settings
 
-internal fun SettingsDialogState.openLanPairingDialog(
-    lanShareFeature: SettingsLanShareFeatureViewModel,
-) {
-    lanPairingCodeInput = ""
-    lanPairingCodeVisible = false
-    lanShareFeature.clearPairingCodeError()
-    showLanPairingDialog = true
-}
-
 internal fun SettingsDialogState.openGitPatDialog() {
     openProviderTextDialog(RemoteProviderTextField.GitPat, initialValue = "")
 }

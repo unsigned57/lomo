@@ -93,5 +93,4 @@ private fun CredentialField.provider(): CredentialProvider =
         CredentialField.S3_ENCRYPTION_PASSWORD,
         CredentialField.S3_ENCRYPTION_PASSWORD2,
         -> CredentialProvider.S3
-        CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> CredentialProvider.LAN_SHARE
     }

@@ -9,6 +9,11 @@ import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import io.kotest.matchers.shouldBe
+import io.mockk.coEvery
+import io.mockk.mockk
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
@@ -43,26 +48,38 @@ import io.kotest.matchers.shouldBe
  * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
  * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettingsFeatureViewModelsTest : AppFunSpec() {
     init {
         test("lan-share feature viewmodel forwards actions to delegates") {
             val actionCoordinator = FakeSettingsActionCoordinator()
-            val lanShareSupport = FakeLanShareSupport()
 
-            val viewModel = SettingsLanShareFeatureViewModel(actionCoordinator, lanShareSupport)
+            val viewModel = SettingsLanShareFeatureViewModel(actionCoordinator)
             viewModel.updateLanShareEnabled(false)
-            viewModel.updateLanShareE2eEnabled(true)
-            viewModel.updateLanSharePairingCode("123456")
-            viewModel.clearLanSharePairingCode()
-            viewModel.clearPairingCodeError()
             viewModel.updateLanShareDeviceName("Pixel")
 
             (actionCoordinator.lanShareEnabledArg) shouldBe (false)
-            (actionCoordinator.lanShareE2eEnabledArg) shouldBe (true)
-            (actionCoordinator.lanSharePairingCodeArg) shouldBe ("123456")
-            ((actionCoordinator.clearLanSharePairingCodeInvoked)) shouldBe true
             (actionCoordinator.lanShareDeviceNameArg) shouldBe ("Pixel")
-            ((lanShareSupport.clearPairingCodeErrorInvoked)) shouldBe true
+        }
+
+        test("storage feature viewmodel surfaces an asynchronous root switch failure") {
+            runTest {
+                val failure = IllegalStateException("workspace lock unavailable")
+                val coordinator = mockk<SettingsAppConfigCoordinator>()
+                coEvery { coordinator.updateRootUri(any()) } throws failure
+                val errors = mutableListOf<Throwable>()
+                val viewModel =
+                    SettingsStorageFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = coordinator,
+                        onError = errors::add,
+                    )
+
+                viewModel.updateRootUri("content://tree/root")
+                advanceUntilIdle()
+
+                errors shouldBe listOf(failure)
+            }
         }
 
         test("git feature viewmodel exposes wired coordinator delegates") {
@@ -154,9 +171,6 @@ private class FakeSettingsActionCoordinator :
     SettingsWebDavSpecificFeatureActions,
     SettingsS3SpecificFeatureActions {
     var lanShareEnabledArg: Boolean? = null
-    var lanShareE2eEnabledArg: Boolean? = null
-    var lanSharePairingCodeArg: String? = null
-    var clearLanSharePairingCodeInvoked = false
     var lanShareDeviceNameArg: String? = null
 
     var providerEnabledArg: Pair<SyncBackendType, Boolean>? = null
@@ -180,9 +194,6 @@ private class FakeSettingsActionCoordinator :
     var s3EncryptedSuffixArg: String? = null
 
     override val updateLanShareEnabled: (Boolean) -> Unit = { lanShareEnabledArg = it }
-    override val updateLanShareE2eEnabled: (Boolean) -> Unit = { lanShareE2eEnabledArg = it }
-    override val updateLanSharePairingCode: (String) -> Unit = { lanSharePairingCodeArg = it }
-    override val clearLanSharePairingCode: () -> Unit = { clearLanSharePairingCodeInvoked = true }
     override val updateLanShareDeviceName: (String) -> Unit = { lanShareDeviceNameArg = it }
 
     override val updateProviderEnabled: (SyncBackendType, Boolean) -> Unit =
@@ -225,14 +236,6 @@ private class FakeSettingsActionCoordinator :
     override val updateS3RcloneDirectoryNameEncryption: (Boolean) -> Unit = { s3DirectoryNameEncryptionArg = it }
     override val updateS3RcloneDataEncryptionEnabled: (Boolean) -> Unit = { s3DataEncryptionArg = it }
     override val updateS3RcloneEncryptedSuffix: (String) -> Unit = { s3EncryptedSuffixArg = it }
-}
-
-private class FakeLanShareSupport : SettingsLanShareFeatureSupport {
-    var clearPairingCodeErrorInvoked = false
-
-    override fun clearPairingCodeError() {
-        clearPairingCodeErrorInvoked = true
-    }
 }
 
 private class FakeGitSupport : SettingsGitFeatureSupport {

@@ -70,7 +70,6 @@ fun SettingsDialogHost(
         migrationPickers = migrationPickers,
     )
     LanShareDialogs(
-        uiState = uiState,
         features = features,
         dialogState = dialogState,
     )

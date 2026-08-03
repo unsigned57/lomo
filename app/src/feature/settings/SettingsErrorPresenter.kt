@@ -7,17 +7,8 @@ import com.lomo.app.R
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.WebDavSyncErrorCode
-import com.lomo.domain.usecase.LanSharePairingCodePolicy
 
 object SettingsErrorPresenter {
-    @Composable
-    fun pairingCodeMessage(raw: String): String =
-        when (LanSharePairingCodePolicy.userMessageKey(raw)) {
-            LanSharePairingCodePolicy.UserMessageKey.INVALID_PAIRING_CODE ->
-                stringResource(R.string.share_error_invalid_pairing_code)
-            LanSharePairingCodePolicy.UserMessageKey.UNKNOWN -> stringResource(R.string.share_error_unknown)
-        }
-
     @Composable
     fun gitSyncErrorMessage(
         code: GitSyncErrorCode,

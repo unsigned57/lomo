@@ -111,9 +111,6 @@ class SettingsDialogState {
     var showMigrationImportSettingsPasswordDialog by mutableStateOf(false)
     var migrationPasswordInput by mutableStateOf("")
 
-    var showLanPairingDialog by mutableStateOf(false)
-    var lanPairingCodeInput by mutableStateOf("")
-    var lanPairingCodeVisible by mutableStateOf(false)
     var showDeviceNameDialog by mutableStateOf(false)
     var deviceNameInput by mutableStateOf("")
 

@@ -2,7 +2,6 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.collections.immutable.ImmutableMap
@@ -16,13 +15,6 @@ internal fun LanShareSettingsSectionContainer(
     LanShareSettingsSection(
         state = state,
         onToggleEnabled = lanShareFeature::updateLanShareEnabled,
-        onToggleE2e = { enabled ->
-            lanShareFeature.updateLanShareE2eEnabled(enabled)
-            if (LanSharePairingDialogTriggerPolicy.shouldShowOnE2eEnabled(enabled, state.pairingConfigured)) {
-                dialogState.openLanPairingDialog(lanShareFeature)
-            }
-        },
-        onOpenPairingDialog = { dialogState.openLanPairingDialog(lanShareFeature) },
         onOpenDeviceNameDialog = {
             dialogState.deviceNameInput = state.deviceName
             dialogState.showDeviceNameDialog = true

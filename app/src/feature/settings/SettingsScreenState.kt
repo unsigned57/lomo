@@ -55,10 +55,7 @@ data class DisplaySectionState(
 
 data class LanShareSectionState(
     val enabled: Boolean,
-    val e2eEnabled: Boolean,
-    val pairingConfigured: Boolean,
     val deviceName: String,
-    val pairingCodeError: String?,
 )
 
 data class ShareCardSectionState(

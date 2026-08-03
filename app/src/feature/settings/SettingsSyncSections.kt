@@ -9,7 +9,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -23,8 +22,6 @@ import com.lomo.ui.theme.MotionTokens
 fun LanShareSettingsSection(
     state: LanShareSectionState,
     onToggleEnabled: (Boolean) -> Unit,
-    onToggleE2e: (Boolean) -> Unit,
-    onOpenPairingDialog: () -> Unit,
     onOpenDeviceNameDialog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -45,23 +42,6 @@ fun LanShareSettingsSection(
         ) {
             Column {
                 SettingsDivider()
-                SwitchPreferenceItem(
-                    title = stringResource(R.string.share_e2e_enabled_title),
-                    subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
-                    icon = Icons.Outlined.Lock,
-                    checked = state.e2eEnabled,
-                    onCheckedChange = onToggleE2e,
-                )
-                SettingsExpandableContent(
-                    visible = state.e2eEnabled,
-                    label = "LanPairingVisibility",
-                ) {
-                    LanSharePairingSettings(
-                        pairingConfigured = state.pairingConfigured,
-                        onOpenPairingDialog = onOpenPairingDialog,
-                    )
-                }
-                SettingsDivider()
                 PreferenceItem(
                     title = stringResource(R.string.share_device_name_label),
                     subtitle = state.deviceName.ifBlank { stringResource(R.string.settings_not_set) },
@@ -70,29 +50,6 @@ fun LanShareSettingsSection(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LanSharePairingSettings(
-    pairingConfigured: Boolean,
-    onOpenPairingDialog: () -> Unit,
-) {
-    Column {
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_lan_share_pairing_code),
-            subtitle =
-                stringResource(
-                    if (pairingConfigured) {
-                        R.string.settings_lan_share_pairing_configured
-                    } else {
-                        R.string.settings_lan_share_pairing_not_set
-                    },
-                ),
-            icon = Icons.Outlined.Lock,
-            onClick = onOpenPairingDialog,
-        )
     }
 }
 

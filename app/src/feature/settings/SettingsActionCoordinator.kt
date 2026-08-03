@@ -34,27 +34,6 @@ class SettingsActionCoordinator(
             }
         }
 
-    override val updateLanShareE2eEnabled: (Boolean) -> Unit =
-        { enabled ->
-            launchWithError("Failed to update secure share setting") {
-                lanShareCoordinator.updateLanShareE2eEnabled(enabled)
-            }
-        }
-
-    override val updateLanSharePairingCode: (String) -> Unit =
-        { pairingCode ->
-            scope.launch {
-                lanShareCoordinator.updateLanSharePairingCode(pairingCode)
-            }
-        }
-
-    override val clearLanSharePairingCode: () -> Unit =
-        {
-            launchWithError("Failed to clear pairing code") {
-                lanShareCoordinator.clearLanSharePairingCode()
-            }
-        }
-
     override val updateLanShareDeviceName: (String) -> Unit =
         { deviceName ->
             launchWithError("Failed to update LAN share device name") {

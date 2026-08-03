@@ -172,14 +172,8 @@
     <string name="settings_update_available_subtitle">New version %1$s is available. Tap to review update options.</string>
     <string name="settings_debug_update_preview">Debug update preview</string>
     <string name="settings_debug_update_preview_subtitle">Open the real latest GitHub release update flow for direct in-app download testing.</string>
-    <string name="settings_lan_share_pairing_code">LAN Share Pairing Code</string>
-    <string name="settings_lan_share_pairing_configured">Configured (tap to update or clear)</string>
-    <string name="settings_lan_share_pairing_not_set">Not configured (required for LAN sharing)</string>
     <string name="settings_lan_share_enabled_title">Enable LAN Share</string>
     <string name="settings_lan_share_enabled_subtitle">Allow device discovery and local network transfers</string>
-    <string name="settings_lan_share_pairing_dialog_title">Set Pairing Code</string>
-    <string name="settings_lan_share_pairing_dialog_message">Use the same code on all devices you want to trust for LAN sharing.</string>
-    <string name="settings_lan_share_pairing_hint">6–64 characters</string>
     
     <string name="input_hint_1">Long press + to scroll to top</string>
     <string name="input_hint_2">Swipe the toolbar left or right for more tools</string>
@@ -265,19 +259,14 @@
     <string name="share_permission_required_title">Local network permission required</string>
     <string name="share_permission_required_hint">Allow local network access to discover nearby devices on this WiFi.</string>
     <string name="share_open_settings">Open settings</string>
-    <string name="share_e2e_enabled_title">End-to-end encryption</string>
-    <string name="share_e2e_enabled_subtitle">Encrypt memo content and attachments during LAN transfer</string>
-    <string name="share_e2e_state_enabled">Enabled</string>
-    <string name="share_e2e_state_disabled">Disabled</string>
-    <string name="share_e2e_password_title">End-to-end password</string>
-    <string name="share_e2e_password_set">Set</string>
-    <string name="share_e2e_password_configured">Configured</string>
-    <string name="share_e2e_password_not_set">Not configured (required when encryption is enabled)</string>
-    <string name="share_e2e_password_dialog_title">Set end-to-end password</string>
-    <string name="share_e2e_password_dialog_message">Use the same password on all devices you trust for LAN sharing.</string>
-    <string name="share_e2e_password_hint">6–64 characters</string>
-    <string name="share_password_show">Show</string>
-    <string name="share_password_hide">Hide</string>
+    <string name="lan_pairing_confirm_title">Verify device</string>
+    <string name="lan_pairing_confirm_message">Confirm that this code is identical on both devices. Trust is saved only after both devices confirm.</string>
+    <string name="lan_pairing_code_matches">Codes match</string>
+    <string name="lan_pairing_waiting">Verify the code shown on %1$s</string>
+    <string name="lan_pairing_required">Verify this device before sending</string>
+    <string name="lan_batch_approval_title">Incoming LAN transfer</string>
+    <string name="lan_batch_approval_summary">%1$d memos, %2$d attachments, %3$s</string>
+    <string name="lan_batch_item_results">%1$d item results</string>
     <string name="share_device_name_label">Device name</string>
     <string name="share_device_name_placeholder">Name shown to nearby devices</string>
     <string name="share_device_name_use_system">Use system name</string>
@@ -286,14 +275,11 @@
     <string name="share_error_transfer_rejected_by">Transfer rejected by %1$s</string>
     <string name="share_error_transfer_failed">Transfer failed</string>
     <string name="share_error_unknown">Unknown error</string>
-    <string name="share_error_set_password_first">Please set an end-to-end password first</string>
-    <string name="share_error_receiver_password_not_set">Receiver has not set an end-to-end password</string>
     <string name="share_error_invalid_attachment_size">Invalid image/audio size</string>
     <string name="share_error_attachment_too_large">Attachment is too large</string>
     <string name="share_error_attachment_resolve_failed">Cannot resolve attachment file path</string>
     <string name="share_error_unsupported_attachment_type">Unsupported attachment type</string>
     <string name="share_error_device_unreachable">Target device is unreachable</string>
-    <string name="share_error_invalid_pairing_code">Password must be 6–64 characters</string>
     <string name="share_incoming_title">Incoming memo</string>
     <string name="share_incoming_from">From: %1$s</string>
     <plurals name="share_incoming_attachments_count">
@@ -494,7 +480,6 @@
     <string name="action_save">Save</string>
     <string name="action_clear">Clear</string>
     <string name="action_turn_off_and_clear">Turn Off &amp; Clear</string>
-    <string name="action_clear_pairing_code">Clear pairing code</string>
     <string name="settings_credential_unreadable">Unreadable. Re-enter to repair.</string>
     <string name="settings_credential_invalid">Invalid. Re-enter to repair.</string>
 
@@ -738,6 +723,10 @@
     <string name="engine_recovery_code_label">Code: %1$s</string>
     <string name="engine_recovery_retry">Retry</string>
     <string name="engine_recovery_reselect">Choose workspace</string>
+    <string name="engine_recovery_rebuild_index">Rebuild derived index</string>
+    <string name="engine_recovery_export_diagnostics">Export diagnostics</string>
+    <string name="engine_recovery_diagnostics_saved">Diagnostics exported</string>
+    <string name="engine_recovery_diagnostics_failed">Could not export diagnostics</string>
 
     <!-- Stage-5 dark Sync Center (P5-10); not production-navigated until P5-13 -->
     <string name="sync_center_title">Sync Center</string>

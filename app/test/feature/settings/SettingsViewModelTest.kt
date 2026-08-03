@@ -47,7 +47,7 @@ import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
-import com.lomo.domain.usecase.LanSharePairingCodePolicy
+import com.lomo.domain.usecase.MigrationArchiveImportPlan
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.domain.usecase.MigrationSettingsSummary
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
@@ -60,7 +60,6 @@ import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import java.util.concurrent.CancellationException
 import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -137,14 +136,11 @@ class SettingsViewModelTest : AppFunSpec() {
             clearMocks(gitSyncSettingsUseCase, webDavSyncSettingsUseCase, s3SyncSettingsUseCase, switchRootStorageUseCase)
 
             shareServiceManager.lanShareEnabledValue = false
-            shareServiceManager.lanShareE2eEnabledValue = true
-            shareServiceManager.lanSharePairingConfiguredValue = false
             shareServiceManager.lanShareDeviceNameValue = "Local"
-            shareServiceManager.lanSharePairingCode.value = ""
             shareServiceManager.transferState.value = com.lomo.domain.model.ShareTransferState.Idle
-            shareServiceManager.incomingShare.value = com.lomo.domain.model.IncomingShareState.None
+            shareServiceManager.pendingPairing.value = null
+            shareServiceManager.incomingBatch.value = null
             shareServiceManager.discoveredDevices.value = emptyList()
-            shareServiceManager.setLanSharePairingCodeError = null
             credentialRepository.reset()
 
             mockEvery { gitSyncSettingsUseCase.observeGitSyncEnabled() } returns flowOf(false)
@@ -255,30 +251,6 @@ class SettingsViewModelTest : AppFunSpec() {
             }
         }
 
-        test("updateLanSharePairingCode surfaces validation errors") {
-            runTest {
-                shareServiceManager.setLanSharePairingCodeError = IllegalArgumentException("invalid code")
-                val viewModel = createViewModel()
-
-                viewModel.lanShareFeature.updateLanSharePairingCode("bad")
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.pairingCodeError.value shouldBe LanSharePairingCodePolicy.INVALID_LENGTH_MESSAGE
-            }
-        }
-
-        test("updateLanSharePairingCode keeps pairingCodeError clear on cancellation") {
-            runTest {
-                shareServiceManager.setLanSharePairingCodeError = CancellationException("cancelled")
-                val viewModel = createViewModel()
-
-                viewModel.lanShareFeature.updateLanSharePairingCode("123456")
-                testDispatcher.scheduler.advanceUntilIdle()
-
-                viewModel.pairingCodeError.value shouldBe null
-            }
-        }
-
         test("git conflict dialog classification uses structured error code") {
             runTest {
                 val viewModel = createViewModel()
@@ -379,6 +351,9 @@ class SettingsViewModelTest : AppFunSpec() {
 
 private class NoOpMigrationArchiveRepository : MigrationArchiveRepository {
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary = MigrationArchiveSummary()
+
+    override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan =
+        MigrationArchiveImportPlan(summary = MigrationArchiveSummary(), manifestVersion = 2)
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary = MigrationArchiveSummary()
 

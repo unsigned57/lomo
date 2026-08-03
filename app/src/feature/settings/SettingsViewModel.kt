@@ -67,7 +67,6 @@ class SettingsViewModel(
 
         val uiState: StateFlow<SettingsScreenUiState> = stateProvider.uiState
 
-        val pairingCodeError: StateFlow<String?> = stateProvider.pairingCodeError
         val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = stateProvider.connectionTestState
         val operationError: StateFlow<SettingsOperationError?> = stateProvider.operationError
 
@@ -75,6 +74,9 @@ class SettingsViewModel(
             SettingsStorageFeatureViewModel(
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
+                onError = { error ->
+                    _operationError.value = errorMapper.map(error, "Failed to update storage settings")
+                },
             )
         val displayFeature =
             SettingsDisplayFeatureViewModel(
@@ -115,7 +117,6 @@ class SettingsViewModel(
         val lanShareFeature =
             SettingsLanShareFeatureViewModel(
                 actionCoordinator = actionCoordinator,
-                lanShareCoordinator = lanShareCoordinator,
             )
         val gitFeature =
             SettingsGitFeatureViewModel(

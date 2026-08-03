@@ -17,6 +17,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,14 +27,7 @@ import kotlinx.coroutines.launch
 
 interface SettingsLanShareFeatureActions {
     val updateLanShareEnabled: (Boolean) -> Unit
-    val updateLanShareE2eEnabled: (Boolean) -> Unit
-    val updateLanSharePairingCode: (String) -> Unit
-    val clearLanSharePairingCode: () -> Unit
     val updateLanShareDeviceName: (String) -> Unit
-}
-
-interface SettingsLanShareFeatureSupport {
-    fun clearPairingCodeError()
 }
 
 interface SettingsRemoteProviderFeatureActions {
@@ -103,49 +97,68 @@ interface SettingsS3FeatureSupport {
 class SettingsStorageFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
+    private val onError: (Throwable) -> Unit,
 ) {
     fun updateRootDirectory(path: String) {
-        scope.launch { appConfigCoordinator.updateRootDirectory(path) }
+        launchUpdate { appConfigCoordinator.updateRootDirectory(path) }
     }
 
     fun updateRootUri(uriString: String) {
-        scope.launch { appConfigCoordinator.updateRootUri(uriString) }
+        launchUpdate { appConfigCoordinator.updateRootUri(uriString) }
     }
 
     fun updateImageDirectory(path: String) {
-        scope.launch { appConfigCoordinator.updateImageDirectory(path) }
+        launchUpdate { appConfigCoordinator.updateImageDirectory(path) }
     }
 
     fun updateImageUri(uriString: String) {
-        scope.launch { appConfigCoordinator.updateImageUri(uriString) }
+        launchUpdate { appConfigCoordinator.updateImageUri(uriString) }
     }
 
     fun updateVoiceDirectory(path: String) {
-        scope.launch { appConfigCoordinator.updateVoiceDirectory(path) }
+        launchUpdate { appConfigCoordinator.updateVoiceDirectory(path) }
     }
 
     fun updateVoiceUri(uriString: String) {
-        scope.launch { appConfigCoordinator.updateVoiceUri(uriString) }
+        launchUpdate { appConfigCoordinator.updateVoiceUri(uriString) }
     }
 
     fun updateSyncInboxDirectory(path: String) {
-        scope.launch { appConfigCoordinator.updateSyncInboxDirectory(path) }
+        launchUpdate { appConfigCoordinator.updateSyncInboxDirectory(path) }
     }
 
     fun updateSyncInboxUri(uriString: String) {
-        scope.launch { appConfigCoordinator.updateSyncInboxUri(uriString) }
+        launchUpdate { appConfigCoordinator.updateSyncInboxUri(uriString) }
     }
 
     fun updateSyncInboxEnabled(enabled: Boolean) {
-        scope.launch { appConfigCoordinator.updateSyncInboxEnabled(enabled) }
+        launchUpdate { appConfigCoordinator.updateSyncInboxEnabled(enabled) }
     }
 
     fun updateStorageFilenameFormat(format: String) {
-        scope.launch { appConfigCoordinator.updateStorageFilenameFormat(format) }
+        launchUpdate { appConfigCoordinator.updateStorageFilenameFormat(format) }
     }
 
     fun updateStorageTimestampFormat(format: String) {
-        scope.launch { appConfigCoordinator.updateStorageTimestampFormat(format) }
+        launchUpdate { appConfigCoordinator.updateStorageTimestampFormat(format) }
+    }
+
+    private val launchUpdate: (suspend () -> Unit) -> Unit = { operation ->
+        scope.launchStorageUpdate(onError, operation)
+    }
+}
+
+private fun CoroutineScope.launchStorageUpdate(
+    onError: (Throwable) -> Unit,
+    operation: suspend () -> Unit,
+) {
+    launch {
+        try {
+            operation()
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            onError(error)
+        }
     }
 }
 
@@ -410,26 +423,9 @@ sealed interface SettingsManualUpdateState {
 
 class SettingsLanShareFeatureViewModel(
     private val actionCoordinator: SettingsLanShareFeatureActions,
-    private val lanShareCoordinator: SettingsLanShareFeatureSupport,
 ) {
     fun updateLanShareEnabled(enabled: Boolean) {
         actionCoordinator.updateLanShareEnabled(enabled)
-    }
-
-    fun updateLanShareE2eEnabled(enabled: Boolean) {
-        actionCoordinator.updateLanShareE2eEnabled(enabled)
-    }
-
-    fun updateLanSharePairingCode(pairingCode: String) {
-        actionCoordinator.updateLanSharePairingCode(pairingCode)
-    }
-
-    fun clearLanSharePairingCode() {
-        actionCoordinator.clearLanSharePairingCode()
-    }
-
-    fun clearPairingCodeError() {
-        lanShareCoordinator.clearPairingCodeError()
     }
 
     fun updateLanShareDeviceName(deviceName: String) {

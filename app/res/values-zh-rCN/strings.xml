@@ -161,14 +161,8 @@
     <string name="settings_auto_open_input_on_foreground_subtitle">在主屏回到前台时自动打开输入框并弹出键盘</string>
     <string name="settings_scrollbar">显示滚动条</string>
     <string name="settings_scrollbar_subtitle">在主列表上显示可拖拽的滚动条</string>
-    <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
-    <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
-    <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
     <string name="settings_lan_share_enabled_title">启用局域网分享</string>
     <string name="settings_lan_share_enabled_subtitle">允许设备发现和局域网传输</string>
-    <string name="settings_lan_share_pairing_dialog_title">设置配对密码</string>
-    <string name="settings_lan_share_pairing_dialog_message">请在需要互信的设备上使用同一个配对密码。</string>
-    <string name="settings_lan_share_pairing_hint">6–64 个字符</string>
 
     <string name="input_hint_1">长按 + 号回到顶部</string>
     <string name="input_hint_2">左右滑动工具栏，查看更多功能</string>
@@ -260,19 +254,14 @@
     <string name="share_permission_required_title">需要本地网络权限</string>
     <string name="share_permission_required_hint">请允许本地网络访问，以便在当前 Wi‑Fi 下发现附近设备。</string>
     <string name="share_open_settings">打开设置</string>
-    <string name="share_e2e_enabled_title">端对端加密</string>
-    <string name="share_e2e_enabled_subtitle">在局域网传输中加密备忘录内容和附件</string>
-    <string name="share_e2e_state_enabled">已启用</string>
-    <string name="share_e2e_state_disabled">已关闭</string>
-    <string name="share_e2e_password_title">端对端密码</string>
-    <string name="share_e2e_password_set">设置</string>
-    <string name="share_e2e_password_configured">已设置</string>
-    <string name="share_e2e_password_not_set">未设置（开启加密时必填）</string>
-    <string name="share_e2e_password_dialog_title">设置端对端密码</string>
-    <string name="share_e2e_password_dialog_message">请在所有受信任的 LAN 分享设备上使用同一个密码。</string>
-    <string name="share_e2e_password_hint">6–64 个字符</string>
-    <string name="share_password_show">显示</string>
-    <string name="share_password_hide">隐藏</string>
+    <string name="lan_pairing_confirm_title">验证设备</string>
+    <string name="lan_pairing_confirm_message">请确认两台设备显示的代码完全一致。仅在双方确认后保存信任关系。</string>
+    <string name="lan_pairing_code_matches">代码一致</string>
+    <string name="lan_pairing_waiting">请核对 %1$s 上显示的代码</string>
+    <string name="lan_pairing_required">发送前请先验证此设备</string>
+    <string name="lan_batch_approval_title">收到局域网传输</string>
+    <string name="lan_batch_approval_summary">%1$d 条备忘录，%2$d 个附件，共 %3$s</string>
+    <string name="lan_batch_item_results">%1$d 条项目结果</string>
     <string name="share_device_name_label">设备名称</string>
     <string name="share_device_name_placeholder">附近设备可见的名称</string>
     <string name="share_device_name_use_system">使用系统设备名</string>
@@ -281,14 +270,11 @@
     <string name="share_error_transfer_rejected_by">%1$s 拒绝了分享</string>
     <string name="share_error_transfer_failed">传输失败</string>
     <string name="share_error_unknown">未知错误</string>
-    <string name="share_error_set_password_first">请先设置端对端密码</string>
-    <string name="share_error_receiver_password_not_set">接收端对方未设置端对端密码</string>
     <string name="share_error_invalid_attachment_size">图片/音频大小无效</string>
     <string name="share_error_attachment_too_large">附件过大</string>
     <string name="share_error_attachment_resolve_failed">无法解析附件文件路径</string>
     <string name="share_error_unsupported_attachment_type">不支持的附件类型</string>
     <string name="share_error_device_unreachable">目标设备不可达</string>
-    <string name="share_error_invalid_pairing_code">密码需为 6–64 个字符</string>
     <string name="share_incoming_title">收到备忘录</string>
     <string name="share_incoming_from">来自：%1$s</string>
     <plurals name="share_incoming_attachments_count">
@@ -488,7 +474,6 @@
     <string name="action_save">保存</string>
     <string name="action_clear">清除</string>
     <string name="action_turn_off_and_clear">关闭并清空</string>
-    <string name="action_clear_pairing_code">清除配对密码</string>
     <string name="settings_credential_unreadable">无法读取，请重新输入以修复。</string>
     <string name="settings_credential_invalid">内容无效，请重新输入以修复。</string>
 
@@ -732,6 +717,10 @@
     <string name="engine_recovery_code_label">代码：%1$s</string>
     <string name="engine_recovery_retry">重试</string>
     <string name="engine_recovery_reselect">选择工作区</string>
+    <string name="engine_recovery_rebuild_index">重建派生索引</string>
+    <string name="engine_recovery_export_diagnostics">导出诊断</string>
+    <string name="engine_recovery_diagnostics_saved">诊断已导出</string>
+    <string name="engine_recovery_diagnostics_failed">无法导出诊断</string>
 
     <!-- Stage-5 暗构建同步中心（P5-10）；P5-13 前不接入生产导航 -->
     <string name="sync_center_title">同步中心</string>
