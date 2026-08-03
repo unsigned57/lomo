@@ -38,7 +38,6 @@ internal fun Map<String, String>.legacyWebDavUsernameCredentialValue(): String? 
 
 internal fun CredentialField.migrationSensitiveKey(): String =
     when (this) {
-        CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> SettingsKey.LAN_SHARE_PAIRING_KEY_HEX
         CredentialField.GIT_TOKEN -> SettingsKey.GIT_TOKEN
         CredentialField.WEBDAV_USERNAME -> SettingsKey.WEBDAV_STORED_USERNAME
         CredentialField.WEBDAV_PASSWORD -> SettingsKey.WEBDAV_PASSWORD

@@ -88,7 +88,6 @@ constructor(
                 putString(SettingsKey.SIDEBAR_TAG_ORDER, dataStore.sidebarTagOrder.first())
                 putBoolean(SettingsKey.APP_LOCK_ENABLED, dataStore.appLockEnabled.first())
                 putBoolean(SettingsKey.LAN_SHARE_ENABLED, dataStore.lanShareEnabled.first())
-                putBoolean(SettingsKey.LAN_SHARE_E2E_ENABLED, dataStore.lanShareE2eEnabled.first())
                 putStringIfPresent(SettingsKey.LAN_SHARE_DEVICE_NAME, dataStore.lanShareDeviceName.first())
                 putBoolean(SettingsKey.SYNC_INBOX_ENABLED, dataStore.syncInboxEnabled.first())
                 putBoolean(SettingsKey.MEMO_SNAPSHOTS_ENABLED, dataStore.memoSnapshotsEnabled.first())
@@ -139,10 +138,6 @@ constructor(
             drainLegacyWebDavUsername()?.let { username ->
                 sensitive.putStringIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, username)
             }
-            sensitive.putCredentialIfPresent(
-                SettingsKey.LAN_SHARE_PAIRING_KEY_HEX,
-                CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
-            )
             sensitive.putCredentialIfPresent(SettingsKey.GIT_TOKEN, CredentialField.GIT_TOKEN)
             sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, CredentialField.WEBDAV_USERNAME)
             sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_PASSWORD, CredentialField.WEBDAV_PASSWORD)
@@ -241,11 +236,9 @@ constructor(
                 catalogAppPreferenceDescriptors.associateBy { descriptor -> descriptor.storageKey }
             val catalogAppPreferenceKeys =
                 appPreferenceDescriptorsByStorageKey.keys
-            val credentialSensitiveKeys =
-                setOf(SettingsKey.LAN_SHARE_PAIRING_KEY_HEX)
+            val credentialSensitiveKeys = emptySet<String>()
             val sensitiveCredentialFields =
                 listOf(
-                    CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
                     CredentialField.GIT_TOKEN,
                     CredentialField.WEBDAV_USERNAME,
                     CredentialField.WEBDAV_PASSWORD,
@@ -260,7 +253,6 @@ constructor(
                     SettingsKey.CHECK_UPDATES_ON_STARTUP,
                     SettingsKey.APP_LOCK_ENABLED,
                     SettingsKey.LAN_SHARE_ENABLED,
-                    SettingsKey.LAN_SHARE_E2E_ENABLED,
                     SettingsKey.SYNC_INBOX_ENABLED,
                     SettingsKey.MEMO_SNAPSHOTS_ENABLED,
                     SettingsKey.GIT_SYNC_ENABLED,

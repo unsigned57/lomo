@@ -18,7 +18,6 @@ object PreferenceDefaults {
     const val SCROLLBAR_ENABLED = true
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_ENABLED = true
-    const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
     const val CALENDAR_HEATMAP_THRESHOLDS = "1,3,6"
     const val COLOR_SOURCE = "dynamic"

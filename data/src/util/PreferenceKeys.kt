@@ -54,10 +54,7 @@ object PreferenceKeys {
     const val SCROLLBAR_ENABLED = "scrollbar_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_ENABLED = "lan_share_enabled"
-    const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
-    const val LAN_SHARE_E2E_ENABLED = "lan_share_e2e_enabled"
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
-    const val LAN_SHARE_DEVICE_UUID = "lan_share_device_uuid"
     const val SHARE_CARD_SHOW_TIME = "share_card_show_time"
     const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
     const val SHARE_CARD_SIGNATURE_TEXT = "share_card_signature_text"
@@ -129,7 +126,6 @@ object PreferenceKeys {
         const val SCROLLBAR_ENABLED = PreferenceDefaults.SCROLLBAR_ENABLED
         const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
         const val LAN_SHARE_ENABLED = PreferenceDefaults.LAN_SHARE_ENABLED
-        const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val CALENDAR_HEATMAP_THRESHOLDS = PreferenceDefaults.CALENDAR_HEATMAP_THRESHOLDS
         const val COLOR_SOURCE = PreferenceDefaults.COLOR_SOURCE

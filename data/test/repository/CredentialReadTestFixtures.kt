@@ -138,5 +138,4 @@ private val CredentialProvider.fields: List<CredentialField>
                     CredentialField.S3_ENCRYPTION_PASSWORD,
                     CredentialField.S3_ENCRYPTION_PASSWORD2,
                 )
-            CredentialProvider.LAN_SHARE -> listOf(CredentialField.LAN_SHARE_PAIRING_KEY_HEX)
         }

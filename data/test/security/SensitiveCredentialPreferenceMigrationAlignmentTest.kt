@@ -1,7 +1,6 @@
 package com.lomo.data.security
 
 import com.lomo.data.repository.DataStoreMigrationSettingsStore
-import com.lomo.data.repository.SettingsKey
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
@@ -40,8 +39,7 @@ import io.kotest.matchers.shouldBe
 class SensitiveCredentialPreferenceMigrationAlignmentTest : DataFunSpec() {
     init {
         test("given credential repository keys when migration sensitive keys are classified then credentials are sensitive only") {
-            DataStoreMigrationSettingsStore.credentialSensitiveKeys shouldBe
-                setOf(SettingsKey.LAN_SHARE_PAIRING_KEY_HEX)
+            DataStoreMigrationSettingsStore.credentialSensitiveKeys shouldBe emptySet()
 
             DataStoreMigrationSettingsStore.supportedSensitiveKeys shouldContainAll
                 DataStoreMigrationSettingsStore.credentialSensitiveKeys

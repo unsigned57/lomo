@@ -38,7 +38,6 @@ internal fun String.requireBooleanPreferenceKey(): Preferences.Key<Boolean> =
         SettingsKey.CHECK_UPDATES_ON_STARTUP -> LomoDataStoreKeys.CHECK_UPDATES_ON_STARTUP
         SettingsKey.APP_LOCK_ENABLED -> LomoDataStoreKeys.APP_LOCK_ENABLED
         SettingsKey.LAN_SHARE_ENABLED -> LomoDataStoreKeys.LAN_SHARE_ENABLED
-        SettingsKey.LAN_SHARE_E2E_ENABLED -> LomoDataStoreKeys.LAN_SHARE_E2E_ENABLED
         SettingsKey.SYNC_INBOX_ENABLED -> LomoDataStoreKeys.SYNC_INBOX_ENABLED
         SettingsKey.MEMO_SNAPSHOTS_ENABLED -> LomoDataStoreKeys.MEMO_SNAPSHOTS_ENABLED
         SettingsKey.GIT_SYNC_ENABLED -> LomoDataStoreKeys.GIT_SYNC_ENABLED

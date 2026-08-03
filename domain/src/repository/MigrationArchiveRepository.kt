@@ -9,8 +9,7 @@ import java.io.OutputStream
 interface MigrationArchiveRepository {
     suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary
 
-    suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan =
-        throw UnsupportedOperationException("Migration archive dry-run inspection is not implemented")
+    suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan
 
     suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary
 

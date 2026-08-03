@@ -154,7 +154,6 @@ interface LomoAppSecurityStore {
 
 interface LomoLanSharePreferencesStore {
     val lanShareEnabled: Flow<Boolean>
-    val lanShareE2eEnabled: Flow<Boolean>
     val lanShareDeviceName: Flow<String?>
     val shareCardShowTime: Flow<Boolean>
     val shareCardShowBrand: Flow<Boolean>
@@ -163,11 +162,7 @@ interface LomoLanSharePreferencesStore {
 
     suspend fun updateLanShareEnabled(enabled: Boolean)
 
-    suspend fun updateLanShareE2eEnabled(enabled: Boolean)
-
     suspend fun updateLanShareDeviceName(name: String?)
-
-    suspend fun getOrCreateLanShareDeviceUuid(): String
 
     suspend fun updateShareCardShowTime(enabled: Boolean)
 
@@ -176,10 +171,6 @@ interface LomoLanSharePreferencesStore {
     suspend fun updateShareCardSignatureText(text: String)
 
     suspend fun updateSyncInboxEnabled(enabled: Boolean)
-}
-
-internal interface LomoLegacyCredentialDrainStore {
-    suspend fun drainLegacyLanSharePairingKeyHex(): String?
 }
 
 interface LomoDailyReviewSessionStore {
@@ -398,7 +389,6 @@ class LomoDataStore private constructor(
     LomoSidebarTagOrderStore by SidebarTagOrderStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
-    LomoLegacyCredentialDrainStore by LegacyCredentialDrainStoreImpl(dataStore),
     LomoDailyReviewSessionStore by DailyReviewSessionStoreImpl(dataStore),
     LomoSnapshotPreferencesStore by SnapshotPreferencesStoreImpl(dataStore),
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
@@ -553,9 +543,7 @@ internal object LomoDataStoreKeys {
     val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
-    val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
-    val LAN_SHARE_DEVICE_UUID = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_UUID)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
     val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
     val SHARE_CARD_SIGNATURE_TEXT = stringPreferencesKey(PreferenceKeys.SHARE_CARD_SIGNATURE_TEXT)

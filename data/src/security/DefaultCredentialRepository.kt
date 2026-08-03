@@ -19,7 +19,6 @@ class DefaultCredentialRepository(
     private val gitCredentialStore: GitCredentialStore,
     private val webDavCredentialStore: WebDavCredentialStore,
     private val s3CredentialStore: S3CredentialStore,
-    private val lanCredentialStore: LanShareCredentialStore,
 ) : CredentialRepository {
         private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -33,7 +32,6 @@ class DefaultCredentialRepository(
                 CredentialProvider.GIT -> gitCredentialStore.credentialState
                 CredentialProvider.WEBDAV -> webDavCredentialStore.credentialState
                 CredentialProvider.S3 -> s3CredentialStore.credentialState
-                CredentialProvider.LAN_SHARE -> lanCredentialStore.credentialState
             }
 
         override suspend fun readSecret(
@@ -53,7 +51,6 @@ class DefaultCredentialRepository(
                 CredentialField.S3_ENCRYPTION_PASSWORD,
                 CredentialField.S3_ENCRYPTION_PASSWORD2,
                 -> s3CredentialStore.readSecret(field)
-                CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> lanCredentialStore.readPairingKeyHex()
             }.toCredentialSecretReadResult()
         }
 
@@ -71,7 +68,6 @@ class DefaultCredentialRepository(
                 CredentialField.S3_ENCRYPTION_PASSWORD,
                 CredentialField.S3_ENCRYPTION_PASSWORD2,
                 -> s3CredentialStore.setSecret(field, value)
-                CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> lanCredentialStore.setPairingKeyHex(value)
             }
             changes.tryEmit(Unit)
         }

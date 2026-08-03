@@ -17,7 +17,6 @@ enum class CredentialProvider {
     GIT,
     WEBDAV,
     S3,
-    LAN_SHARE,
 }
 
 enum class CredentialField {
@@ -29,7 +28,6 @@ enum class CredentialField {
     S3_SESSION_TOKEN,
     S3_ENCRYPTION_PASSWORD,
     S3_ENCRYPTION_PASSWORD2,
-    LAN_SHARE_PAIRING_KEY_HEX,
 }
 
 val CredentialField.isRequiredForProviderConfiguration: Boolean
@@ -40,7 +38,6 @@ val CredentialField.isRequiredForProviderConfiguration: Boolean
             CredentialField.WEBDAV_PASSWORD,
             CredentialField.S3_ACCESS_KEY_ID,
             CredentialField.S3_SECRET_ACCESS_KEY,
-            CredentialField.LAN_SHARE_PAIRING_KEY_HEX,
             -> true
             CredentialField.S3_SESSION_TOKEN,
             CredentialField.S3_ENCRYPTION_PASSWORD,
@@ -62,7 +59,6 @@ private val CredentialProvider.requiredFields: Set<CredentialField>
                     CredentialField.S3_ACCESS_KEY_ID,
                     CredentialField.S3_SECRET_ACCESS_KEY,
                 )
-            CredentialProvider.LAN_SHARE -> setOf(CredentialField.LAN_SHARE_PAIRING_KEY_HEX)
         }
 
 data class CredentialFieldState(

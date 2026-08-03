@@ -407,13 +407,6 @@ internal class LanSharePreferencesStoreImpl(
             default = PreferenceKeys.Defaults.LAN_SHARE_ENABLED,
         )
 
-    override val lanShareE2eEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.LAN_SHARE_E2E_ENABLED,
-            flowName = "lanShareE2eEnabled",
-            default = PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED,
-        )
-
     override val lanShareDeviceName: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.LAN_SHARE_DEVICE_NAME, "lanShareDeviceName")
 
@@ -449,27 +442,8 @@ internal class LanSharePreferencesStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_ENABLED] = enabled }
     }
 
-    override suspend fun updateLanShareE2eEnabled(enabled: Boolean) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_E2E_ENABLED] = enabled }
-    }
-
     override suspend fun updateLanShareDeviceName(name: String?) {
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_DEVICE_NAME, name)
-    }
-
-    override suspend fun getOrCreateLanShareDeviceUuid(): String {
-        var resolvedUuid: String? = null
-        dataStore.editPreferences {
-            val existing = this[LomoDataStoreKeys.LAN_SHARE_DEVICE_UUID]
-            resolvedUuid =
-                if (existing == null) {
-                    UUID.randomUUID().toString()
-                } else {
-                    canonicalStoredLanShareDeviceUuid(existing)
-                }
-            this[LomoDataStoreKeys.LAN_SHARE_DEVICE_UUID] = checkNotNull(resolvedUuid)
-        }
-        return checkNotNull(resolvedUuid)
     }
 
     override suspend fun updateShareCardShowTime(enabled: Boolean) {
@@ -486,35 +460,6 @@ internal class LanSharePreferencesStoreImpl(
 
     override suspend fun updateSyncInboxEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
-    }
-}
-
-private fun canonicalStoredLanShareDeviceUuid(value: String): String =
-    try {
-        val candidate = value.trim()
-        val canonical = UUID.fromString(candidate).toString()
-        check(canonical.equals(candidate, ignoreCase = true)) {
-            "Stored LAN share device UUID is not canonical."
-        }
-        canonical
-    } catch (error: IllegalArgumentException) {
-        throw IllegalStateException("Stored LAN share device UUID is invalid.", error)
-    }
-
-internal class LegacyCredentialDrainStoreImpl(
-    private val dataStore: DataStore<Preferences>,
-) : LomoLegacyCredentialDrainStore {
-    override suspend fun drainLegacyLanSharePairingKeyHex(): String? {
-        var drainedValue: String? = null
-        dataStore.editPreferences {
-            drainedValue = this[LEGACY_LAN_SHARE_PAIRING_KEY_HEX]
-            remove(LEGACY_LAN_SHARE_PAIRING_KEY_HEX)
-        }
-        return drainedValue?.takeIf(String::isNotBlank)
-    }
-
-    private companion object {
-        val LEGACY_LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
     }
 }
 

@@ -889,7 +889,6 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 SettingsKey.SIDEBAR_TAG_ORDER to "work,home",
                 SettingsKey.APP_LOCK_ENABLED to true.toString(),
                 SettingsKey.LAN_SHARE_ENABLED to true.toString(),
-                SettingsKey.LAN_SHARE_E2E_ENABLED to false.toString(),
                 SettingsKey.SYNC_INBOX_ENABLED to true.toString(),
                 SettingsKey.MEMO_SNAPSHOTS_ENABLED to true.toString(),
                 SettingsKey.MEMO_SNAPSHOT_MAX_COUNT to "7",
@@ -1006,7 +1005,6 @@ private class FailingPreferencesDataStore(
 }
 
 private data class CredentialFixtureState(
-    var lanPairingKeyHex: String? = null,
     var gitToken: String? = null,
     var webDavUsername: String? = null,
     var webDavPassword: String? = null,
@@ -1062,7 +1060,6 @@ private class FakeCredentialRepository(
         }
         operationLog += "credential:${field.name}=${value ?: "<cleared>"}"
         when (field) {
-            CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> credentials.lanPairingKeyHex = value
             CredentialField.GIT_TOKEN -> credentials.gitToken = value
             CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername = value
             CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword = value
@@ -1083,7 +1080,6 @@ private class FakeCredentialRepository(
 
     private fun readValue(field: CredentialField): String? =
         when (field) {
-            CredentialField.LAN_SHARE_PAIRING_KEY_HEX -> credentials.lanPairingKeyHex
             CredentialField.GIT_TOKEN -> credentials.gitToken
             CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername
             CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword
@@ -1106,6 +1102,5 @@ private class FakeCredentialRepository(
                     CredentialField.S3_ENCRYPTION_PASSWORD,
                     CredentialField.S3_ENCRYPTION_PASSWORD2,
                 )
-            CredentialProvider.LAN_SHARE -> listOf(CredentialField.LAN_SHARE_PAIRING_KEY_HEX)
         }
 }
