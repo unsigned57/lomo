@@ -92,7 +92,10 @@ Mandatory minimum after production or test code changes:
      for the changed specs, or the module suite when the change is broad.
    - Native/FFI/device: regenerate/pack as required, then `just device-smoke` when engine, lock,
      packaging, or smoke surface changed and a device/emulator is available.
-3. **Repository iterative gate before push/handoff**: `just check`.
+3. **Path-aware pre-push gate (automatic)**: pre-push runs `just preflight push`; only surfaces
+   touched by pushed commits run (Rust-only pushes skip the Kotlin gate). A missing remote base
+   falls back to the full iterative surface. Run `just check` before push/handoff when the full
+   gate is wanted.
 4. **Full handoff gate before merge / shared-branch delivery**: `just ci`.
 5. **Device when applicable**: `just device-smoke` on attached **API ≥ 26** with a packaged ABI.
    Stage-1/2 entry hard device gate is API ≥ 26 arm64 when that is the available device line; a
@@ -114,14 +117,16 @@ Do **not**:
 
 - **Bootstrap**: `just bootstrap`
 - **Lightweight commit hook**: format staged sources + staged meaningful-test contracts only
-- **Path-aware iteration**: `just preflight` (manual; not on every commit; never the final handoff)
-- **Iterative Check**: `just check` (pre-push hook and local iterative validation)
+- **Path-aware iteration**: `just preflight staged` for the staged surface, `just preflight push`
+  (also the pre-push hook) for the pushed surface; manual preflight is never the final handoff
+- **Iterative Check**: `just check` (full local iterative validation before handoff)
 - **Full Gate**: `just ci` (coverage + fat-LTO release native; PR/merge handoff and local confirmation)
 - **Device Smoke**: `just device-smoke`
 - **Android Build**: `just android debug` or `just android release`
-- **Commit Rule**: pre-commit stays cheap (fmt + contracts); pre-push runs `just check`; before merge
-  or shared-branch handoff run `just ci` (GitHub Actions enforces the PR surface). Use
-  `just preflight` while iterating when you want a path-aware subset without a full check.
+- **Commit Rule**: pre-commit stays cheap (fmt + contracts); pre-push runs `just preflight push`
+  (path-aware); before merge or shared-branch handoff run `just ci` (GitHub Actions enforces the
+  PR surface). Use `just preflight` while iterating when you want a path-aware subset without a
+  full check.
 
 ## 6. Repository Facts
 

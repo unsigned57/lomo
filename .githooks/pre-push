@@ -2,8 +2,10 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-# Heavy iterative gate once per push. Pre-commit stays lightweight (fmt + contracts).
+# Path-aware push gate: only the surfaces affected by pushed commits run (rust-only pushes
+# skip the Kotlin gate). A missing remote base falls back to the full iterative surface.
 # Coverage + fat-LTO remain on GitHub Actions / local merge handoff (ci recipe).
-echo "pre-push: running iterative repository gate (just check)..."
-just --justfile "$repo_root/Justfile" check
-echo "pre-push: check complete; run the ci recipe for coverage/fat-LTO before merge handoff"
+remote="${1:-origin}"
+echo "pre-push: running path-aware push gate (just preflight push ${remote})..."
+just --justfile "$repo_root/Justfile" preflight push "$remote"
+echo "pre-push: preflight complete; run the full handoff gate before merge as needed"

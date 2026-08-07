@@ -73,10 +73,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-apks
-          path: .kotlin/artifacts/android-release/lomo-release-*.apk
+          path: build/apk/release/Lomo-*.apk
           if-no-files-found: error
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
-          files: .kotlin/artifacts/android-release/lomo-release-*.apk
+          files: build/apk/release/Lomo-*.apk

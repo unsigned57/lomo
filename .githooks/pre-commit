@@ -11,31 +11,36 @@ if [ ! -f "$justfile" ]; then
 fi
 
 # Lightweight commit gate only: format + staged test contracts.
-# Heavy verification lives on pre-push (check) and handoff/CI (ci).
-# Manual path-aware iteration remains available via the preflight Just recipe.
+# Heavy verification lives on pre-push (path-aware preflight) and handoff/CI (ci).
 
-staged_kotlin_files=()
+staged_files=()
 while IFS= read -r -d '' file; do
-  staged_kotlin_files+=("$file")
-done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z -- '*.kt' '*.kts')
+  staged_files+=("$file")
+done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z)
 
-if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
-  unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-detekt-git-hook-$$.diff")"
-  unstaged_diff_reversed=0
+# Protect unstaged edits to staged files while formatting runs. `just fmt staged` runs
+# cargo fmt over the whole workspace and detekt over staged Kotlin only, so any staged
+# file may be rewritten; the index must end up with the formatted version and the
+# working tree must keep its unstaged edits.
+unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-git-hook-$$.diff")"
+unstaged_diff_reversed=0
 
-  cleanup() {
-    local exit_code=$?
-    trap - EXIT INT TERM
-    if [ "$unstaged_diff_reversed" -eq 1 ] && [ -f "$unstaged_diff" ] && [ -s "$unstaged_diff" ]; then
-      git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff" || true
+cleanup() {
+  local code=$?
+  trap - EXIT INT TERM
+  if [ "$unstaged_diff_reversed" -eq 1 ] && [ -f "$unstaged_diff" ] && [ -s "$unstaged_diff" ]; then
+    if ! git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff" >/dev/null 2>&1; then
+      echo "pre-commit: WARNING unstaged changes could not be restored; kept at $unstaged_diff" >&2
     fi
-    rm -f "$unstaged_diff"
-    exit "$exit_code"
-  }
+  fi
+  rm -f "$unstaged_diff"
+  exit "$code"
+}
 
-  trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM
 
-  git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" >"$unstaged_diff"
+if [ "${#staged_files[@]}" -gt 0 ]; then
+  git -C "$repo_root" diff --binary --color=never -- "${staged_files[@]}" >"$unstaged_diff"
   if [ -s "$unstaged_diff" ]; then
     git -C "$repo_root" apply -R "$unstaged_diff"
     unstaged_diff_reversed=1
@@ -45,11 +50,20 @@ if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
   just --justfile "$justfile" fmt staged
   echo "pre-commit: format pass finished"
 
-  for file in "${staged_kotlin_files[@]}"; do
+  for file in "${staged_files[@]}"; do
     if [ -f "$repo_root/$file" ]; then
       git -C "$repo_root" add -- "$file"
     fi
   done
+
+  if [ "$unstaged_diff_reversed" -eq 1 ]; then
+    if ! git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff"; then
+      echo "pre-commit: FAILED to restore unstaged changes; kept at $unstaged_diff; resolve manually before continuing" >&2
+      exit 1
+    fi
+    unstaged_diff_reversed=0
+    rm -f "$unstaged_diff"
+  fi
 else
   echo "pre-commit: formatting staged sources through xtask..."
   just --justfile "$justfile" fmt staged

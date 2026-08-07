@@ -67,9 +67,9 @@ pub fn test(workspace: &Workspace) -> Result<()> {
 
 /// Path-aware commit gate used by pre-commit. Never weaker than the contracts that
 /// staged paths can break; skips unrelated multi-minute surfaces.
-pub fn preflight(workspace: &Workspace) -> Result<()> {
+pub fn preflight(workspace: &Workspace, source: ChangeSource) -> Result<()> {
     tools::ensure_quality(workspace)?;
-    let changes = classify_changes(workspace, ChangeSource::Staged)?;
+    let changes = classify_changes(workspace, source)?;
     crate::util::emit_stderr(format_args!(
         "xtask: preflight rust={} kotlin={} native={} quality_infra={} docs_only={}",
         changes.rust, changes.kotlin, changes.native, changes.quality_infra, changes.docs_only
@@ -134,13 +134,14 @@ pub fn ci(workspace: &Workspace) -> Result<()> {
             coverage: CoverageMode::On,
         },
     )?;
-    crate::android::validate_built_apk(
+    let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
         false,
         &native::Abi::ALL,
         crate::android::ApkModule::App,
     )?;
+    crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     crate::util::emit_stderr(format_args!("xtask: ci complete"));
     Ok(())
 }
@@ -163,13 +164,14 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
             coverage,
         },
     )?;
-    crate::android::validate_built_apk(
+    let apk = crate::android::validate_built_apk(
         workspace,
         &workspace.kotlin_build,
         false,
         &native::Abi::ALL,
         crate::android::ApkModule::App,
     )?;
+    crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     Ok(())
 }
 
@@ -336,13 +338,26 @@ fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ChangeSource {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChangeSource {
+    /// Compare against the git index (staged paths).
     Staged,
+    /// Compare pushed commits against the remote base (path-aware pre-push gate).
+    Push { remote: String },
 }
 
 fn classify_changes(workspace: &Workspace, source: ChangeSource) -> Result<ChangeSet> {
     let files = changed_paths(workspace, source)?;
+    let Some(files) = files else {
+        // No usable remote base for push-time comparison; run the full iterative surface.
+        return Ok(ChangeSet {
+            rust: true,
+            kotlin: true,
+            native: true,
+            quality_infra: true,
+            docs_only: false,
+        });
+    };
     if files.is_empty() {
         // Empty stage still runs a cheap contract surface rather than silent success.
         return Ok(ChangeSet {
@@ -401,21 +416,49 @@ fn classify_changes(workspace: &Workspace, source: ChangeSource) -> Result<Chang
     })
 }
 
-fn changed_paths(workspace: &Workspace, source: ChangeSource) -> Result<BTreeSet<String>> {
+fn changed_paths(workspace: &Workspace, source: ChangeSource) -> Result<Option<BTreeSet<String>>> {
     let mut command = Command::new("git");
     command.current_dir(&workspace.root);
     match source {
         ChangeSource::Staged => {
             command.args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]);
         }
+        ChangeSource::Push { remote } => {
+            let Some(base) = push_base(workspace, &remote)? else {
+                return Ok(None);
+            };
+            command.args(["diff", "--name-only", "--diff-filter=ACMR"]);
+            command.arg(format!("{base}...HEAD"));
+        }
     }
     let output = text_output(&mut command)?;
-    Ok(output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect())
+    Ok(Some(
+        output
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    ))
+}
+
+/// Resolve the remote base ref for push-time comparison: the remote HEAD (or the remote
+/// default branch) tracked locally. `None` means no base is available, not that the
+/// comparison is empty.
+fn push_base(workspace: &Workspace, remote: &str) -> Result<Option<String>> {
+    for reference in [
+        format!("refs/remotes/{remote}/HEAD"),
+        format!("refs/remotes/{remote}/main"),
+    ] {
+        let mut rev = Command::new("git");
+        rev.current_dir(&workspace.root)
+            .args(["rev-parse", "--verify"])
+            .arg(&reference);
+        if rev.status().context("git rev-parse failed")?.success() {
+            return Ok(Some(reference));
+        }
+    }
+    Ok(None)
 }
 
 fn is_rust_path(path: &str) -> bool {

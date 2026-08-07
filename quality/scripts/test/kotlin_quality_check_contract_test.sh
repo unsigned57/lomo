@@ -93,7 +93,7 @@ require_text native-bindings/module.yaml 'allWarningsAsErrors: true'
 require_text .gitignore '/native-bindings/src/'
 require_text .gitignore '/app/jniLibs/'
 require_text .githooks/pre-commit 'preflight'
-require_text .githooks/pre-push 'just check'
+require_text .githooks/pre-push 'preflight push'
 if grep -Eq 'just ci' .githooks/pre-commit .githooks/pre-push; then
   fail "hooks must not invoke full just ci"
 fi

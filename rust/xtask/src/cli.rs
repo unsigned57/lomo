@@ -19,7 +19,7 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "bootstrap" => no_args(rest, || tools::bootstrap(workspace)),
         "fmt" => quality::format(workspace, format_mode(rest)?),
         "test" => no_args(rest, || quality::test(workspace)),
-        "preflight" => no_args(rest, || quality::preflight(workspace)),
+        "preflight" => preflight(workspace, rest),
         "check" => no_args(rest, || quality::check(workspace)),
         "bindings" => no_args(rest, || native::generate_bindings(workspace)),
         "native" => native_command(workspace, rest),
@@ -87,6 +87,21 @@ fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         apk.display()
     ));
     Ok(())
+}
+
+fn preflight(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    let source = match arguments {
+        [] => quality::ChangeSource::Staged,
+        [value] if value == "staged" => quality::ChangeSource::Staged,
+        [value] if value == "push" => quality::ChangeSource::Push {
+            remote: "origin".to_owned(),
+        },
+        [value, remote] if value == "push" => quality::ChangeSource::Push {
+            remote: remote.clone(),
+        },
+        _ => bail!("usage: just preflight [staged|push [<remote>]]"),
+    };
+    quality::preflight(workspace, source)
 }
 
 fn parse_variant(value: &str) -> Result<AndroidVariant> {

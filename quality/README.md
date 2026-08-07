@@ -12,8 +12,8 @@ xtask; they are not public quality orchestrators.
 | Install pinned Rust tools, targets, and NDK | `just bootstrap` |
 | Format staged/all sources or check formatting | `just fmt staged`, `just fmt all`, `just fmt check` |
 | Run Rust and Kotlin host tests | `just test` |
-| Path-aware iterative gate (manual) | `just preflight` |
-| Iterative repository gate (pre-push) | `just check` |
+| Path-aware iterative gate (manual / pre-push) | `just preflight staged`, `just preflight push` |
+| Iterative repository gate (handoff) | `just check` |
 | Generate four-ABI release native outputs and bindings | `just native` |
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
@@ -33,7 +33,8 @@ configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PA
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
 | pre-commit hook | `just fmt staged`, staged meaningful-test contracts | all compile/test/native gates (so multi-commit stacks stay cheap) |
-| `just preflight` | Path-aware subset for manual iteration: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add matching native generation and Kotlin surfaces | coverage, fat-LTO, device smoke; not attached to every commit |
+| `just preflight staged` | Path-aware subset for manual iteration: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add matching native generation and Kotlin surfaces | coverage, fat-LTO, device smoke; not attached to every commit |
+| `just preflight push` | Path-aware subset of pushed commits vs the remote base (runs on pre-push): rust-only pushes skip the Kotlin surface; a missing remote base falls back to the full iterative surface | coverage, fat-LTO, device smoke |
 | `just test` | Cargo nextest + doc tests; Kotlin host tests | static analysis, coverage, native/APK validation |
 | `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
@@ -58,7 +59,7 @@ cold start are optional diagnostics.
 | Hook | Runs | Why |
 | --- | --- | --- |
 | pre-commit | `just fmt staged`, staged meaningful-test policy | Cheap per-commit feedback; does **not** re-run compile/test/native for every commit in a stack |
-| pre-push | `just check` | One iterative gate before remote update |
+| pre-push | `just preflight push` | Path-aware iterative gate before remote update |
 | merge / handoff | `just ci` (local) + GitHub PR workflow | Coverage, fat-LTO release semantics, path-filtered remote jobs |
 
 Use `just preflight` while iterating when you want a path-aware subset without waiting for a full

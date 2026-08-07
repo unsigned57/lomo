@@ -36,9 +36,10 @@ fmt mode="staged":
 test:
     {{xtask}} test
 
-# Path-aware commit gate (fmt/meaningful-tests are handled by the git hook).
-preflight:
-    {{xtask}} preflight
+# Path-aware commit gate (fmt/meaningful-tests are handled by the git hook). `push` mode
+# compares pushed commits against the remote base and runs on pre-push.
+preflight mode="staged" remote="origin":
+    {{xtask}} preflight {{mode}} {{remote}}
 
 # Run the iterative Rust + Kotlin quality gate.
 check:

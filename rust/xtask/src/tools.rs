@@ -25,8 +25,18 @@ struct BoltffiPin {
 pub fn bootstrap(workspace: &Workspace) -> Result<()> {
     bootstrap_rust(workspace)?;
     install_ndk(workspace)?;
+    install_git_hooks(workspace)?;
     crate::util::emit_stderr(format_args!("xtask: bootstrap complete"));
     Ok(())
+}
+
+/// Activate the repository-owned `.githooks` directory (idempotent local config).
+fn install_git_hooks(workspace: &Workspace) -> Result<()> {
+    let mut config = Command::new("git");
+    config
+        .current_dir(&workspace.root)
+        .args(["config", "core.hooksPath", ".githooks"]);
+    run(&mut config)
 }
 
 pub fn bootstrap_rust(workspace: &Workspace) -> Result<()> {

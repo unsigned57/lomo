@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
@@ -23,7 +24,7 @@ env:
   LOMO_KOTLIN_GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/kotlin-toolchain
   KOTLIN_CLI_BOOTSTRAP_CACHE_DIR: ${{ github.workspace }}/.kotlin-cli
 
-jobs:
+  jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -36,6 +37,7 @@ jobs:
       run_native: ${{ steps.flags.outputs.run_native }}
       run_android: ${{ steps.flags.outputs.run_android }}
       run_smoke: ${{ steps.flags.outputs.run_smoke }}
+      skip: ${{ steps.guard.outputs.skip }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -110,10 +112,20 @@ jobs:
           echo "run_native=$run_native" >> "$GITHUB_OUTPUT"
           echo "run_android=$run_android" >> "$GITHUB_OUTPUT"
           echo "run_smoke=$run_smoke" >> "$GITHUB_OUTPUT"
+      - name: Skip duplicate push runs with an open PR
+        id: guard
+        if: github.event_name == 'push'
+        run: |
+          branch="${GITHUB_REF#refs/heads/}"
+          if gh pr list --head "$branch" --state open --json number --jq 'length > 0' | grep -qx true; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
   rust-host:
     needs: changes
-    if: needs.changes.outputs.run_rust == 'true'
+    if: needs.changes.outputs.skip != 'true' && needs.changes.outputs.run_rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -135,7 +147,7 @@ jobs:
 
   native:
     needs: changes
-    if: needs.changes.outputs.run_native == 'true'
+    if: needs.changes.outputs.skip != 'true' && needs.changes.outputs.run_native == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -171,6 +183,7 @@ jobs:
     needs: [changes, native]
     if: |
       always() &&
+      needs.changes.outputs.skip != 'true' &&
       needs.changes.outputs.run_android == 'true' &&
       (needs.changes.outputs.run_native != 'true' || needs.native.result == 'success')
     steps:
@@ -225,7 +238,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: debug-apk
-          path: .kotlin/toolchain-build/shared/**/*.apk
+          path: build/apk/debug/Lomo-*.apk
           if-no-files-found: error
       - name: Upload reports on failure
         if: failure()
@@ -240,6 +253,7 @@ jobs:
     needs: [changes, android-kotlin]
     if: |
       always() &&
+      needs.changes.outputs.skip != 'true' &&
       needs.changes.outputs.run_smoke == 'true' &&
       (needs.changes.outputs.run_android != 'true' || needs.android-kotlin.result == 'success')
     steps:
@@ -274,7 +288,7 @@ jobs:
           script: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- device-smoke
 
   quality:
-    if: always()
+    if: always() && needs.changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
     needs: [changes, rust-host, native, android-kotlin, api26-smoke]
     steps:

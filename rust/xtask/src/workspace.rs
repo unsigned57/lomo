@@ -157,8 +157,8 @@ impl Workspace {
         self.root.join("app/jniLibs")
     }
 
-    pub fn android_artifacts(&self) -> PathBuf {
-        self.root.join(".kotlin/artifacts/android-release")
+    pub fn apk_output_dir(&self, variant: &str) -> PathBuf {
+        self.root.join("build").join("apk").join(variant)
     }
 
     pub fn temp_dir(&self, name: &str) -> Result<PathBuf> {
