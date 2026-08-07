@@ -151,11 +151,7 @@ mod tests {
                 }
                 RenderBlock::List { items, .. } => {
                     for item in items {
-                        match item.checked {
-                            Some(true) => *task_checked += 1,
-                            Some(false) => *task_unchecked += 1,
-                            None => {}
-                        }
+                        count_task_state(item.checked, task_checked, task_unchecked);
                         walk_blocks(&item.blocks, links, images, task_checked, task_unchecked);
                     }
                 }
@@ -168,6 +164,17 @@ mod tests {
                 | RenderBlock::ThematicBreak { .. }
                 | RenderBlock::HtmlBlock { .. } => {}
             }
+        }
+    }
+
+    fn count_task_state(
+        checked: Option<bool>,
+        task_checked: &mut usize,
+        task_unchecked: &mut usize,
+    ) {
+        if let Some(checked) = checked {
+            *task_checked += usize::from(checked);
+            *task_unchecked += usize::from(!checked);
         }
     }
 
@@ -370,14 +377,16 @@ mod tests {
             let mut storage_tags = Vec::new();
             let mut storage_attachments = Vec::new();
             for memo in workspace.memos() {
-                for tag in memo.tags() {
-                    if !storage_tags.contains(tag) {
-                        storage_tags.push(tag.clone());
+                let tags: Vec<_> = memo.tags().to_vec();
+                for tag in tags {
+                    if !storage_tags.contains(&tag) {
+                        storage_tags.push(tag);
                     }
                 }
-                for attachment in memo.attachments() {
-                    if !storage_attachments.contains(attachment) {
-                        storage_attachments.push(attachment.clone());
+                let attachments: Vec<_> = memo.attachments().to_vec();
+                for attachment in attachments {
+                    if !storage_attachments.contains(&attachment) {
+                        storage_attachments.push(attachment);
                     }
                 }
             }

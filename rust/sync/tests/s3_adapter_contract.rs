@@ -164,23 +164,15 @@ mod tests {
                 while !shutdown_t.load(Ordering::SeqCst) {
                     match listener.accept() {
                         Ok((stream, _)) => {
-                            let store = Arc::clone(&store_t);
-                            let multiparts = Arc::clone(&multiparts_t);
-                            let faults = Arc::clone(&faults_t);
-                            let wire = Arc::clone(&wire_t);
-                            let parts = Arc::clone(&parts_t);
-                            let id_seq = Arc::clone(&id_seq_t);
-                            let _worker = thread::spawn(move || {
-                                let _handled: std::io::Result<()> = handle_client(
-                                    stream,
-                                    &store,
-                                    &multiparts,
-                                    &faults,
-                                    &wire,
-                                    &parts,
-                                    &id_seq,
-                                );
-                            });
+                            spawn_s3_client(
+                                stream,
+                                Arc::clone(&store_t),
+                                Arc::clone(&multiparts_t),
+                                Arc::clone(&faults_t),
+                                Arc::clone(&wire_t),
+                                Arc::clone(&parts_t),
+                                Arc::clone(&id_seq_t),
+                            );
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(5));
@@ -253,6 +245,28 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(body));
         let short: String = digest.chars().take(16).collect();
         format!("\"{short}\"")
+    }
+
+    fn spawn_s3_client(
+        stream: TcpStream,
+        store_t: Arc<Mutex<HashMap<String, StoredObject>>>,
+        multiparts_t: Arc<Mutex<HashMap<String, MultipartUpload>>>,
+        faults_t: Arc<Mutex<FaultConfig>>,
+        wire_t: Arc<Mutex<Vec<MultipartWireEvent>>>,
+        parts_t: Arc<std::sync::atomic::AtomicUsize>,
+        id_seq_t: Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let _worker = thread::spawn(move || {
+            let _handled: std::io::Result<()> = handle_client(
+                stream,
+                &store_t,
+                &multiparts_t,
+                &faults_t,
+                &wire_t,
+                &parts_t,
+                &id_seq_t,
+            );
+        });
     }
 
     fn handle_client(

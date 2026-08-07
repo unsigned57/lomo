@@ -127,19 +127,13 @@ mod tests {
                 while !shutdown_t.load(Ordering::SeqCst) {
                     match listener.accept() {
                         Ok((stream, _)) => {
-                            let store = Arc::clone(&store_t);
-                            let collections = Arc::clone(&collections_t);
-                            let faults = Arc::clone(&faults_t);
-                            let mkcol_calls = Arc::clone(&mkcol_t);
-                            let _worker = thread::spawn(move || {
-                                let _handled: std::io::Result<()> = handle_client(
-                                    stream,
-                                    &store,
-                                    &collections,
-                                    &faults,
-                                    &mkcol_calls,
-                                );
-                            });
+                            spawn_webdav_client(
+                                stream,
+                                Arc::clone(&store_t),
+                                Arc::clone(&collections_t),
+                                Arc::clone(&faults_t),
+                                Arc::clone(&mkcol_t),
+                            );
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(2));
@@ -235,6 +229,19 @@ mod tests {
             .chars()
             .take(16)
             .collect()
+    }
+
+    fn spawn_webdav_client(
+        stream: TcpStream,
+        store_t: Arc<Mutex<HashMap<String, StoredObject>>>,
+        collections_t: Arc<Mutex<BTreeSet<String>>>,
+        faults_t: Arc<Mutex<FaultConfig>>,
+        mkcol_t: Arc<Mutex<Vec<String>>>,
+    ) {
+        let _worker = thread::spawn(move || {
+            let _handled: std::io::Result<()> =
+                handle_client(stream, &store_t, &collections_t, &faults_t, &mkcol_t);
+        });
     }
 
     fn handle_client(

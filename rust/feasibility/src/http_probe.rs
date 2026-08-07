@@ -107,23 +107,15 @@ impl HttpsFixture {
             while !shutdown_thread.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let config = Arc::clone(&server_config);
-                        let requests = Arc::clone(&requests_thread);
-                        let bytes_sent = Arc::clone(&bytes_thread);
-                        let stream_write_failures = Arc::clone(&stream_fail_thread);
-                        let stream_seq = Arc::clone(&stream_seq_thread);
-                        let failed_stream_ids = Arc::clone(&failed_ids_thread);
-                        let _worker: thread::JoinHandle<()> = thread::spawn(move || {
-                            let _handled: Result<(), HttpProbeError> = handle_connection(
-                                stream,
-                                config,
-                                &requests,
-                                &bytes_sent,
-                                &stream_write_failures,
-                                &stream_seq,
-                                &failed_stream_ids,
-                            );
-                        });
+                        spawn_connection_worker(
+                            stream,
+                            Arc::clone(&server_config),
+                            Arc::clone(&requests_thread),
+                            Arc::clone(&bytes_thread),
+                            Arc::clone(&stream_fail_thread),
+                            Arc::clone(&stream_seq_thread),
+                            Arc::clone(&failed_ids_thread),
+                        );
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
@@ -777,6 +769,28 @@ const SIGV4_ACCESS_KEY: &str = "LOMOFEASIBILITY";
 const SIGV4_SECRET_KEY: &str = "lomo-feasibility-secret-key";
 const SIGV4_REGION: &str = "us-east-1";
 const SIGV4_SERVICE: &str = "s3";
+
+fn spawn_connection_worker(
+    stream: TcpStream,
+    config: Arc<ServerConfig>,
+    requests: Arc<AtomicU64>,
+    bytes_sent: Arc<AtomicU64>,
+    stream_write_failures: Arc<AtomicU64>,
+    stream_seq: Arc<AtomicU64>,
+    failed_stream_ids: Arc<Mutex<BTreeSet<u64>>>,
+) {
+    let _worker: thread::JoinHandle<()> = thread::spawn(move || {
+        let _handled: Result<(), HttpProbeError> = handle_connection(
+            stream,
+            config,
+            &requests,
+            &bytes_sent,
+            &stream_write_failures,
+            &stream_seq,
+            &failed_stream_ids,
+        );
+    });
+}
 
 fn handle_connection(
     stream: TcpStream,

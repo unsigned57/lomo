@@ -180,6 +180,85 @@ mod tests {
     }
 
     #[test]
+    fn kotlin_module_dependencies_point_inward() {
+        // Truth from ARCHITECTURE.md "Kotlin modules": domain is platform-neutral, data is the
+        // sole native-bindings consumer, app composes domain contracts, ui-components owns
+        // presentation only. Internal references use the `//module` coordinate form.
+        let allowed: &[(&str, &str, &[&str])] = &[
+            ("app", "app", &["domain", "data", "ui-components"]),
+            ("data", "data", &["domain", "native-bindings"]),
+            ("ui-components", "ui-components", &["domain"]),
+            ("domain", "domain", &[]),
+            ("native-bindings", "native-bindings", &[]),
+            ("native-smoke", "native-smoke", &["native-bindings"]),
+            ("detekt-rules", "quality/detekt-rules", &[]),
+        ];
+        for (module, path, allowed_deps) in allowed {
+            let text = read(&format!("{path}/module.yaml"));
+            for dep in internal_module_deps(&text) {
+                assert!(
+                    allowed_deps.contains(&dep.as_str()),
+                    "{module} depends on //{dep}, which violates ARCHITECTURE.md ownership"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn module_yaml_files_are_owned_by_the_direction_lock() {
+        // Every internal dependency must be declared by a module that owns it; a module.yaml
+        // without a tracked owner is an unmodeled boundary.
+        let output = Command::new("git")
+            .args(["ls-files", "--", "*/module.yaml"])
+            .current_dir(root())
+            .output()
+            .expect("git");
+        assert!(output.status.success());
+        let files = String::from_utf8(output.stdout).expect("utf8");
+        for file in files.lines() {
+            let module = file
+                .trim_end_matches("/module.yaml")
+                .rsplit('/')
+                .next()
+                .expect("module dir");
+            let is_owned = matches!(
+                module,
+                "app"
+                    | "data"
+                    | "ui-components"
+                    | "domain"
+                    | "native-bindings"
+                    | "native-smoke"
+                    | "detekt-rules"
+            );
+            assert!(
+                is_owned,
+                "module.yaml {file} is not covered by kotlin_module_dependencies_point_inward"
+            );
+        }
+    }
+
+    fn internal_module_deps(module_yaml: &str) -> Vec<String> {
+        let mut deps = Vec::new();
+        for line in module_yaml.lines() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("- //") {
+                let name = rest
+                    .split([':', ' ', '\t'])
+                    .next()
+                    .expect("dependency name")
+                    .to_owned();
+                if !name.is_empty() {
+                    deps.push(name);
+                }
+            }
+        }
+        deps.sort_unstable();
+        deps.dedup();
+        deps
+    }
+
+    #[test]
     fn quality_entry_is_pinned_and_legacy_routes_are_absent() {
         let justfile = read("Justfile");
         assert!(justfile.contains("RUSTUP_TOOLCHAIN") && justfile.contains("rust-toolchain.toml"));

@@ -498,18 +498,19 @@ fn collect_full_link_destination_rewrites(
     let bytes = content.as_bytes();
     let mut index = 0usize;
     while index + 1 < bytes.len() {
-        if bytes.get(index) == Some(&b']') && bytes.get(index + 1) == Some(&b'(') {
-            if has_markdown_link_label_before(content, index) {
-                let dest_start = index + 2;
-                if let Some((start, end, stored)) =
-                    match_mapped_paren_destination_at(content, dest_start, lookup)
-                {
-                    if !in_code_span(code_spans, start, end) {
-                        rewrites.push((start, end, stored));
-                    }
-                    index = end;
-                    continue;
+        if bytes.get(index) == Some(&b']')
+            && bytes.get(index + 1) == Some(&b'(')
+            && has_markdown_link_label_before(content, index)
+        {
+            let dest_start = index + 2;
+            if let Some((start, end, stored)) =
+                match_mapped_paren_destination_at(content, dest_start, lookup)
+            {
+                if !in_code_span(code_spans, start, end) {
+                    rewrites.push((start, end, stored));
                 }
+                index = end;
+                continue;
             }
             index += 2;
             continue;

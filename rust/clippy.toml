@@ -2,7 +2,7 @@
 cognitive-complexity-threshold = 20
 too-many-arguments-threshold = 7
 too-many-lines-threshold = 100
-# excessive-nesting uses Clippy default unless overridden by a future key.
+excessive-nesting-threshold = 6
 
 disallowed-methods = [
     { path = "core::result::Result::ok", reason = "Do not erase Result errors; propagate them or model the intentional result boundary." },

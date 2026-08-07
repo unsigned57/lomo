@@ -84,39 +84,21 @@ impl Tokenizer for UnicodeTokenizer {
             } else if is_cjk(ch) {
                 let start = i;
                 i += 1;
-                while i < chars.len() {
-                    let Some(&next) = chars.get(i) else {
-                        break;
-                    };
-                    if !is_cjk(next) {
-                        break;
-                    }
+                while chars.get(i).is_some_and(|c| is_cjk(*c)) {
                     i += 1;
                 }
                 let run = chars.get(start..i).unwrap_or(&[]);
                 for unit in run {
                     push_token(&mut out, &unit.to_string());
                 }
-                if run.len() >= 2 {
-                    for window in run.windows(2) {
-                        let mut bigram = String::new();
-                        if let (Some(a), Some(b)) = (window.first(), window.get(1)) {
-                            bigram.push(*a);
-                            bigram.push(*b);
-                            push_token(&mut out, &bigram);
-                        }
-                    }
-                }
+                push_cjk_bigrams(run, &mut out);
             } else if is_word_char(ch) {
                 let start = i;
                 i += 1;
-                while i < chars.len() {
-                    let Some(&next) = chars.get(i) else {
-                        break;
-                    };
-                    if !(is_word_char(next) && !is_cjk(next) && !is_emoji_char(next)) {
-                        break;
-                    }
+                while chars
+                    .get(i)
+                    .is_some_and(|c| is_word_char(*c) && !is_cjk(*c) && !is_emoji_char(*c))
+                {
                     i += 1;
                 }
                 let word: String = chars.get(start..i).unwrap_or(&[]).iter().collect();
@@ -158,41 +140,19 @@ impl Tokenizer for UnicodeTokenizer {
             } else if is_cjk(ch) {
                 let start = i;
                 i += 1;
-                while i < chars.len() {
-                    let Some(&next) = chars.get(i) else {
-                        break;
-                    };
-                    if !is_cjk(next) {
-                        break;
-                    }
+                while chars.get(i).is_some_and(|c| is_cjk(*c)) {
                     i += 1;
                 }
                 let run: String = chars.get(start..i).unwrap_or(&[]).iter().collect();
-                if run.chars().count() == 1 {
-                    terms.push(QueryTerm::CjkUnigram { token: run });
-                } else {
-                    let run_chars: Vec<char> = run.chars().collect();
-                    let mut bigrams = Vec::with_capacity(run_chars.len().saturating_sub(1));
-                    for window in run_chars.windows(2) {
-                        if let (Some(a), Some(b)) = (window.first(), window.get(1)) {
-                            let mut bg = String::new();
-                            bg.push(*a);
-                            bg.push(*b);
-                            bigrams.push(bg);
-                        }
-                    }
-                    terms.push(QueryTerm::CjkAdjacentBigrams { bigrams });
-                }
+                let run_chars: Vec<char> = run.chars().collect();
+                terms.push(cjk_run_term(run, &run_chars));
             } else if is_word_char(ch) {
                 let start = i;
                 i += 1;
-                while i < chars.len() {
-                    let Some(&next) = chars.get(i) else {
-                        break;
-                    };
-                    if !(is_word_char(next) && !is_cjk(next) && !is_emoji_char(next)) {
-                        break;
-                    }
+                while chars
+                    .get(i)
+                    .is_some_and(|c| is_word_char(*c) && !is_cjk(*c) && !is_emoji_char(*c))
+                {
                     i += 1;
                 }
                 let mut word: String = chars.get(start..i).unwrap_or(&[]).iter().collect();
@@ -271,6 +231,34 @@ fn push_token(out: &mut String, token: &str) {
         out.push(' ');
     }
     out.push_str(token);
+}
+
+fn push_cjk_bigrams(run: &[char], out: &mut String) {
+    if run.len() >= 2 {
+        for window in run.windows(2) {
+            if let [a, b] = window {
+                let mut bigram = String::new();
+                bigram.push(*a);
+                bigram.push(*b);
+                push_token(out, &bigram);
+            }
+        }
+    }
+}
+
+fn cjk_run_term(run: String, run_chars: &[char]) -> QueryTerm {
+    if run_chars.len() == 1 {
+        QueryTerm::CjkUnigram { token: run }
+    } else {
+        let bigrams = run_chars
+            .windows(2)
+            .map(|window| match window {
+                [a, b] => format!("{a}{b}"),
+                _ => unreachable!("windows(2) yields exactly two elements"),
+            })
+            .collect();
+        QueryTerm::CjkAdjacentBigrams { bigrams }
+    }
 }
 
 fn dedupe_terms(terms: &mut Vec<QueryTerm>) {

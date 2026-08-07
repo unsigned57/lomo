@@ -294,6 +294,32 @@ pub struct LanBatchPlan {
     attachment_transfers: BTreeMap<String, (u16, u16, u64)>,
 }
 
+fn count_transfer_bytes(
+    item: &LanItemPlan,
+    attachment_transfers: &mut BTreeMap<String, (u16, u16, u64)>,
+    total_bytes: &mut u64,
+) -> Result<(), LomoError> {
+    for attachment in item.attachments() {
+        if let Some((_item_index, _slot, size_bytes)) =
+            attachment_transfers.get(attachment.digest())
+        {
+            if *size_bytes != attachment.size_bytes() {
+                return Err(conflict(
+                    "lan_attachment_digest_facts_conflict",
+                    "one attachment digest cannot describe multiple payload sizes",
+                ));
+            }
+        } else {
+            attachment_transfers.insert(
+                attachment.digest().to_owned(),
+                (item.index(), attachment.slot(), attachment.size_bytes()),
+            );
+            *total_bytes = total_bytes.saturating_add(attachment.size_bytes());
+        }
+    }
+    Ok(())
+}
+
 impl LanBatchPlan {
     /// Validates a batch against every LAN v2 product limit before any transfer starts.
     ///
@@ -330,24 +356,7 @@ impl LanBatchPlan {
         let mut attachment_transfers = BTreeMap::new();
         for item in &items {
             total_bytes = total_bytes.saturating_add(item.content_bytes());
-            for attachment in item.attachments() {
-                if let Some((_item_index, _slot, size_bytes)) =
-                    attachment_transfers.get(attachment.digest())
-                {
-                    if *size_bytes != attachment.size_bytes() {
-                        return Err(conflict(
-                            "lan_attachment_digest_facts_conflict",
-                            "one attachment digest cannot describe multiple payload sizes",
-                        ));
-                    }
-                } else {
-                    attachment_transfers.insert(
-                        attachment.digest().to_owned(),
-                        (item.index(), attachment.slot(), attachment.size_bytes()),
-                    );
-                    total_bytes = total_bytes.saturating_add(attachment.size_bytes());
-                }
-            }
+            count_transfer_bytes(item, &mut attachment_transfers, &mut total_bytes)?;
         }
         if total_bytes > MAX_BATCH_TOTAL_BYTES {
             return Err(resource_limit(

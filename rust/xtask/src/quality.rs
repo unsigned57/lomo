@@ -195,6 +195,17 @@ fn rust_fast_gate(workspace: &Workspace) -> Result<()> {
         "warnings",
     ]);
     run(&mut clippy)?;
+    // rustdoc::broken_intra_doc_links is denied at the workspace level; documentation links
+    // must be resolvable or the gate fails.
+    let mut docs = cargo(workspace);
+    docs.args([
+        "doc",
+        "--workspace",
+        "--no-deps",
+        "--all-features",
+        "--locked",
+    ]);
+    run(&mut docs)?;
     rust_tests(workspace)?;
     workspace_property_fuzz(workspace)?;
     let mut machete = repository_command(workspace, workspace.tool_bin().join("cargo-machete"));
@@ -278,10 +289,10 @@ fn kotlin_gate(workspace: &Workspace, options: KotlinGateOptions) -> Result<()> 
     for script in [
         "quality/scripts/kotlin_detekt_check.sh",
         "quality/scripts/kotlin_test_style_check.sh",
-        "quality/scripts/kotlin_android_lint_check.sh",
     ] {
         run_policy(workspace, script)?;
     }
+    run_lint_policy(workspace)?;
     if options.compose {
         run_policy(
             workspace,
@@ -323,6 +334,22 @@ fn run_policy(workspace: &Workspace, script: &str) -> Result<()> {
         .env("LOMO_LINT_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_COMPOSE_BUILD_DIR", &workspace.kotlin_build)
         .env("LOMO_COVERAGE_BUILD_DIR", &workspace.kotlin_build);
+    run(&mut command)
+}
+
+/// Android Lint needs the app version facts; xtask reads them from `app/module.yaml` so the
+/// script never carries a second copy of version/SDK numbers.
+fn run_lint_policy(workspace: &Workspace) -> Result<()> {
+    let metadata = crate::android::AppMetadata::load(workspace)?;
+    let mut command = policy_script(workspace, "quality/scripts/kotlin_android_lint_check.sh");
+    command
+        .env("LOMO_KOTLIN_BUILD_DIR", &workspace.kotlin_build)
+        .env("LOMO_LINT_BUILD_DIR", &workspace.kotlin_build)
+        .env("LOMO_APP_VERSION_CODE", metadata.version_code.to_string())
+        .env("LOMO_APP_VERSION_NAME", &metadata.version)
+        .env("LOMO_APP_MIN_SDK", metadata.min_sdk.to_string())
+        .env("LOMO_APP_TARGET_SDK", metadata.target_sdk.to_string())
+        .env("LOMO_APP_COMPILE_SDK", metadata.compile_sdk.to_string());
     run(&mut command)
 }
 

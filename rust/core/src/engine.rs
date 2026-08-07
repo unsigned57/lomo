@@ -507,7 +507,7 @@ impl LomoEngine {
     /// Starts a native (actor-external) task job with dispatch fence and optional secret lease id.
     ///
     /// The job enters `QueuedNative` then `RunningNative` when a completion is not yet known. Host
-    /// tests and dark-build workers call [`submit_native_task_result`] with matching fences.
+    /// tests and dark-build workers call [`Self::submit_native_task_result`] with matching fences.
     ///
     /// # Errors
     ///

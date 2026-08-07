@@ -364,18 +364,45 @@ fn validate_apk_elf(workspace: &Workspace, apk: &Path, entry: &str, abi: Abi) ->
     Ok(())
 }
 
-struct AppMetadata {
-    name: String,
-    version: String,
+pub struct AppMetadata {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) version_code: i64,
+    pub(crate) min_sdk: i64,
+    pub(crate) target_sdk: i64,
+    pub(crate) compile_sdk: i64,
 }
 
 impl AppMetadata {
-    fn load(workspace: &Workspace) -> Result<Self> {
+    pub(crate) fn load(workspace: &Workspace) -> Result<Self> {
+        Self::load_from_root(&workspace.root)
+    }
+
+    pub(crate) fn load_from_root(root: &Path) -> Result<Self> {
+        let module = root.join("app/module.yaml");
+        let module_yaml = fs::read_to_string(&module)
+            .with_context(|| format!("failed to read {}", module.display()))?;
         Ok(Self {
-            name: read_app_name(&workspace.root)?,
-            version: read_version_name(&workspace.root)?,
+            name: read_app_name(root)?,
+            version: read_version_name(&module_yaml)?,
+            version_code: read_module_scalar(&module_yaml, "versionCode")?,
+            min_sdk: read_module_scalar(&module_yaml, "minSdk")?,
+            target_sdk: read_module_scalar(&module_yaml, "targetSdk")?,
+            compile_sdk: read_module_scalar(&module_yaml, "compileSdk")?,
         })
     }
+}
+
+fn read_module_scalar(module_yaml: &str, key: &str) -> Result<i64> {
+    for line in module_yaml.lines() {
+        if let Some(rest) = line.trim().strip_prefix(&format!("{key}:")) {
+            let value = rest.trim();
+            return value
+                .parse::<i64>()
+                .with_context(|| format!("{key} in app/module.yaml is not an integer: {value}"));
+        }
+    }
+    bail!("app/module.yaml is missing {key}")
 }
 
 fn read_app_name(root: &Path) -> Result<String> {
@@ -401,20 +428,17 @@ fn read_app_name(root: &Path) -> Result<String> {
     bail!("{} is missing the app_name resource", strings.display())
 }
 
-fn read_version_name(root: &Path) -> Result<String> {
-    let module = root.join("app/module.yaml");
-    let content = fs::read_to_string(&module)
-        .with_context(|| format!("failed to read {}", module.display()))?;
-    for line in content.lines() {
+fn read_version_name(module_yaml: &str) -> Result<String> {
+    for line in module_yaml.lines() {
         if let Some(rest) = line.trim().strip_prefix("versionName:") {
             let version = rest.trim().trim_matches('"');
             if !version.is_empty() {
                 return Ok(version.to_owned());
             }
-            bail!("{} has an empty versionName", module.display());
+            bail!("app/module.yaml has an empty versionName");
         }
     }
-    bail!("{} is missing versionName", module.display())
+    bail!("app/module.yaml is missing versionName")
 }
 
 fn find_apk(build_dir: &Path, release: bool, module: ApkModule) -> Result<PathBuf> {

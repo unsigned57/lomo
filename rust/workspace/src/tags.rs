@@ -23,45 +23,52 @@ pub fn iter_tag_matches(content: &str) -> Vec<(String, usize, usize)> {
             .checked_sub(1)
             .and_then(|prev| bytes.get(prev).copied())
             .is_some_and(is_ascii_whitespace);
-        if bytes.get(index) == Some(&b'#') && (at_start || prev_is_ws) {
-            let value_start = index + 1;
-            let mut value_end = value_start;
-            while value_end < bytes.len() {
-                let Some(ch) = content
-                    .get(value_end..)
-                    .and_then(|tail| tail.chars().next())
-                else {
-                    break;
-                };
-                if is_tag_body_char(ch) {
-                    value_end += ch.len_utf8();
-                } else {
-                    break;
-                }
-            }
-            if value_end > value_start {
-                let boundary_ok = value_end == bytes.len()
-                    || matches!(
-                        bytes.get(value_end).copied(),
-                        Some(b' ' | b'\t' | b'\n' | b'\r' | b',')
-                    );
-                if boundary_ok
-                    && let Some(mut tag) = content.get(value_start..value_end).map(str::to_owned)
-                {
-                    while tag.ends_with('/') {
-                        tag.pop();
-                    }
-                    if !tag.is_empty() {
-                        matches.push((tag, index, value_end));
-                        index = value_end;
-                        continue;
-                    }
-                }
-            }
+        if bytes.get(index) == Some(&b'#')
+            && (at_start || prev_is_ws)
+            && let Some((tag, value_end)) = scan_tag_at(content, index)
+        {
+            matches.push((tag, index, value_end));
+            index = value_end;
+            continue;
         }
         index += 1;
     }
     matches
+}
+
+fn scan_tag_at(content: &str, hash_index: usize) -> Option<(String, usize)> {
+    let bytes = content.as_bytes();
+    let value_start = hash_index + 1;
+    let mut value_end = value_start;
+    while value_end < bytes.len() {
+        let Some(ch) = content
+            .get(value_end..)
+            .and_then(|tail| tail.chars().next())
+        else {
+            break;
+        };
+        if is_tag_body_char(ch) {
+            value_end += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if value_end == value_start {
+        return None;
+    }
+    let boundary_ok = value_end == bytes.len()
+        || matches!(
+            bytes.get(value_end).copied(),
+            Some(b' ' | b'\t' | b'\n' | b'\r' | b',')
+        );
+    if !boundary_ok {
+        return None;
+    }
+    let tag = content.get(value_start..value_end)?.trim_end_matches('/');
+    if tag.is_empty() {
+        return None;
+    }
+    Some((tag.to_owned(), value_end))
 }
 
 const fn is_ascii_whitespace(byte: u8) -> bool {

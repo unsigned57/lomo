@@ -51,6 +51,7 @@ mod support;
 )]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
+    use sha2::{Digest, Sha256};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -59,8 +60,9 @@ mod tests {
 
     use lomo_core::{
         ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
-        ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionOutput,
-        PlatformBatchResult, Sha256Digest, WorkspaceDescriptor, WorkspaceTarget,
+        ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch,
+        PlatformActionOutput, PlatformBatchResult, Sha256Digest, WorkspaceDescriptor,
+        WorkspaceTarget,
     };
     use lomo_workspace::{
         DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandKind, DocumentCommandRequest,
@@ -139,6 +141,57 @@ mod tests {
             fs::read(self.exchange_root.join(token)).test_ok("read exchange token")
         }
 
+        fn terminal_after_batch(step: &JobStep) -> bool {
+            !matches!(step, JobStep::NeedsPlatformBatch { .. } | JobStep::Running)
+        }
+
+        fn guard_create_target(full: &std::path::Path) -> Option<ActionOutcome> {
+            if full.exists() {
+                Some(ActionOutcome::Failed(
+                    lomo_core::LomoError::from_platform_boundary(
+                        lomo_core::ErrorCategory::Conflict,
+                        "target_already_exists",
+                        lomo_core::RetryDisposition::AfterUserAction,
+                        None,
+                        None,
+                        "Create target already exists",
+                    )
+                    .test_ok("error"),
+                ))
+            } else {
+                None
+            }
+        }
+
+        fn verify_current_target(
+            current_bytes: &[u8],
+            expected: &ActionEvidence,
+        ) -> Option<ActionOutcome> {
+            let current_digest = format!("{:x}", Sha256::digest(current_bytes));
+            if current_digest == expected.digest().as_str() {
+                return None;
+            }
+            Some(ActionOutcome::Failed(
+                lomo_core::LomoError::from_platform_boundary(
+                    lomo_core::ErrorCategory::Validation,
+                    "postcondition_mismatch",
+                    lomo_core::RetryDisposition::Never,
+                    None,
+                    None,
+                    "Target fingerprint does not match the expected postcondition",
+                )
+                .test_ok("error"),
+            ))
+        }
+
+        fn execute_batch(&self, batch: &PlatformActionBatch) -> Vec<ActionResult> {
+            batch
+                .actions()
+                .iter()
+                .map(|action| ActionResult::new(action.id().clone(), self.execute(action)))
+                .collect()
+        }
+
         fn drive_until_terminal(&self, job_id: &lomo_core::JobId) -> JobStep {
             let mut guard = 0;
             loop {
@@ -147,13 +200,7 @@ mod tests {
                 let step = self.engine.poll_job(job_id).test_ok("poll");
                 match step {
                     JobStep::NeedsPlatformBatch { batch } => {
-                        let results = batch
-                            .actions()
-                            .iter()
-                            .map(|action| {
-                                ActionResult::new(action.id().clone(), self.execute(action))
-                            })
-                            .collect();
+                        let results = self.execute_batch(&batch);
                         let result = PlatformBatchResult::new(
                             batch.schema_version(),
                             batch.job_id().clone(),
@@ -165,7 +212,7 @@ mod tests {
                             .engine
                             .submit_platform_result(job_id, result)
                             .test_ok("submit");
-                        if !matches!(after, JobStep::NeedsPlatformBatch { .. } | JobStep::Running) {
+                        if Self::terminal_after_batch(&after) {
                             return after;
                         }
                     }
@@ -245,18 +292,8 @@ mod tests {
                             matches!(expected_target, lomo_core::ExpectedFingerprint::Absent),
                             "create must carry an absent target precondition"
                         );
-                        if full.exists() {
-                            return ActionOutcome::Failed(
-                                lomo_core::LomoError::from_platform_boundary(
-                                    lomo_core::ErrorCategory::Conflict,
-                                    "target_already_exists",
-                                    lomo_core::RetryDisposition::AfterUserAction,
-                                    None,
-                                    None,
-                                    "Create target already exists",
-                                )
-                                .test_ok("error"),
-                            );
+                        if let Some(outcome) = Self::guard_create_target(&full) {
+                            return outcome;
                         }
                     } else if let lomo_core::ExpectedFingerprint::Match(expected) = expected_target
                     {
@@ -266,30 +303,11 @@ mod tests {
                             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
                             Err(error) => panic!("failed to read expected target: {error}"),
                         };
-                        if let Some(current_bytes) = current {
-                            let current_digest = {
-                                use sha2::{Digest, Sha256};
-                                format!("{:x}", Sha256::digest(&current_bytes))
-                            };
-                            if current_digest != expected.digest().as_str()
-                                && current_bytes.len() as u64 != expected.length()
-                            {
-                                // Allow evidence length/digest mismatch → fail
-                            }
-                            // Compare digest primarily.
-                            if current_digest != expected.digest().as_str() {
-                                return ActionOutcome::Failed(
-                                    lomo_core::LomoError::from_platform_boundary(
-                                        lomo_core::ErrorCategory::Validation,
-                                        "postcondition_mismatch",
-                                        lomo_core::RetryDisposition::Never,
-                                        None,
-                                        None,
-                                        "Target fingerprint does not match the expected postcondition",
-                                    )
-                                    .test_ok("error"),
-                                );
-                            }
+                        let stale = current.as_deref().and_then(|current_bytes| {
+                            Self::verify_current_target(current_bytes, expected)
+                        });
+                        if let Some(outcome) = stale {
+                            return outcome;
                         }
                     }
                     self.write_count.fetch_add(1, Ordering::SeqCst);

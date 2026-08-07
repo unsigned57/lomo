@@ -2491,6 +2491,16 @@ fn map_text_segments(
     Ok(out)
 }
 
+fn push_task_fact(facts: &mut Vec<SemanticFact>, item: &RenderListItem) {
+    if let (Some(task_span), Some(checked)) = (item.task_span, item.checked) {
+        facts.push(SemanticFact {
+            kind: SemanticFactKind::TaskItem,
+            value: if checked { "[x]" } else { "[ ]" }.to_owned(),
+            source_span: task_span,
+        });
+    }
+}
+
 fn collect_from_blocks(
     blocks: &[RenderBlock],
     tags: &mut Vec<String>,
@@ -2531,13 +2541,7 @@ fn collect_from_blocks(
                         seen_attachments,
                         facts,
                     );
-                    if let (Some(task_span), Some(checked)) = (item.task_span, item.checked) {
-                        facts.push(SemanticFact {
-                            kind: SemanticFactKind::TaskItem,
-                            value: if checked { "[x]" } else { "[ ]" }.to_owned(),
-                            source_span: task_span,
-                        });
-                    }
+                    push_task_fact(facts, item);
                 }
             }
             RenderBlock::Table { header, rows, .. } => {

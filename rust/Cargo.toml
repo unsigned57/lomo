@@ -71,6 +71,9 @@ non_ascii_idents = "deny"
 meta_variable_misuse = "deny"
 unused_qualifications = "deny"
 
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "deny"

@@ -5,6 +5,17 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 kotlin_android_sdk="${LOMO_KOTLIN_ANDROID_SDK:?xtask must provide LOMO_KOTLIN_ANDROID_SDK}"
+# App version facts come from xtask (single source: app/module.yaml); the script must not
+# carry a second copy that can drift.
+app_version_code="${LOMO_APP_VERSION_CODE:?xtask must provide LOMO_APP_VERSION_CODE}"
+app_version_name="${LOMO_APP_VERSION_NAME:?xtask must provide LOMO_APP_VERSION_NAME}"
+app_min_sdk="${LOMO_APP_MIN_SDK:?xtask must provide LOMO_APP_MIN_SDK}"
+app_target_sdk="${LOMO_APP_TARGET_SDK:?xtask must provide LOMO_APP_TARGET_SDK}"
+app_compile_sdk="${LOMO_APP_COMPILE_SDK:?xtask must provide LOMO_APP_COMPILE_SDK}"
+# compose-lint-checks is version-pinned and checksum-verified; a missing jar is a hard error,
+# never a silent degradation of the Compose lint surface.
+compose_lint_version="${LOMO_COMPOSE_LINT_VERSION:-1.4.3}"
+compose_lint_jar_name="compose-lint-checks-${compose_lint_version}.jar"
 
 lint_bin="${LOMO_ANDROID_LINT:-$kotlin_android_sdk/cmdline-tools/latest/bin/lint}"
 if [ ! -x "$lint_bin" ]; then
@@ -27,7 +38,7 @@ echo "kotlin-android-lint-check: building Android app (debug) to materialize cla
   build --module app --platform android --variant debug --build-dir "$build_dir"
 
 echo "kotlin-android-lint-check: generating lint project descriptor"
-python3 - "$repo_root" "$build_dir" "$project_xml" "$kotlin_android_sdk" "$expanded_dir" <<'PY'
+python3 - "$repo_root" "$build_dir" "$project_xml" "$kotlin_android_sdk" "$expanded_dir" "$app_version_code" "$app_version_name" "$app_min_sdk" "$app_target_sdk" "$app_compile_sdk" <<'PY'
 import json
 import re
 import sys
@@ -39,6 +50,11 @@ build_dir = Path(sys.argv[2])
 project_xml = Path(sys.argv[3])
 sdk = Path(sys.argv[4])
 expanded_dir = Path(sys.argv[5])
+app_version_code = sys.argv[6]
+app_version_name = sys.argv[7]
+app_min_sdk = sys.argv[8]
+app_target_sdk = sys.argv[9]
+app_compile_sdk = sys.argv[10]
 
 candidates = sorted(build_dir.glob("tasks/_app_prepareAndroid*/gradle-project/settings.gradle.kts"))
 if not candidates:
@@ -118,8 +134,8 @@ if "uses-sdk" not in src_manifest:
         '<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
         (
             '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
-            '    android:versionCode="46"\n'
-            '    android:versionName="1.6.2"'
+            f'    android:versionCode="{app_version_code}"\n'
+            f'    android:versionName="{app_version_name}"'
         ),
         1,
     )
@@ -131,7 +147,7 @@ if "uses-sdk" not in src_manifest:
         raise SystemExit("kotlin-android-lint-check: malformed <manifest> tag")
     src_manifest = (
         src_manifest[: insert_at + 1]
-        + '\n    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="37" />'
+        + f'\n    <uses-sdk android:minSdkVersion="{app_min_sdk}" android:targetSdkVersion="{app_target_sdk}" />'
         + src_manifest[insert_at + 1 :]
     )
 merged_manifest = project_xml.parent / "merged-app-manifest.xml"
@@ -150,7 +166,7 @@ def esc(value: str) -> str:
 lines = [
     '<?xml version="1.0" encoding="utf-8"?>',
     "<project>",
-    '  <module name="app" android="true" library="false" compile-sdk-version="37">',
+    f'  <module name="app" android="true" library="false" compile-sdk-version="{app_compile_sdk}">',
     f'    <manifest file="{esc(str(merged_manifest))}" />',
     f'    <src file="{esc(str(repo_root / "app/src"))}" />',
     f'    <resource file="{esc(str(repo_root / "app/res"))}" />',
@@ -166,17 +182,38 @@ print(
 )
 PY
 
-compose_lint_jar="$(
-  find "${GRADLE_USER_HOME:-$HOME/.gradle}" "$compose_lint_cache_dir" \
-    -path '*compose-lint-checks*.jar' 2>/dev/null | head -1 || true
-)"
-lint_rule_args=()
-if [ -n "$compose_lint_jar" ]; then
-  lint_rule_args+=(--lint-rule-jars "$compose_lint_jar")
-  echo "kotlin-android-lint-check: compose lint checks: $compose_lint_jar"
-else
-  echo "kotlin-android-lint-check: compose-lint-checks jar not found; Compose IDs may be unknown" >&2
+compose_lint_jar=""
+compose_lint_candidates=(
+  "${GRADLE_USER_HOME:-$HOME/.gradle}"
+  "$compose_lint_cache_dir"
+)
+for candidate_root in "${compose_lint_candidates[@]}"; do
+  found="$(find "$candidate_root" -name "$compose_lint_jar_name" 2>/dev/null | head -1 || true)"
+  if [ -n "$found" ]; then
+    compose_lint_jar="$found"
+    break
+  fi
+done
+if [ -z "$compose_lint_jar" ]; then
+  echo "kotlin-android-lint-check: downloading compose-lint-checks ${compose_lint_version}"
+  mkdir -p "$compose_lint_cache_dir"
+  compose_lint_url="https://maven.google.com/com/google/compose/compose-lint-checks/${compose_lint_version}/${compose_lint_jar_name}"
+  download_target="$compose_lint_cache_dir/$compose_lint_jar_name"
+  curl -fsSL -o "$download_target.partial" "$compose_lint_url" \
+    || { rm -f "$download_target.partial"; echo "kotlin-android-lint-check: failed to download $compose_lint_url" >&2; exit 1; }
+  expected_sha1="$(curl -fsSL "$compose_lint_url.sha1" | awk '{print $1}')" \
+    || { rm -f "$download_target.partial"; echo "kotlin-android-lint-check: failed to fetch checksum for $compose_lint_jar_name" >&2; exit 1; }
+  actual_sha1="$(sha1sum "$download_target.partial" | awk '{print $1}')"
+  if [ "$actual_sha1" != "$expected_sha1" ]; then
+    rm -f "$download_target.partial"
+    echo "kotlin-android-lint-check: checksum mismatch for $compose_lint_jar_name" >&2
+    exit 1
+  fi
+  mv "$download_target.partial" "$download_target"
+  compose_lint_jar="$download_target"
 fi
+echo "kotlin-android-lint-check: compose lint checks: $compose_lint_jar"
+lint_rule_args=(--lint-rule-jars "$compose_lint_jar")
 
 echo "kotlin-android-lint-check: running lint"
 set +e
@@ -190,7 +227,7 @@ ANDROID_HOME="$kotlin_android_sdk" ANDROID_SDK_ROOT="$kotlin_android_sdk" \
   --disable UnusedResources \
   --exitcode \
   --sdk-home "$kotlin_android_sdk" \
-  --compile-sdk-version 37 \
+  --compile-sdk-version "$app_compile_sdk" \
   "${lint_rule_args[@]}" \
   --xml "$report_xml" \
   --html "$report_html" \

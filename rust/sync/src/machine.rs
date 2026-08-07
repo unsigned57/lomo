@@ -1327,7 +1327,7 @@ impl SyncBackendConfig {
 /// Runs one **production-shaped** owner cycle with real local (store snapshot) + remote ports.
 ///
 /// Composition only: opens `lomo-store` for a generation-fenced local snapshot, ensures a durable
-/// session (first-takeover when missing), builds the remote port from [config] + optional secret
+/// session (first-takeover when missing), builds the remote port from [`SyncBackendConfig`] + optional secret
 /// material, then calls [`inspect_sync_cycle_plan_with_ports`] so disposition remains owner-owned.
 ///
 /// `apply_remote` is product-true for `WebDAV`/S3/Git; hermetic fake defaults to plan-only unless the
@@ -1398,7 +1398,7 @@ pub fn run_composed_sync_cycle(
 ///
 /// Used by native Git composition (`lomo-git` constructed outside `lomo-sync`) and hermetic host
 /// contracts that already hold a `RemoteSyncPort`. Opens the store local snapshot, ensures the
-/// durable session fence from [config] identity, then runs the owner cycle.
+/// durable session fence from [`SyncBackendConfig`] identity, then runs the owner cycle.
 ///
 /// # Errors
 ///

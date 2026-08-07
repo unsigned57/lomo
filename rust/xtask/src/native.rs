@@ -843,9 +843,7 @@ fn strip_helper_function(text: &str, helper_name: &str) -> String {
                     depth -= 1;
                     if depth == 0 {
                         cursor += 1;
-                        if bytes.get(cursor) == Some(&b'\n') {
-                            cursor += 1;
-                        }
+                        cursor += usize::from(bytes.get(cursor) == Some(&b'\n'));
                         break;
                     }
                 }
@@ -883,29 +881,7 @@ impl AbiStashGuard {
         let jni_libs = workspace.jni_libs();
         let stash_dir = workspace.root.join(".cache/stashed-jniLibs");
         fs::create_dir_all(&stash_dir)?;
-
-        let mut stashed = Vec::new();
-        if jni_libs.is_dir() {
-            for entry in fs::read_dir(&jni_libs)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    let folder_name = entry.file_name();
-                    let name_str = folder_name.to_string_lossy();
-                    let is_selected = selected_abis
-                        .iter()
-                        .any(|abi| abi.android_name() == name_str);
-                    if !is_selected {
-                        let target = stash_dir.join(&folder_name);
-                        remove_if_exists(&target)?;
-                        fs::rename(&path, &target).with_context(|| {
-                            format!("failed to stash {} -> {}", path.display(), target.display())
-                        })?;
-                        stashed.push((target, path));
-                    }
-                }
-            }
-        }
+        let stashed = stash_unselected_in_dir(&jni_libs, &stash_dir, selected_abis)?;
 
         if !stashed.is_empty() {
             crate::util::emit_stderr(format_args!(
@@ -916,6 +892,37 @@ impl AbiStashGuard {
 
         Ok(Self { stashed })
     }
+}
+
+fn stash_unselected_in_dir(
+    jni_libs: &Path,
+    stash_dir: &Path,
+    selected_abis: &[Abi],
+) -> Result<Vec<(PathBuf, PathBuf)>> {
+    let mut stashed = Vec::new();
+    if jni_libs.is_dir() {
+        for entry in fs::read_dir(jni_libs)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                let folder_name = entry.file_name();
+                let name_str = folder_name.to_string_lossy();
+                let is_selected = selected_abis
+                    .iter()
+                    .any(|abi| abi.android_name() == name_str);
+                if is_selected {
+                    continue;
+                }
+                let target = stash_dir.join(&folder_name);
+                remove_if_exists(&target)?;
+                fs::rename(&path, &target).with_context(|| {
+                    format!("failed to stash {} -> {}", path.display(), target.display())
+                })?;
+                stashed.push((target, path));
+            }
+        }
+    }
+    Ok(stashed)
 }
 
 impl Drop for AbiStashGuard {
