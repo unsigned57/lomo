@@ -1,0 +1,1 @@
+{"schema_version":1,"workloads":["workspace_markdown_parse_render_scale","store_rebuild_query_fts","sync_plan_apply"],"stability":{"rounds":2,"max_relative_delta":0.10}}

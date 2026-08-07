@@ -11,7 +11,6 @@ that must not be golden-locked as product truth.
 | `markdown/dst-edge.md` | **external contract (logical times only)** | Absolute epoch depends on host zone; goldens lock time headers + ids, not epoch millis |
 | `remote/*` | **external contract** | Path layout rules only; no live network |
 | `git/scenarios.json` | **external contract** | Scenario ids/kinds for corpus materialization |
-| `git/EVIDENCE.md` | **evidence boundary** | Host bare + smart-HTTP partial (DER pin, credentials); device/runtime still open — see STAGE0-STATUS |
 | rclone ciphertext vectors | **external contract** | `status=verified` vectors from rclone crypt (standard filename encryption + directory name encryption); regenerate with the documented passwords only |
 | markdown semantic counters (storage-visible) | **external contract (storage helpers)** | tags/attachments via `MemoTextProcessor` + regex under `characterization/semantic/` |
 | UI semantic parser (`parseMarkdownSemanticDocument`) | **external contract (UI)** | under `characterization/semantic-ui/` |

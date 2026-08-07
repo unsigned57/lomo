@@ -35,7 +35,7 @@ Run the narrowest failing test first and record the actual failure. Examples:
 
 ```bash
 cd rust
-cargo test -p lomo-sync-core --test sync_v1 --locked
+cargo test -p lomo-sync --locked
 cargo test -p lomo-architecture-tests --test architecture --locked
 ```
 

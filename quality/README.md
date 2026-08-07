@@ -20,7 +20,7 @@ xtask; they are not public quality orchestrators.
 | Real API ≥ 26 device native load/engine smoke (arm64 or x86_64) | `just device-smoke` |
 | Real remote provider round trip (credential-gated) | `just sync-provider-smoke [line]` |
 | Check or update dependencies | `just deps check`, `just deps update` |
-| Planner/size/LLVM diagnostics | `just perf` |
+| Workspace/store/sync performance diagnostics | `just perf` |
 | Show, audit, or clean generated state | `just cache paths`, `just cache audit`, `just cache clean` |
 | Regenerate Kotlin bindings only | `just bindings` |
 
@@ -47,12 +47,11 @@ which only owns gates and scripts). Large seeded corpora are generated into giti
 `build/corpora/` via:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml --locked -p lomo-feasibility -- \
-  generate --mode quick|scale|capacity --seed 1 --out build/corpora/<mode> \
-  --fixtures fixtures
+cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- perf
 ```
 
-`just perf` regenerates the quick corpus as part of feasibility evidence collection.
+`just perf` measures only current workspace, store and sync owners. Provider networking and device
+cold start are optional diagnostics.
 
 ### Local hooks
 
@@ -80,7 +79,7 @@ optional step:
 | Merge / shared-branch handoff | `just ci` (+ device-smoke when stage evidence requires it) |
 
 `just preflight` is only for manual mid-iteration speed. It does **not** close a package, a PR, or
-STAGE evidence. If a gate cannot run, leave the work open and record the blocker; do not invent
+Gate evidence. If a gate cannot run, leave the work open and record the blocker; do not invent
 GREEN.
 
 ### GitHub Actions PR surface
@@ -95,11 +94,9 @@ GREEN.
 
 ## Pinned Build Facts
 
-Current production native transport is BoltFFI/JNI. Historical UniFFI/JNA numbers remain
-immutable in `fixtures/baseline/ffi-transport-baseline.v1.json` and
-`fixtures/baseline/size-baseline.v1.json`. Host size gates and arm64 `just device-smoke` are GREEN
-per `fixtures/baseline/STAGE1-EVIDENCE.md` and
-`fixtures/baseline/size-baseline.v1.json`; UniFFI is not restored for any open residual product work.
+Current production native transport is BoltFFI/JNI. ABI, ELF, DT_NEEDED, legacy-library absence
+and packaging completeness are checked directly from generated outputs; no historical size ceiling
+is a quality input.
 
 - Rust: channel from `rust/rust-toolchain.toml` (currently `1.97`), matching
   `workspace.package.rust-version`, Edition 2024, components `rustfmt`, `clippy`,

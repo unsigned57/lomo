@@ -137,8 +137,7 @@ expected input. Signed release builds use `just android release` and require exp
 configuration documented in `quality/release.md`.
 
 Production FFI identity is `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`.
-Migration evidence and size gates live in `fixtures/baseline/STAGE1-EVIDENCE.md`
-and `fixtures/baseline/size-baseline.v1.json`.
+Current contracts live in `fixtures/contracts/`; executable baselines live in `fixtures/baselines/`.
 
 Android Studio may still be used for editing and device work, but repository verification and
 native generation must use the commands above.

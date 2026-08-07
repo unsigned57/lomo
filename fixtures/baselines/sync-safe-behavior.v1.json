@@ -1,8 +1,7 @@
 {
   "schema_version": 1,
   "description": "Language-agnostic safe-behavior fixtures for Stage-5 planner/state machine. Not an oracle for old Kotlin bugs.",
-  "source_contract": "fixtures/baseline/STAGE5-CONTRACT.md",
-  "divergence_manifest": "fixtures/baseline/stage5-divergence-manifest.v1.md",
+  "source_contract": "fixtures/contracts/sync.md",
   "cases": [
     {
       "id": "SB-01",
