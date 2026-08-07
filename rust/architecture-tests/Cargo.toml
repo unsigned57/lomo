@@ -7,6 +7,9 @@ license.workspace = true
 publish = false
 autotests = false
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [[test]]
 name = "architecture"
 path = "tests/architecture.rs"
