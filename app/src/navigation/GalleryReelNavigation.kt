@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -67,7 +68,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
     ) { entry ->
         val route = entry.toRoute<NavRoute.GalleryReel>()
         val mainViewModel: MainViewModel = activityKoinViewModel()
-        val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
+        val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
         val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
         val payload =
             remember(route.payloadKey) {
@@ -82,10 +83,10 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
         }
 
         val request =
-            remember(payload, galleryMemos, route.initialMemoIndex, route.initialImageIndex) {
+            remember(payload, galleryMemos.itemSnapshotList.items, route.initialMemoIndex, route.initialImageIndex) {
                 buildGalleryReelRequest(
                     payload = payload,
-                    galleryMemos = galleryMemos.toImmutableList(),
+                    galleryMemos = galleryMemos.itemSnapshotList.items.toImmutableList(),
                     initialMemoIndex = route.initialMemoIndex,
                     initialImageIndex = route.initialImageIndex,
                 )

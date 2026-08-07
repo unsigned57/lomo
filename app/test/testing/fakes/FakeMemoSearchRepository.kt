@@ -3,13 +3,22 @@ package com.lomo.app.testing.fakes
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.TagSelection
+import com.lomo.domain.model.TagSelectionMode
 import com.lomo.domain.repository.MemoSearchRepository
 
 class FakeMemoSearchRepository(
     private val store: FakeMemoStore,
 ) : MemoSearchRepository {
-    override fun getMemosByTagPagingSource(tag: String): PagingSource<Int, Memo> =
-        FakeMemoPagingSource { limit, offset -> store.taggedMemoPage(tag, limit, offset) }
+    override fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<Int, Memo> =
+        FakeMemoPagingSource { limit, offset ->
+            store.taggedMemoPage(
+                selection.path.value,
+                selection.mode == TagSelectionMode.Subtree,
+                limit,
+                offset,
+            )
+        }
 }
 
 private class FakeMemoPagingSource(

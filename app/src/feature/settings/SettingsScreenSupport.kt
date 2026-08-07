@@ -171,12 +171,17 @@ internal fun rememberMigrationPickerActions(
     )
 }
 
-private fun persistTreePermission(
+internal fun persistTreePermission(
     context: Context,
     uri: Uri,
 ) {
     val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     context.contentResolver.takePersistableUriPermission(uri, flags)
+    check(
+        context.contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri == uri && permission.isReadPermission && permission.isWritePermission
+        },
+    ) { "saf_grant_not_persisted" }
 }
 
 @Composable

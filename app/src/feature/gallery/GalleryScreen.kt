@@ -29,6 +29,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
 import coil3.imageLoader
 import coil3.request.ErrorResult
@@ -68,7 +70,17 @@ fun GalleryScreen(
     lanShareEnabled: Boolean = true,
 ) {
     val viewModel: MainViewModel = activityKoinViewModel()
-    val galleryState by viewModel.galleryUiMemosState.collectAsStateWithLifecycle()
+    val galleryItems = viewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
+    val galleryState =
+        remember(galleryItems.loadState, galleryItems.itemSnapshotList.items) {
+            when {
+                galleryItems.loadState.refresh is LoadState.Loading && galleryItems.itemCount == 0 ->
+                    GalleryUiMemosState.Loading
+                galleryItems.itemCount == 0 && galleryItems.loadState.refresh is LoadState.NotLoading ->
+                    GalleryUiMemosState.Loaded(emptyList())
+                else -> GalleryUiMemosState.Loaded(galleryItems.itemSnapshotList.items)
+            }
+        }
     val memos =
         remember(galleryState) {
             when (val state = galleryState) {

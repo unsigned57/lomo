@@ -439,6 +439,8 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_close">Close</string>
     <string name="action_retry">Retry</string>
+    <string name="memo_list_load_failed_title">Unable to load memos</string>
+    <string name="memo_list_load_failed_description">The workspace query failed. Retry after the workspace is ready.</string>
     <string name="action_next">Next</string>
     <string name="action_confirm">Confirm</string>
     <string name="reminder_dialog_title">Reminder</string>

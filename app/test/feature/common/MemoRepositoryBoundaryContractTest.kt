@@ -50,6 +50,13 @@ import java.io.File
  *
  * Excludes:
  * - Data-layer repository implementation details, Room SQL behavior, and UI rendering.
+ *
+ * Test Change Justification:
+ * - Reason category: repository capability contract change.
+ * - Old behavior/assertion being replaced: the boundary scanner expected obsolete full-list query methods.
+ * - Why old assertion is no longer correct: app consumers now use bounded Paging and coherent sidebar projection ports.
+ * - Coverage preserved by: aggregate facade, broad constructor injection, and all-port fake checks remain active.
+ * - Why this is not fitting the test to the implementation: the test still enforces capability ownership independent of concrete classes.
  */
 class MemoRepositoryBoundaryContractTest : AppFunSpec() {
     init {
@@ -173,7 +180,6 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                     MemoTrashRepository by trashRepository
 
                 class MethodFamilyAllPorts {
-                    fun getAllMemosList(): Any = query()
                     fun getMemosPage(): Any = query()
                     fun getMemoById(): Any = query()
                     fun saveMemo(): Any = mutation()
@@ -494,9 +500,7 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
         private val MEMO_CAPABILITY_METHOD_FAMILIES =
             listOf(
                 setOf(
-                    "getAllMemosList",
-                    "getMemosByDateRange",
-                    "getGalleryMemosList",
+                    "getGalleryMemosPagingSource",
                     "getRecentMemos",
                     "getMemosPage",
                     "getMemoCount",
@@ -520,7 +524,6 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                 ),
                 setOf(
                     "getMemoCountFlow",
-                    "getMemoTimestampsFlow",
                     "getMemoCountByDateFlow",
                     "getTagCountsFlow",
                     "getActiveDayCount",

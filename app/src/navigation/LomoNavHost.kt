@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -243,11 +244,11 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {
             val mainViewModel: MainViewModel = activityKoinViewModel()
-            val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
+            val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
             val navigateToGalleryReel =
                 rememberGalleryReelNavigationAction(
                     navController = navController,
-                    galleryMemos = galleryMemos.toImmutableList(),
+                    galleryMemos = galleryMemos.itemSnapshotList.items.toImmutableList(),
                 )
             ProvideSharedAnimationLocals(
                 sharedTransitionScope = this,
@@ -332,7 +333,7 @@ private fun NavGraphBuilder.addImageViewerDestination(
         androidx.compose.animation.SharedTransitionLayout {
             val route = entry.toRoute<NavRoute.ImageViewer>()
             val mainViewModel: MainViewModel = activityKoinViewModel()
-            val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
+            val galleryMemos = mainViewModel.galleryPagedUiMemos.collectAsLazyPagingItems()
             val appPreferences by mainViewModel.appPreferences.collectAsStateWithLifecycle()
             val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
             val imageUrls =
@@ -343,12 +344,17 @@ private fun NavGraphBuilder.addImageViewerDestination(
                         ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
                 }
             val (request, memoChromeEnabled) =
-                androidx.compose.runtime.remember(imageUrls, route.initialIndex, route.memoId, galleryMemos) {
+                androidx.compose.runtime.remember(
+                    imageUrls,
+                    route.initialIndex,
+                    route.memoId,
+                    galleryMemos.itemSnapshotList.items,
+                ) {
                     buildSingleMemoGalleryReelRequest(
                         imageUrls = imageUrls,
                         initialIndex = route.initialIndex,
                         memoId = route.memoId,
-                        galleryMemos = galleryMemos,
+                        galleryMemos = galleryMemos.itemSnapshotList.items,
                     )
                 }
             ProvideSharedAnimationLocals(

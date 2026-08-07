@@ -99,9 +99,10 @@ import kotlinx.coroutines.test.runTest
  *
  * Scenarios:
  * - Given a workspace root is present, when the ViewModel initializes, then UI state transitions to Ready and paged memos are emitted.
+ * - Given engine readiness is Ready without a committed workspace authority, when the ViewModel initializes, then the UI remains OpeningEngine until authority is published.
  * - Given a workspace root is missing, when the ViewModel initializes, then UI state stays in a non-ready state.
  * - Given a cold-start asynchronously restores the root, when the ViewModel observes the restored root, then it starts paging without treating it as a root switch.
- * - Given the user searches for memos or filters by date, when the filter changes, then pagedUiMemos and galleryUiMemos emit filtered content.
+ * - Given the user searches for memos or filters by date, when the filter changes, then pagedUiMemos remains the bounded main-list surface.
  * - Given navigation requests open or focus memos, when the ViewModel queues app actions, then the
  *   memo actions are emitted in command order.
  * - Given a delete operation is triggered, when the repository completes, then visual stability collapse markers are removed.
@@ -112,7 +113,7 @@ import kotlinx.coroutines.test.runTest
  *
  * Observable outcomes:
  * - uiState reflects root availability.
- * - pagedUiMemos and galleryUiMemos emit filtered/remapped content.
+ * - pagedUiMemos emits filtered/remapped content.
  * - collectionUiState, deletingMemoIds, and errorMessage show collection-action state without absorbing Main-specific failures.
  * - appActionEvents correctly sequence memo navigation requests (Open/Focus).
  *
@@ -235,79 +236,11 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("galleryUiMemos keeps only image memos and remains sorted by timestamp descending") {
-            runTest(testDispatcher) {
-                val newerImageMemo =
-                    Memo(
-                        id = "memo-image-new",
-                        timestamp = 200L,
-                        content = "![new](images/new.jpg)",
-                        rawContent = "- 10:00 ![new](images/new.jpg)",
-                        dateKey = "2026_03_08",
-                        imageUrls = listOf("images/new.jpg"),
-                    )
-                val noImageMemo =
-                    Memo(
-                        id = "memo-no-image",
-                        timestamp = 150L,
-                        content = "plain text",
-                        rawContent = "- 10:00 plain text",
-                        dateKey = "2026_03_08",
-                    )
-                val olderImageMemo =
-                    Memo(
-                        id = "memo-image-old",
-                        timestamp = 100L,
-                        content = "![old](images/old.jpg)",
-                        rawContent = "- 10:00 ![old](images/old.jpg)",
-                        dateKey = "2026_03_07",
-                        imageUrls = listOf("images/old.jpg"),
-                    )
-                repository.setActiveMemos(listOf(newerImageMemo, noImageMemo, olderImageMemo))
-
-                val viewModel = createViewModel()
-                val galleryUiMemos = viewModel.galleryUiMemos.first { it.size == 2 }
-
-                (galleryUiMemos.map { it.memo.id }) shouldBe (listOf("memo-image-new", "memo-image-old"))
-                (galleryUiMemos.map { it.imageUrls }) shouldBe (listOf(
-                        persistentListOf("images/new.jpg"),
-                        persistentListOf("images/old.jpg"),
-                    ))
-            }
-        }
-
-        test("galleryUiMemosState starts as loading before first gallery source emission") {
-            runTest(testDispatcher) {
-                // FakeMemoStore.getGalleryMemosList uses activeMemos flow.
-                // To simulate a never-emitting flow, we could use a custom flow if needed,
-                // but usually setActiveMemos(emptyList()) is enough if we just want to test initial state.
-                repository.setActiveMemos(emptyList())
-
-                val viewModel = createViewModel()
-
-                (viewModel.galleryUiMemosState.value) shouldBe (GalleryUiMemosState.Loading)
-            }
-        }
-
-        test("galleryUiMemosState reports true empty only after gallery source emits") {
-            runTest(testDispatcher) {
-                repository.setActiveMemos(emptyList())
-
-                val viewModel = createViewModel()
-                val loadedState =
-                    viewModel.galleryUiMemosState.first { state ->
-                        state is GalleryUiMemosState.Loaded
-                    }
-
-                (loadedState) shouldBe (GalleryUiMemosState.Loaded(emptyList()))
-            }
-        }
-
         test("date filter updates paged main list source instead of collecting full memo flow") {
                 runTest(testDispatcher) {
                     val memoDate = LocalDate.of(2026, 3, 1)
                 // FakeMemoStore already handles this
-                // repository.getAllMemosList() is already driven by activeMemos in FakeMemoStore
+                // Main list paging is already driven by activeMemos in FakeMemoStore
 
                     val viewModel = createViewModel()
                     val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
@@ -324,7 +257,6 @@ class MainViewModelTest : AppFunSpec() {
                         query = "",
                         filter = MemoListFilter(startDate = memoDate, endDate = memoDate),
                     )
-                    repository.verifyGetAllMemosListNotCalled()
                     (pagingEmissions.size) shouldBe (2)
                     collectJob.cancel()
                 }
@@ -696,6 +628,22 @@ class MainViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.runCurrent()
 
                 (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.Ready)
+            }
+        }
+
+        test("uiState stays opening when readiness has no committed workspace authority") {
+            runTest(testDispatcher) {
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/root"))
+                engineReadinessRepository.clearAuthority()
+                val viewModel = createViewModel()
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                viewModel.uiState.value shouldBe MainViewModel.MainScreenState.OpeningEngine
+
+                engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/root"))
+                testDispatcher.scheduler.advanceUntilIdle()
+
+                viewModel.uiState.value shouldBe MainViewModel.MainScreenState.Ready
             }
         }
 
@@ -1246,4 +1194,3 @@ class MainViewModelTest : AppFunSpec() {
         }
     }
 }
-

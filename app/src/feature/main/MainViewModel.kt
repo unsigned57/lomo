@@ -187,6 +187,7 @@ class MainViewModel(
                 memoUiMapper = memoUiMapper,
                 searchQuery = searchQuery,
                 memoListFilter = memoListFilter,
+                workspaceAuthority = workspaceCoordinator.workspaceAuthority,
                 rootDirectory = rootDirectory,
                 imageDirectory = imageDirectory,
                 imageMap = imageMap,
@@ -203,11 +204,13 @@ class MainViewModel(
                 rootDirectory,
                 _isInitialDirectoryImporting,
                 engineReadiness,
+                workspaceCoordinator.workspaceAuthority,
             ) {
                 hasResolvedInitialRoot,
                 directory,
                 isInitialDirectoryImporting,
                 readiness,
+                authority,
                 ->
                 when {
                     !hasResolvedInitialRoot -> MainScreenState.Loading
@@ -222,7 +225,7 @@ class MainViewModel(
                         readiness is EngineReadiness.ShuttingDown ->
                         MainScreenState.OpeningEngine
                     isInitialDirectoryImporting -> MainScreenState.InitialImporting
-                    readiness is EngineReadiness.Ready -> MainScreenState.Ready
+                    readiness is EngineReadiness.Ready && authority != null -> MainScreenState.Ready
                     // Awaiting with a configured directory: still opening / cold restore in flight.
                     else -> MainScreenState.OpeningEngine
                 }
@@ -234,9 +237,8 @@ class MainViewModel(
 
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
 
-        val galleryUiMemosState: StateFlow<GalleryUiMemosState> = memoListStateHolder.galleryUiMemosState
+        val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.galleryPagedUiMemos
 
-        val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos
 
         init {
             // P1-002 Fix: Consolidated initialization to prevent race condition

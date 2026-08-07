@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.PermanentDrawerSheet
@@ -419,6 +420,25 @@ private fun MainReadyContent(
                         hasDirectory = true,
                         onSettings = onSettings,
                     )
+                MainReadyContentState.Error ->
+                    com.lomo.ui.component.common.EmptyState(
+                        icon = androidx.compose.material.icons.Icons.Outlined.ErrorOutline,
+                        title =
+                            androidx.compose.ui.res.stringResource(
+                                com.lomo.app.R.string.memo_list_load_failed_title,
+                            ),
+                        description =
+                            androidx.compose.ui.res.stringResource(
+                                com.lomo.app.R.string.memo_list_load_failed_description,
+                            ),
+                        action = {
+                            androidx.compose.material3.TextButton(onClick = pagedUiMemos::retry) {
+                                androidx.compose.material3.Text(
+                                    androidx.compose.ui.res.stringResource(com.lomo.app.R.string.action_retry),
+                                )
+                            }
+                        },
+                    )
                 MainReadyContentState.List ->
                     Crossfade(
                         targetState = isFilterActive,
@@ -459,6 +479,7 @@ private fun MainReadyContent(
 internal enum class MainReadyContentState {
     Empty,
     List,
+    Error,
 }
 
 internal fun resolvePagedMainReadyContentState(
@@ -471,6 +492,7 @@ internal fun resolvePagedMainReadyContentState(
         itemCount > 0 -> MainReadyContentState.List
         refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached -> MainReadyContentState.List
         refreshState is LoadState.Loading -> MainReadyContentState.List
+        refreshState is LoadState.Error -> MainReadyContentState.Error
         else -> MainReadyContentState.Empty
     }
 

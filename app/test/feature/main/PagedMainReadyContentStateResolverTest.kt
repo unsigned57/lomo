@@ -10,12 +10,13 @@
  * - Given itemCount is 0 and refresh is NotLoading with end of pagination reached, when resolving state, then return MainReadyContentState.Empty.
  * - Given itemCount is 0 and refresh is NotLoading without reaching end of pagination, when resolving state, then return MainReadyContentState.List.
  * - Given itemCount is greater than 0, when resolving state, then return MainReadyContentState.List.
+ * - Given the initial refresh fails without items, when resolving state, then return MainReadyContentState.Error.
  *
  * Observable outcomes:
  * - resolved MainReadyContentState enum value.
  *
  * TDD proof:
- * - Compilation failure on Kotest transition - test-only migration; no production change.
+ * - RED before the fix: a failed initial refresh was treated as an empty list, hiding the paging error.
  *
  * Excludes:
  * - Compose rendering, pager configuration, append/prepend load states, and retry UX.
@@ -76,6 +77,14 @@ class PagedMainReadyContentStateResolverTest : AppFunSpec() {
                 refreshState = LoadState.NotLoading(endOfPaginationReached = false),
                 hasActiveExits = false,
             )) shouldBe (MainReadyContentState.List)
+        }
+
+        test("resolves error when initial refresh fails without items") {
+            resolvePagedMainReadyContentState(
+                itemCount = 0,
+                refreshState = LoadState.Error(IllegalStateException("query failed")),
+                hasActiveExits = false,
+            ) shouldBe MainReadyContentState.Error
         }
 
         test("resolves list when itemCount is 0 and refresh is completed, but active exits are running") {

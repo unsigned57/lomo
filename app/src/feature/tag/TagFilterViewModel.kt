@@ -14,6 +14,7 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
@@ -29,10 +30,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class TagFilterViewModel(
     savedStateHandle: SavedStateHandle,
     getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
@@ -45,6 +49,7 @@ class TagFilterViewModel(
     updateMemoContentUseCase: UpdateMemoContentUseCase,
     toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
     saveImageUseCase: SaveImageUseCase,
+    workspaceCoordinator: MainWorkspaceCoordinator,
 ) : ViewModel() {
         private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
         val tagName: String = routeArgs.tagName
@@ -65,10 +70,14 @@ class TagFilterViewModel(
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
             combine(
                 mappingInput,
-                memoPager(
-                    scope = viewModelScope,
-                    pagingSourceFactory = { getMemosByTagPageUseCase(tag = tagName) },
-                ),
+                workspaceCoordinator.workspaceAuthority
+                    .filterNotNull()
+                    .flatMapLatest {
+                        memoPager(
+                            scope = viewModelScope,
+                            pagingSourceFactory = { getMemosByTagPageUseCase(tag = tagName) },
+                        )
+                    },
             ) { input, pagingData ->
                 pagingData.map { memo ->
                     memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)

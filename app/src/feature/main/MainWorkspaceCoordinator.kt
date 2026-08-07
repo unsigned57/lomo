@@ -4,6 +4,7 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
@@ -22,6 +23,7 @@ class MainWorkspaceCoordinator(
     private val workspaceMutationLease: WorkspaceMutationLease,
 ) {
     val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
+    val workspaceAuthority: StateFlow<WorkspaceAuthority?> = engineReadinessRepository.workspaceAuthority
 
     suspend fun createDefaultDirectories(
         forImage: Boolean,
@@ -80,8 +82,8 @@ class MainWorkspaceCoordinator(
 
     /**
      * Observe-root rebuild is suppressed while a workspace transition is draining writers and until
-     * the active engine identity matches the persisted selection at Ready. SwitchRoot is the sole
-     * rebuild owner for intentional root switches (settings + main picker).
+     * the active engine identity matches the persisted selection at Ready. ManagedEngineSession is
+     * the sole projection rebuild owner for intentional root switches (settings + main picker).
      */
     fun canObserveRootRebuild(directory: String): Boolean {
         if (!workspaceMutationLease.isWritable()) return false

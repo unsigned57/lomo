@@ -61,6 +61,7 @@ class MemoUiMapper(
                                             rootPath = rootPath,
                                             imagePath = imagePath,
                                             imageMap = imageMap,
+                                            reminders = memo.reminders,
                                         )
                                 }
                             }.awaitAll()
@@ -77,6 +78,7 @@ class MemoUiMapper(
                                 rootPath = rootPath,
                                 imagePath = imagePath,
                                 imageMap = imageMap,
+                                reminders = memo.reminders,
                             )
                     }
                     results
@@ -88,6 +90,7 @@ class MemoUiMapper(
             rootPath: String?,
             imagePath: String?,
             imageMap: Map<String, Uri>,
+            reminders: List<com.lomo.domain.model.ReminderMarker> = memo.reminders,
         ): MemoUiModel {
             val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
             val processedContent = displayContent
@@ -108,8 +111,6 @@ class MemoUiMapper(
             val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
             val collapsedSummary = buildMemoCardCollapsedSummary(renderDocument)
 
-            val reminders = markdownReminderRepository.remindersForMemo(memo.id).toImmutableList()
-
             return MemoUiModel(
                 memo = memo,
                 processedContent = processedContent,
@@ -118,7 +119,7 @@ class MemoUiMapper(
                 imageUrls = imageUrls,
                 shouldShowExpand = shouldShowExpand,
                 collapsedSummary = collapsedSummary,
-                reminders = reminders,
+                reminders = reminders.toImmutableList(),
             )
         }
 
@@ -127,6 +128,7 @@ class MemoUiMapper(
             rootPath: String?,
             imagePath: String?,
             imageMap: Map<String, Uri>,
+            reminders: List<com.lomo.domain.model.ReminderMarker>,
         ): MemoUiModel {
             val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
             val cacheKey =
@@ -151,6 +153,7 @@ class MemoUiMapper(
                     rootPath = rootPath,
                     imagePath = imagePath,
                     imageMap = imageMap,
+                    reminders = reminders,
                 )
             cacheMutex.withLock {
                 cachedModels.put(

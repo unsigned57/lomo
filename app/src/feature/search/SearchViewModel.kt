@@ -15,12 +15,14 @@ import com.lomo.app.feature.common.MemoCollectionProjectionMapper
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -63,6 +65,7 @@ class SearchViewModel(
     private val updateMemoContentUseCase: UpdateMemoContentUseCase,
     private val saveImageUseCase: SaveImageUseCase,
     private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    workspaceCoordinator: MainWorkspaceCoordinator,
 ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
@@ -75,9 +78,14 @@ class SearchViewModel(
 
         @OptIn(FlowPreview::class)
         private val searchQueryInput =
-            combine(_searchQuery, searchFilterController.filter) { rawQuery, filter ->
-                SearchQueryInput(query = rawQuery.trim(), filter = filter)
-            }.debounce(SEARCH_QUERY_DEBOUNCE_MILLIS)
+            combine(
+                _searchQuery,
+                searchFilterController.filter,
+                workspaceCoordinator.workspaceAuthority,
+            ) { rawQuery, filter, authority ->
+                authority?.let { SearchQueryInput(query = rawQuery.trim(), filter = filter, authority = it) }
+            }.filterNotNull()
+                .debounce(SEARCH_QUERY_DEBOUNCE_MILLIS)
 
         private val mappingInput =
             combine(
@@ -237,6 +245,7 @@ class SearchViewModel(
 private data class SearchQueryInput(
     val query: String,
     val filter: MemoListFilter,
+    val authority: WorkspaceAuthority,
 )
 
 private data class UiMappingInput(

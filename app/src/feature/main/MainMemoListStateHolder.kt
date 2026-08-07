@@ -4,14 +4,16 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import androidx.paging.filter
 import androidx.paging.map
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -45,6 +47,7 @@ internal class MainMemoListStateHolder(
     memoUiMapper: MemoUiMapper,
     searchQuery: StateFlow<String>,
     memoListFilter: StateFlow<MemoListFilter>,
+    workspaceAuthority: StateFlow<WorkspaceAuthority?>,
     rootDirectory: StateFlow<String?>,
     imageDirectory: StateFlow<String?>,
     imageMap: StateFlow<Map<String, android.net.Uri>>,
@@ -82,8 +85,10 @@ internal class MainMemoListStateHolder(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val memoPagingData: StateFlow<PagingData<Memo>?> =
-        mainMemoQueryInput
-            .flatMapLatest { queryInput ->
+        combine(workspaceAuthority, mainMemoQueryInput) { authority, queryInput ->
+            authority?.let { AuthorizedMemoQueryInput(authority = it, query = queryInput) }
+        }.filterNotNull()
+            .flatMapLatest { authorizedInput ->
                 memoPager(
                     scope = scope,
                     pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
@@ -92,8 +97,8 @@ internal class MainMemoListStateHolder(
                     enablePlaceholders = DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS,
                     pagingSourceFactory = {
                         mainMemoListQueryUseCase.getMainListPagingSource(
-                            queryInput.query,
-                            queryInput.filter,
+                            authorizedInput.query.query,
+                            authorizedInput.query.filter,
                         )
                     },
                 )
@@ -116,37 +121,65 @@ internal class MainMemoListStateHolder(
             }
         }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val galleryUiMemosState: StateFlow<GalleryUiMemosState> =
-        mainMemoListQueryUseCase.getGalleryMemosList().mapToUiModels(
-            rootDirectory = rootDirectory,
-            imageDirectory = imageDirectory,
-            imageMap = imageMap,
-            memoUiMapper = memoUiMapper,
-            transformMemos = { currentMemos ->
-                currentMemos
-                    .asSequence()
-                    .filter { memo -> memo.imageUrls.any { path -> !isAudioAttachmentPath(path) } }
-                    .sortedByDescending { memo -> memo.timestamp }
-                    .toList()
-            },
-        ).map { uiMemos ->
-            GalleryUiMemosState.Loaded(uiMemos.toImmutableList())
-        }.stateIn(scope, appWhileSubscribed(), GalleryUiMemosState.Loading)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> =
+        combine(
+            workspaceAuthority,
+            rootDirectory,
+            imageDirectory,
+            imageMap,
+        ) { authority, rootDir, imageDir, currentImageMap ->
+            if (authority == null) {
+                null
+            } else {
+                GalleryPagingInput(
+                    rootDirectory = rootDir,
+                    imageDirectory = imageDir,
+                    imageMap = currentImageMap,
+                )
+            }
+        }.filterNotNull()
+            .flatMapLatest { input ->
+                Pager(
+                    PagingConfig(
+                        pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                        initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
+                        prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
+                        enablePlaceholders = false,
+                    ),
+                ) { mainMemoListQueryUseCase.getGalleryMemosPagingSource() }.flow
+                    .map { pagingData ->
+                        pagingData
+                            .filter { memo -> memo.imageUrls.any { path -> !isAudioAttachmentPath(path) } }
+                            .map { memo ->
+                                withContext(dispatcherProvider.default) {
+                                    memoUiMapper.mapToUiModel(
+                                        memo = memo,
+                                        rootPath = input.rootDirectory,
+                                        imagePath = input.imageDirectory,
+                                        imageMap = input.imageMap,
+                                    )
+                                }
+                            }
+                    }
+            }.cachedIn(scope)
 
-    val galleryUiMemos: StateFlow<List<MemoUiModel>> =
-        galleryUiMemosState
-            .map { state ->
-                when (state) {
-                    GalleryUiMemosState.Loading -> emptyList()
-                    is GalleryUiMemosState.Loaded -> state.memos
-                }
-            }.stateIn(scope, appWhileSubscribed(), emptyList())
 }
 
 private data class MemoQueryInput(
     val query: String,
     val filter: MemoListFilter,
+)
+
+private data class AuthorizedMemoQueryInput(
+    val authority: WorkspaceAuthority,
+    val query: MemoQueryInput,
+)
+
+private data class GalleryPagingInput(
+    val rootDirectory: String?,
+    val imageDirectory: String?,
+    val imageMap: Map<String, android.net.Uri>,
 )
 
 private fun Map<String, android.net.Uri>.toPagingImageDependencySignature(): String =

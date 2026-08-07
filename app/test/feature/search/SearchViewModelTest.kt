@@ -12,6 +12,7 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -505,6 +506,10 @@ class SearchViewModelTest : AppFunSpec() {
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
             toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { workspaceAuthority } returns
+                    com.lomo.app.testing.fakes.FakeEngineReadinessRepository().workspaceAuthority
+            },
         ).also(createdViewModels::add)
 
     private fun clearViewModel(viewModel: SearchViewModel) {

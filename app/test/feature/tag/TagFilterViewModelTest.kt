@@ -15,12 +15,15 @@ import com.lomo.app.testing.fakes.testMemoUiMapper
  * - Given a non-blank tagName route argument, when the ViewModel is created, matching tag memos are loaded.
  * - Given the tagName route argument is missing or blank, when the ViewModel is created, then route state fails explicitly.
  * - Given tag collection mutations fail, when actions are invoked, then shared collection actions surface user-facing errors.
+ * - Given no workspace authority, when tag paging is observed, then no Pager emits; when authority
+ *   is published, the same subscription starts tag paging.
  *
  * Observable outcomes:
  * - tagName value, deletingMemoIds StateFlow values, errorMessage StateFlow values, pagedUiMemos flow emissions, and thrown route contract failures.
  *
  * TDD proof:
  * - RED before route contract fix: missing tagName creates a ViewModel with an empty-string tag instead of failing.
+ * - A-PAGING-003 RED: tag paging was created once without workspace authority as an input.
  *
  * Excludes:
  * - Compose tag rendering, Search/Main wiring, data/domain query behavior, and bitmap decoding.
@@ -38,6 +41,7 @@ import androidx.paging.PagingData
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -79,6 +83,7 @@ class TagFilterViewModelTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val mediaRepository = FakeMediaRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
+    private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
 
     private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
     private val updateMemoContentUseCase =
@@ -115,6 +120,26 @@ class TagFilterViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 viewModel.tagName shouldBe "work"
+                pagingEmissions.size shouldBe 1
+                collectJob.cancel()
+            }
+        }
+
+        test("tag paging waits for workspace authority then starts on the same subscription") {
+            runTest {
+                engineReadinessRepository.clearWorkspace()
+                val viewModel = createViewModel(tagName = "work")
+                val pagingEmissions = mutableListOf<PagingData<MemoUiModel>>()
+                val collectJob = backgroundScope.launch(testDispatcher) {
+                    viewModel.pagedUiMemos.collect { pagingEmissions += it }
+                }
+
+                advanceUntilIdle()
+                pagingEmissions shouldBe emptyList()
+
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"))
+                runCurrent()
+                advanceUntilIdle()
                 pagingEmissions.size shouldBe 1
                 collectJob.cancel()
             }
@@ -286,6 +311,9 @@ class TagFilterViewModelTest : AppFunSpec() {
             updateMemoContentUseCase = updateMemoContentUseCase,
             toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
             saveImageUseCase = saveImageUseCase,
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+            },
         )
 
     private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =

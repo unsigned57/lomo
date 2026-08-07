@@ -18,12 +18,12 @@ import kotlinx.coroutines.test.runTest
  * - Capability: coordinate new-memo creation so the list enter request is based on a real loaded head baseline before the async insert mutates the visible head.
  *
  * Scenarios:
- * - Given the list is at top, when submit is called, then the coordinator awaits a loaded top baseline, prepares pending head enter, creates, awaits, and reveals.
- * - Given the list is away from top, when submit is called, then it scrolls to top, awaits the post-scroll baseline, prepares pending enter, creates, awaits, and reveals.
+ * - Given the list is at top, when submit is called, then the coordinator creates before resolving the optional animation baseline.
+ * - Given the list is away from top, when submit is called, then it scrolls to top, creates, and resolves the post-scroll animation baseline.
  * - Given a submit is in flight, when a second submit is called, then the second submit is rejected.
  * - Given awaiting a new top id times out, when the lifecycle finishes, then the prepared enter request is canceled.
  * - Given an empty list baseline, when a new memo is created, then any non-null top id can reveal.
- * - Given the top baseline is not yet loaded, when submit is called, then create is not invoked until the baseline becomes available.
+ * - Given the top baseline is not loaded, when submit is called, then create still runs and the animation hint may be skipped.
  *
  * Observable outcomes:
  * - Sequence of events, captured baseline, prepared request id cancellation, overlap rejection, and reveal target id.
@@ -52,7 +52,7 @@ import kotlinx.coroutines.test.runTest
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewMemoCreationCoordinatorTest : AppFunSpec() {
     init {
-        test("submit at top awaits a loaded baseline before prepare, create, await, and reveal") {
+        test("submit at top creates before preparing an optional loaded baseline") {
             runTest {
                 val events = mutableListOf<String>()
                 var capturedBaseline: HeadEnterBaseline? = null
@@ -92,9 +92,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
+                    "create:memo body",
                     "baseline",
                     "prepare:ExistingHead(id=old-memo-id)",
-                    "create:memo body",
                     "await:ExistingHead(id=old-memo-id)",
                     "reveal:new-memo-id",
                 )
@@ -146,9 +146,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 accepted shouldBe true
                 events shouldBe listOf(
                     "scroll",
+                    "create:memo body",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
-                    "create:memo body",
                     "await:ExistingHead(id=prev-id)",
                     "reveal:new-id",
                 )
@@ -195,9 +195,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 firstAccepted shouldBe true
                 secondAccepted shouldBe false
                 events shouldBe listOf(
+                    "create:first",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
-                    "create:first",
                     "await:ExistingHead(id=prev-id)",
                     "reveal:new-id",
                 )
@@ -240,9 +240,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
+                    "create:memo body",
                     "baseline",
                     "prepare:EmptyList",
-                    "create:memo body",
                     "await:EmptyList",
                     "reveal:first-id",
                 )
@@ -284,16 +284,16 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
+                    "create:memo body",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
-                    "create:memo body",
                     "await:ExistingHead(id=prev-id)",
                     "cancel:5",
                 )
             }
         }
 
-        test("submit waits for a top baseline before consuming the create request") {
+        test("submit creates even when the top baseline never becomes available") {
             runTest {
                 val baseline = CompletableDeferred<HeadEnterBaseline>()
                 val events = mutableListOf<String>()
@@ -321,24 +321,44 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                         cancelPreparedEnter = { requestId ->
                             events += "cancel:${requestId.value}"
                         },
+                        baselineTimeoutMillis = 1L,
                     )
 
                 val accepted = coordinator.submit("memo body")
                 runCurrent()
 
                 accepted shouldBe true
-                events shouldBe listOf("await-baseline")
+                events shouldBe listOf("create:memo body", "await-baseline")
 
-                baseline.complete(HeadEnterBaseline.ExistingHead("old-id"))
                 advanceUntilIdle()
 
-                events shouldBe listOf(
-                    "await-baseline",
-                    "prepare:ExistingHead(id=old-id)",
-                    "create:memo body",
-                    "await-new:ExistingHead(id=old-id)",
-                    "reveal:new-id",
-                )
+                events shouldBe listOf("create:memo body", "await-baseline")
+            }
+        }
+
+        test("baseline timeout releases the submission slot for the next create") {
+            runTest {
+                val events = mutableListOf<String>()
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = {},
+                        awaitTopBaseline = {
+                            CompletableDeferred<HeadEnterBaseline>().await()
+                        },
+                        prepareNewTopEnter = { error("baseline timeout must skip animation preparation") },
+                        createMemo = { content, _ -> events += content },
+                        awaitNewTopItem = { error("baseline timeout must skip reveal observation") },
+                        revealNewTopItem = { error("baseline timeout must skip reveal") },
+                        cancelPreparedEnter = { error("no enter request was prepared") },
+                        baselineTimeoutMillis = 0L,
+                    )
+
+                coordinator.submit("first") shouldBe true
+                coordinator.submit("second") shouldBe true
+
+                events shouldBe listOf("first", "second")
             }
         }
     }

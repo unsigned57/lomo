@@ -28,7 +28,8 @@ import kotlinx.coroutines.test.runTest
  * - Scenarios:
  *   - Given initial state, when directory display Flows are observed before emission, then they stay Loading.
  *   - Given emitted location display names, when display Flows collect, then directory states resolve.
- *   - Given root directory updates, when the coordinator applies them, then switch-root is delegated.
+ *   - Given root directory updates, when the coordinator applies them, then switch-root is delegated
+ *     without starting a second projection rebuild.
  *   - Given image/voice/sync inbox directory updates, when applied, then repository storage locations update.
  *   - Given preference toggle updates, when applied, then each updates only its own repository state.
  *   - Given date/time/theme/haptic/foreground auto-input preference updates, when applied, then the
@@ -37,24 +38,23 @@ import kotlinx.coroutines.test.runTest
  * - Observable outcomes:
  *   - Directory display state Flow emissions.
  *   - Backing repository preference states and storage locations.
- *   - Rebuild call count from WorkspaceStateResolver.
+ *   - Root selection state and absence of duplicate WorkspaceStateResolver rebuilds.
  *
  * - TDD proof:
- *   - RED: before foreground auto-input was exposed by the settings coordinator, the new update
- *     assertion could not compile.
+ *   - A-SW-003 RED: settings root updates still expected the obsolete second rebuild owner.
  *
  * - Excludes: Datastore file serialization, Android system settings integration.
  
  * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
- * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
- *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
- * - Why old assertion is no longer correct: production storage analysis and presentation consume
- *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
- * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
- *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
- * - Why this is not fitting the test to the implementation: assertions still check public behavior and
- *   fail-closed boundaries, not private parser implementation details.
+ * - Reason category: workspace activation and projection ownership contract.
+ * - Old behavior/assertion being replaced: settings root changes expected SwitchRootStorageUseCase to
+ *   invoke WorkspaceStateResolver after engine activation.
+ * - Why old assertion is no longer correct: ManagedEngineSession activation already owns candidate
+ *   projection rebuild and promotion; an extra call duplicates SAF scanning.
+ * - Coverage preserved by: both path and content URI updates still assert their persisted selections,
+ *   while the resolver count now freezes the no-duplicate-rebuild outcome.
+ * - Why this is not fitting the test to the implementation: the assertions cover persisted settings
+ *   state and the user-visible switch resource contract, not a private method shape.
  */
 class SettingsAppConfigCoordinatorTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
@@ -128,11 +128,11 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
 
                 coordinator.updateRootDirectory("/root/path")
                 appConfigRepository.currentRootLocation() shouldBe StorageLocation("/root/path")
-                workspaceStateResolver.rebuildCallCount shouldBe 1
+                workspaceStateResolver.rebuildCallCount shouldBe 0
 
                 coordinator.updateRootUri("content://tree/root")
                 appConfigRepository.currentRootLocation() shouldBe StorageLocation("content://tree/root")
-                workspaceStateResolver.rebuildCallCount shouldBe 2
+                workspaceStateResolver.rebuildCallCount shouldBe 0
             }
         }
 
@@ -335,4 +335,3 @@ class SettingsAppConfigCoordinatorTest : AppFunSpec() {
         }
     }
 }
-

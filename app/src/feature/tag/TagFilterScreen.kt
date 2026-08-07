@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
@@ -22,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,11 +63,32 @@ import kotlinx.collections.immutable.toImmutableSet
 
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.LoadState
 
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
 private val TAG_FILTER_LIST_PADDING = 16.dp
 private val TAG_FILTER_LIST_BOTTOM_PADDING = 88.dp
+
+internal enum class TagFilterContentState {
+    Loading,
+    Empty,
+    Error,
+    List,
+}
+
+internal fun resolveTagFilterContentState(
+    itemCount: Int,
+    refreshState: LoadState,
+): TagFilterContentState =
+    when {
+        itemCount > 0 -> TagFilterContentState.List
+        refreshState is LoadState.Loading -> TagFilterContentState.Loading
+        refreshState is LoadState.Error -> TagFilterContentState.Error
+        refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached ->
+            TagFilterContentState.Loading
+        else -> TagFilterContentState.Empty
+    }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -260,14 +284,27 @@ private fun TagFilterScreenContent(
 ) {
     val listState = rememberLazyListState()
     Box(modifier = modifier.fillMaxSize()) {
-        if (pagedItems.itemCount == 0) {
-            EmptyState(
-                icon = Icons.Outlined.Tag,
-                title = stringResource(R.string.empty_no_tag_matches_title, tagName),
-                description = stringResource(R.string.empty_no_tag_matches_subtitle),
-            )
-        } else {
-            MemoCardList(
+        when (resolveTagFilterContentState(pagedItems.itemCount, pagedItems.loadState.refresh)) {
+            TagFilterContentState.Loading ->
+                CircularProgressIndicator(modifier = Modifier.align(androidx.compose.ui.Alignment.Center))
+            TagFilterContentState.Error ->
+                EmptyState(
+                    icon = Icons.Outlined.ErrorOutline,
+                    title = stringResource(R.string.memo_list_load_failed_title),
+                    description = stringResource(R.string.memo_list_load_failed_description),
+                    action = {
+                        TextButton(onClick = pagedItems::retry) {
+                            Text(stringResource(R.string.action_retry))
+                        }
+                    },
+                )
+            TagFilterContentState.Empty ->
+                EmptyState(
+                    icon = Icons.Outlined.Tag,
+                    title = stringResource(R.string.empty_no_tag_matches_title, tagName),
+                    description = stringResource(R.string.empty_no_tag_matches_subtitle),
+                )
+            TagFilterContentState.List -> MemoCardList(
                 pagedMemos = pagedItems,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,

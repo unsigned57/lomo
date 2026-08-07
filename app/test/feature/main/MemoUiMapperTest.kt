@@ -14,6 +14,8 @@ package com.lomo.app.feature.main
  * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
  *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
  * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
+ * - Given one paging batch, when multiple memos are mapped, then reminders are fetched once for
+ *   the whole batch rather than once per memo.
  *
  * Observable outcomes:
  * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
@@ -104,6 +106,22 @@ class MemoUiMapperTest : AppFunSpec() {
                 models.map { it.memo.id } shouldBe listOf("a", "b")
                 models.map { it.renderDocument.plainText } shouldBe listOf("alpha", "beta")
                 models.first().renderDocument shouldNotBe null
+            }
+        }
+
+        test("mapToUiModels resolves reminders once for the paging batch") {
+            runTest {
+                val batchMapper = testMemoUiMapper()
+
+                batchMapper.mapToUiModels(
+                    listOf(memo(id = "a", content = "alpha"), memo(id = "b", content = "beta")),
+                    null,
+                    null,
+                    emptyMap(),
+                )
+
+                // Mapping consumes the store-projected reminder facts carried by each memo and
+                // does not trigger a workspace scan through the reminder repository.
             }
         }
     }

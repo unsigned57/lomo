@@ -57,7 +57,6 @@ class FakeMemoStore(
     var clearTrashCallCount: Int = 0
         private set
     var getMainListPagingSourceCallCount: Int = 0
-    var getAllMemosListCallCount: Int = 0
     val mainListCalls = mutableListOf<MainListCall>()
     val mainListPageLoads = mutableListOf<MainListPageLoad>()
     var mainListPageProvider: ((spec: MemoQuerySpec) -> List<Memo>)? = null
@@ -91,11 +90,6 @@ class FakeMemoStore(
 
     fun currentDeletedMemos(): List<Memo> = deletedMemos.value
 
-    internal fun observeAllActiveMemos(): Flow<List<Memo>> {
-        getAllMemosListCallCount += 1
-        return activeMemos.asStateFlow()
-    }
-
     internal fun observeActiveMemosInDateRange(
         startDate: LocalDate?,
         endDate: LocalDate?,
@@ -107,9 +101,6 @@ class FakeMemoStore(
                     (endDate == null || !date.isAfter(endDate))
             }
         }
-
-    internal fun observeGalleryActiveMemos(): Flow<List<Memo>> =
-        activeMemos.map { memos -> memos.filter { it.imageUrls.isNotEmpty() } }
 
     internal suspend fun recentActiveMemos(limit: Int): List<Memo> =
         activeMemos.value.sortedByDescending(Memo::timestamp).take(limit)
@@ -222,6 +213,9 @@ class FakeMemoStore(
         )
     }
 
+    internal fun galleryPagingSource(): PagingSource<String, Memo> =
+        InMemoryCursorMemoPagingSource(activeMemos.value.filter { it.imageUrls.isNotEmpty() })
+
     internal fun observeMainListCount(spec: MemoQuerySpec): Flow<Int> {
         recordedQuery = spec.normalizedQueryText
         recordedSpec = spec
@@ -303,6 +297,7 @@ class FakeMemoStore(
 
     internal suspend fun taggedMemoPage(
         tag: String,
+        subtree: Boolean,
         limit: Int,
         offset: Int,
     ): List<Memo> {
@@ -311,7 +306,7 @@ class FakeMemoStore(
             emptyList()
         } else {
             activeMemos.value
-                .filter { memo -> tag in memo.tags }
+                .filter { memo -> memo.tags.any { candidate -> candidate == tag || subtree && candidate.startsWith("$tag/") } }
                 .drop(offset)
                 .take(limit)
         }
@@ -427,20 +422,11 @@ class FakeMemoStore(
         }
     }
 
-    fun verifyGetAllMemosListNotCalled() {
-        if (getAllMemosListCallCount != 0) {
-            throw AssertionError(
-                "Expected getAllMemosList not to be called, but was called $getAllMemosListCallCount times",
-            )
-        }
-    }
-
     fun resetRecordedCalls() {
         recordedQuery = null
         recordedSpec = null
         refreshMemosCallCount = 0
         getMainListPagingSourceCallCount = 0
-        getAllMemosListCallCount = 0
         mainListCalls.clear()
         mainListPageLoads.clear()
         mainListPageProvider = null
@@ -628,5 +614,19 @@ private class InMemoryMemoPagingSource(
         val prevKey = if (start == 0) null else (start - params.loadSize).coerceAtLeast(0)
         val nextKey = if (end >= snapshot.size) null else end
         return LoadResult.Page(slice, prevKey, nextKey)
+    }
+}
+
+private class InMemoryCursorMemoPagingSource(
+    private val snapshot: List<Memo>,
+) : PagingSource<String, Memo>() {
+    override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
+
+    override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {
+        val start = params.key?.toIntOrNull() ?: 0
+        val end = (start + params.loadSize).coerceAtMost(snapshot.size)
+        val data = if (start >= snapshot.size) emptyList() else snapshot.subList(start, end)
+        val nextKey = if (end >= snapshot.size) null else end.toString()
+        return LoadResult.Page(data = data, prevKey = null, nextKey = nextKey)
     }
 }

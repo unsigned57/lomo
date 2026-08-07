@@ -433,6 +433,8 @@
     <string name="action_cancel">取消</string>
     <string name="action_close">关闭</string>
     <string name="action_retry">重试</string>
+    <string name="memo_list_load_failed_title">无法加载备忘录</string>
+    <string name="memo_list_load_failed_description">工作区查询失败。工作区准备好后可以重试。</string>
     <string name="action_next">下一步</string>
     <string name="action_confirm">确认</string>
     <string name="reminder_dialog_title">提醒</string>

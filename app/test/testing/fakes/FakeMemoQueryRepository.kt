@@ -8,19 +8,12 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.repository.MemoQueryRepository
 import kotlinx.coroutines.flow.Flow
-import java.time.LocalDate
 
 class FakeMemoQueryRepository(
     private val store: FakeMemoStore,
 ) : MemoQueryRepository {
-    override fun getAllMemosList(): Flow<List<Memo>> = store.observeAllActiveMemos()
-
-    override fun getMemosByDateRange(
-        startDate: LocalDate?,
-        endDate: LocalDate?,
-    ): Flow<List<Memo>> = store.observeActiveMemosInDateRange(startDate, endDate)
-
-    override fun getGalleryMemosList(): Flow<List<Memo>> = store.observeGalleryActiveMemos()
+    override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
+        store.galleryPagingSource()
 
     override suspend fun getRecentMemos(limit: Int): List<Memo> = store.recentActiveMemos(limit)
 

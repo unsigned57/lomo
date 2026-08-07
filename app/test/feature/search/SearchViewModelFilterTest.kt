@@ -15,6 +15,8 @@ import com.lomo.app.testing.fakes.testMemoUiMapper
  * - Given a search result set and hasTodo=true, when the filter changes, then paging re-fetches matching memos.
  * - Given a search result set and hasAttachment=false, when the filter changes, then paging re-fetches matching memos.
  * - Given active filter flags, when clearSearchFilter is invoked, then the filter becomes inactive.
+ * - Given no workspace authority, when search is observed, then no page query runs; when authority
+ *   is published, the same subscription starts a new Pager.
  *
  * Observable outcomes:
  * - searchFilter StateFlow values, pagedUiMemos flow emissions, and recorded repository page calls.
@@ -22,6 +24,8 @@ import com.lomo.app.testing.fakes.testMemoUiMapper
  * TDD proof:
  * - RED before the paging fix because app search delegated to a full-list search flow and applied
  *   filters outside the main-list query port.
+ * - A-PAGING-002 RED: search query/filter were the only Pager inputs, so workspace promotion could
+ *   not restart an already collected search.
  *
  * Excludes:
  * - SearchScreen rendering, MemoUiMapper internals, repository SQL, and debounce/loading timing.
@@ -39,6 +43,7 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
@@ -46,6 +51,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -55,6 +61,7 @@ import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -70,6 +77,7 @@ class SearchViewModelFilterTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
     private val memoRepository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
+    private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
 
     private val deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(memoRepository))
     private val updateMemoContentUseCase = UpdateMemoContentUseCase(
@@ -97,6 +105,26 @@ class SearchViewModelFilterTest : AppFunSpec() {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
                 viewModel.searchFilter.value.isActive shouldBe false
+            }
+        }
+
+        test("search waits for workspace authority then starts on the same subscription") {
+            runTest {
+                engineReadinessRepository.clearWorkspace()
+                val viewModel = createViewModel()
+                val collectJob = backgroundScope.launch(testDispatcher) { viewModel.pagedUiMemos.collect() }
+
+                viewModel.onSearchQueryChanged("memo")
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+                memoRepository.mainListCalls shouldBe emptyList()
+
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace"))
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+                memoRepository.mainListCalls shouldContain
+                    FakeMemoStore.MainListCall(query = "memo", filter = MemoListFilter())
+                collectJob.cancel()
             }
         }
 
@@ -193,6 +221,9 @@ class SearchViewModelFilterTest : AppFunSpec() {
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
             toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
+            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+            },
         )
 
     private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =

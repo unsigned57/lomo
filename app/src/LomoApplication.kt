@@ -29,13 +29,14 @@ import com.lomo.app.feature.image.lomoImageDiskCache
 import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.app.startup.AppStartupCoordinator
-import com.lomo.domain.repository.DatabaseInitializationRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
@@ -73,7 +74,6 @@ class LomoApplication :
 
     private val syncPolicyRepository: SyncPolicyRepository by inject()
     private val appStartupCoordinator: AppStartupCoordinator by inject()
-    private val databaseInitializationRepository: DatabaseInitializationRepository by inject()
     private val appShutdownCoordinator: AppShutdownCoordinator by inject()
     private val reminderCoordinator: ReminderCoordinator by inject()
     private val engineReadinessRepository: EngineReadinessRepository by inject()
@@ -141,14 +141,6 @@ class LomoApplication :
 
         appStartupCoordinator.start()
 
-        appScope.launch(Dispatchers.IO) {
-            runCatching {
-                databaseInitializationRepository.ensureReady()
-            }.onFailure { error ->
-                Timber.e(error, "Failed to warm memo database")
-            }
-        }
-
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
@@ -176,14 +168,20 @@ class LomoApplication :
                         }
                     }
 
-                    // Reconcile reminder alarms on every cold start.
+                    // Reminder queries are admitted only after a committed workspace authority.
                     appScope.launch {
-                        runCatching {
-                            reminderCoordinator.rebuildAll()
-                        }.onFailure { error ->
-                            Timber.e(error, "Failed to rebuild reminder alarms after process start")
+                        engineReadinessRepository.workspaceAuthority
+                            .filterNotNull()
+                            .collectLatest {
+                                try {
+                                    reminderCoordinator.rebuildAll()
+                                } catch (error: kotlinx.coroutines.CancellationException) {
+                                    throw error
+                                } catch (error: Exception) {
+                                    Timber.e(error, "Failed to rebuild reminder alarms after workspace activation")
+                                }
+                            }
                         }
-                    }
                 }
             },
         )

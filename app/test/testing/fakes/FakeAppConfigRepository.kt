@@ -9,6 +9,8 @@ import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.WorkspaceRootTransition
+import com.lomo.domain.model.WorkspaceRootTransitionPhase
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
@@ -32,6 +34,8 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
         StorageArea.values().associateWith { MutableStateFlow<StorageLocation?>(null) }
     private val displayNames: Map<StorageArea, MutableStateFlow<String?>> =
         StorageArea.values().associateWith { MutableStateFlow<String?>(null) }
+    private var pendingRootTransition: WorkspaceRootTransition? = null
+    private var transitionSequence = 0
 
     private val dateFormat = MutableStateFlow(PreferenceDefaults.DATE_FORMAT)
     private val timeFormat = MutableStateFlow(PreferenceDefaults.TIME_FORMAT)
@@ -85,6 +89,46 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
         name: String?,
     ) {
         displayNames.getValue(area).value = name
+    }
+
+    override suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition {
+        check(pendingRootTransition == null) { "Workspace transition already pending" }
+        return WorkspaceRootTransition(
+            id = "app-fake-transition-${++transitionSequence}",
+            previous = currentRootLocation(),
+            candidate = candidate,
+            phase = WorkspaceRootTransitionPhase.PREPARED,
+        ).also { pendingRootTransition = it }
+    }
+
+    override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition =
+        requirePending(transitionId).copy(phase = WorkspaceRootTransitionPhase.ACTIVATED).also {
+            pendingRootTransition = it
+        }
+
+    override suspend fun commitRootTransition(transitionId: String) {
+        val transition = requirePending(transitionId)
+        check(transition.phase == WorkspaceRootTransitionPhase.ACTIVATED)
+        setLocation(StorageArea.ROOT, transition.candidate)
+        pendingRootTransition = null
+    }
+
+    override suspend fun rollbackRootTransition(transitionId: String) {
+        requirePending(transitionId)
+        pendingRootTransition = null
+    }
+
+    override suspend fun pendingRootTransition(): WorkspaceRootTransition? = pendingRootTransition
+
+    override suspend fun recoverRootLocation(): StorageLocation? {
+        pendingRootTransition = null
+        return currentRootLocation()
+    }
+
+    private fun requirePending(transitionId: String): WorkspaceRootTransition {
+        val transition = checkNotNull(pendingRootTransition) { "Workspace transition is missing" }
+        check(transition.id == transitionId) { "Workspace transition id mismatch" }
+        return transition
     }
 
     fun setThemeModeNow(mode: ThemeMode) {

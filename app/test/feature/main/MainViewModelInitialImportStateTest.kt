@@ -503,6 +503,12 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
         override suspend fun currentLocation(area: StorageArea) = TODO()
         override suspend fun applyLocation(update: com.lomo.domain.model.StorageAreaUpdate) = TODO()
         override fun observeDisplayName(area: StorageArea) = TODO()
+        override suspend fun prepareRootTransition(candidate: StorageLocation) = TODO()
+        override suspend fun markRootTransitionActivated(transitionId: String) = TODO()
+        override suspend fun commitRootTransition(transitionId: String) = TODO()
+        override suspend fun rollbackRootTransition(transitionId: String) = TODO()
+        override suspend fun pendingRootTransition() = TODO()
+        override suspend fun recoverRootLocation() = TODO()
     }
 
     class DummyWorkspaceStateResolver : WorkspaceStateResolver {
@@ -531,4 +537,3 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
         }
     }
 }
-
