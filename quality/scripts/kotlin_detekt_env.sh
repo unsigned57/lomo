@@ -2,7 +2,7 @@
 # Shared helpers for running detekt CLI without a project Gradle entrypoint.
 set -euo pipefail
 
-DETEKT_VERSION="${LOMO_DETEKT_VERSION:-2.0.0-alpha.3}"
+DETEKT_VERSION="${LOMO_DETEKT_VERSION:-2.0.0-alpha.6}"
 DETEKT_CLI_CACHE_DIR_DEFAULT=""
 
 lomo_detekt_repo_root() {
@@ -19,6 +19,13 @@ lomo_detekt_cli_jar() {
     url="https://repo1.maven.org/maven2/dev/detekt/detekt-cli/${DETEKT_VERSION}/detekt-cli-${DETEKT_VERSION}-all.jar"
     echo "kotlin-detekt: downloading detekt CLI ${DETEKT_VERSION}" >&2
     curl -fsSL -o "$jar_path.partial" "$url"
+    expected="$(curl -fsSL "$url.sha1" | awk '{print $1}')"
+    actual="$(sha1sum "$jar_path.partial" | awk '{print $1}')"
+    if [ "$actual" != "$expected" ]; then
+      rm -f "$jar_path.partial"
+      echo "kotlin-detekt: checksum mismatch for detekt-cli-${DETEKT_VERSION}-all.jar" >&2
+      return 1
+    fi
     mv "$jar_path.partial" "$jar_path"
   fi
   printf '%s\n' "$jar_path"
