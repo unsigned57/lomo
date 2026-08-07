@@ -2,7 +2,6 @@ package com.lomo.nativesmoke
 
 import android.app.Activity
 import android.os.Bundle
-import android.os.Process
 import android.provider.DocumentsContract
 import android.util.Log
 import com.lomo.nativebridge.CancelOutcome
@@ -32,8 +31,8 @@ class NativeSmokeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
-            // P5-13: sync-v1 planSyncEnvelope absorbed with lomo-sync-core.
-            runFormalEngineSmoke()
+            // Sync planning is owned by lomo-sync.
+            if (runFormalEngineSmoke()) return
             runConcurrentCloseUseSmoke()
             runSafCrudMatrix()
             Log.i(LOG_TAG, "PASS")
@@ -46,11 +45,11 @@ class NativeSmokeActivity : Activity() {
 
     /**
      * Phase 1 (no seed marker): open direct workspace, assert ready, write seed marker, request
-     * process kill so xtask relaunches for journal recovery.
+     * external process stop so xtask relaunches for journal recovery.
      * Phase 2 (seed marker present): reopen same control roots and require Ready recovery without
      * recreating a partial engine.
      */
-    private fun runFormalEngineSmoke() {
+    private fun runFormalEngineSmoke(): Boolean {
         val control = File(filesDir, "engine-control").apply { mkdirs() }
         val exchange = File(filesDir, "engine-exchange").apply { mkdirs() }
         val workspace = File(filesDir, "engine-workspace").apply { mkdirs() }
@@ -58,9 +57,10 @@ class NativeSmokeActivity : Activity() {
 
         if (!seedMarker.exists()) {
             runSeedAndRequestRestart(control, exchange, workspace, seedMarker)
-            return
+            return true
         }
         runRecoverAndCallbackAssert(control, exchange, workspace)
+        return false
     }
 
     private fun runSeedAndRequestRestart(
@@ -81,19 +81,9 @@ class NativeSmokeActivity : Activity() {
                     bootstrapDeadlineMillis = 30_000uL,
                 ),
             )
-        try {
-            awaitReady(engine)
-            seedMarker.writeText("seeded\n")
-            Log.i(LOG_TAG, "RESTART_REQUIRED seed complete; forcing process exit for recovery")
-        } finally {
-            // Best-effort shutdown; kill is intentional for crash-window recovery.
-            runCatching {
-                engine.shutdown(2_000uL)
-                engine.close()
-            }
-        }
-        // behavior-contract: silent-result-ok: intentional process death for journal relaunch smoke
-        Process.killProcess(Process.myPid())
+        awaitReady(engine)
+        seedMarker.writeText("seeded\n")
+        Log.i(LOG_TAG, "RESTART_REQUIRED seed complete; awaiting external force-stop for recovery")
     }
 
     private fun runRecoverAndCallbackAssert(
