@@ -4,6 +4,7 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.canRebuildDerivedIndex
@@ -21,14 +22,18 @@ class FakeEngineReadinessRepository(
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private val _workspaceAuthority =
         MutableStateFlow<WorkspaceAuthority?>(
-            WorkspaceAuthority(workspaceId = "fake-workspace", generation = 0),
+            WorkspaceAuthority(workspaceId = "fake-workspace", generation = 0, projectionRevision = 0uL),
         )
+    private val _projectionFreshness =
+        MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Verified(0uL))
     private var activateCount = 0
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
     override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
         _activeWorkspaceLocation.asStateFlow()
     override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
         _workspaceAuthority.asStateFlow()
+    override val projectionFreshness: StateFlow<ProjectionFreshness> =
+        _projectionFreshness.asStateFlow()
 
     fun publish(value: EngineReadiness) {
         _readiness.value = value
@@ -60,13 +65,19 @@ class FakeEngineReadinessRepository(
         activateCount += 1
         _activeWorkspaceLocation.value = location
         _workspaceAuthority.value =
-            WorkspaceAuthority(workspaceId = location.raw, generation = activateCount.toLong())
+            WorkspaceAuthority(
+                workspaceId = location.raw,
+                generation = activateCount.toLong(),
+                projectionRevision = activateCount.toULong(),
+            )
+        _projectionFreshness.value = ProjectionFreshness.Verified(activateCount.toULong())
         _readiness.value = EngineReadiness.Ready(coreRevision = 0uL, eventSequence = 1uL)
     }
 
     override suspend fun clearWorkspace() {
         _activeWorkspaceLocation.value = null
         _workspaceAuthority.value = null
+        _projectionFreshness.value = ProjectionFreshness.Unavailable
         _readiness.value = EngineReadiness.AwaitingWorkspaceSelection
     }
 }

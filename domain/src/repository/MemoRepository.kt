@@ -7,6 +7,7 @@ import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.TagSelection
 import com.lomo.domain.model.MemoStatistics
 import com.lomo.domain.model.MemoTagCount
 import kotlinx.coroutines.flow.Flow
@@ -17,19 +18,13 @@ import java.time.ZoneId
  * Read-side list access that can serve bounded memo pages without full-list fallbacks.
  */
 interface MemoListQueryRepository {
-    fun getAllMemosList(): Flow<List<Memo>>
-
-    fun getMemosByDateRange(
-        startDate: LocalDate?,
-        endDate: LocalDate?,
-    ): Flow<List<Memo>>
-
-    fun getGalleryMemosList(): Flow<List<Memo>>
+    /** Returns a Rust-cursor-backed source; each load transfers one bounded gallery page. */
+    fun getGalleryMemosPagingSource(): PagingSource<String, Memo>
 
     suspend fun getRecentMemos(limit: Int): List<Memo>
 
     /**
-     * Returns a stable page from the default memo ordering used by [getAllMemosList].
+     * Returns a stable page from the default memo ordering.
      */
     suspend fun getMemosPage(
         limit: Int,
@@ -115,7 +110,7 @@ interface MemoMutationRepository {
 }
 
 interface MemoSearchRepository {
-    fun getMemosByTagPagingSource(tag: String): PagingSource<Int, Memo>
+    fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<Int, Memo>
 }
 
 interface MemoStatisticsRepository {
@@ -126,7 +121,7 @@ interface MemoStatisticsRepository {
 
     fun getMemoCountFlow(): Flow<Int>
 
-    fun getMemoTimestampsFlow(): Flow<List<Long>>
+    fun getSidebarStatisticsFlow(): Flow<com.lomo.domain.model.MemoSidebarStatistics>
 
     fun getMemoCountByDateFlow(): Flow<Map<String, Int>>
 

@@ -8,6 +8,7 @@ package com.lomo.data.engine.store
  */
 data class StoreMemoFilters(
     val tag: String? = null,
+    val tagSubtree: Boolean = false,
     val dateFromMs: Long? = null,
     val dateToMs: Long? = null,
     val hasTodo: Boolean? = null,
@@ -43,6 +44,7 @@ data class StoreMemoSummary(
     val rank: Double? = null,
     val tags: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
+    val reminders: List<com.lomo.domain.model.ReminderMarker> = emptyList(),
 )
 
 data class StoreMemoPage(
@@ -55,6 +57,23 @@ data class StoreMemoPage(
 data class StoreMemoSnapshot(
     val summary: StoreMemoSummary,
     val body: String,
+)
+
+data class StoreSidebarDateCount(
+    val date: String,
+    val count: Int,
+)
+
+data class StoreSidebarTagCount(
+    val name: String,
+    val count: Int,
+)
+
+data class StoreSidebarProjection(
+    val schemaVersion: UInt,
+    val memoCount: Int,
+    val dateCounts: List<StoreSidebarDateCount>,
+    val tagCounts: List<StoreSidebarTagCount>,
 )
 
 data class StoreMemoCommit(
@@ -72,6 +91,7 @@ enum class StoreMemoCommandKind {
     Create,
     Update,
     Delete,
+    PermanentDelete,
     Restore,
     Pin,
     Unpin,
@@ -89,6 +109,8 @@ data class StoreMemoCommand(
     val pin: Boolean? = null,
     /** Committed promote plans only; empty means no media promote in this operation. */
     val pendingPromotes: List<com.lomo.data.engine.media.MediaPromotePlan> = emptyList(),
+    /** Required for SAF create; absent for update/delete/pin and ignored by Direct writes. */
+    val chronologyEpochMs: Long? = null,
 )
 
 data class StoreRebuildResult(
@@ -107,6 +129,18 @@ data class StoreHistoryAttachmentRef(
     val revision: Long,
     val relativePath: String,
     val ownerKey: String,
+)
+
+data class StoreMemoHistoryRevision(
+    val revision: Long,
+    val createdAtMs: Long,
+    val content: String,
+    val fileFingerprint: String,
+)
+
+data class StoreMemoHistoryPage(
+    val items: List<StoreMemoHistoryRevision>,
+    val nextCursor: String?,
 )
 
 data class StorePlannedAlarm(
@@ -130,8 +164,13 @@ interface StorePort {
 
     fun getMemo(memoId: String): StoreMemoSnapshot?
 
+    fun sidebarProjection(): StoreSidebarProjection
+
     /** Attachment paths still referenced by durable history revision bodies. */
     fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef>
+
+    fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage =
+        error("Store history capability is not available on this port")
 
     fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit
 

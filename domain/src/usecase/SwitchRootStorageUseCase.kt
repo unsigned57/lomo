@@ -8,16 +8,16 @@ import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.repository.WorkspaceStateResolver
 
 /**
- * Switches the workspace root with prepare → validate → persist → activate → rebuild ordering.
+ * Switches the workspace root with validate → durable prepare → activate → durable commit ordering.
  *
  * Candidate validation runs before any durable selection change. The whole critical section runs
  * under an exclusive mutation transition: new writers are refused and every writer already admitted
  * is drained before the workspace changes, so no mutation can straddle the switch. The engine is
- * activated under the transition after selection persistence so only one engine is authoritative.
- * Soft Recovery and hard open failure both restore the previous selection, previous engine, and
- * previous index (mandatory rebuild after any abort that may have cleared projections) when a
- * previous selection existed; the transition always ends. SwitchRoot is the sole rebuild owner for
- * a root switch — observe-root must not rebuild while a transition is active.
+ * activated while the committed selection remains unchanged. Activation owns candidate projection
+ * rebuild and promotion as one transaction; only after it succeeds is the candidate marked activated
+ * and atomically published as the committed root. A crash before commit therefore restores the
+ * previous root. Soft Recovery and hard open failure restore previous engine authority and roll back
+ * the durable journal; this use case never starts a second rebuild.
  */
 open class SwitchRootStorageUseCase(
     private val directorySettingsRepository: DirectorySettingsRepository,
@@ -33,17 +33,17 @@ open class SwitchRootStorageUseCase(
         // Prepare + validate before mutating durable selection.
         workspaceCandidateValidator.validate(location)
         val previousSelection = directorySettingsRepository.currentRootLocation()
+        if (previousSelection == location) return
         workspaceMutationLease.withExclusiveTransition {
-            directorySettingsRepository.applyRootLocation(location)
-            val activated =
-                runCatching {
-                    engineReadinessRepository.activateWorkspace(location)
-                    rebuildCurrentWorkspace()
-                }
-            if (activated.isFailure) {
-                val originalFailure = checkNotNull(activated.exceptionOrNull())
+            val transition = directorySettingsRepository.prepareRootTransition(location)
+            try {
+                engineReadinessRepository.activateWorkspace(location)
+                directorySettingsRepository.markRootTransitionActivated(transition.id)
+                directorySettingsRepository.commitRootTransition(transition.id)
+            } catch (originalFailure: Exception) {
                 try {
                     restorePreviousAuthority(previousSelection)
+                    directorySettingsRepository.rollbackRootTransition(transition.id)
                 } catch (restoreFailure: Exception) {
                     val structured =
                         restoreFailure as? WorkspaceAuthorityRestoreException
@@ -81,12 +81,9 @@ open class SwitchRootStorageUseCase(
             }
             return
         }
-        // Restore previous selection + engine + index. Rebuild is mandatory: candidate rebuild may
-        // have already cleared Room before failing, leaving Ready engine with an empty index.
+        // Reopening the previous engine goes through the same session-owned projection transaction.
         try {
-            directorySettingsRepository.applyRootLocation(previousSelection)
             engineReadinessRepository.activateWorkspace(previousSelection)
-            rebuildCurrentWorkspace()
         } catch (restoreFailure: Exception) {
             throw WorkspaceAuthorityRestoreException(
                 message =
@@ -101,7 +98,7 @@ open class SwitchRootStorageUseCase(
 /**
  * Structured failure when switch abort cannot re-establish previous workspace authority.
  *
- * The original activate/rebuild failure is attached as a suppressed exception by the caller so
+ * The original activation failure is attached as a suppressed exception by the caller so
  * diagnostics keep both facts and UI can surface Recovery instead of a silent half-switch.
  */
 class WorkspaceAuthorityRestoreException(

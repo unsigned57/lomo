@@ -115,6 +115,60 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
                 dataSource.getRootFlow(StorageRootType.IMAGE).first() shouldBe "content://tree/images"
             }
         }
+
+        test("pending root transition never publishes candidate and cold recovery keeps committed root") {
+            runTest {
+                val (_, dataStore, repository) = setUpTest()
+                dataStore.updateRootDirectory("/workspace-a")
+
+                repository.prepareRootTransition(StorageLocation("/workspace-b"))
+
+                repository.currentRootLocation() shouldBe StorageLocation("/workspace-a")
+                repository.recoverRootLocation() shouldBe StorageLocation("/workspace-a")
+                repository.pendingRootTransition().shouldBeNull()
+            }
+        }
+
+        test("activated root transition atomically publishes candidate") {
+            runTest {
+                val (_, dataStore, repository) = setUpTest()
+                dataStore.updateRootDirectory("/workspace-a")
+                val transition = repository.prepareRootTransition(StorageLocation("content://workspace-b"))
+
+                repository.markRootTransitionActivated(transition.id)
+                repository.commitRootTransition(transition.id)
+
+                repository.currentRootLocation() shouldBe StorageLocation("content://workspace-b")
+                repository.pendingRootTransition().shouldBeNull()
+            }
+        }
+
+        test("activated but uncommitted transition recovers previous root after restart") {
+            runTest {
+                val (_, dataStore, repository) = setUpTest()
+                dataStore.updateRootDirectory("/workspace-a")
+                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"))
+                repository.markRootTransitionActivated(transition.id)
+
+                repository.recoverRootLocation() shouldBe StorageLocation("/workspace-a")
+                repository.currentRootLocation() shouldBe StorageLocation("/workspace-a")
+                repository.pendingRootTransition().shouldBeNull()
+            }
+        }
+
+        test("prepared transition cannot commit candidate") {
+            runTest {
+                val (_, dataStore, repository) = setUpTest()
+                dataStore.updateRootDirectory("/workspace-a")
+                val transition = repository.prepareRootTransition(StorageLocation("/workspace-b"))
+
+                val failure = runCatching { repository.commitRootTransition(transition.id) }.exceptionOrNull()
+
+                requireNotNull(failure)
+                repository.currentRootLocation() shouldBe StorageLocation("/workspace-a")
+                repository.pendingRootTransition() shouldBe transition
+            }
+        }
     }
 
     private fun kotlinx.coroutines.test.TestScope.setUpTest(): Triple<DirectoryFakeWorkspaceConfigSource, LomoDataStore, DirectorySettingsRepositoryImpl> {
@@ -161,4 +215,3 @@ private class DirectoryFakeWorkspaceConfigSource : WorkspaceConfigSource {
 
     override suspend fun createDirectory(name: String): String = name
 }
-

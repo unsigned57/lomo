@@ -14,6 +14,10 @@ import com.lomo.data.engine.lan.LanServiceState
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 /** Routes capability calls through the lifecycle owner's read leases. */
 internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
@@ -144,12 +148,12 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
 
     override fun startWorkspaceDocumentCommand(
         path: String,
-        expectedFingerprint: String,
+        expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
     ): String =
         withActiveWorkspaceAdapter { adapter ->
-            adapter.startWorkspaceDocumentCommand(path, expectedFingerprint, command, deadlineMillis)
+            adapter.startWorkspaceDocumentCommand(path, expectedState, command, deadlineMillis)
         }
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
@@ -165,13 +169,32 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
 
+    override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
+        withActiveWorkspaceAdapter { adapter -> adapter.sidebarProjection() }
+
     override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
         withActiveWorkspaceAdapter { adapter -> adapter.listHistoryAttachmentRefs() }
 
-    override fun applyMemoCommand(
+    override fun listMemoHistory(
+        memoId: String,
+        cursor: String?,
+        limit: UInt,
+    ): com.lomo.nativebridge.StoreMemoHistoryPage =
+        withActiveWorkspaceAdapter { adapter -> adapter.listMemoHistory(memoId, cursor, limit) }
+
+    protected abstract fun applyActiveMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit
+
+    final override fun applyMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit = applyActiveMemoCommand(command)
+
+    override fun commitSafProjectionMutation(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+        projection: com.lomo.nativebridge.StoreSafMemoProjection?,
     ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.applyMemoCommand(command) }
+        withActiveWorkspaceAdapter { adapter -> adapter.commitSafProjectionMutation(command, projection) }
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         rebuildActiveStore(batchSize)
@@ -258,14 +281,38 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
         }
 }
 
+internal fun requireChronologyEpochMs(identity: String, timePart: String): Long {
+    val withoutOrdinal = identity.substringBeforeLast('_', missingDelimiterValue = "")
+    val ordinal = identity.substringAfterLast('_', missingDelimiterValue = "")
+    val identityTime = withoutOrdinal.substringAfterLast('_', missingDelimiterValue = "")
+    val dateKey = withoutOrdinal.substringBeforeLast('_', missingDelimiterValue = "")
+    require(ordinal.toUIntOrNull() != null && identityTime == timePart) {
+        "Memo identity must end with the scanned time part and an unsigned ordinal"
+    }
+    val date = requireNotNull(StorageFilenameFormats.parseOrNull(dateKey)) {
+        "Memo identity date key is not a supported storage format"
+    }
+    val time = requireNotNull(StorageTimestampFormats.parseOrNull(timePart)) {
+        "Memo identity time part is not a supported storage format"
+    }
+    return LocalDateTime
+        .of(date, time)
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+        .also { epochMs -> require(epochMs > 0) { "Memo chronology must be a positive epoch millisecond" } }
+}
+
 internal fun WorkspaceMemoSummarySnapshot.toSafProjectionSnapshot(): SafMemoProjectionSnapshot =
     SafMemoProjectionSnapshot(
         memoId = identity,
         sourcePath = path,
         fileFingerprint = fingerprint,
+        chronologyEpochMs = requireChronologyEpochMs(identity, timePart),
         body = content,
         tags = tags,
         attachmentPaths = attachments,
         hasTodo = hasTodo,
         hasUrl = hasUrl,
+        reminders = reminders,
     )

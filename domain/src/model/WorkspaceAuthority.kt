@@ -6,10 +6,13 @@ package com.lomo.domain.model
  * [workspaceId] is the stable identity of the selected workspace, never a process-local access
  * capability. [generation] increments on every committed activation, so authority taken over one
  * workspace can never be mistaken for authority over the next one after a switch.
+ * [projectionRevision] is the Rust store high-water revision verified during candidate preparation;
+ * consumers bind queries and Paging to this exact promoted projection.
  */
 data class WorkspaceAuthority(
     val workspaceId: String,
     val generation: Long,
+    val projectionRevision: ULong,
 ) {
     init {
         require(workspaceId.isNotBlank()) { "Workspace authority id must be non-blank" }

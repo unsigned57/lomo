@@ -32,39 +32,40 @@ class WorkspaceCandidateProbe(
 
     private fun validateDirect(path: String) {
         val root = File(path)
-        check(root.exists() && root.isDirectory) {
-            "Candidate workspace path is not an existing directory: $path"
+        val failureCode = when {
+            !root.exists() || !root.isDirectory -> "workspace_root_unavailable"
+            !root.canRead() -> "workspace_root_unreadable"
+            !root.canWrite() -> "workspace_root_unwritable"
+            else -> null
         }
-        check(root.canRead()) {
-            "Candidate workspace path is not readable: $path"
-        }
-        check(root.canWrite()) {
-            "Candidate workspace path is not writable: $path"
-        }
+        failureCode?.let { throw WorkspaceCandidateValidationException(it, path) }
     }
 
     private fun validateSaf(uriString: String) {
         val uri = uriString.toUri()
-        val root =
-            DocumentFile.fromTreeUri(context, uri)
-                ?: error("Candidate SAF tree URI is not resolvable: $uriString")
-        check(root.exists() && root.isDirectory) {
-            "Candidate SAF tree does not exist or is not a directory: $uriString"
+        val root = DocumentFile.fromTreeUri(context, uri)
+        val failureCode = when {
+            root == null -> "saf_root_unavailable"
+            !root.exists() || !root.isDirectory -> "workspace_content_unavailable"
+            !root.canWrite() -> "saf_root_unwritable"
+            else -> null
         }
-        check(root.canWrite()) {
-            "Candidate SAF tree is not writable: $uriString"
-        }
+        failureCode?.let { throw WorkspaceCandidateValidationException(it, uriString) }
+        checkNotNull(root)
         val granted =
             context.contentResolver.persistedUriPermissions.any { permission ->
                 permission.isReadPermission &&
                     permission.isWritePermission &&
-                    uriTreesMatch(permission.uri, uri)
+                    uriTreesMatch(permission.uri, uri.toString())
             }
-        check(granted) {
-            "Candidate SAF tree has no persisted read+write grant: $uriString"
-        }
+        if (!granted) throw WorkspaceCandidateValidationException("saf_grant_revoked", uriString)
     }
 }
+
+class WorkspaceCandidateValidationException(
+    val code: String,
+    location: String,
+) : IllegalStateException("$code: workspace candidate rejected ($location)")
 
 /**
  * Grant matching for tree URIs: exact string equality is too brittle across encoding/normalization,
@@ -72,19 +73,31 @@ class WorkspaceCandidateProbe(
  */
 internal fun uriTreesMatch(
     granted: Uri,
-    candidate: Uri,
+    candidate: String,
 ): Boolean {
-    if (granted == candidate) return true
-    if (granted.toString() == candidate.toString()) return true
-    val grantedTree = granted.treeDocumentIdOrNull() ?: return false
+    val grantedRaw = granted.toString()
+    if (grantedRaw == candidate) return true
+    val grantedTree = grantedRaw.treeDocumentIdOrNull() ?: return false
     val candidateTree = candidate.treeDocumentIdOrNull() ?: return false
-    return granted.authority == candidate.authority && grantedTree == candidateTree
+    return grantedRaw.uriAuthorityOrNull() == candidate.uriAuthorityOrNull() &&
+        grantedTree == candidateTree
 }
 
-private fun Uri.treeDocumentIdOrNull(): String? =
-    try {
-        android.provider.DocumentsContract.getTreeDocumentId(this)
-    } catch (_: IllegalArgumentException) {
+private fun String.treeDocumentIdOrNull(): String? {
+    return try {
+        val pathSegments = java.net.URI(this).path?.split('/') ?: return null
+        val treeIndex = pathSegments.indexOf("tree")
+        pathSegments.getOrNull(treeIndex + 1)?.takeIf { it.isNotEmpty() }
+            ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
+    } catch (_: java.net.URISyntaxException) {
         // Not a documents tree URI; grant matching falls back to exact/string equality.
+        null
+    }
+}
+
+private fun String.uriAuthorityOrNull(): String? =
+    try {
+        java.net.URI(this).authority
+    } catch (_: java.net.URISyntaxException) {
         null
     }

@@ -3,6 +3,7 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import kotlinx.coroutines.flow.StateFlow
@@ -26,13 +27,19 @@ interface EngineReadinessRepository {
     val activeWorkspaceLocation: StateFlow<StorageLocation?>
 
     /**
-     * Stable identity plus activation generation of the engine currently installed at Ready, or
-     * null when no workspace engine is active.
+     * Stable identity, activation generation, and verified store projection revision of the engine
+     * currently installed at Ready, or null when no workspace engine is active.
      *
      * Generation increments on every committed activation so a mutation admitted over one workspace
      * can never be attributed to the next one.
      */
     val workspaceAuthority: StateFlow<WorkspaceAuthority?>
+
+    /**
+     * Freshness of the active disposable query projection, independent from engine/write
+     * readiness. A verified projection remains usable while reconciliation is refreshing or stale.
+     */
+    val projectionFreshness: StateFlow<ProjectionFreshness>
 
     /** Reloads the authoritative snapshot after foreground resume or suspected notification loss. */
     fun resnapshot()

@@ -1,6 +1,7 @@
 package com.lomo.data.engine
 
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.Recurrence
 import com.lomo.domain.model.RecoveryDiagnosticReport
@@ -43,13 +44,16 @@ import kotlin.concurrent.write
  * be acquired leaves the session in structured `ReadOnlyRecovery` with no adapter rather than
  * failing graph construction. When a Direct/SAF root is selected (or restored once from persisted
  * settings), [activateWorkspace] runs Prepared → RetiringPrevious → Committed: it opens a candidate
- * engine, promotes it only after it reaches [EngineReadiness.Ready] and the previous owner has been
- * released. Soft Recovery and hard open failure leave the previous engine authoritative.
+ * engine, completes the candidate projection rebuild, and promotes it only after it reaches
+ * [EngineReadiness.Ready] and the previous owner has been released. Soft Recovery and hard open
+ * failure leave the previous engine authoritative.
  * Session-owned recovery authority freezes readiness so a bootstrap Awaiting engine cannot
  * resnapshot Recovery away after cold-restore failure.
  *
- * Workspace switch activation is owned by domain [com.lomo.domain.usecase.SwitchRootStorageUseCase];
- * this session does not race-observe selection changes after the initial cold restore.
+ * Workspace switch orchestration is owned by domain
+ * [com.lomo.domain.usecase.SwitchRootStorageUseCase]; this session exclusively owns candidate open,
+ * projection rebuild, and promotion and does not race-observe selection changes after the initial
+ * cold restore.
  */
 internal class ManagedEngineSession(
     private val filesDir: File,
@@ -70,16 +74,23 @@ internal class ManagedEngineSession(
     private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.AwaitingWorkspaceSelection)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private val _workspaceAuthority = MutableStateFlow<WorkspaceAuthority?>(null)
+    private val _projectionFreshness =
+        MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Unavailable)
     private val activationGeneration = AtomicLong(0)
     private var activeAdapter: RustEngineAdapter? = null
     private var activeCapabilityToken: String? = null
     private var mirrorJob: kotlinx.coroutines.Job? = null
+    private var projectionRefreshJob: kotlinx.coroutines.Job? = null
 
     /**
      * When non-null, session readiness is held by recovery authority and adapter mirrors must not
      * overwrite it with bootstrap Awaiting/Opening. Cleared only by a successful Ready install.
      */
     private val recoveryAuthority = AtomicReference<EngineReadiness.ReadOnlyRecovery?>(null)
+    private val holdRecoveryAuthority: (EngineReadiness.ReadOnlyRecovery) -> Unit = { recovery ->
+        recoveryAuthority.set(recovery)
+        _readiness.value = recovery
+    }
 
     init {
         // Bootstrap without a workspace is a resource transaction, not a precondition: when the
@@ -90,16 +101,14 @@ internal class ManagedEngineSession(
             .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
         appScope.launch {
             // Cold-start restore only. SwitchRootStorageUseCase activates subsequent selections.
-            val existing = directorySettingsRepository.currentRootLocation()
-            if (existing != null && existing.raw.isNotBlank()) {
-                runCatching { activateWorkspace(existing) }
-                    .onFailure { error ->
-                        // Hard/soft open failure: freeze Recovery so bootstrap cannot resnapshot it away.
-                        holdRecoveryAuthority(
-                            recoveryFromThrowable(error),
-                        )
+            runCatching { directorySettingsRepository.recoverRootLocation() }
+                .onSuccess { existing ->
+                    if (existing != null && existing.raw.isNotBlank()) {
+                        runCatching { restoreWorkspaceIfCurrent(existing) }
+                            .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
                     }
-            }
+                }
+                .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
         }
     }
 
@@ -108,6 +117,8 @@ internal class ManagedEngineSession(
         _activeWorkspaceLocation.asStateFlow()
     override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
         _workspaceAuthority.asStateFlow()
+    override val projectionFreshness: StateFlow<ProjectionFreshness> =
+        _projectionFreshness.asStateFlow()
 
     override fun resnapshot() {
         check(!closed.get()) { "Managed engine session is closed" }
@@ -148,18 +159,38 @@ internal class ManagedEngineSession(
                 }
 
             val repairSelection = selectionFor(location)
-            val repairAdapter = openWorkspaceAdapter(repairSelection)
-            val rebuild = rebuildAndReleaseRepairAdapter(repairAdapter, repairSelection.capabilityToken)
+            val repairAdapter = openAdapter(
+                NativeEngineOpenRequest
+                    .forAppFilesDir(filesDir)
+                    .copy(workspace = repairSelection.workspace),
+            )
+            val rebuildResult = runCatching { repairAdapter.startRebuild(RECOVERY_REBUILD_BATCH_SIZE) }
+            val closeFailure = runCatching(repairAdapter::close).exceptionOrNull()
+            repairSelection.capabilityToken?.let(capabilityRegistry::revoke)
+            val rebuild = rebuildResult.fold(
+                onSuccess = { result ->
+                    if (closeFailure != null) throw closeFailure
+                    result
+                },
+                onFailure = { failure ->
+                    closeFailure?.let(failure::addSuppressed)
+                    throw failure
+                },
+            )
 
             // Reopen from the repaired projection and promote only a fully Ready candidate. The
             // previous bootstrap/recovery owner remains non-writable until this atomic install.
             val readySelection = selectionFor(location)
-            promoteCandidate(
-                candidate = prepareCandidate(readySelection),
+            val prepared = prepareCandidate(readySelection, allowBackgroundRefresh = false)
+            val authority = promoteCandidate(
+                candidate = prepared.adapter,
                 candidateToken = readySelection.capabilityToken,
                 location = location,
                 workspaceId = readySelection.stableWorkspaceId,
+                projectionRevision = prepared.projectionRevision,
+                refreshProjection = prepared.refreshProjection,
             )
+            startProjectionRefreshIfNeeded(prepared, authority)
             DerivedIndexRebuildSummary(
                 memosIndexed = rebuild.memosIndexed,
                 fileCount = rebuild.fileCount,
@@ -193,7 +224,7 @@ internal class ManagedEngineSession(
             val jobId =
                 adapter.startWorkspaceDocumentCommand(
                     path = before.path,
-                    expectedFingerprint = reference.revision,
+                    expectedState = WorkspaceNativeExpectedState.Match(reference.revision),
                     command = WorkspaceNativeCommandSpec.RewriteReminder(reminder, replacement),
                 )
             adapter.driveToCompletion(jobId)
@@ -201,7 +232,7 @@ internal class ManagedEngineSession(
             adapter.findMemoSnapshot(reference.memoIdentity).content
         }
 
-    override fun scanWorkspace(rootPath: String?): List<WorkspaceMemoSummarySnapshot> =
+    override fun scanWorkspace(rootPath: String?): Sequence<WorkspaceMemoSummarySnapshot> =
         withActiveWorkspaceAdapter { adapter -> adapter.scanAllMemoSnapshots(rootPath) }
 
     override fun replaceMemo(
@@ -249,7 +280,7 @@ internal class ManagedEngineSession(
             val jobId =
                 adapter.startWorkspaceDocumentCommand(
                     path = before.path,
-                    expectedFingerprint = before.fingerprint,
+                    expectedState = WorkspaceNativeExpectedState.Match(before.fingerprint),
                     command =
                         WorkspaceNativeCommandSpec.ToggleTask(
                             sourceStart = absoluteStart,
@@ -267,14 +298,36 @@ internal class ManagedEngineSession(
         activationMutex.withLock {
             check(!closed.get()) { "Managed engine session is closed" }
             val selection = selectionFor(location)
-            // Prepared → RetiringPrevious → Committed. Every phase either advances or releases
-            // what it took, so no caller observes a half-switched workspace authority.
-            promoteCandidate(
-                candidate = prepareCandidate(selection),
+            val prepared = prepareCandidate(selection, allowBackgroundRefresh = false)
+            val authority = promoteCandidate(
+                candidate = prepared.adapter,
                 candidateToken = selection.capabilityToken,
                 location = location,
                 workspaceId = selection.stableWorkspaceId,
+                projectionRevision = prepared.projectionRevision,
+                refreshProjection = prepared.refreshProjection,
             )
+            startProjectionRefreshIfNeeded(prepared, authority)
+        }
+    }
+
+    private suspend fun restoreWorkspaceIfCurrent(location: StorageLocation) {
+        activationMutex.withLock {
+            check(!closed.get()) { "Managed engine session is closed" }
+            val committed = directorySettingsRepository.currentRootLocation()
+            val pending = directorySettingsRepository.pendingRootTransition()
+            if (committed != location || pending != null) return@withLock
+            val selection = selectionFor(location)
+            val prepared = prepareCandidate(selection, allowBackgroundRefresh = true)
+            val authority = promoteCandidate(
+                candidate = prepared.adapter,
+                candidateToken = selection.capabilityToken,
+                location = location,
+                workspaceId = selection.stableWorkspaceId,
+                projectionRevision = prepared.projectionRevision,
+                refreshProjection = prepared.refreshProjection,
+            )
+            startProjectionRefreshIfNeeded(prepared, authority)
         }
     }
 
@@ -289,6 +342,8 @@ internal class ManagedEngineSession(
                 candidateToken = null,
                 location = null,
                 workspaceId = null,
+                projectionRevision = null,
+                refreshProjection = false,
             )
         }
     }
@@ -319,25 +374,44 @@ internal class ManagedEngineSession(
      * Hard open failure and soft non-Ready both leave the previous engine authoritative and release
      * the capability this selection registered.
      */
-    private suspend fun prepareCandidate(selection: PreparedSelection): RustEngineAdapter {
+    private suspend fun prepareCandidate(
+        selection: PreparedSelection,
+        allowBackgroundRefresh: Boolean,
+    ): PreparedCandidate {
         val candidate = openWorkspaceAdapter(selection)
         val candidateReadiness = candidate.readiness.value
         if (candidateReadiness is EngineReadiness.Ready) {
             val preparation =
                 runCatching {
-                    if (selection.workspace is NativeWorkspaceSelection.Saf) {
-                        withContext(Dispatchers.IO) {
-                            val projection =
-                                candidate
-                                    .scanAllMemoSnapshots(rootPath = null)
-                                    .map(WorkspaceMemoSummarySnapshot::toSafProjectionSnapshot)
-                            candidate.rebuildSafStoreProjection(projection)
-                        }
+                    val currentProjectionRevision = candidate.storeProjectionRevision()
+                    if (selection.workspace is NativeWorkspaceSelection.Saf &&
+                        (!allowBackgroundRefresh || currentProjectionRevision == 0uL)
+                    ) {
+                        val rebuiltRevision =
+                            withContext(Dispatchers.IO) {
+                                candidate.rebuildSafProjectionFromWorkspaceScan().highWaterRevision
+                            }
+                        PreparedCandidate(candidate, rebuiltRevision, refreshProjection = false)
+                    } else {
+                        PreparedCandidate(
+                            adapter = candidate,
+                            projectionRevision = currentProjectionRevision,
+                            refreshProjection = selection.workspace is NativeWorkspaceSelection.Saf,
+                        )
                     }
-                    candidate
                 }
             preparation.exceptionOrNull()?.let { error ->
                 releaseCandidate(candidate, selection.capabilityToken, error, capabilityRegistry)
+                if (error is ProjectionRebuildException) {
+                    throw WorkspaceActivationException(
+                        EngineReadiness.ReadOnlyRecovery(
+                            category = error.failureCategory.toFailureCategory(),
+                            code = error.failureCode,
+                            retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                            diagnostic = error.message ?: "Workspace projection rebuild failed",
+                        ),
+                    )
+                }
             }
             return preparation.getOrThrow()
         }
@@ -365,13 +439,23 @@ internal class ManagedEngineSession(
                     "Ready workspace has no active storage location"
                 }
             if (isContentUri(location.raw)) {
-                val projection =
-                    adapter
-                        .scanAllMemoSnapshots(rootPath = null)
-                        .map(WorkspaceMemoSummarySnapshot::toSafProjectionSnapshot)
-                adapter.rebuildSafStoreProjection(projection)
+                adapter.rebuildSafProjectionFromWorkspaceScan()
             } else {
                 adapter.startRebuild(batchSize)
+            }
+        }
+
+    protected override fun applyActiveMemoCommand(
+        command: com.lomo.nativebridge.StoreMemoCommand,
+    ): com.lomo.nativebridge.StoreMemoCommit =
+        withActiveWorkspaceAdapter { adapter ->
+            val location = checkNotNull(_activeWorkspaceLocation.value) {
+                "Ready workspace has no active storage location"
+            }
+            if (isContentUri(location.raw)) {
+                applySafMemoCommandOnSafAdapter(adapter, command)
+            } else {
+                adapter.applyMemoCommand(command)
             }
         }
 
@@ -385,25 +469,6 @@ internal class ManagedEngineSession(
         }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
             .getOrThrow()
 
-    private fun rebuildAndReleaseRepairAdapter(
-        adapter: RustEngineAdapter,
-        capabilityToken: String?,
-    ): com.lomo.nativebridge.StoreRebuildResult {
-        val rebuildResult = runCatching { adapter.startRebuild(RECOVERY_REBUILD_BATCH_SIZE) }
-        val closeFailure = runCatching(adapter::close).exceptionOrNull()
-        capabilityToken?.let(capabilityRegistry::revoke)
-        return rebuildResult.fold(
-            onSuccess = { rebuild ->
-                if (closeFailure != null) throw closeFailure
-                rebuild
-            },
-            onFailure = { rebuildFailure ->
-                closeFailure?.let(rebuildFailure::addSuppressed)
-                throw rebuildFailure
-            },
-        )
-    }
-
     /**
      * RetiringPrevious → Committed: the outgoing owner is released first and only a complete
      * retirement publishes [candidate] as the committed authority.
@@ -413,24 +478,49 @@ internal class ManagedEngineSession(
         candidateToken: String?,
         location: StorageLocation?,
         workspaceId: String?,
-    ) {
-        val retirement = retirePreviousAndCommit(candidate, candidateToken, location, workspaceId)
-        retirement.previousToken
-            ?.takeIf { it != candidateToken }
-            ?.let(capabilityRegistry::revoke)
-        val failure = retirement.failure ?: return
-        // The previous owner could not be retired, so two writers could otherwise hold the same
-        // workspace. Publish neither and freeze the session in structured recovery instead.
-        releaseCandidate(candidate, candidateToken, failure, capabilityRegistry)
-        holdRecoveryAuthority(
-            EngineReadiness.ReadOnlyRecovery(
-                category = EngineReadiness.FailureCategory.INTERNAL,
-                code = "workspace_retire_failed",
-                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
-                diagnostic = failure.message ?: "Previous workspace engine could not be retired",
-            ),
-        )
-        throw failure
+        projectionRevision: ULong?,
+        refreshProjection: Boolean,
+    ): WorkspaceAuthority? {
+        val promotion =
+            retirePreviousAndCommit(
+                candidate,
+                candidateToken,
+                location,
+                workspaceId,
+                projectionRevision,
+                refreshProjection,
+            )
+        return when (promotion) {
+            is AdapterPromotion.Committed -> {
+                promotion.previousToken
+                    ?.takeIf { it != candidateToken }
+                    ?.let(capabilityRegistry::revoke)
+                promotion.authority
+            }
+            is AdapterPromotion.CandidateRejected -> {
+                val failure = WorkspaceActivationException(promotion.recovery)
+                releaseCandidate(candidate, candidateToken, failure, capabilityRegistry)
+                throw failure
+            }
+            is AdapterPromotion.RetirementFailed -> {
+                val failure = promotion.failure
+                // The previous owner could not be retired, so two writers could otherwise hold the
+                // same workspace. Publish neither and freeze the session in structured recovery.
+                promotion.previousToken
+                    ?.takeIf { it != candidateToken }
+                    ?.let(capabilityRegistry::revoke)
+                releaseCandidate(candidate, candidateToken, failure, capabilityRegistry)
+                holdRecoveryAuthority(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineReadiness.FailureCategory.INTERNAL,
+                        code = "workspace_retire_failed",
+                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = failure.message ?: "Previous workspace engine could not be retired",
+                    ),
+                )
+                throw failure
+            }
+        }
     }
 
     private fun retirePreviousAndCommit(
@@ -438,33 +528,100 @@ internal class ManagedEngineSession(
         candidateToken: String?,
         location: StorageLocation?,
         workspaceId: String?,
-    ): AdapterRetirement =
+        projectionRevision: ULong?,
+        refreshProjection: Boolean,
+    ): AdapterPromotion =
         adapterLease.write {
-            val token = activeCapabilityToken
-            val previous = activeAdapter
-            detachActiveAdapterLocked()
-            // Exclusive lease waits for every in-flight workspace call before close.
-            val failure = previous?.let { runCatching(it::close).exceptionOrNull() }
-            if (failure == null) {
+            candidate.withReadinessAtCommit { candidateReadiness ->
+                if (workspaceId != null && candidateReadiness !is EngineReadiness.Ready) {
+                    return@withReadinessAtCommit AdapterPromotion.CandidateRejected(
+                        candidateReadiness as? EngineReadiness.ReadOnlyRecovery
+                            ?: workspaceOpenNotReady(candidateReadiness),
+                    )
+                }
+                val token = activeCapabilityToken
+                val previous = activeAdapter
+                detachActiveAdapterLocked()
+                // Exclusive lease waits for every in-flight workspace call before close.
+                val failure = previous?.let { runCatching(it::close).exceptionOrNull() }
+                if (failure != null) {
+                    return@withReadinessAtCommit AdapterPromotion.RetirementFailed(token, failure)
+                }
                 // Ready install clears any prior recovery authority and becomes sole publisher.
                 recoveryAuthority.set(null)
                 installAdapterLocked(candidate, capabilityToken = candidateToken)
                 _activeWorkspaceLocation.value = location
                 // A new generation is published only here, once the candidate is the sole owner.
-                _workspaceAuthority.value =
+                val authority =
                     workspaceId?.let { id ->
                         WorkspaceAuthority(
                             workspaceId = id,
                             generation = activationGeneration.incrementAndGet(),
+                            projectionRevision = checkNotNull(projectionRevision),
                         )
                     }
+                _workspaceAuthority.value = authority
+                _projectionFreshness.value =
+                    when {
+                        workspaceId == null -> ProjectionFreshness.Unavailable
+                        refreshProjection -> ProjectionFreshness.Refreshing(checkNotNull(projectionRevision))
+                        else -> ProjectionFreshness.Verified(checkNotNull(projectionRevision))
+                    }
+                AdapterPromotion.Committed(token, authority)
             }
-            AdapterRetirement(previousToken = token, failure = failure)
         }
 
-    private fun holdRecoveryAuthority(recovery: EngineReadiness.ReadOnlyRecovery) {
-        recoveryAuthority.set(recovery)
-        _readiness.value = recovery
+    private fun startProjectionRefreshIfNeeded(
+        prepared: PreparedCandidate,
+        launchedAuthority: WorkspaceAuthority?,
+    ) {
+        if (!prepared.refreshProjection) return
+        checkNotNull(launchedAuthority) { "SAF commit must return workspace authority" }
+        projectionRefreshJob?.cancel()
+        projectionRefreshJob =
+            appScope.launch(Dispatchers.IO) {
+                val result =
+                    runCatching {
+                        adapterLease.read {
+                            check(
+                                activeAdapter === prepared.adapter &&
+                                    _workspaceAuthority.value == launchedAuthority,
+                            ) {
+                                "Projection refresh adapter is no longer active"
+                            }
+                            prepared.adapter.rebuildSafProjectionFromWorkspaceScan()
+                        }
+                    }
+                adapterLease.write {
+                    val currentAuthority = _workspaceAuthority.value
+                    if (!closed.get() &&
+                        activeAdapter === prepared.adapter &&
+                        currentAuthority == launchedAuthority
+                    ) {
+                        result.fold(
+                            onSuccess = { rebuild ->
+                                _workspaceAuthority.value =
+                                    currentAuthority.copy(projectionRevision = rebuild.highWaterRevision)
+                                _projectionFreshness.value =
+                                    ProjectionFreshness.Verified(rebuild.highWaterRevision)
+                            },
+                            onFailure = { error ->
+                                _projectionFreshness.value =
+                                    ProjectionFreshness.Stale(
+                                        lastVerifiedRevision = prepared.projectionRevision,
+                                        reasonCode =
+                                            when (error) {
+                                                is ProjectionRebuildException -> error.failureCode
+                                                is ProjectionScanDeadlineExceededException ->
+                                                    "projection_scan_deadline_exceeded"
+                                                else -> "projection_refresh_failed"
+                                            },
+                                    )
+                            },
+                        )
+                    }
+                }
+            }
     }
 
     private fun installAdapterLocked(
@@ -484,6 +641,12 @@ internal class ManagedEngineSession(
                     adapterLease.read {
                         if (!closed.get() && activeAdapter === adapter && recoveryAuthority.get() == null) {
                             _readiness.value = value
+                            if (value !is EngineReadiness.Ready) {
+                                // Authority is a capability for the committed Ready projection;
+                                // invalidate it immediately when the active boundary becomes
+                                // unknown so readers cannot keep using a retired generation.
+                                _workspaceAuthority.value = null
+                            }
                         }
                     }
                 }
@@ -492,11 +655,14 @@ internal class ManagedEngineSession(
 
     /** Drops the outgoing owner before it is closed, so no route can reach a retiring adapter. */
     private fun detachActiveAdapterLocked() {
+        projectionRefreshJob?.cancel()
+        projectionRefreshJob = null
         mirrorJob?.cancel()
         mirrorJob = null
         activeAdapter = null
         activeCapabilityToken = null
         _workspaceAuthority.value = null
+        _projectionFreshness.value = ProjectionFreshness.Unavailable
     }
 
     protected override fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {
@@ -546,7 +712,29 @@ internal class ManagedEngineSession(
         val stableWorkspaceId: String,
     )
 
-    /** Outcome of releasing the outgoing workspace owner during a switch or process close. */
+    private data class PreparedCandidate(
+        val adapter: RustEngineAdapter,
+        val projectionRevision: ULong,
+        val refreshProjection: Boolean,
+    )
+
+    private sealed interface AdapterPromotion {
+        data class Committed(
+            val previousToken: String?,
+            val authority: WorkspaceAuthority?,
+        ) : AdapterPromotion
+
+        data class CandidateRejected(
+            val recovery: EngineReadiness.ReadOnlyRecovery,
+        ) : AdapterPromotion
+
+        data class RetirementFailed(
+            val previousToken: String?,
+            val failure: Throwable,
+        ) : AdapterPromotion
+    }
+
+    /** Outcome of releasing the outgoing workspace owner during process close. */
     private data class AdapterRetirement(
         val previousToken: String?,
         val failure: Throwable?,
@@ -569,18 +757,6 @@ private fun releaseCandidate(
     candidateToken?.let(capabilityRegistry::revoke)
 }
 
-private fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery =
-    when (error) {
-        is WorkspaceActivationException -> error.recovery
-        else ->
-            EngineReadiness.ReadOnlyRecovery(
-                category = EngineReadiness.FailureCategory.INTERNAL,
-                code = "workspace_open_failed",
-                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
-                diagnostic = error.message ?: "Workspace open failed",
-            )
-    }
-
 /**
  * Soft workspace activation failure: candidate opened but never reached Ready.
  * Carries structured recovery so cold-restore can freeze authority without promoting the candidate.
@@ -591,25 +767,7 @@ class WorkspaceActivationException(
     "Workspace activation did not reach Ready (${recovery.code}): ${recovery.diagnostic}",
 )
 
-private fun WorkspaceNativeAdapter.scanAllMemoSnapshots(rootPath: String?): List<WorkspaceMemoSummarySnapshot> {
-    val items = mutableListOf<WorkspaceMemoSummarySnapshot>()
-    var cursor: String? = null
-    do {
-        val jobId =
-            startWorkspaceScan(
-                pageSize = MAX_WORKSPACE_SCAN_PAGE_SIZE,
-                cursor = cursor,
-                rootPath = rootPath,
-            )
-        driveToCompletion(jobId)
-        val page = readWorkspaceScanPage(jobId)
-        items += page.items
-        cursor = page.nextCursor
-    } while (cursor != null)
-    return items
-}
-
-private fun WorkspaceNativeAdapter.findMemoSnapshot(identity: String): WorkspaceMemoSummarySnapshot {
+internal fun WorkspaceNativeAdapter.findMemoSnapshot(identity: String): WorkspaceMemoSummarySnapshot {
     require(identity.isNotBlank()) { "Memo identity must be non-blank" }
     scanAllMemoSnapshots(rootPath = null).firstOrNull { item -> item.identity == identity }?.let { return it }
     throw MarkdownWorkspaceCommandException(
@@ -626,12 +784,12 @@ private fun WorkspaceNativeAdapter.executeMemoCommand(
 ): Boolean {
     val snapshot =
         scanAllMemoSnapshots(rootPath)
-            .singleOrNull { item -> item.identity == identity && item.path.substringAfterLast('/') == filename }
+            .firstOrNull { item -> item.identity == identity && item.path.substringAfterLast('/') == filename }
             ?: return false
     val jobId =
         startWorkspaceDocumentCommand(
             path = snapshot.path,
-            expectedFingerprint = snapshot.fingerprint,
+            expectedState = WorkspaceNativeExpectedState.Match(snapshot.fingerprint),
             command = command,
         )
     driveToCompletion(jobId)
@@ -639,20 +797,17 @@ private fun WorkspaceNativeAdapter.executeMemoCommand(
     return true
 }
 
-private fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
-    when (val terminal = driveJob(jobId)) {
-        NativeJobStep.Completed -> Unit
-        is NativeJobStep.Failed -> throw terminal.failure.toWorkspaceCommandException()
-        is NativeJobStep.BlockedByConflict -> throw terminal.failure.toWorkspaceCommandException()
-        NativeJobStep.Running,
-        is NativeJobStep.RunningNative,
-        is NativeJobStep.NeedsPlatformBatch,
-        ->
-            throw MarkdownWorkspaceCommandException(
-                code = "workspace_job_not_terminal",
-                message = "Workspace job did not reach a terminal state",
-            )
+internal fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
+    val failure = when (val terminal = driveJob(jobId)) {
+        NativeJobStep.Completed -> null
+        is NativeJobStep.Failed -> terminal.failure.toWorkspaceCommandException()
+        is NativeJobStep.BlockedByConflict -> terminal.failure.toWorkspaceCommandException()
+        else -> MarkdownWorkspaceCommandException(
+            code = "workspace_job_not_terminal",
+            message = "Workspace job did not reach a terminal state",
+        )
     }
+    failure?.let { throw it }
 }
 
 private fun EngineFailureSnapshot.toWorkspaceCommandException(): MarkdownWorkspaceCommandException =
@@ -672,7 +827,7 @@ private fun WorkspaceReminderReferenceSnapshot.matches(reference: ReminderRefere
     opaqueId == reference.opaqueId &&
         revision == reference.revision &&
         memoIdentity == reference.memoIdentity &&
-        sourceStart == reference.sourceSpan.startByte &&
+    sourceStart == reference.sourceSpan.startByte &&
         sourceEnd == reference.sourceSpan.endByte &&
         tokenFingerprint == reference.tokenFingerprint
 
@@ -712,6 +867,37 @@ private fun UInt.toIntExact(field: String): Int {
     }
     return toInt()
 }
+
+internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSafMemoProjection =
+    com.lomo.nativebridge.StoreSafMemoProjection(
+        memoId = memoId,
+        sourcePath = sourcePath,
+        fileFingerprint = fileFingerprint,
+        chronologyEpochMs = chronologyEpochMs,
+        body = body,
+        tags = tags,
+        attachmentPaths = attachmentPaths,
+        hasTodo = hasTodo,
+        hasUrl = hasUrl,
+        reminders = reminders.map(WorkspaceReminderReferenceSnapshot::toBridge),
+    )
+
+private fun WorkspaceReminderReferenceSnapshot.toBridge(): com.lomo.nativebridge.WorkspaceReminderReference =
+    com.lomo.nativebridge.WorkspaceReminderReference(
+        opaqueId = opaqueId,
+        revision = revision,
+        memoIdentity = memoIdentity,
+        sourceStart = sourceStart,
+        sourceEnd = sourceEnd,
+        tokenFingerprint = tokenFingerprint,
+        token = token,
+        dueAtLocal = dueAtLocal,
+        repeatCount = repeatCount,
+        firedCount = firedCount,
+        done = done,
+        intervalMinutes = intervalMinutes,
+        recurrenceCode = recurrenceCode,
+    )
 
 // A scan page emits one list batch plus one read batch per document. Keep the page below the
 // platform driver's hard batch budget so large SAF trees paginate instead of failing activation.

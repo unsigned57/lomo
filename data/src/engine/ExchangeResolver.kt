@@ -86,6 +86,20 @@ internal class ExchangeResolver(
         }
     }
 
+    /** Reads and consumes a one-shot scan body after its digest/UTF-8 contract is verified. */
+    fun consumeUtf8Artifact(reference: ExchangeArtifactReference): String {
+        val content = readUtf8Artifact(reference)
+        val file = resolveFile(reference.token)
+        if (!file.delete() && file.exists()) {
+            throw ExchangeResolverException(
+                category = "storage",
+                code = "exchange_artifact_cleanup_failed",
+                diagnostic = "Exchange artifact could not be removed after consumption",
+            )
+        }
+        return content
+    }
+
     fun writeStreaming(
         token: String,
         source: InputStream,

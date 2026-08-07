@@ -34,6 +34,13 @@ package com.lomo.domain.usecase
  *
  * Excludes:
  * - UI pager rendering, repository storage internals, and full MemoCollectionPresenter integration.
+ *
+ * Test Change Justification:
+ * - Reason category: repository contract cleanup.
+ * - Old behavior/assertion being replaced: the fake exposed a removed full-list query path alongside bounded paging.
+ * - Why old assertion is no longer correct: Daily Review now depends exclusively on bounded repository pages.
+ * - Coverage preserved by: deterministic traversal, exclusion, snapshot, and growth scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: assertions continue to target returned collection pages and cursors.
  */
 
 import com.lomo.domain.model.DailyReviewCollectionSource
@@ -82,7 +89,6 @@ class DailyReviewQueryUseCaseTest : DomainFunSpec() {
                 result.memos.map { it.id }.distinct().size shouldBe result.memos.size
                 result.nextSource.excludeIds.containsAll(excludedIds) shouldBe true
                 result.nextSource.excludeIds.containsAll(result.memos.map { it.id }) shouldBe true
-                repository.getAllMemosListCallCount shouldBe 0
             }
         }
 

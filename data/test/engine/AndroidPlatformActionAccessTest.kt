@@ -20,6 +20,8 @@ package com.lomo.data.engine
  *   before gateway access.
  * - Given ReadToExchange, when executed, then source streams into the exchange file and artifact
  *   digest/length match the written bytes.
+ * - Given a ReadToExchange planned from listed metadata, when executed, then the provider's opaque
+ *   document handle is used directly and mutable path lookup is not repeated.
  * - Given an escaped exchange token or workspace path, when executed, then validation fails closed.
  *
  * Observable outcomes:
@@ -31,6 +33,13 @@ package com.lomo.data.engine
  * Excludes:
  * - Real ContentResolver/DocumentsContract (faked via PlatformDocumentsGateway).
  * - Batch orchestration (AndroidPlatformActionExecutor) and Rust job advancement.
+ *
+ * Test Change Justification:
+ * - Reason category: platform protocol contract change.
+ * - Old behavior/assertion being replaced: listed documents were read by resolving their mutable path again.
+ * - Why old assertion is no longer correct: listing now returns an opaque provider handle that must identify the later read.
+ * - Coverage preserved by: all prior action outcomes remain covered, with handle reuse added as an observable boundary.
+ * - Why this is not fitting the test to the implementation: the assertions constrain provider access and side effects, not helper structure.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -182,6 +191,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                         "action-read",
                         CAPABILITY,
                         "memo.md",
+                        null,
                         "exchange-read",
                         ExpectedFingerprint.Absent,
                     ),
@@ -195,6 +205,30 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             fixture.resolver.resolveFile("exchange-read").readBytes() shouldBe "stream-me".toByteArray()
         }
 
+        test("given listed document handle when ReadToExchange runs then path lookup is bypassed") {
+            val fixture = Fixture()
+            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.gateway.seedFile("memo.md", content = "stream-me", documentId = "doc-memo")
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.ReadToExchange(
+                        actionId = "action-read-handle",
+                        capabilityToken = CAPABILITY,
+                        path = "renamed-after-list.md",
+                        documentHandle = "doc-memo",
+                        exchangeToken = "exchange-read-handle",
+                        expectedSource = ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            outcome.shouldBeInstanceOf<ActionOutcome.Applied>()
+            fixture.gateway.handleReadCount shouldBe 1
+            fixture.gateway.pathReadCount shouldBe 0
+            fixture.resolver.resolveFile("exchange-read-handle").readBytes() shouldBe
+                "stream-me".toByteArray()
+        }
+
         test("given escaped exchange token when ReadToExchange runs then validation fails closed") {
             val fixture = Fixture()
             fixture.registry.register(CAPABILITY, TREE_URI)
@@ -206,6 +240,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                         "action-read",
                         CAPABILITY,
                         "memo.md",
+                        null,
                         "../escape",
                         ExpectedFingerprint.Absent,
                     ),
@@ -278,6 +313,10 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
     var statCount: Int = 0
         private set
     var readCount: Int = 0
+        private set
+    var pathReadCount: Int = 0
+        private set
+    var handleReadCount: Int = 0
         private set
 
     fun seedFile(
@@ -369,7 +408,22 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         path: String,
     ): PlatformReadHandle {
         readCount += 1
+        pathReadCount += 1
         val node = files[path] ?: error("missing $path")
+        return PlatformReadHandle(
+            snapshot = node.toSnapshot(WorkspaceTarget.Relative(path)),
+            bytes = node.bytes.copyOf(),
+        )
+    }
+
+    override fun openReadByHandle(
+        treeUri: String,
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle {
+        readCount += 1
+        handleReadCount += 1
+        val node = files.entries.single { (_, value) -> value.documentId == documentHandle }.value
         return PlatformReadHandle(
             snapshot = node.toSnapshot(WorkspaceTarget.Relative(path)),
             bytes = node.bytes.copyOf(),

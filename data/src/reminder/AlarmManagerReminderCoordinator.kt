@@ -14,12 +14,28 @@ import com.lomo.domain.repository.ReminderTokenFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 
 
 private const val PREFS_NAME = "lomo_reminder_prefs"
 private const val KEY_INTERVAL_MILLIS = "reminder_interval_millis"
+private const val REMINDER_MEMO_PAGE_SIZE = 50
+
+internal suspend fun <T> forEachMemoPage(
+    pageSize: Int,
+    loadPage: suspend (limit: Int, offset: Int) -> List<T>,
+    consume: (T) -> Unit,
+) {
+    require(pageSize > 0) { "Memo page size must be positive" }
+    var offset = 0
+    while (true) {
+        val page = loadPage(pageSize, offset)
+        if (page.isEmpty()) return
+        page.forEach(consume)
+        if (page.size < pageSize) return
+        offset += page.size
+    }
+}
 
 interface MemoMutationReminderScheduler {
     suspend fun syncForMemo(memoId: String)
@@ -84,14 +100,16 @@ class AlarmManagerReminderScheduler(
     }
 
     suspend fun rebuildAll() {
-        val memos = memoQueryRepository.getAllMemosList().first()
         val nowMillis = System.currentTimeMillis()
-        val alarms =
-            memos.flatMap { memo ->
-                markdownReminderRepository.remindersForMemo(memo.id).mapNotNull { marker ->
-                    planAlarm(memo.id, marker, nowMillis)
-                }
+        val alarms = mutableListOf<PlannedReminderAlarm>()
+        forEachMemoPage(
+            pageSize = REMINDER_MEMO_PAGE_SIZE,
+            loadPage = memoQueryRepository::getMemosPage,
+        ) { memo ->
+            memo.reminders.mapNotNullTo(alarms) { marker ->
+                planAlarm(memo.id, marker, nowMillis)
             }
+        }
         rollingWindow.applyPlan(alarms)
     }
 

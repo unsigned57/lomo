@@ -3,6 +3,8 @@ package com.lomo.domain.testing.fakes
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
+import com.lomo.domain.model.WorkspaceRootTransitionPhase
 import com.lomo.domain.repository.DirectorySettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,8 @@ class FakeDirectorySettingsRepository(
 
     val appliedUpdates = mutableListOf<StorageAreaUpdate>()
     var applyFailure: Exception? = null
+    private var pendingTransition: WorkspaceRootTransition? = null
+    private var transitionSequence = 0
 
     fun setLocation(
         area: StorageArea,
@@ -47,4 +51,55 @@ class FakeDirectorySettingsRepository(
 
     override fun observeDisplayName(area: StorageArea): Flow<String?> =
         displayNames.map { values -> values[area] }
+
+    override suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition {
+        applyFailure?.let { throw it }
+        check(pendingTransition == null) { "Workspace transition already pending" }
+        val transition =
+            WorkspaceRootTransition(
+                id = "fake-transition-${++transitionSequence}",
+                previous = currentRootLocation(),
+                candidate = candidate,
+                phase = WorkspaceRootTransitionPhase.PREPARED,
+            )
+        pendingTransition = transition
+        eventLog?.add("directory.prepareRootTransition")
+        return transition
+    }
+
+    override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition {
+        val transition = requirePending(transitionId)
+        check(transition.phase == WorkspaceRootTransitionPhase.PREPARED)
+        return transition.copy(phase = WorkspaceRootTransitionPhase.ACTIVATED).also {
+            pendingTransition = it
+            eventLog?.add("directory.markRootTransitionActivated")
+        }
+    }
+
+    override suspend fun commitRootTransition(transitionId: String) {
+        val transition = requirePending(transitionId)
+        check(transition.phase == WorkspaceRootTransitionPhase.ACTIVATED)
+        setLocation(StorageArea.ROOT, transition.candidate)
+        pendingTransition = null
+        eventLog?.add("directory.commitRootTransition")
+    }
+
+    override suspend fun rollbackRootTransition(transitionId: String) {
+        requirePending(transitionId)
+        pendingTransition = null
+        eventLog?.add("directory.rollbackRootTransition")
+    }
+
+    override suspend fun pendingRootTransition(): WorkspaceRootTransition? = pendingTransition
+
+    override suspend fun recoverRootLocation(): StorageLocation? {
+        pendingTransition = null
+        return currentRootLocation()
+    }
+
+    private fun requirePending(transitionId: String): WorkspaceRootTransition {
+        val transition = checkNotNull(pendingTransition) { "Workspace transition is missing" }
+        check(transition.id == transitionId) { "Workspace transition id mismatch" }
+        return transition
+    }
 }

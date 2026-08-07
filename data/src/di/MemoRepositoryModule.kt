@@ -11,7 +11,6 @@ import com.lomo.data.repository.StoreMemoStatisticsRepository
 import com.lomo.data.repository.StoreMemoTrashRepository
 import com.lomo.data.repository.StoreMemoVersionRepository
 import com.lomo.data.repository.StoreWorkspaceStateResolver
-import com.lomo.data.repository.StoreWorkspaceTransitionRepository
 import com.lomo.data.util.MarkdownWorkspaceContentProjector
 import com.lomo.domain.repository.MainListQueryRepository
 import com.lomo.domain.repository.MemoListQueryRepository
@@ -22,7 +21,6 @@ import com.lomo.domain.repository.MemoStatisticsRepository
 import com.lomo.domain.repository.MemoTrashRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
-import com.lomo.domain.repository.WorkspaceTransitionRepository
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.bind
 import org.koin.dsl.binds
@@ -44,6 +42,7 @@ val memoRepositoryModule =
             StoreMemoQueryRepository(
                 port = get(),
                 invalidation = get(),
+                readiness = get(),
             )
         } binds
             arrayOf(
@@ -64,7 +63,9 @@ val memoRepositoryModule =
             )
         } bind MemoMutationRepository::class
 
-        singleOf(::StoreMemoSearchRepository) bind MemoSearchRepository::class
+        single {
+            StoreMemoSearchRepository(port = get(), invalidation = get())
+        } bind MemoSearchRepository::class
         single {
             StoreMemoStatisticsRepository(port = get(), invalidation = get(), readiness = get())
         } bind MemoStatisticsRepository::class
@@ -80,11 +81,4 @@ val memoRepositoryModule =
         single {
             StoreWorkspaceStateResolver(port = get(), invalidation = get())
         } bind WorkspaceStateResolver::class
-        single {
-            StoreWorkspaceTransitionRepository(
-                syncStateResetRepository = get(),
-                port = get(),
-                invalidation = get(),
-            )
-        } bind WorkspaceTransitionRepository::class
     }

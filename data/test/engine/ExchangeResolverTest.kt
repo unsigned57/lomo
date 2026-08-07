@@ -14,7 +14,7 @@ package com.lomo.data.engine
  * - Given absolute, parent, blank, or backslash tokens, when resolved, then validation fails.
  * - Given a token file, when digest is computed, then length and lowercase SHA-256 match content.
  * - Given a complete memo artifact longer than 240 characters, when its typed reference is read,
- *   then the exact full UTF-8 content is returned.
+ *   then the exact full UTF-8 content is returned and the single-consumer artifact is removed.
  * - Given a missing, length-mismatched, digest-mismatched, or invalid UTF-8 artifact, when its typed
  *   reference is read, then a structured error is thrown and no content is returned.
  *
@@ -23,9 +23,17 @@ package com.lomo.data.engine
  *
  * TDD proof:
  * - RED: `readUtf8Artifact` and `ExchangeArtifactReference` do not exist.
+ * - RED on 2026-08-06: successful scan-body reads leave every exchange artifact on disk forever.
  *
  * Excludes:
  * - SAF document I/O and platform action orchestration.
+ *
+ * Test Change Justification:
+ * - Reason category: resource lifecycle correction.
+ * - Old behavior/assertion being replaced: successful artifact reads left consumed exchange files on disk.
+ * - Why old assertion is no longer correct: typed exchange artifacts are single-consumer resources.
+ * - Coverage preserved by: token validation, digest, UTF-8, and mismatch scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: the added assertion observes the artifact lifecycle at the public boundary.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -88,13 +96,14 @@ class ExchangeResolverTest : DataFunSpec() {
                 val bytes = content.encodeToByteArray()
                 resolver.resolveFile("ex.scope.memo-0").writeBytes(bytes)
 
-                resolver.readUtf8Artifact(
+                resolver.consumeUtf8Artifact(
                     ExchangeArtifactReference(
                         token = "ex.scope.memo-0",
                         length = bytes.size.toULong(),
                         digest = sha256Hex(bytes),
                     ),
                 ) shouldBe content
+                resolver.resolveFile("ex.scope.memo-0").exists() shouldBe false
             } finally {
                 root.deleteRecursively()
             }

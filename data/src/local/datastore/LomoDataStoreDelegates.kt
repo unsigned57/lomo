@@ -2,12 +2,19 @@ package com.lomo.data.local.datastore
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
+import com.lomo.domain.model.WorkspaceRootTransitionCorruptionException
+import com.lomo.domain.model.WorkspaceRootTransitionPhase
+import com.lomo.data.source.isContentStorageUri
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
@@ -40,6 +47,184 @@ internal class RootLocationStoreImpl(
             prefs[LomoDataStoreKeys.ROOT_URI] ?: prefs[LomoDataStoreKeys.ROOT_DIRECTORY]
         }
 }
+
+internal class WorkspaceRootTransitionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoWorkspaceRootTransitionStore {
+    override suspend fun prepareRootTransition(
+        previous: StorageLocation?,
+        candidate: StorageLocation,
+    ): WorkspaceRootTransition {
+        val transition =
+            WorkspaceRootTransition(
+                id = UUID.randomUUID().toString(),
+                previous = previous,
+                candidate = candidate,
+                phase = WorkspaceRootTransitionPhase.PREPARED,
+            )
+        dataStore.editPreferences {
+            requireNoPendingTransition(this)
+            requireCommittedRoot(this, previous)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_ID] = transition.id
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT] = previous != null
+            setOrRemove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS, previous?.raw)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE] = candidate.raw
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE] = transition.phase.name
+        }
+        return transition
+    }
+
+    override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition {
+        var activated: WorkspaceRootTransition? = null
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            if (current.phase != WorkspaceRootTransitionPhase.PREPARED) {
+                throw transitionCorruption("Workspace transition is not prepared")
+            }
+            requireCommittedRoot(this, current.previous)
+            activated = current.copy(phase = WorkspaceRootTransitionPhase.ACTIVATED)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE] = WorkspaceRootTransitionPhase.ACTIVATED.name
+        }
+        return checkNotNull(activated)
+    }
+
+    override suspend fun commitRootTransition(transitionId: String) {
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            if (current.phase != WorkspaceRootTransitionPhase.ACTIVATED) {
+                throw transitionCorruption("Workspace transition is not activated")
+            }
+            requireCommittedRoot(this, current.previous)
+            putCommittedRoot(current.candidate)
+            clearRootTransition()
+        }
+    }
+
+    override suspend fun rollbackRootTransition(transitionId: String) {
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            requireCommittedRoot(this, current.previous)
+            clearRootTransition()
+        }
+    }
+
+    override suspend fun pendingRootTransition(): WorkspaceRootTransition? =
+        dataStore.data.first().readRootTransition()
+
+    override suspend fun recoverRootLocation(): StorageLocation? {
+        var recovered: StorageLocation? = null
+        dataStore.editPreferences {
+            val transition = readRootTransition()
+            val committed = committedRoot()
+            if (transition != null && committed != transition.previous) {
+                throw transitionCorruption("Pending transition previous root differs from committed root")
+            }
+            clearRootTransition()
+            recovered = committed
+        }
+        return recovered
+    }
+}
+
+private fun MutablePreferences.putCommittedRoot(location: StorageLocation) {
+    if (isContentStorageUri(location.raw)) {
+        this[LomoDataStoreKeys.ROOT_URI] = location.raw
+        remove(LomoDataStoreKeys.ROOT_DIRECTORY)
+    } else {
+        remove(LomoDataStoreKeys.ROOT_URI)
+        this[LomoDataStoreKeys.ROOT_DIRECTORY] = location.raw
+    }
+}
+
+private fun Preferences.committedRoot(): StorageLocation? =
+    (this[LomoDataStoreKeys.ROOT_URI] ?: this[LomoDataStoreKeys.ROOT_DIRECTORY])?.let(::StorageLocation)
+
+private fun requireCommittedRoot(
+    preferences: Preferences,
+    expected: StorageLocation?,
+) {
+    if (preferences.committedRoot() != expected) {
+        throw transitionCorruption("Committed root changed during workspace transition")
+    }
+}
+
+private fun Preferences.requireTransition(transitionId: String): WorkspaceRootTransition {
+    val transition = readRootTransition()
+        ?: throw transitionCorruption("Workspace transition does not exist")
+    if (transition.id != transitionId) {
+        throw transitionCorruption("Workspace transition id does not match")
+    }
+    return transition
+}
+
+private fun requireNoPendingTransition(preferences: Preferences) {
+    if (preferences.readRootTransition() != null) {
+        throw transitionCorruption("A workspace transition is already pending")
+    }
+}
+
+private fun Preferences.readRootTransition(): WorkspaceRootTransition? {
+    val id = this[LomoDataStoreKeys.ROOT_TRANSITION_ID]
+    val hasAny =
+        contains(LomoDataStoreKeys.ROOT_TRANSITION_ID) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PHASE)
+    if (id == null) {
+        requireTransitionCondition(!hasAny, "Workspace transition journal is incomplete")
+        return null
+    }
+    val previousPresent = requireTransitionValue(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT],
+        "Workspace transition previous marker is missing",
+    )
+    val previousRaw = this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS]
+    val previous =
+        if (previousPresent) {
+            requireTransitionString(
+                previousRaw,
+                "Workspace transition previous root is missing",
+            ).let(::StorageLocation)
+        } else {
+            requireTransitionCondition(
+                previousRaw == null,
+                "Workspace transition previous root contradicts its marker",
+            )
+            null
+        }
+    val candidate = requireTransitionString(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE],
+        "Workspace transition candidate is missing",
+    ).let(::StorageLocation)
+    val phaseRaw = requireTransitionString(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE],
+        "Workspace transition phase is missing",
+    )
+    val phase = requireTransitionPhase(phaseRaw)
+    return try {
+        UUID.fromString(id)
+        WorkspaceRootTransition(id, previous, candidate, phase)
+    } catch (error: IllegalArgumentException) {
+        throw transitionCorruption("Workspace transition journal contains invalid values", error)
+    }
+}
+
+private fun MutablePreferences.clearRootTransition() {
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_ID)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PHASE)
+}
+
+internal fun transitionCorruption(
+    message: String,
+    cause: Throwable? = null,
+): WorkspaceRootTransitionCorruptionException =
+    WorkspaceRootTransitionCorruptionException(
+        if (cause == null) message else "$message: ${cause.message ?: cause.javaClass.simpleName}",
+    )
 
 internal class MediaLocationStoreImpl(
     private val dataStore: DataStore<Preferences>,

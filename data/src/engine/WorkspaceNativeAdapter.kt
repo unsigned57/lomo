@@ -55,15 +55,35 @@ internal data class WorkspaceScanPageSnapshot(
     val nextCursor: String?,
 )
 
+internal data class SafMemoProjectionReferenceSnapshot(
+    val memoId: String,
+    val sourcePath: String,
+    val fileFingerprint: String,
+    val chronologyEpochMs: Long,
+    val content: ExchangeArtifactReference,
+    val tags: List<String>,
+    val attachmentPaths: List<String>,
+    val hasTodo: Boolean,
+    val hasUrl: Boolean,
+    val reminders: List<WorkspaceReminderReferenceSnapshot>,
+)
+
 internal data class SafMemoProjectionSnapshot(
     val memoId: String,
     val sourcePath: String,
     val fileFingerprint: String,
+    val chronologyEpochMs: Long,
     val body: String,
     val tags: List<String>,
     val attachmentPaths: List<String>,
     val hasTodo: Boolean,
     val hasUrl: Boolean,
+    val reminders: List<WorkspaceReminderReferenceSnapshot>,
+)
+
+internal data class WorkspaceProjectionScanPageSnapshot(
+    val items: List<SafMemoProjectionReferenceSnapshot>,
+    val nextCursor: String?,
 )
 
 internal data class WorkspaceNativeCommandResultSnapshot(
@@ -73,7 +93,7 @@ internal data class WorkspaceNativeCommandResultSnapshot(
 )
 
 internal interface WorkspaceMarkdownOwner {
-    fun scanWorkspace(rootPath: String? = null): List<WorkspaceMemoSummarySnapshot>
+    fun scanWorkspace(rootPath: String? = null): Sequence<WorkspaceMemoSummarySnapshot>
 
     fun replaceMemo(
         rootPath: String?,
@@ -90,6 +110,11 @@ internal interface WorkspaceMarkdownOwner {
 }
 
 internal sealed interface WorkspaceNativeCommandSpec {
+    data class Create(
+        val timePart: String,
+        val content: String,
+    ) : WorkspaceNativeCommandSpec
+
     data class Append(
         val timePart: String,
         val content: String,
@@ -113,6 +138,12 @@ internal sealed interface WorkspaceNativeCommandSpec {
         val reminder: WorkspaceReminderReferenceSnapshot,
         val replacement: String,
     ) : WorkspaceNativeCommandSpec
+}
+
+internal sealed interface WorkspaceNativeExpectedState {
+    data object Absent : WorkspaceNativeExpectedState
+
+    data class Match(val fingerprint: String) : WorkspaceNativeExpectedState
 }
 
 /**
@@ -143,7 +174,7 @@ internal interface WorkspaceNativeAdapter :
 
     fun startWorkspaceDocumentCommand(
         path: String,
-        expectedFingerprint: String,
+        expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong = DEFAULT_JOB_DEADLINE_MILLIS,
     ): String
@@ -177,13 +208,22 @@ internal interface WorkspaceNativeEnginePort :
 
     fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot
 
-    fun rebuildSafStoreProjection(
-        memos: List<SafMemoProjectionSnapshot>,
-    ): com.lomo.nativebridge.StoreRebuildResult
+    fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot
+
+    fun beginSafProjectionRebuild(): String
+
+    fun appendSafProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafMemoProjectionReferenceSnapshot>,
+    )
+
+    fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult
+
+    fun abortSafProjectionRebuild(rebuildId: String)
 
     fun startWorkspaceDocumentCommand(
         path: String,
-        expectedFingerprint: String,
+        expectedState: WorkspaceNativeExpectedState,
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
     ): String

@@ -18,6 +18,13 @@ package com.lomo.data.engine
  * Observable outcomes: exception vs success.
  * TDD proof: fails before production probe exists (blank-only default) and before canWrite check.
  * Excludes: live SAF grant matrix (device-smoke).
+ *
+ * Test Change Justification:
+ * - Reason category: SAF permission boundary correction.
+ * - Old behavior/assertion being replaced: any persisted URI grant was treated as sufficient for a candidate tree.
+ * - Why old assertion is no longer correct: the selected tree must be covered by a matching read/write grant.
+ * - Coverage preserved by: direct-directory validation and invalid-candidate failures remain covered.
+ * - Why this is not fitting the test to the implementation: assertions constrain accepted and rejected storage capabilities.
  */
 
 import android.content.Context
@@ -25,6 +32,7 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.StorageLocation
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -45,9 +53,9 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
             runTest {
                 val probe = WorkspaceCandidateProbe(context = mockk(relaxed = true), isContentUri = { false })
                 val missing = File("/tmp/lomo-missing-candidate-${System.nanoTime()}")
-                shouldThrow<IllegalStateException> {
+                shouldThrow<WorkspaceCandidateValidationException> {
                     probe.validate(StorageLocation(missing.absolutePath))
-                }.message.shouldContain("existing directory")
+                }.code shouldBe "workspace_root_unavailable"
             }
         }
 
@@ -71,9 +79,9 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                     "Host must expose a non-writable directory for this contract"
                 }
                 val probe = WorkspaceCandidateProbe(context = mockk(relaxed = true), isContentUri = { false })
-                shouldThrow<IllegalStateException> {
+                shouldThrow<WorkspaceCandidateValidationException> {
                     probe.validate(StorageLocation(proc.absolutePath))
-                }.message.shouldContain("not writable")
+                }.code shouldBe "workspace_root_unwritable"
             }
         }
 

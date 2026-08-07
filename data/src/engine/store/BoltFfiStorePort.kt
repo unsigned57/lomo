@@ -30,6 +30,7 @@ internal class BoltFfiStorePort(
                     filters =
                         BridgeMemoFilters(
                             tag = query.filters.tag,
+                            tagSubtree = query.filters.tagSubtree,
                             dateFromMs = query.filters.dateFromMs,
                             dateToMs = query.filters.dateToMs,
                             hasTodo = query.filters.hasTodo,
@@ -56,6 +57,23 @@ internal class BoltFfiStorePort(
         return StoreMemoSnapshot(summary = snap.summary.toSummary(), body = snap.body)
     }
 
+    override fun sidebarProjection(): StoreSidebarProjection {
+        val projection = bridge.sidebarProjection()
+        require(projection.schemaVersion == 1u) { "Unsupported sidebar projection schema ${projection.schemaVersion}" }
+        return StoreSidebarProjection(
+            schemaVersion = projection.schemaVersion,
+            memoCount = projection.memoCount.toSidebarCount("memo_count"),
+            dateCounts =
+                projection.dateCounts.map {
+                    StoreSidebarDateCount(it.date, it.count.toSidebarCount("date_count"))
+                },
+            tagCounts =
+                projection.tagCounts.map {
+                    StoreSidebarTagCount(it.name, it.count.toSidebarCount("tag_count"))
+                },
+        )
+    }
+
     override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> =
         bridge.listHistoryAttachmentRefs().map { ref ->
             StoreHistoryAttachmentRef(
@@ -65,6 +83,21 @@ internal class BoltFfiStorePort(
                 ownerKey = ref.ownerKey,
             )
         }
+
+    override fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage {
+        val page = bridge.listMemoHistory(memoId, cursor, limit.coerceIn(1, 256).toUInt())
+        return StoreMemoHistoryPage(
+            items = page.items.map {
+                StoreMemoHistoryRevision(
+                    it.revision.toLong(),
+                    it.createdAtMs,
+                    it.content,
+                    it.fileFingerprint,
+                )
+            },
+            nextCursor = page.nextCursor,
+        )
+    }
 
     override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit {
         // D4: same-operation promote requires a real operationId. Never mint when promotes are
@@ -114,6 +147,7 @@ internal class BoltFfiStorePort(
                                 finalRelativePath = plan.finalRelativePath,
                             )
                         },
+                    chronologyEpochMs = command.chronologyEpochMs,
                 ),
             )
         return StoreMemoCommit(
@@ -158,16 +192,51 @@ internal class BoltFfiStorePort(
             rank = rank,
             tags = tags,
             imageUrls = imageUrls,
+            reminders = reminders.map { reminder -> reminder.toDomainMarker() },
+        )
+
+    private fun com.lomo.nativebridge.WorkspaceReminderReference.toDomainMarker():
+        com.lomo.domain.model.ReminderMarker =
+        com.lomo.domain.model.ReminderMarker(
+            dueAt =
+                java.time.LocalDateTime.parse(
+                    dueAtLocal,
+                    com.lomo.domain.model.ReminderMarker.TIMESTAMP_FORMAT,
+                ),
+            repeatCount = repeatCount.toInt(),
+            firedCount = firedCount.toInt(),
+            done = done,
+            intervalMinutes = intervalMinutes.toInt(),
+            recurrence = com.lomo.domain.model.Recurrence.fromCode(recurrenceCode),
+            reference =
+                com.lomo.domain.model.ReminderReference(
+                    opaqueId = opaqueId,
+                    revision = revision,
+                    memoIdentity = memoIdentity,
+                    sourceSpan =
+                        com.lomo.domain.model.markdown.MarkdownSourceSpan(
+                            startByte = sourceStart,
+                            endByte = sourceEnd,
+                        ),
+                    tokenFingerprint = tokenFingerprint,
+                ),
+            token = token,
         )
 
     private fun StoreMemoCommandKind.toBridge(): BridgeMemoCommandKind =
         when (this) {
             StoreMemoCommandKind.Create -> BridgeMemoCommandKind.CREATE
             StoreMemoCommandKind.Update -> BridgeMemoCommandKind.UPDATE
-            StoreMemoCommandKind.Delete -> BridgeMemoCommandKind.DELETE
+        StoreMemoCommandKind.Delete -> BridgeMemoCommandKind.DELETE
+        StoreMemoCommandKind.PermanentDelete -> BridgeMemoCommandKind.PERMANENT_DELETE
             StoreMemoCommandKind.Restore -> BridgeMemoCommandKind.RESTORE
             StoreMemoCommandKind.Pin -> BridgeMemoCommandKind.PIN
             StoreMemoCommandKind.Unpin -> BridgeMemoCommandKind.UNPIN
             StoreMemoCommandKind.HistoryRestore -> BridgeMemoCommandKind.HISTORY_RESTORE
         }
+}
+
+private fun Long.toSidebarCount(field: String): Int {
+    require(this in 0..Int.MAX_VALUE.toLong()) { "$field is outside the Kotlin count range" }
+    return toInt()
 }

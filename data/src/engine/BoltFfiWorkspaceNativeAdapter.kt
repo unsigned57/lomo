@@ -14,6 +14,11 @@ import com.lomo.nativebridge.WorkspaceReminderReference
 
 internal fun WorkspaceNativeCommandSpec.toBridge(): WorkspaceDocumentCommandKind =
     when (this) {
+        is WorkspaceNativeCommandSpec.Create ->
+            WorkspaceDocumentCommandKind.Create(
+                timePart = timePart,
+                content = content,
+            )
         is WorkspaceNativeCommandSpec.Append ->
             WorkspaceDocumentCommandKind.Append(
                 timePart = timePart,
@@ -38,8 +43,33 @@ internal fun WorkspaceNativeCommandSpec.toBridge(): WorkspaceDocumentCommandKind
             )
     }
 
+internal fun WorkspaceNativeExpectedState.toBridge(): com.lomo.nativebridge.WorkspaceDocumentExpectedState =
+    when (this) {
+        WorkspaceNativeExpectedState.Absent ->
+            com.lomo.nativebridge.WorkspaceDocumentExpectedState.Absent
+        is WorkspaceNativeExpectedState.Match ->
+            com.lomo.nativebridge.WorkspaceDocumentExpectedState.Match(fingerprint)
+    }
+
 private fun WorkspaceReminderReferenceSnapshot.toBridge(): WorkspaceReminderReference =
     WorkspaceReminderReference(
+        opaqueId = opaqueId,
+        revision = revision,
+        memoIdentity = memoIdentity,
+        sourceStart = sourceStart,
+        sourceEnd = sourceEnd,
+        tokenFingerprint = tokenFingerprint,
+        token = token,
+        dueAtLocal = dueAtLocal,
+        repeatCount = repeatCount,
+        firedCount = firedCount,
+        done = done,
+        intervalMinutes = intervalMinutes,
+        recurrenceCode = recurrenceCode,
+    )
+
+private fun WorkspaceReminderReference.toSnapshot(): WorkspaceReminderReferenceSnapshot =
+    WorkspaceReminderReferenceSnapshot(
         opaqueId = opaqueId,
         revision = revision,
         memoIdentity = memoIdentity,
@@ -383,7 +413,7 @@ internal fun com.lomo.nativebridge.WorkspaceScanPage.toSnapshot(
                     hasTodo = item.hasTodo,
                     hasUrl = item.hasUrl,
                     content =
-                        exchangeResolver.readUtf8Artifact(
+                        exchangeResolver.consumeUtf8Artifact(
                             ExchangeArtifactReference(
                                 token = item.content.exchangeToken,
                                 length = item.content.length,
@@ -394,6 +424,31 @@ internal fun com.lomo.nativebridge.WorkspaceScanPage.toSnapshot(
                     bodyEnd = item.bodyEnd,
                     startLine = item.startLine,
                     endLine = item.endLine,
+                )
+            },
+        nextCursor = nextCursor,
+    )
+
+internal fun com.lomo.nativebridge.WorkspaceScanPage.toProjectionSnapshot(): WorkspaceProjectionScanPageSnapshot =
+    WorkspaceProjectionScanPageSnapshot(
+        items =
+            items.map { item ->
+                SafMemoProjectionReferenceSnapshot(
+                    memoId = item.identity,
+                    sourcePath = item.path,
+                    fileFingerprint = item.fingerprint,
+                    chronologyEpochMs = requireChronologyEpochMs(item.identity, item.timePart),
+                    content =
+                        ExchangeArtifactReference(
+                            token = item.content.exchangeToken,
+                            length = item.content.length,
+                            digest = item.content.digest,
+                        ),
+                    tags = item.tags,
+                    attachmentPaths = item.attachments,
+                    hasTodo = item.hasTodo,
+                    hasUrl = item.hasUrl,
+                    reminders = item.reminders.map(WorkspaceReminderReference::toSnapshot),
                 )
             },
         nextCursor = nextCursor,

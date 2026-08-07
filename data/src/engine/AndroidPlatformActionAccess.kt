@@ -111,7 +111,10 @@ internal class AndroidPlatformActionAccess(
         validateWorkspacePath(action.path)
         // Validate exchange token before any SAF I/O.
         exchange.resolveFile(action.exchangeToken)
-        val handle = documents.openRead(tree, action.path)
+        val handle =
+            action.documentHandle?.let { documentHandle ->
+                documents.openReadByHandle(tree, action.path, documentHandle)
+            } ?: documents.openRead(tree, action.path)
         if (handle.snapshot.kind != DocumentKind.FILE) {
             throw PlatformActionAccessException(
                 category = "validation",
@@ -337,6 +340,7 @@ internal class AndroidPlatformActionAccess(
 private fun PlatformDocumentSnapshot.toMetadata(): DocumentMetadata =
     DocumentMetadata(
         target = target,
+        documentHandle = documentId,
         kind = kind,
         mimeType = mimeType,
         evidence = toEvidence(),

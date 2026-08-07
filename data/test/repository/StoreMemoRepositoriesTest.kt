@@ -11,7 +11,7 @@ package com.lomo.data.repository
  *   to domain Memo.
  *
  * Scenarios:
- * - Given store pages with memos, when getAllMemosList / getMemoById / getMemoCount run, then
+ * - Given store pages with memos, when bounded reads / getMemoById / getMemoCount run, then
  *   domain memos and counts are observed.
  * - Given writable authority, when saveMemo succeeds, then Create is applied, invalidation bumps,
  *   reminder sync runs, and returned Memo matches getMemo.
@@ -28,7 +28,7 @@ package com.lomo.data.repository
  * - RED: production StoreMemo* repositories had zero host executions (coverage gaming C1).
  *
  * Excludes:
- * - Real BoltFFI, Room dual-stack (deleted), full history list FFI (StoreMemoVersionRepository stub).
+ * - Real BoltFFI and Room dual-stack (deleted); history is covered by the store adapter contract.
  *
  * Test Change Justification:
  * - Reason category: memo mutations accept pending media promotes after stage-4 cutover.
@@ -42,6 +42,7 @@ package com.lomo.data.repository
  */
 
 import app.cash.turbine.test
+import androidx.paging.PagingSource
 import com.lomo.data.engine.store.StoreMemoCommand
 import com.lomo.data.engine.store.StoreMemoCommandKind
 import com.lomo.data.engine.store.StoreMemoCommit
@@ -57,6 +58,7 @@ import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.data.testing.fakes.FakeReminderCoordinator
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.WorkspaceMutationLease
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
@@ -64,6 +66,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,6 +78,7 @@ import kotlinx.coroutines.test.runTest
 private class RecordingStorePort : StorePort {
     val commands = mutableListOf<StoreMemoCommand>()
     var queryCount = 0
+    var sidebarQueryCount = 0
     var rebuildCount = 0
     private val memos = linkedMapOf<String, StoreMemoSnapshot>()
     private var nextId = 1
@@ -121,6 +125,33 @@ private class RecordingStorePort : StorePort {
     }
 
     override fun getMemo(memoId: String): StoreMemoSnapshot? = memos[memoId]
+
+    override fun sidebarProjection(): com.lomo.data.engine.store.StoreSidebarProjection {
+        sidebarQueryCount += 1
+        val active = memos.values.map { it.summary }.filterNot { it.isTrashed }
+        return com.lomo.data.engine.store.StoreSidebarProjection(
+            schemaVersion = 1u,
+            memoCount = active.size,
+            dateCounts =
+                active
+                    .groupingBy { summary ->
+                        java.time.Instant
+                            .ofEpochMilli(summary.createdAtMs)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                            .toString()
+                    }.eachCount()
+                    .map { (date, count) -> com.lomo.data.engine.store.StoreSidebarDateCount(date, count) },
+            tagCounts =
+                active
+                    .flatMap { it.tags }
+                    .groupingBy { it }
+                    .eachCount()
+                    .entries
+                    .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                    .map { (name, count) -> com.lomo.data.engine.store.StoreSidebarTagCount(name, count) },
+        )
+    }
 
     override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
 
@@ -185,6 +216,19 @@ private class RecordingStorePort : StorePort {
                     )
                 memos[command.memoId] = updated
                 commitOf(command, updated)
+            }
+            StoreMemoCommandKind.PermanentDelete -> {
+                val existing = memos.remove(command.memoId) ?: error("missing")
+                StoreMemoCommit(
+                    operationId = command.operationId,
+                    memoId = existing.summary.memoId,
+                    coreRevision = 1L,
+                    eventSequence = 1L,
+                    contentRevision = existing.summary.contentRevision,
+                    fileFingerprint = "",
+                    scopes = listOf("memo:${existing.summary.memoId}"),
+                    idempotentReplay = false,
+                )
             }
             StoreMemoCommandKind.Pin, StoreMemoCommandKind.Unpin -> {
                 val existing = memos[command.memoId] ?: error("missing")
@@ -281,7 +325,30 @@ private fun notReadyWriteLease(): WorkspaceMutationLease =
     )
 
 class StoreMemoRepositoriesTest : FunSpec({
-    test("query repository lists and loads memos from store pages") {
+    test("gallery paging source requests bounded store pages") {
+        runTest {
+            val port = RecordingStorePort()
+            repeat(31) { index ->
+                port.seed(seededSnapshot("gallery-$index", "body", hasAttachment = true))
+            }
+            val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
+            val source = repo.getGalleryMemosPagingSource()
+
+            val result = source.load(
+                PagingSource.LoadParams.Refresh(
+                    key = null,
+                    loadSize = 30,
+                    placeholdersEnabled = false,
+                ),
+            )
+
+            result.shouldBeInstanceOf<PagingSource.LoadResult.Page<String, Memo>>()
+                .data shouldHaveSize 30
+            port.queryCount shouldBe 1
+        }
+    }
+
+    test("query repository loads bounded memo reads from store pages") {
         runTest {
             val port = RecordingStorePort()
             port.seed(seededSnapshot("a", "alpha", tags = listOf("life")))
@@ -295,18 +362,11 @@ class StoreMemoRepositoriesTest : FunSpec({
                 ),
             )
             val invalidation = StoreInvalidationBus()
-            val repo = StoreMemoQueryRepository(port, invalidation)
-
-            val all = repo.getAllMemosList().first()
-            all.map { it.id } shouldContainExactly listOf("a", "b")
-            all[0].content shouldBe "alpha"
-            all[0].tags shouldContainExactly listOf("life")
-            all[1].imageUrls shouldContainExactly listOf("images/b.png")
+            val repo = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
 
             repo.getMemoById("b").shouldNotBeNull().content shouldBe "beta"
             repo.getMemoCount() shouldBe 2
             repo.getRecentMemos(1).shouldHaveSize(1)
-            repo.getGalleryMemosList().first().map { it.id } shouldContainExactly listOf("b")
         }
     }
 
@@ -315,7 +375,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val port = RecordingStorePort()
             val invalidation = StoreInvalidationBus()
             val reminders = FakeReminderCoordinator()
-            val query = StoreMemoQueryRepository(port, invalidation)
+            val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
                     port = port,
@@ -353,7 +413,11 @@ class StoreMemoRepositoriesTest : FunSpec({
             val mutation =
                 StoreMemoMutationRepository(
                     port = port,
-                    queryRepository = StoreMemoQueryRepository(port, StoreInvalidationBus()),
+                    queryRepository = StoreMemoQueryRepository(
+                        port,
+                        StoreInvalidationBus(),
+                        FakeEngineReadinessRepository(),
+                    ),
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = notReadyWriteLease(),
                     invalidation = StoreInvalidationBus(),
@@ -406,6 +470,43 @@ class StoreMemoRepositoriesTest : FunSpec({
             val tagCounts = stats.getTagCountsFlow().first()
             tagCounts.map { it.name to it.count } shouldContainExactly
                 listOf("work" to 2, "life" to 1)
+        }
+    }
+
+    test("sidebar statistics uses one aggregate projection and never walks memo pages") {
+        runTest {
+            val port = RecordingStorePort()
+            repeat(2_001) { index ->
+                port.seed(
+                    seededSnapshot(
+                        id = "memo-$index",
+                        body = "body",
+                        createdAtMs = 1_720_000_000_000L,
+                        tags = listOf("all"),
+                    ),
+                )
+            }
+            val stats =
+                StoreMemoStatisticsRepository(
+                    port = port,
+                    invalidation = StoreInvalidationBus(),
+                    readiness = FakeEngineReadinessRepository(),
+                )
+
+            val sidebar = stats.getSidebarStatisticsFlow().first()
+
+            sidebar.memoCount shouldBe 2_001
+            sidebar.tagCounts shouldBe listOf(MemoTagCount("all", 2_001))
+            port.sidebarQueryCount shouldBe 1
+            port.queryCount shouldBe 0
+
+            val detailed =
+                stats.getMemoStatistics(
+                    zone = ZoneId.of("UTC"),
+                    today = LocalDate.of(2026, 8, 4),
+                )
+            detailed.totalMemos shouldBe 2_001
+            port.queryCount shouldBe 41
         }
     }
 

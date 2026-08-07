@@ -100,7 +100,11 @@ class FakeWorkspaceMutationLease(
         admittedCount += 1
         drained.value = false
         return engineReadiness.workspaceAuthority.value
-            ?: WorkspaceAuthority(workspaceId = "fake-workspace", generation = 0)
+            ?: WorkspaceAuthority(
+                workspaceId = "fake-workspace",
+                generation = 0,
+                projectionRevision = 0uL,
+            )
     }
 
     private fun release() {

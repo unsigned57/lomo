@@ -26,6 +26,13 @@ package com.lomo.data.engine
  *
  * Excludes:
  * - ContentResolver mechanics, exchange file streaming, Rust job advancement, and UI behavior.
+ *
+ * Test Change Justification:
+ * - Reason category: platform protocol contract change.
+ * - Old behavior/assertion being replaced: metadata fixtures omitted the opaque document handle.
+ * - Why old assertion is no longer correct: current platform metadata requires a handle for stable follow-up reads.
+ * - Coverage preserved by: the existing batch ordering, failure-prefix, and deadline scenarios are unchanged.
+ * - Why this is not fitting the test to the implementation: assertions still target ordered public batch results.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -168,6 +175,7 @@ private fun allActions(): List<PlatformAction> =
             "action-4",
             "root-capability",
             "memo.md",
+            null,
             "exchange-read",
             ExpectedFingerprint.Absent,
         ),
@@ -214,6 +222,7 @@ private fun PlatformAction.output(): PlatformActionOutput {
     ): DocumentMetadata =
         DocumentMetadata(
             target = target,
+            documentHandle = "fixture-document",
             kind = kind,
             mimeType = null,
             evidence = evidence,

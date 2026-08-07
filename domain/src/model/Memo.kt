@@ -15,6 +15,7 @@ data class Memo(
     val isPinned: Boolean = false,
     val isDeleted: Boolean = false,
     val geoLocation: String? = null, // "lat,lng" coordinate pair
+    val reminders: List<ReminderMarker> = emptyList(),
 ) {
     /**
      * Domain-facing alias for raw source text persisted for this memo.

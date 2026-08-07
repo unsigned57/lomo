@@ -5,39 +5,36 @@ package com.lomo.domain.usecase
  * - Unit under test: SwitchRootStorageUseCase.
  * - Owning layer: domain.
  * - Priority tier: P0.
- * - Capability: prepare/validate candidate, take an exclusive mutation transition, persist selection, activate
- *   engine, rebuild, then reopen admissions. Failure before or during switch leaves the previous
- *   selection, previous engine, and previous index authoritative and always reopens admissions.
- *   Soft non-Ready activate
- *   is a failure. Rebuild failure after Room clear restores previous index via mandatory rebuild.
+ * - Capability: validate a candidate, durably prepare while committed selection remains unchanged,
+ *   activate the engine-owned projection transaction, atomically commit, then reopen admissions.
+ *   Failure restores previous engine authority, rolls back the journal, and reopens admissions.
+ *   Soft non-Ready activation is a failure.
  *
  * Scenarios:
  * - Given a valid candidate, when switch succeeds, then the transition opens, selection persists,
- *   engine activates, rebuild runs, and admissions reopen.
+ *   engine activation commits its projection, no second rebuild runs, and admissions reopen.
  * - Given candidate validation fails, when switch is requested, then nothing is persisted and no
  *   transition
  *   never begins.
  * - Given persist fails inside the transition, when switch aborts, then admissions reopen and rebuild
  *   does not run.
- * - Given activate fails after persist, when switch aborts, then previous selection is restored,
- *   previous index is rebuilt, and admissions reopen.
- * - Given activate succeeds but rebuild fails after clear, when switch aborts, then previous
- *   selection+engine are restored and previous index is rebuilt (not left empty).
+ * - Given activate fails after persist, when switch aborts, then previous selection and engine are
+ *   restored through the same activation boundary, no external rebuild runs, and admissions reopen.
  *
  * Observable outcomes: ordered event log, transition count, admissibility, applied updates, activate calls,
- * rebuild counts.
+ * absence of duplicate rebuilds.
  * TDD proof: fails before transition/validate/activate ordering is required by SwitchRootStorageUseCase;
- * A-SW-002 RED: rebuild-fail-after-clear left rebuildCount=1 without restore rebuild.
+ * A-SW-003 RED: successful activation still invoked the obsolete second rebuild owner.
  * Excludes: concrete SAF/engine open validation and UI navigation.
  *
  * Test Change Justification:
  * - Reason category: production memo persistence cutover from Room to lomo-store ports.
- * - Old behavior/assertion being replaced: switch paths that treated Room clear/rebuild as the
- *   sole index authority after root change.
- * - Why old assertion is no longer correct: rebuild now targets the Rust store-backed index; Room
- *   clear is no longer the production recovery path.
- * - Coverage preserved by: transition/validate/persist/activate/rebuild ordering and restore-on-failure
- *   scenarios remain asserted.
+ * - Old behavior/assertion being replaced: switch and rollback paths invoked WorkspaceStateResolver
+ *   after ManagedEngineSession activation had already rebuilt the Rust projection.
+ * - Why old assertion is no longer correct: activation owns open, rebuild, verification, and promote
+ *   as one transaction; a second rebuild duplicates SAF full scans and can desynchronize authority.
+ * - Coverage preserved by: transition/validate/persist/activate ordering, restore-on-failure, and the
+ *   explicit manual rebuild delegation scenario remain asserted.
  * - Why this is not fitting the test to the implementation: outcomes stay use-case event order and
  *   authority restore, not store SQL.
  */
@@ -88,7 +85,7 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 )
         }
 
-        test("updateRootLocation takes a transition, persists, activates engine, rebuilds, then reopens") {
+        test("updateRootLocation commits through activation without a second rebuild then reopens") {
             runTest {
                 val previous = StorageLocation("/tmp/previous")
                 directorySettingsRepository.setLocation(StorageArea.ROOT, previous)
@@ -96,9 +93,8 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
 
                 useCase.updateRootLocation(location)
 
-                directorySettingsRepository.appliedUpdates shouldBe
-                    listOf(StorageAreaUpdate(StorageArea.ROOT, location))
-                workspaceStateResolver.rebuildCallCount shouldBe 1
+                directorySettingsRepository.appliedUpdates shouldBe emptyList()
+                workspaceStateResolver.rebuildCallCount shouldBe 0
                 engineReadinessRepository.activateCount shouldBe 1
                 engineReadinessRepository.lastActivated shouldBe location
                 workspaceMutationLease.transitionCount shouldBe 1
@@ -106,8 +102,9 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 eventLog shouldBe
                     listOf(
                         "workspace.validateCandidate",
-                        "directory.applyLocation:ROOT",
-                        "workspace.rebuildFromCurrentWorkspace",
+                        "directory.prepareRootTransition",
+                        "directory.markRootTransitionActivated",
+                        "directory.commitRootTransition",
                     )
             }
         }
@@ -167,14 +164,9 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                         .exceptionOrNull()
 
                 error.shouldBeInstanceOf<IllegalStateException>()
-                // First apply candidate, then restore previous after activate failure.
-                directorySettingsRepository.appliedUpdates shouldBe
-                    listOf(
-                        StorageAreaUpdate(StorageArea.ROOT, StorageLocation("/tmp/candidate")),
-                        StorageAreaUpdate(StorageArea.ROOT, previous),
-                    )
-                // Activate failed before candidate rebuild; restore still re-scans previous index.
-                workspaceStateResolver.rebuildCallCount shouldBe 1
+                // The candidate remains uncommitted; recovery reopens the previous authority.
+                directorySettingsRepository.appliedUpdates shouldBe emptyList()
+                workspaceStateResolver.rebuildCallCount shouldBe 0
                 // activate attempted for candidate then for restore
                 engineReadinessRepository.activateCount shouldBe 2
                 workspaceMutationLease.transitionCount shouldBe 1
@@ -198,40 +190,6 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 restoreError.suppressed.single().shouldBeInstanceOf<IllegalStateException>()
                 workspaceMutationLease.transitionCount shouldBe 1
                 workspaceMutationLease.isWritable() shouldBe true
-            }
-        }
-
-        test("updateRootLocation rebuilds previous index when rebuild fails after clear") {
-            runTest {
-                val previous = StorageLocation("/tmp/previous")
-                directorySettingsRepository.setLocation(StorageArea.ROOT, previous)
-                workspaceStateResolver.remainingRebuildFailures = 1
-                workspaceStateResolver.remainingRebuildFailure = IllegalStateException("refresh failed")
-
-                val error =
-                    runCatching { useCase.updateRootLocation(StorageLocation("/tmp/candidate")) }
-                        .exceptionOrNull()
-
-                val rebuildError = error.shouldBeInstanceOf<IllegalStateException>()
-                rebuildError.message shouldBe "refresh failed"
-                directorySettingsRepository.appliedUpdates shouldBe
-                    listOf(
-                        StorageAreaUpdate(StorageArea.ROOT, StorageLocation("/tmp/candidate")),
-                        StorageAreaUpdate(StorageArea.ROOT, previous),
-                    )
-                // Candidate rebuild failed once; restore rebuild must repopulate previous index.
-                workspaceStateResolver.rebuildCallCount shouldBe 1
-                engineReadinessRepository.activateCount shouldBe 2
-                engineReadinessRepository.lastActivated shouldBe previous
-                workspaceMutationLease.transitionCount shouldBe 1
-                workspaceMutationLease.isWritable() shouldBe true
-                eventLog shouldBe
-                    listOf(
-                        "workspace.validateCandidate",
-                        "directory.applyLocation:ROOT",
-                        "directory.applyLocation:ROOT",
-                        "workspace.rebuildFromCurrentWorkspace",
-                    )
             }
         }
 

@@ -30,6 +30,13 @@ package com.lomo.data.engine
  *
  * Excludes:
  * - Real SAF I/O and generated BoltFFI handles.
+ *
+ * Test Change Justification:
+ * - Reason category: protocol type expansion.
+ * - Old behavior/assertion being replaced: metadata fixtures represented documents without opaque handles.
+ * - Why old assertion is no longer correct: every listed document now carries the handle required for a stable read.
+ * - Coverage preserved by: terminal polling, timeout, and unsigned-value scenarios remain unchanged.
+ * - Why this is not fitting the test to the implementation: assertions continue to constrain public job-step behavior.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -81,6 +88,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                         PlatformActionOutput.Stat(
                                             DocumentMetadata(
                                                 target = WorkspaceTarget.Root,
+                                                documentHandle = "root",
                                                 kind = DocumentKind.DIRECTORY,
                                                 mimeType = null,
                                                 evidence =
@@ -143,6 +151,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                         PlatformActionOutput.Stat(
                                             DocumentMetadata(
                                                 target = WorkspaceTarget.Root,
+                                                documentHandle = "root",
                                                 kind = DocumentKind.DIRECTORY,
                                                 mimeType = null,
                                                 evidence =

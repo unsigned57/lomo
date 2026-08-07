@@ -1,7 +1,6 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.repository.WorkspaceStateResolver
-import com.lomo.domain.repository.WorkspaceTransitionRepository
 
 class FakeWorkspaceStateResolver(
     private val eventLog: MutableList<String>? = null,
@@ -23,14 +22,5 @@ class FakeWorkspaceStateResolver(
         rebuildFailure?.let { throw it }
         eventLog?.add("workspace.rebuildFromCurrentWorkspace")
         rebuildCallCount += 1
-    }
-}
-
-class FakeWorkspaceTransitionRepository : WorkspaceTransitionRepository {
-    var clearCallCount = 0
-        private set
-
-    override suspend fun clearMemoStateAfterWorkspaceTransition() {
-        clearCallCount += 1
     }
 }

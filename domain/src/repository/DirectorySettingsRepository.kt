@@ -3,6 +3,7 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
 import kotlinx.coroutines.flow.Flow
 
 interface DirectoryLocationRepository {
@@ -29,6 +30,18 @@ interface RootDirectorySettingsRepository :
     suspend fun applyRootLocation(
         location: StorageLocation,
     ) = applyLocation(StorageAreaUpdate(StorageArea.ROOT, location))
+
+    suspend fun prepareRootTransition(candidate: StorageLocation): WorkspaceRootTransition
+
+    suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition
+
+    suspend fun commitRootTransition(transitionId: String)
+
+    suspend fun rollbackRootTransition(transitionId: String)
+
+    suspend fun pendingRootTransition(): WorkspaceRootTransition?
+
+    suspend fun recoverRootLocation(): StorageLocation?
 }
 
 interface MediaDirectorySettingsRepository :

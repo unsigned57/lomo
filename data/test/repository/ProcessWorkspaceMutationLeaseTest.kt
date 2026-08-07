@@ -29,6 +29,13 @@ package com.lomo.data.repository
  *
  * Excludes:
  * - Engine activation itself, durable selection persistence, and file writes.
+ *
+ * Test Change Justification:
+ * - Reason category: authority contract expansion.
+ * - Old behavior/assertion being replaced: workspace authority contained only identity and generation.
+ * - Why old assertion is no longer correct: reads and mutations now bind to a verified projection revision.
+ * - Coverage preserved by: admission, drain, nesting, and failure-recovery scenarios remain unchanged.
+ * - Why this is not fitting the test to the implementation: the assertion verifies the published authority value.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -55,7 +62,12 @@ class ProcessWorkspaceMutationLeaseTest : DataFunSpec() {
 
                 val admitted = lease.withWrite { authority -> authority }
 
-                admitted shouldBe WorkspaceAuthority(workspaceId = "fake-workspace", generation = 0)
+                admitted shouldBe
+                    WorkspaceAuthority(
+                        workspaceId = "fake-workspace",
+                        generation = 0,
+                        projectionRevision = 0uL,
+                    )
                 lease.isWritable() shouldBe true
             }
         }

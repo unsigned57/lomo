@@ -6,8 +6,10 @@ import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
+import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
+import com.lomo.nativebridge.StoreSafMemoProjection as BridgeSafMemoProjection
 
 /**
  * True FFI edge for store operations.
@@ -26,9 +28,19 @@ internal interface StoreNativeBridge {
 
     fun getMemo(memoId: String): BridgeMemoSnapshot?
 
+    fun sidebarProjection(): BridgeSidebarProjection
+
     fun listHistoryAttachmentRefs(): List<BridgeHistoryAttachmentRef>
 
+    fun listMemoHistory(memoId: String, cursor: String?, limit: UInt): com.lomo.nativebridge.StoreMemoHistoryPage =
+        error("Store history capability is not available on this bridge")
+
     fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit
+
+    fun commitSafProjectionMutation(
+        command: BridgeMemoCommand,
+        projection: BridgeSafMemoProjection?,
+    ): BridgeMemoCommit
 
     fun startRebuild(batchSize: UInt): BridgeRebuildResult
 }

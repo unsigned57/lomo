@@ -35,6 +35,12 @@ internal interface PlatformDocumentsGateway {
         path: String,
     ): PlatformReadHandle
 
+    fun openReadByHandle(
+        treeUri: String,
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle
+
     fun writeFromExchange(
         treeUri: String,
         path: String,

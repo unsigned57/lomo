@@ -26,11 +26,21 @@ internal class ContentResolverPlatformDocumentsGateway(
             is WorkspaceTarget.Root -> {
                 val docId = DocumentsContract.getTreeDocumentId(root)
                 val documentUri = DocumentsContract.buildDocumentUriUsingTree(root, docId)
-                querySnapshot(documentUri, WorkspaceTarget.Root, docId)
+                querySnapshot(
+                    documentUri = documentUri,
+                    target = WorkspaceTarget.Root,
+                    documentId = docId,
+                    digestMode = SnapshotDigestMode.CONTENT,
+                )
             }
             is WorkspaceTarget.Relative -> {
                 val resolved = resolvePath(root, target.path) ?: return null
-                querySnapshot(resolved.uri, target, resolved.documentId)
+                querySnapshot(
+                    documentUri = resolved.uri,
+                    target = target,
+                    documentId = resolved.documentId,
+                    digestMode = SnapshotDigestMode.CONTENT,
+                )
             }
         }
     }
@@ -88,13 +98,6 @@ internal class ContentResolverPlatformDocumentsGateway(
                                 queryCursor.getLong(sizeIndex).coerceAtLeast(0L).toULong()
                             }
                         val lastModified = queryCursor.getLong(modifiedIndex).coerceAtLeast(0L)
-                        val digest =
-                            if (kind == DocumentKind.FILE) {
-                                val docUri = DocumentsContract.buildDocumentUriUsingTree(root, documentId)
-                                digestDocument(docUri)
-                            } else {
-                                EMPTY_SHA256
-                            }
                         items +=
                             PlatformDocumentSnapshot(
                                 target = WorkspaceTarget.Relative(childPath),
@@ -106,7 +109,9 @@ internal class ContentResolverPlatformDocumentsGateway(
                                 length = length,
                                 lastModifiedEpochMillis = lastModified,
                                 documentId = documentId,
-                                digest = digest,
+                                // Enumeration proves metadata only. Content digest is established
+                                // by Stat/ReadToExchange when an operation actually needs bytes.
+                                digest = EMPTY_SHA256,
                             )
                         }
                     }
@@ -159,7 +164,12 @@ internal class ContentResolverPlatformDocumentsGateway(
             resolvePath(root, path)
                 ?: errorIo("Missing document: $path")
         val snapshot =
-            querySnapshot(resolved.uri, WorkspaceTarget.Relative(path), resolved.documentId)
+            querySnapshot(
+                documentUri = resolved.uri,
+                target = WorkspaceTarget.Relative(path),
+                documentId = resolved.documentId,
+                digestMode = SnapshotDigestMode.METADATA_ONLY,
+            )
                 ?: errorIo("Missing document metadata: $path")
         val bytes =
             contentResolver.openInputStream(resolved.uri)?.use { input -> input.readBytes() }
@@ -170,6 +180,29 @@ internal class ContentResolverPlatformDocumentsGateway(
                     digest = bytes.sha256Hex(),
                     length = bytes.size.toULong(),
                 ),
+            bytes = bytes,
+        )
+    }
+
+    override fun openReadByHandle(
+        treeUri: String,
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle {
+        val root = treeUri.toAndroidUri()
+        val documentUri = DocumentsContract.buildDocumentUriUsingTree(root, documentHandle)
+        val snapshot =
+            querySnapshot(
+                documentUri = documentUri,
+                target = WorkspaceTarget.Relative(path),
+                documentId = documentHandle,
+                digestMode = SnapshotDigestMode.METADATA_ONLY,
+            ) ?: errorIo("Missing document metadata for opaque handle")
+        val bytes =
+            contentResolver.openInputStream(documentUri)?.use { input -> input.readBytes() }
+                ?: errorIo("openInputStream returned null for opaque document handle")
+        return PlatformReadHandle(
+            snapshot = snapshot.copy(digest = bytes.sha256Hex(), length = bytes.size.toULong()),
             bytes = bytes,
         )
     }
@@ -188,7 +221,12 @@ internal class ContentResolverPlatformDocumentsGateway(
             output.write(bytes)
         } ?: errorIo("openOutputStream returned null for $path")
         val documentId = DocumentsContract.getDocumentId(targetUri)
-        return querySnapshot(targetUri, WorkspaceTarget.Relative(path), documentId)
+        return querySnapshot(
+            documentUri = targetUri,
+            target = WorkspaceTarget.Relative(path),
+            documentId = documentId,
+            digestMode = SnapshotDigestMode.METADATA_ONLY,
+        )
             ?.copy(digest = bytes.sha256Hex(), length = bytes.size.toULong())
             ?: errorIo("Written document is not observable: $path")
     }
@@ -362,12 +400,13 @@ internal class ContentResolverPlatformDocumentsGateway(
         documentUri: Uri,
         target: WorkspaceTarget,
         documentId: String,
+        digestMode: SnapshotDigestMode,
     ): PlatformDocumentSnapshot? {
         contentResolver
             .query(documentUri, DOCUMENT_PROJECTION, null, null, null)
             ?.use { cursor ->
                 if (!cursor.moveToFirst()) return null
-                return snapshotFromCursor(cursor, target, documentId, documentUri)
+                return snapshotFromCursor(cursor, target, documentId, documentUri, digestMode)
             }
         return null
     }
@@ -377,6 +416,7 @@ internal class ContentResolverPlatformDocumentsGateway(
         target: WorkspaceTarget,
         documentId: String,
         documentUri: Uri,
+        digestMode: SnapshotDigestMode,
     ): PlatformDocumentSnapshot {
         val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
         val sizeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
@@ -396,7 +436,7 @@ internal class ContentResolverPlatformDocumentsGateway(
             }
         val lastModified = cursor.getLong(modifiedIndex).coerceAtLeast(0L)
         val digest =
-            if (kind == DocumentKind.FILE) {
+            if (kind == DocumentKind.FILE && digestMode == SnapshotDigestMode.CONTENT) {
                 digestDocument(documentUri)
             } else {
                 EMPTY_SHA256
@@ -420,6 +460,11 @@ internal class ContentResolverPlatformDocumentsGateway(
         val documentId: String,
         val uri: Uri,
     )
+
+    private enum class SnapshotDigestMode {
+        METADATA_ONLY,
+        CONTENT,
+    }
 
     private companion object {
         val DOCUMENT_PROJECTION =

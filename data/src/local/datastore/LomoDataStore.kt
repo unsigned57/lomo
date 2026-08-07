@@ -18,6 +18,8 @@ import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SettingValue
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -45,6 +47,23 @@ interface LomoRootLocationStore {
     suspend fun updateRootDirectory(path: String?)
 
     suspend fun getRootDirectoryOnce(): String?
+}
+
+interface LomoWorkspaceRootTransitionStore {
+    suspend fun prepareRootTransition(
+        previous: StorageLocation?,
+        candidate: StorageLocation,
+    ): WorkspaceRootTransition
+
+    suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition
+
+    suspend fun commitRootTransition(transitionId: String)
+
+    suspend fun rollbackRootTransition(transitionId: String)
+
+    suspend fun pendingRootTransition(): WorkspaceRootTransition?
+
+    suspend fun recoverRootLocation(): StorageLocation?
 }
 
 interface LomoMediaLocationStore {
@@ -382,6 +401,7 @@ internal data class LomoOrdinarySettingsRestoreTransaction(
 class LomoDataStore private constructor(
     private val dataStore: DataStore<Preferences>,
 ) : LomoRootLocationStore by RootLocationStoreImpl(dataStore),
+    LomoWorkspaceRootTransitionStore by WorkspaceRootTransitionStoreImpl(dataStore),
     LomoMediaLocationStore by MediaLocationStoreImpl(dataStore),
     LomoStorageFormatStore by StorageFormatStoreImpl(dataStore),
     LomoDisplayPreferencesStore by DisplayPreferencesStoreImpl(dataStore),
@@ -512,6 +532,11 @@ class LomoDataStore private constructor(
 internal object LomoDataStoreKeys {
     val ROOT_URI = stringPreferencesKey(PreferenceKeys.ROOT_URI)
     val ROOT_DIRECTORY = stringPreferencesKey(PreferenceKeys.ROOT_DIRECTORY)
+    val ROOT_TRANSITION_ID = stringPreferencesKey("root_transition_id")
+    val ROOT_TRANSITION_PREVIOUS = stringPreferencesKey("root_transition_previous")
+    val ROOT_TRANSITION_PREVIOUS_PRESENT = booleanPreferencesKey("root_transition_previous_present")
+    val ROOT_TRANSITION_CANDIDATE = stringPreferencesKey("root_transition_candidate")
+    val ROOT_TRANSITION_PHASE = stringPreferencesKey("root_transition_phase")
     val IMAGE_URI = stringPreferencesKey(PreferenceKeys.IMAGE_URI)
     val IMAGE_DIRECTORY = stringPreferencesKey(PreferenceKeys.IMAGE_DIRECTORY)
     val VOICE_URI = stringPreferencesKey(PreferenceKeys.VOICE_URI)

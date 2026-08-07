@@ -28,7 +28,8 @@ class MainMemoListQueryUseCase(
             spec = MemoQuerySpec.fromFilter(queryText = query, filter = filter),
         )
 
-    fun getGalleryMemosList(): Flow<List<Memo>> = memoListQueryRepository.getGalleryMemosList()
+    fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
+        memoListQueryRepository.getGalleryMemosPagingSource()
 
     suspend fun getDefaultMainListIndexInWindow(
         id: String,

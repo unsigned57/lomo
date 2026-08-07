@@ -77,6 +77,13 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
             queryFingerprint = "fp",
         )
     var snapshot: BridgeMemoSnapshot? = null
+    var sidebar =
+        com.lomo.nativebridge.StoreSidebarProjection(
+            schemaVersion = 1u,
+            memoCount = 0L,
+            dateCounts = emptyList(),
+            tagCounts = emptyList(),
+        )
     var commit: BridgeMemoCommit =
         BridgeMemoCommit(
             operationId = "op",
@@ -118,10 +125,17 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
         return snapshot
     }
 
+    override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = sidebar
+
     override fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit {
         lastCommand = command
         return commit
     }
+
+    override fun commitSafProjectionMutation(
+        command: BridgeMemoCommand,
+        projection: com.lomo.nativebridge.StoreSafMemoProjection?,
+    ): BridgeMemoCommit = error("SAF projection commit not expected")
 
     override fun startRebuild(batchSize: UInt): BridgeRebuildResult {
         lastRebuildBatch = batchSize
@@ -149,6 +163,7 @@ private fun bridgeSummary(
         rank = 1.5,
         tags = listOf("work"),
         imageUrls = listOf("images/a.png"),
+        reminders = emptyList(),
     )
 
 class BoltFfiStorePortTest : FunSpec({
@@ -172,6 +187,7 @@ class BoltFfiStorePortTest : FunSpec({
                     filters =
                         StoreMemoFilters(
                             tag = "work",
+                            tagSubtree = true,
                             dateFromMs = 1L,
                             dateToMs = 2L,
                             hasTodo = true,
@@ -190,6 +206,7 @@ class BoltFfiStorePortTest : FunSpec({
         bridge.lastCursor?.encoded shouldBe "c1"
         bridge.lastQuery?.searchText shouldBe "hi"
         bridge.lastQuery?.filters?.tag shouldBe "work"
+        bridge.lastQuery?.filters?.tagSubtree shouldBe true
         bridge.lastQuery?.filters?.hasTodo shouldBe true
         bridge.lastQuery?.filters?.pinnedOnly shouldBe true
         result.items.size shouldBe 1
@@ -220,6 +237,23 @@ class BoltFfiStorePortTest : FunSpec({
         snap.summary.memoId shouldBe "m1"
         snap.summary.bodyPreview shouldBe "prev"
         snap.summary.contentRevision shouldBe 7L
+    }
+
+    test("sidebarProjection validates schema and maps aggregate counts") {
+        val bridge = RecordingStoreNativeBridge()
+        bridge.sidebar =
+            com.lomo.nativebridge.StoreSidebarProjection(
+                schemaVersion = 1u,
+                memoCount = 2_001L,
+                dateCounts = listOf(com.lomo.nativebridge.StoreSidebarDateCount("2026-08-04", 2_001L)),
+                tagCounts = listOf(com.lomo.nativebridge.StoreSidebarTagCount("all", 2_001L)),
+            )
+
+        val projection = BoltFfiStorePort(bridge).sidebarProjection()
+
+        projection.memoCount shouldBe 2_001
+        projection.dateCounts.single().count shouldBe 2_001
+        projection.tagCounts.single().name shouldBe "all"
     }
 
     test("applyMemoCommand maps every command kind to bridge enum") {

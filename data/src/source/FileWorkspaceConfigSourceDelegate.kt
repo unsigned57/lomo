@@ -5,15 +5,14 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.engine.uriTreesMatch
 import com.lomo.data.local.datastore.LomoDataStore
-
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
-
 
 class FileWorkspaceConfigSourceDelegate(
     private val context: Context,
@@ -71,11 +70,18 @@ class FileWorkspaceConfigSourceDelegate(
                     dataStore.voiceUri.first(),
                     dataStore.syncInboxUri.first(),
                     dataStore.s3LocalSyncDirectory.first(),
-                ).map(String::trim).filter(String::isNotEmpty).toSet()
+                ).map(String::trim).filter { it.isNotEmpty() && isContentStorageUri(it) }.toSet()
 
             val releaseFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             context.contentResolver.persistedUriPermissions.forEach { permission ->
-                if (permission.uri.toString() in activeUris) return@forEach
+                if (activeUris.any { active ->
+                        active == permission.uri.toString() ||
+                            try {
+                                uriTreesMatch(permission.uri, active)
+                            } catch (_: IllegalArgumentException) {
+                                false
+                            }
+                    }) return@forEach
                 // behavior-contract: silent-result-ok: a grant we no longer hold is already gone
                 runCatching {
                     context.contentResolver.releasePersistableUriPermission(permission.uri, releaseFlags)

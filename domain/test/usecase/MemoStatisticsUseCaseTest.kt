@@ -51,13 +51,20 @@ import kotlinx.coroutines.test.runTest
  * - Snapshot date: RED before the fix because MemoStatistics has no asOfDate
  *   field for app renderers to reuse instead of host LocalDate.now().
  * - Repository boundary: RED before the fix because MemoStatisticsUseCase called
- *   MemoListQueryRepository.getAllMemosList().first() and looped domain memos.
+ *   the statistics projection rather than a full memo-list query.
  * - Current-year time bounds: retained calculator tests fail if timestamp-to-local-year
  *   classification regresses.
  *
  * Excludes:
  * - Repository persistence, UI formatting, chart rendering, and app-level
  *   statistics screen date filtering.
+ *
+ * Test Change Justification:
+ * - Reason category: repository projection contract change.
+ * - Old behavior/assertion being replaced: the shared fake implemented obsolete timestamp-list statistics flows.
+ * - Why old assertion is no longer correct: sidebar aggregates now arrive as one coherent native projection.
+ * - Coverage preserved by: date snapshot, period count, streak, and time-bound scenarios remain covered.
+ * - Why this is not fitting the test to the implementation: assertions remain focused on domain statistics results.
  */
 class MemoStatisticsUseCaseTest : DomainFunSpec() {
     init {

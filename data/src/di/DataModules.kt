@@ -6,7 +6,6 @@ val dataModules: List<Module> = listOf(
     appUpdateDataModule,
     applicationScopeModule,
     coreDataRepositoryModule,
-    databaseInitializationModule,
     databaseListModule,
     databaseModule,
     engineModule,

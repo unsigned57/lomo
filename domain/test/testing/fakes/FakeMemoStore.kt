@@ -54,8 +54,6 @@ class FakeMemoStore(
 
     var refreshMemosCallCount = 0
         private set
-    var getAllMemosListCallCount = 0
-        private set
     var clearTrashCallCount = 0
         private set
 
@@ -72,26 +70,6 @@ class FakeMemoStore(
     }
 
     fun currentMemos(): List<Memo> = memos.value
-
-    internal fun observeAllActiveMemos(): Flow<List<Memo>> {
-        getAllMemosListCallCount += 1
-        return memos.asStateFlow()
-    }
-
-    internal fun observeActiveMemosInDateRange(
-        startDate: LocalDate?,
-        endDate: LocalDate?,
-    ): Flow<List<Memo>> =
-        memos.map { values ->
-            values.filter { memo ->
-                val date = memo.localDate
-                (startDate == null || date?.isBefore(startDate) == false) &&
-                    (endDate == null || date?.isAfter(endDate) == false)
-            }
-        }
-
-    internal fun observeGalleryActiveMemos(): Flow<List<Memo>> =
-        memos.map { values -> values.filter { memo -> memo.imageUrls.isNotEmpty() } }
 
     internal suspend fun recentActiveMemos(limit: Int): List<Memo> =
         memos.value.sortedByDescending(Memo::timestamp).take(limit)
@@ -185,6 +163,9 @@ class FakeMemoStore(
     ): PagingSource<Int, Memo> =
         InMemoryMemoPagingSource(memos.value.matching(spec))
 
+    internal fun galleryPagingSource(): PagingSource<String, Memo> =
+        InMemoryCursorMemoPagingSource(memos.value.filter { it.imageUrls.isNotEmpty() })
+
     internal fun observeMainListCount(
         spec: MemoQuerySpec,
     ): Flow<Int> = memos.map { values -> values.matching(spec).size }
@@ -256,6 +237,7 @@ class FakeMemoStore(
 
     internal suspend fun taggedMemoPage(
         tag: String,
+        subtree: Boolean,
         limit: Int,
         offset: Int,
     ): List<Memo> =
@@ -263,7 +245,7 @@ class FakeMemoStore(
             emptyList()
         } else {
             memos.value
-                .filter { memo -> tag in memo.tags }
+                .filter { memo -> memo.tags.any { candidate -> candidate == tag || subtree && candidate.startsWith("$tag/") } }
                 .drop(offset)
                 .take(limit)
         }
@@ -443,5 +425,19 @@ private class InMemoryMemoPagingSource(
         val prevKey = if (start == 0) null else (start - params.loadSize).coerceAtLeast(0)
         val nextKey = if (end >= snapshot.size) null else end
         return LoadResult.Page(data = data, prevKey = prevKey, nextKey = nextKey)
+    }
+}
+
+private class InMemoryCursorMemoPagingSource(
+    private val snapshot: List<Memo>,
+) : PagingSource<String, Memo>() {
+    override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
+
+    override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {
+        val start = params.key?.toIntOrNull() ?: 0
+        val end = (start + params.loadSize).coerceAtMost(snapshot.size)
+        val data = if (start >= snapshot.size) emptyList() else snapshot.subList(start, end)
+        val nextKey = if (end >= snapshot.size) null else end.toString()
+        return LoadResult.Page(data = data, prevKey = null, nextKey = nextKey)
     }
 }

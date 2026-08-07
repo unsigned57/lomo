@@ -124,8 +124,8 @@ internal class FakeWorkspaceMarkdownOwner : WorkspaceMarkdownOwner {
         byRoot.clear()
     }
 
-    override fun scanWorkspace(rootPath: String?): List<WorkspaceMemoSummarySnapshot> =
-        byRoot[rootPath].orEmpty().toList()
+    override fun scanWorkspace(rootPath: String?): Sequence<WorkspaceMemoSummarySnapshot> =
+        byRoot[rootPath].orEmpty().asSequence()
 
     override fun replaceMemo(
         rootPath: String?,

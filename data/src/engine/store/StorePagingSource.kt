@@ -18,22 +18,29 @@ class StorePagingSource(
     private val query: StoreMemoQuery,
     private val pageSize: Int = 30,
     private val mapItem: (StoreMemoSummary) -> Memo = { it.toDomainMemo(body = it.bodyPreview) },
+    registerInvalidation: ((PagingSource<*, *>) -> Unit)? = null,
 ) : PagingSource<String, Memo>() {
+    init {
+        registerInvalidation?.invoke(this)
+    }
+
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
-        runCatching {
-            val cursor = params.key?.let { StorePageCursor(encoded = it) }
-            val page = port.queryMemos(query, cursor, pageSize.coerceAtLeast(params.loadSize))
-            LoadResult.Page(
-                data = page.items.map(mapItem),
-                prevKey = null,
-                nextKey = page.nextCursor?.encoded,
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val cursor = params.key?.let { StorePageCursor(encoded = it) }
+                val page = port.queryMemos(query, cursor, pageSize.coerceAtLeast(params.loadSize))
+                LoadResult.Page(
+                    data = page.items.map(mapItem),
+                    prevKey = null,
+                    nextKey = page.nextCursor?.encoded,
+                )
+            }.fold(
+                onSuccess = { it },
+                onFailure = { error ->
+                    LoadResult.Error(error as? Exception ?: IllegalStateException(error))
+                },
             )
-        }.fold(
-            onSuccess = { it },
-            onFailure = { error ->
-                LoadResult.Error(error as? Exception ?: IllegalStateException(error))
-            },
-        )
+        }
 
     override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
 }
@@ -70,6 +77,7 @@ internal fun StoreMemoSummary.toDomainMemo(body: String): Memo {
         isPinned = isPinned,
         isDeleted = isTrashed,
         geoLocation = null,
+        reminders = reminders,
     )
 }
 

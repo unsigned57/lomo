@@ -11,12 +11,15 @@ package com.lomo.data.engine.store
  * - Given a first page with a next cursor, when load runs, then items and next key are returned.
  * - Given a subsequent cursor, when load runs, then the following page is returned.
  * - Given the store throws, when load runs, then LoadResult.Error is returned.
+ * - Given a registered source, when the shared invalidation bus bumps, then the source is invalidated.
  *
  * Observable outcomes:
  * - PagingSource LoadResult page items, next/prev keys, and Error.
  *
  * TDD proof:
  * - Fails before StorePagingSource maps StorePort pages and failures into Paging LoadResult.
+ * - A-PAGING-001 RED: StoreInvalidationBus previously advanced only a Flow tick and left active
+ *   PagingSource instances valid after a workspace mutation/rebuild.
  *
  * Excludes:
  * - Real BoltFFI handle lifecycle and device UI scrolling.
@@ -32,6 +35,7 @@ package com.lomo.data.engine.store
  */
 
 import androidx.paging.PagingSource
+import com.lomo.data.repository.StoreInvalidationBus
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
@@ -56,6 +60,9 @@ private class FakeStorePort : StorePort {
     }
 
     override fun getMemo(memoId: String): StoreMemoSnapshot? = null
+
+    override fun sidebarProjection(): StoreSidebarProjection =
+        StoreSidebarProjection(1u, 0, emptyList(), emptyList())
 
     override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
 
@@ -131,5 +138,14 @@ class StorePagingSourceTest : FunSpec({
         val source = StorePagingSource(port, StoreMemoQuery())
         val result = source.load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = false))
         result.shouldBeInstanceOf<PagingSource.LoadResult.Error<String, com.lomo.domain.model.Memo>>()
+    }
+
+    test("invalidation bus invalidates a registered paging source") {
+        val bus = StoreInvalidationBus()
+        val source = StorePagingSource(FakeStorePort(), StoreMemoQuery(), registerInvalidation = bus::register)
+
+        source.invalid shouldBe false
+        bus.bump()
+        source.invalid shouldBe true
     }
 })
