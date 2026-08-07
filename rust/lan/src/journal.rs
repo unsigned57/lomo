@@ -99,7 +99,7 @@ pub fn decode_record(bytes: &[u8]) -> Result<Vec<u8>, LomoError> {
     let body = bytes
         .get(RECORD_HEADER_BYTES..end)
         .ok_or_else(|| corrupt_state("lan_record_truncated", "durable LAN record body is short"))?;
-    if Sha256::digest(body).as_slice() != expected_digest {
+    if &Sha256::digest(body)[..] != expected_digest {
         return Err(corrupt_state(
             "lan_record_checksum_mismatch",
             "durable LAN record checksum does not match its body",

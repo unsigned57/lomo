@@ -352,7 +352,7 @@ fn validate_staged_history(
         ));
     }
     // Digest retained for future multi-device audit logs; computed to fail closed on empty hashers.
-    let _closure_digest: String = hex_encode(digest.finalize().as_slice());
+    let _closure_digest: String = hex_encode(&digest.finalize()[..]);
     Ok(())
 }
 

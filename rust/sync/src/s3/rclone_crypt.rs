@@ -261,10 +261,10 @@ pub fn encrypt_payload(
                 "rclone plaintext range is out of bounds",
             )
         })?;
-        let nonce_arr = Nonce::from_slice(&block_nonce);
+        let nonce_arr = Nonce::from(block_nonce);
         let sealed = cipher
             .encrypt(
-                nonce_arr,
+                &nonce_arr,
                 Payload {
                     msg: block,
                     aad: b"",
@@ -344,10 +344,10 @@ pub fn decrypt_payload(
                 "encrypted rclone block header is truncated",
             )
         })?;
-        let nonce_arr = Nonce::from_slice(&block_nonce);
+        let nonce_arr = Nonce::from(block_nonce);
         let opened = cipher
             .decrypt(
-                nonce_arr,
+                &nonce_arr,
                 Payload {
                     msg: block,
                     aad: b"",
@@ -787,7 +787,7 @@ fn tabulate_l(cipher: &Aes256, block_count: usize) -> Vec<[u8; AES_BLOCK]> {
 }
 
 fn aes_block(cipher: &Aes256, block: &[u8; 16], encrypt: bool) -> [u8; 16] {
-    let mut b = aes::Block::clone_from_slice(block);
+    let mut b = aes::Block::from(*block);
     if encrypt {
         cipher.encrypt_block(&mut b);
     } else {

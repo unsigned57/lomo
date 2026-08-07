@@ -47,7 +47,6 @@ jobs:
             rust:
               - 'rust/**'
               - 'Justfile'
-              - 'rust-bindings/**'
               - 'native-smoke/**'
             kotlin:
               - 'app/**'
@@ -57,11 +56,9 @@ jobs:
               - 'quality/**'
               - 'project.yaml'
               - '**/module.yaml'
-              - 'rust-bindings/**'
               - 'kotlin'
             native:
               - 'rust/native/**'
-              - 'rust/sync-core/**'
               - 'rust/Cargo.toml'
               - 'rust/Cargo.lock'
               - 'rust/tools.toml'
@@ -70,14 +67,11 @@ jobs:
               - 'rust/xtask/src/android.rs'
               - 'rust/xtask/src/tools.rs'
               - 'native-smoke/**'
-              - 'rust-bindings/**'
             smoke:
               - 'rust/native/**'
-              - 'rust/sync-core/**'
               - 'native-smoke/**'
               - 'rust/xtask/src/android.rs'
               - 'rust/xtask/src/native.rs'
-              - 'rust-bindings/**'
             quality_infra:
               - 'Justfile'
               - '.githooks/**'
@@ -135,9 +129,9 @@ jobs:
             rust/target
           key: rust-host-1.97-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'rust/rust-toolchain.toml') }}
       - name: Bootstrap pinned Rust tools
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Run Rust host gate (no coverage)
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-rust fast
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-rust fast
 
   native:
     needs: changes
@@ -162,9 +156,9 @@ jobs:
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
           key: native-1.97-ndk29-${{ matrix.abi }}-release-ci-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
       - name: Bootstrap pinned native toolchain
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Build and verify ${{ matrix.abi }} (release-ci)
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-native release-ci ${{ matrix.abi }}
       - name: Upload native libraries
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -222,11 +216,11 @@ jobs:
           name: native-x86
           path: app/jniLibs/x86
       - name: Bootstrap pinned toolchain
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run Android and Kotlin gate (no coverage)
         env:
           MEANINGFUL_TEST_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-android fast
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-android fast
       - name: Upload debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -269,7 +263,7 @@ jobs:
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
           key: smoke-api26-x86_64-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Bootstrap pinned toolchain
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run API 26 x86_64 smoke
         uses: ReactiveCircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
         with:
@@ -277,7 +271,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- device-smoke
+          script: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- device-smoke
 
   quality:
     if: always()

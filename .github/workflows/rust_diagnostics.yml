@@ -31,11 +31,11 @@ jobs:
             rust/target
           key: diagnostics-1.97-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml') }}
       - name: Bootstrap diagnostics
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
       - name: Run planner and size diagnostics
         run: |
           mkdir -p build/reports/rust-diagnostics
-          cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- perf 2>&1 | tee build/reports/rust-diagnostics/output.txt
+          RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- perf 2>&1 | tee build/reports/rust-diagnostics/output.txt
       - name: Upload trends
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -15,7 +15,7 @@
 //! Observable outcomes: `JobStep`, `CancelOutcome`, `CoreEvent`, engine snapshots, elapsed writer
 //! response, and recovered terminal state.
 //! TDD proof: the first run fails because job/listener/cancel/shutdown APIs do not exist; GREEN is
-//! recorded in `STAGE1-EVIDENCE.md`.
+//! retained by current engine recovery tests.
 //! Excludes: Kotlin Flow adaptation, Android side-effect execution, and `UniFFI` conversion.
 
 #[cfg(test)]

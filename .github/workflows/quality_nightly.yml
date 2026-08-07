@@ -47,13 +47,13 @@ jobs:
             ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
           key: nightly-coverage-1.97-ndk29-${{ hashFiles('rust/Cargo.lock', 'rust/tools.toml', 'kotlin', 'project.yaml', '**/module.yaml') }}
       - name: Bootstrap pinned toolchain
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Rust coverage gate
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-rust coverage
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-rust coverage
       - name: Build release-ci native libraries for Android coverage packaging
         run: |
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-            cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-native release-ci "$abi"
+            RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-native release-ci "$abi"
           done
       - name: Android/Kotlin coverage gate
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-android coverage
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci-android coverage

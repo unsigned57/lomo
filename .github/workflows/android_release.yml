@@ -55,9 +55,9 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
           test -s release.keystore
       - name: Bootstrap pinned toolchain
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- bootstrap
       - name: Run full gate
-        run: cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci
+        run: RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- ci
       - name: Build, validate, and sign release APKs
         env:
           KEYSTORE_FILE: release.keystore
@@ -67,7 +67,7 @@ jobs:
         run: |
           for abi in arm64-v8a armeabi-v7a x86_64 x86 all; do
             echo "Building release APK for $abi..."
-            cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- android release "$abi"
+            RUSTUP_TOOLCHAIN=1.97 cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- android release "$abi"
           done
       - name: Upload release APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

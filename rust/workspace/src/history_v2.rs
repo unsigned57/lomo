@@ -68,7 +68,7 @@ impl RevisionId {
         hasher.update(content_digest.as_bytes());
         hasher.update([0]);
         hasher.update(canonical_metadata.as_bytes());
-        Self(hex_encode(hasher.finalize().as_slice()))
+        Self(hex_encode(&hasher.finalize()[..]))
     }
 }
 
@@ -210,7 +210,7 @@ impl StateRevisionV2 {
             hasher.update(input.pin_operation_id.as_deref().unwrap_or("").as_bytes());
             hasher.update([0]);
             hasher.update(input.trash_operation_id.as_deref().unwrap_or("").as_bytes());
-            hex_encode(hasher.finalize().as_slice())
+            hex_encode(&hasher.finalize()[..])
         };
         let revision_id = RevisionId::compute(
             input.memo_id,

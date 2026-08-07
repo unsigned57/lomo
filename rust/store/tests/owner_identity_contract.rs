@@ -10,7 +10,7 @@
 //!   then validation fails closed with a structured store-owner error code.
 //!
 //! Observable outcomes: identity constants and structured validation errors.
-//! TDD proof: architecture RED on 2026-07-21 proved STAGE3 files and the owner crate were absent.
+//! TDD proof: architecture checks fail when the owner crate or identity is absent.
 //! Excludes: `SQLite` open, FTS, query, transactions, rebuild, reminder product logic, FFI, Room
 //! cutover, and production dual-stack wiring.
 

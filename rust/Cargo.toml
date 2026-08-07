@@ -5,7 +5,6 @@ members = [
     "boltffi-facade",
     "core",
     "feasibility",
-    "feasibility-device",
     "lan",
     "media",
     "native",
@@ -46,8 +45,10 @@ crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["
 # so `lomo-lan` adds no second crypto generation and no new native code.
 aws-lc-rs = { version = "=1.17.3", default-features = false, features = ["alloc", "aws-lc-sys"] }
 rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
-# Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl).
-git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl"] }
+# Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl + zlib-ng).
+# Android BoltFFI links a Rust staticlib into JNI and has no custom system-library hook; vendoring
+# zlib keeps the official pack path self-contained instead of intercepting the NDK linker.
+git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl", "zlib-ng-compat"] }
 # Production depends on the repository-owned `boltffi` facade (macros expand to
 # `::boltffi::__private`). The facade pins official `boltffi_core` with default
 # features disabled so unused url/uuid codecs stay out of the Android .so.

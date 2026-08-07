@@ -33,9 +33,6 @@ const SCALE_STABILITY_ATTEMPTS: usize = 2;
 /// I/O-noisy probes (HTTPS, git bare, device cold start) are optional: exclusion does not
 /// invent a pass, but missing any required name forces `Inconclusive`.
 const REQUIRED_BASELINE_METRICS: &[&str] = &[
-    "planner_local_only_pure_1000",
-    "planner_high_conflict_pure_1000",
-    "planner_long_path_envelope_1000",
     "sqlite_probe_wal_fts_backup",
     "markdown_fixture_set_parse",
     "markdown_scale_100k_memo_parse",
@@ -55,7 +52,6 @@ pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
 
     emit_quick_corpus(workspace)?;
     // Prove candidate dep graph compiles for four ABIs without shipping into production SO.
-    native::verify_feasibility_android_targets(workspace, &Abi::ALL)?;
     emit_baseline_report(workspace)?;
     Ok(())
 }
@@ -121,16 +117,14 @@ fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
     fs::write(&summary_path, format!("{summary}\n"))
         .with_context(|| format!("failed to write {}", summary_path.display()))?;
 
-    // Historical UniFFI `fixtures/baseline/size-baseline.v1.json` is immutable evidence.
-    // Migration measurements write a separate report so `just perf` never rewrites Stage-0 facts.
-    write_migration_size_report(&report, &report_dir)?;
+    write_performance_report(&report, &report_dir)?;
 
     crate::util::emit_stderr(format_args!("xtask: wrote {}", json_path.display()));
     crate::util::emit_stderr(format_args!("xtask: wrote {}", summary_path.display()));
     crate::util::emit_stderr(format_args!("{summary}"));
 
     // Product-pass contract: recipe exit 0 means required host metrics are established.
-    // Inconclusive/Fail must not look like GREEN to stage evidence.
+    // Inconclusive/Fail must not look like a successful quality result.
     match report.conclusion {
         BaselineConclusion::Pass => Ok(()),
         BaselineConclusion::Inconclusive => bail!(
@@ -144,8 +138,8 @@ fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
     }
 }
 
-fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> Result<()> {
-    let path = report_dir.join("boltffi-size-migration.v1.json");
+fn write_performance_report(report: &BaselineReportV1, report_dir: &Path) -> Result<()> {
+    let path = report_dir.join("performance.v1.json");
     let mut metrics = Vec::new();
     for metric in &report.metrics {
         metrics.push(serde_json::json!({
@@ -163,26 +157,25 @@ fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> 
     }
     let document = serde_json::json!({
         "schema_version": 1,
-        "description": "BoltFFI migration size/time measurements from `just perf`. Does not replace fixtures/baseline/size-baseline.v1.json (Stage-0 UniFFI historical).",
+        "description": "Current workspace/store/sync performance measurements from `just perf`.",
         "measurement_notes": [
             "liblomo_native_jni.so sizes are from production app/jniLibs BoltFFI packaging.",
             "native-smoke/jniLibs reuses the same formal engine library after FeasibilityProbe deletion.",
             "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
             "Time metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
-            "markdown_scale_100k_memo_parse runs the production lomo-workspace owner in an isolated process; peak_rss_bytes is that process VmHWM.",
+            "markdown scale runs the production lomo-workspace owner in an isolated process; peak_rss_bytes is that process VmHWM.",
             "Scale metric records result_count (files), memo/node counts from owned IR, byte-stable serialize verification, and warm_path_p50_ms.",
             "Other metrics omit peak_rss_bytes unless isolated; xtask /proc/self HWM is not product evidence.",
             "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
             "Required non-scale host metrics use quiet two-round measurement (no optional HTTPS/git/device cold-start interleaved) so I/O noise cannot exclude product gates.",
-            "markdown_scale_100k_memo_parse is measured in consecutive isolated owner processes after non-scale required rounds, never interleaved with planner/sqlite/fixture or optional I/O.",
+            "Markdown scale is measured in consecutive isolated owner processes after non-scale required rounds.",
             "Scale uses more full-corpus samples per process and up to one extra dual-round attempt under the same 10% p50 gate (never invents Pass from a noisy pair).",
             "Optional I/O metrics (HTTPS, git bare, device cold start) stabilize separately and never invent a Pass when required metrics are missing.",
             "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms).",
-            "Pass requires every required_metrics entry established: planner trio, sqlite, markdown fixture set, and markdown_scale_100k_memo_parse with peak_rss/result_count/warm_path.",
+            "Pass requires every required metric to be established with its required fields.",
             "just perf exits non-zero on Inconclusive/Fail so recipe exit 0 means product-pass of required metrics.",
             "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
-            "Authoritative stage-0 status: STAGE0-STATUS.md (must not drift from this note).",
-            "Historical UniFFI/JNA size numbers remain in size-baseline.v1.json and ffi-transport-baseline.v1.json; this file is migration-only."
+            "Required metrics are current owner workloads; optional provider and device diagnostics never establish a pass."
         ],
         "native": {
             "liblomo_native_jni_so_bytes": report.sizes.abi_so_bytes,
@@ -210,11 +203,11 @@ fn write_migration_size_report(report: &BaselineReportV1, report_dir: &Path) -> 
                 "kind": report.device.kind
             },
             "metrics": metrics,
-            "policy": "Relative host/device baselines only; arm64 device evidence remains a stage-2 hard gate before first production ownership switch."
+            "policy": "Relative host/device baselines; device cold start is optional diagnostics."
         }
     });
     let pretty = serde_json::to_string_pretty(&document)
-        .context("failed to serialize boltffi migration size report")?;
+        .context("failed to serialize performance report")?;
     fs::write(&path, format!("{pretty}\n"))
         .with_context(|| format!("failed to write {}", path.display()))?;
     crate::util::emit_stderr(format_args!("xtask: wrote {}", path.display()));
@@ -310,10 +303,13 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
                 "lomo-native".to_owned(),
                 "staticlib+rlib+BoltFFI JNI (liblomo_native_jni.so)".to_owned(),
             ),
-            ("lomo-sync".to_owned(), "durable-sync-core".to_owned()),
             (
-                "feasibility".to_owned(),
-                "rusqlite+pulldown-cmark+reqwest/rustls+git2 probes".to_owned(),
+                "lomo-sync".to_owned(),
+                "workspace/store/sync owner workload".to_owned(),
+            ),
+            (
+                "optional-diagnostics".to_owned(),
+                "provider/device diagnostics".to_owned(),
             ),
         ]),
         sample_count: u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX),
@@ -327,10 +323,8 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
     })
 }
 
-/// Required host metrics other than the 100k scale owner (planner/sqlite/fixture).
+/// Required host metrics other than the scale owner.
 fn measure_required_non_scale_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
-    // P5-13: frozen sync-v1 planner crate deleted; durable lomo-sync hermetic contracts own planning.
-    // No host planner trio metrics remain under the Stage-0 UniFFI surface.
     Ok(vec![
         measure_sqlite_metric(workspace)?,
         measure_markdown_metric(workspace)?,

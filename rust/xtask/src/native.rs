@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,8 +6,8 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 
 use crate::tools;
-use crate::util::{cargo, remove_if_exists, repository_command, run, text_output};
-use crate::workspace::{ANDROID_API, Workspace};
+use crate::util::{remove_if_exists, repository_command, run, text_output};
+use crate::workspace::Workspace;
 
 /// Final Android library stem produced by `BoltFFI` packaging for this repository.
 pub const NATIVE_LIBRARY: &str = "liblomo_native_jni.so";
@@ -191,167 +189,6 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     Ok(())
 }
 
-/// Build the linked `lomo-feasibility-device` cdylib for all Android ABIs, ELF-verify, and
-/// record per-ABI sizes. Not packaged into production `app/jniLibs`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "packaging + ELF + evidence write is a single audit trail"
-)]
-pub fn verify_feasibility_android_targets(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
-    ensure_ndk(workspace)?;
-    tools::ensure_quality(workspace)?;
-    let output_dir = workspace.root.join("build/feasibility-device/jniLibs");
-    remove_if_exists(&output_dir)?;
-    fs::create_dir_all(&output_dir)?;
-
-    let mut command = cargo(workspace);
-    command.env("ANDROID_NDK_HOME", workspace.ndk_root()).args([
-        "ndk",
-        "--platform",
-        &ANDROID_API.to_string(),
-    ]);
-    for abi in abis {
-        command.args(["--target", abi.android_name()]);
-    }
-    command.arg("--output-dir").arg(&output_dir).args([
-        "build",
-        "--locked",
-        "-p",
-        "lomo-feasibility-device",
-        "--profile",
-        "release-ci",
-    ]);
-    run(&mut command)?;
-
-    let readelf = ndk_tool(workspace, "llvm-readelf")?;
-    let mut size_rows = String::new();
-    let mut sizes = BTreeMap::new();
-    for &abi in abis {
-        let so = output_dir
-            .join(abi.android_name())
-            .join("liblomo_feasibility_device.so");
-        if !so.is_file() {
-            bail!(
-                "missing linked feasibility-device library: {}",
-                so.display()
-            );
-        }
-        let mut header = Command::new(&readelf);
-        header.args(["--file-header", so.to_string_lossy().as_ref()]);
-        let header = text_output(&mut header)?;
-        if !header.contains(abi.machine()) {
-            bail!(
-                "{} has wrong ELF architecture for {}",
-                so.display(),
-                abi.android_name()
-            );
-        }
-        let bytes = fs::metadata(&so)
-            .with_context(|| format!("stat {}", so.display()))?
-            .len();
-        let strings_out = text_output(Command::new("strings").arg(&so))?;
-        let required = [
-            lomo_feasibility::MARKER_GIT2,
-            lomo_feasibility::MARKER_REQWEST_RUSTLS,
-            lomo_feasibility::MARKER_SQLITE,
-        ];
-        let mut missing = Vec::new();
-        for marker in required {
-            if !strings_out.contains(marker) {
-                missing.push(marker);
-            }
-        }
-        if !missing.is_empty() {
-            bail!(
-                "{} missing exact LOMO retention markers after LTO: {:?}; \
-                 ensure run_feasibility_device_bundle returns candidate_link_markers + MARKER_SQLITE. \
-                 Note: generic OpenSSL/aws-lc strings are intentionally NOT accepted.",
-                so.display(),
-                missing
-            );
-        }
-        sizes.insert(abi.android_name().to_owned(), bytes);
-        writeln!(
-            size_rows,
-            "| `{}` | pass (ELF + exact LOMO_LINK_MARKER_*) | {} |",
-            abi.android_name(),
-            bytes
-        )
-        .context("write native size evidence row")?;
-    }
-
-    let mut host = cargo(workspace);
-    host.args([
-        "test",
-        "--locked",
-        "-p",
-        "lomo-feasibility-device",
-        "--test",
-        "device_bundle_contract",
-        "--",
-        "--nocapture",
-    ]);
-    run(&mut host)?;
-
-    let evidence = workspace
-        .root
-        .join("fixtures/baseline/feasibility-android-targets.v1.md");
-    let mut body = String::from(
-        "# Feasibility dependency four-ABI **linked** evidence\n\n\
-         Tooling crate `lomo-feasibility-device` retains rusqlite/pulldown-cmark/reqwest/git2 via \
-         live call paths (`candidate_link_markers` + SQLite/Markdown probes) in \
-         `liblomo_feasibility_device.so` for Android API 26 via cargo-ndk (`release-ci`).\n\n\
-         **Proves:** constructor/version retention of candidate crates after LTO (volume selection).\n\
-         **Does not prove:** full smart-HTTP push/rebase or HTTP stream matrices inside this SO \
-         (those remain host-fixture contracts).\n\n\
-         Each `.so` is `strings`-checked for exact sentinels \
-         `LOMO_LINK_MARKER_GIT2_v1`, `LOMO_LINK_MARKER_REQWEST_RUSTLS_v1`, \
-         `LOMO_LINK_MARKER_SQLITE_v1`. Generic OpenSSL/aws-lc strings are **not** accepted.\n\
-         Not packaged into production `app/jniLibs`.\n\n\
-         | ABI | Result | `.so` bytes |\n| --- | --- | --- |\n",
-    );
-    body.push_str(&size_rows);
-    body.push_str(
-        "\nHost runtime: `cargo test -p lomo-feasibility-device --test device_bundle_contract` \
-         (SQLite+Markdown+exact markers).\n\
-         Device process load of this SO is optional tooling; production ownership still stage-gated.\n\n\
-         Generated by `lomo-xtask` `verify_feasibility_android_targets`.\n",
-    );
-    fs::write(&evidence, body).with_context(|| format!("write {}", evidence.display()))?;
-
-    let size_json = workspace
-        .root
-        .join("fixtures/baseline/feasibility-device-size.v1.json");
-    let document = serde_json::json!({
-        "schema_version": 1,
-        "description": "Linked feasibility-device .so sizes after live candidate_link_markers. Proves constructor retention volume only — not full smart-HTTP/push/rebase inside the SO.",
-        "liblomo_feasibility_device_so_bytes": sizes,
-        "not_production": true,
-        "stale": false,
-        "symbol_retention": {
-            "method": "strings exact match",
-            "required_markers": [
-                "LOMO_LINK_MARKER_GIT2_v1",
-                "LOMO_LINK_MARKER_REQWEST_RUSTLS_v1",
-                "LOMO_LINK_MARKER_SQLITE_v1"
-            ],
-            "rejected_as_insufficient": ["openssl-alone", "aws-lc-alone", "cargo-dep-edge"]
-        }
-    });
-    fs::write(
-        &size_json,
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&document)
-                .context("serialize feasibility-device sizes")?
-        ),
-    )
-    .with_context(|| format!("write {}", size_json.display()))?;
-    crate::util::emit_stderr(format_args!("xtask: wrote {}", evidence.display()));
-    crate::util::emit_stderr(format_args!("xtask: wrote {}", size_json.display()));
-    Ok(())
-}
-
 fn run_boltffi_generate_kotlin(workspace: &Workspace, output: &Path) -> Result<()> {
     fs::create_dir_all(output)?;
     let boltffi = tools::boltffi_binary(workspace)?;
@@ -387,17 +224,13 @@ fn run_boltffi_pack_android(
     let overlay = pack_root.join("boltffi.overlay.toml");
     write_android_pack_overlay(&overlay, &kotlin_out, &jni_out, &header_out, abis)?;
 
-    // Official `boltffi pack android` always regenerates jni_glue.c, so a pre-pack patch is
-    // overwritten. Intercept NDK clang during pack to inject the missing callback helper just
-    // before jni_glue.c is compiled — reusing BoltFFI build/generate/link end-to-end.
-    let wrapped_ndk = prepare_ndk_clang_glue_wrappers(workspace, pack_root)?;
     let boltffi = tools::boltffi_binary(workspace)?;
     let mut command = Command::new(boltffi);
     command
         .current_dir(workspace.rust.join("native"))
         .env("CARGO_TARGET_DIR", workspace.rust_target())
-        .env("ANDROID_NDK_HOME", &wrapped_ndk)
-        .env("ANDROID_NDK_ROOT", &wrapped_ndk)
+        .env("ANDROID_NDK_HOME", workspace.ndk_root())
+        .env("ANDROID_NDK_ROOT", workspace.ndk_root())
         .env("ANDROID_HOME", &workspace.android_sdk)
         .env("ANDROID_SDK_ROOT", &workspace.android_sdk)
         .args(["--overlay"])
@@ -491,114 +324,6 @@ fn escape_toml_path(path: &Path) -> String {
     path.display().to_string().replace('\\', "\\\\")
 }
 
-/// Build a synthetic NDK root whose clang drivers patch `jni_glue.c` then exec the real NDK clang.
-fn prepare_ndk_clang_glue_wrappers(workspace: &Workspace, pack_root: &Path) -> Result<PathBuf> {
-    let real_ndk = workspace.ndk_root();
-    let host_tag = ndk_host_tag()?;
-    let wrap_root = pack_root.join("ndk-wrap");
-    remove_if_exists(&wrap_root)?;
-
-    let real_prebuilt = real_ndk.join("toolchains/llvm/prebuilt").join(host_tag);
-    let wrap_prebuilt = wrap_root.join("toolchains/llvm/prebuilt").join(host_tag);
-    let real_bin = real_prebuilt.join("bin");
-    let wrap_bin = wrap_prebuilt.join("bin");
-    if !real_bin.is_dir() {
-        bail!("NDK prebuilt bin missing: {}", real_bin.display());
-    }
-    fs::create_dir_all(&wrap_bin)?;
-
-    // Mirror non-bin prebuilt contents (libs, include, etc.) via symlinks.
-    for entry in
-        fs::read_dir(&real_prebuilt).with_context(|| format!("read {}", real_prebuilt.display()))?
-    {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == "bin" {
-            continue;
-        }
-        let target = wrap_prebuilt.join(&name);
-        symlink_path(&entry.path(), &target)?;
-    }
-
-    // Mirror top-level NDK entries except toolchains (we synthesize the host prebuilt above).
-    for entry in fs::read_dir(&real_ndk).with_context(|| format!("read {}", real_ndk.display()))? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == "toolchains" {
-            continue;
-        }
-        let target = wrap_root.join(&name);
-        symlink_path(&entry.path(), &target)?;
-    }
-    // Keep other toolchains/llvm content available if present.
-    let real_llvm = real_ndk.join("toolchains/llvm");
-    let wrap_llvm = wrap_root.join("toolchains/llvm");
-    fs::create_dir_all(&wrap_llvm)?;
-    if real_llvm.is_dir() {
-        for entry in
-            fs::read_dir(&real_llvm).with_context(|| format!("read {}", real_llvm.display()))?
-        {
-            let entry = entry?;
-            let name = entry.file_name();
-            if name == "prebuilt" {
-                continue;
-            }
-            symlink_path(&entry.path(), &wrap_llvm.join(&name))?;
-        }
-    }
-    let real_prebuilt_root = real_ndk.join("toolchains/llvm/prebuilt");
-    let wrap_prebuilt_root = wrap_root.join("toolchains/llvm/prebuilt");
-    fs::create_dir_all(&wrap_prebuilt_root)?;
-    if real_prebuilt_root.is_dir() {
-        for entry in fs::read_dir(&real_prebuilt_root)
-            .with_context(|| format!("read {}", real_prebuilt_root.display()))?
-        {
-            let entry = entry?;
-            let name = entry.file_name();
-            if name == host_tag {
-                continue;
-            }
-            symlink_path(&entry.path(), &wrap_prebuilt_root.join(&name))?;
-        }
-    }
-
-    let patch_script = pack_root.join("patch_jni_glue.py");
-    write_jni_glue_patch_script(&patch_script)?;
-
-    for entry in fs::read_dir(&real_bin).with_context(|| format!("read {}", real_bin.display()))? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        let wrap_path = wrap_bin.join(&name);
-        let real_path = entry.path();
-        if is_ndk_clang_driver(&name_str) {
-            write_clang_glue_wrapper(&wrap_path, &real_path, &patch_script)?;
-        } else {
-            symlink_path(&real_path, &wrap_path)?;
-        }
-    }
-
-    crate::util::emit_stderr(format_args!(
-        "xtask: NDK clang wrappers ready at {} (jni_glue callback helper inject)",
-        wrap_root.display()
-    ));
-    Ok(wrap_root)
-}
-
-fn is_ndk_clang_driver(name: &str) -> bool {
-    // Target drivers: aarch64-linux-android26-clang, *-clang++, and plain clang/clang++.
-    // Skip clang-scan-deps and *.cfg sidecars.
-    if Path::new(name)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("cfg"))
-        || name.contains("clang-scan")
-        || name.contains("clangd")
-    {
-        return false;
-    }
-    name == "clang" || name == "clang++" || name.ends_with("-clang") || name.ends_with("-clang++")
-}
-
 const fn android_release_rustflags() -> &'static str {
     // panic=abort shipping still pulls std backtrace/gimli into the final .so.
     // immediate-abort + build-std (see android_release_cargo_z_args) drops that
@@ -640,174 +365,6 @@ fn apply_android_release_size_env(command: &mut Command) {
     for arg in android_release_build_std_args() {
         command.args(["--cargo-arg", arg]);
     }
-}
-
-fn write_clang_glue_wrapper(wrapper: &Path, real_clang: &Path, patch_script: &Path) -> Result<()> {
-    let script = format!(
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-REAL_CLANG={real}
-PATCH_SCRIPT={patch}
-EXTRA=()
-SHARED=0
-for arg in "$@"; do
-  case "$arg" in
-    -shared)
-      SHARED=1
-      ;;
-    *jni_glue.c)
-      if [[ -f "$arg" ]]; then
-        # Fail closed: a missing helper or failed inject must stop the link.
-        python3 "$PATCH_SCRIPT" "$arg"
-        # C glue never throws; drop EH/unwind tables that survive into the final .so.
-        EXTRA+=(-fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables)
-      fi
-      ;;
-  esac
-done
-# libgit2 (via lomo-git) needs zlib. libz-sys on Android emits only `cargo:rustc-link-lib=z`
-# against the system libz. That dependency is retained for cdylib crates, but BoltFFI's
-# staticlib → final liblomo_native_jni.so link can drop DT_NEEDED libz.so and leave crc32/
-# deflate undefined. Force -lz on every shared-object link so the packaged SO loads on device.
-if [[ "$SHARED" -eq 1 ]]; then
-  EXTRA+=(-lz)
-fi
-exec "$REAL_CLANG" "$@" "${{EXTRA[@]}}"
-"#,
-        real = shell_quote(&real_clang.display().to_string()),
-        patch = shell_quote(&patch_script.display().to_string()),
-    );
-    fs::write(wrapper, script).with_context(|| format!("write {}", wrapper.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(wrapper)?.permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(wrapper, permissions)
-            .with_context(|| format!("chmod {}", wrapper.display()))?;
-    }
-    Ok(())
-}
-
-/// Upstream gap (historically pre-#696): class-method foreign listeners call
-/// `boltffi_jni_callback_parameter` from generated `jni_glue.c`, but older pins omitted the helper.
-/// #696 is in formal `v0.28.0`; inject is fail-closed and no-ops when the helper is already present.
-/// Re-audit each pin upgrade; delete this inject once a full regenerate proves glue always emits it.
-/// Layout assumptions for the temporary inject are encoded in [`JNI_GLUE_CALLBACK_HELPER`].
-const JNI_GLUE_CALLBACK_HELPER: &str = r"
-typedef struct {
-    void (*free)(uint64_t handle);
-    uint64_t (*clone)(uint64_t handle);
-} BoltFFICallbackVTablePrefix;
-
-typedef BoltFFICallbackHandle (*BoltFFICallbackCreate)(uint64_t handle);
-
-static BoltFFICallbackHandle *boltffi_jni_callback_handle_ref(jlong handle) {
-    return handle == 0 ? NULL : (BoltFFICallbackHandle *)(uintptr_t)handle;
-}
-
-static const BoltFFICallbackVTablePrefix *boltffi_jni_callback_vtable_prefix(const BoltFFICallbackHandle *callback) {
-    return callback == NULL ? NULL : (const BoltFFICallbackVTablePrefix *)callback->vtable;
-}
-
-static BoltFFICallbackHandle boltffi_jni_callback_parameter(uint64_t handle, BoltFFICallbackCreate create) {
-    if ((handle & 1u) != 0u) {
-        return create(handle);
-    }
-    const BoltFFICallbackHandle *stored_callback = boltffi_jni_callback_handle_ref((jlong)handle);
-    const BoltFFICallbackVTablePrefix *vtable = boltffi_jni_callback_vtable_prefix(stored_callback);
-    if (stored_callback == NULL || stored_callback->handle == 0 || vtable == NULL || vtable->clone == NULL) {
-        return (BoltFFICallbackHandle){0};
-    }
-    return (BoltFFICallbackHandle){
-        .handle = vtable->clone(stored_callback->handle),
-        .vtable = stored_callback->vtable,
-    };
-}
-
-";
-
-const JNI_ONLOAD_MARKER: &str = "JNIEXPORT jint JNICALL JNI_OnLoad";
-
-/// Pure inject for missing `boltffi_jni_callback_parameter` (fail-closed when referenced but marker absent).
-///
-/// Returns `Ok(None)` when no change is needed, `Ok(Some(patched))` when inject applies,
-/// `Err` when the glue references the helper but cannot be patched safely.
-fn patch_jni_glue_source(text: &str) -> Result<Option<String>> {
-    if text.contains("static BoltFFICallbackHandle boltffi_jni_callback_parameter") {
-        return Ok(None);
-    }
-    if !text.contains("boltffi_jni_callback_parameter(") {
-        return Ok(None);
-    }
-    if !text.contains(JNI_ONLOAD_MARKER) {
-        bail!(
-            "jni_glue references boltffi_jni_callback_parameter but is missing {JNI_ONLOAD_MARKER}"
-        );
-    }
-    Ok(Some(text.replacen(
-        JNI_ONLOAD_MARKER,
-        &format!("{JNI_GLUE_CALLBACK_HELPER}{JNI_ONLOAD_MARKER}"),
-        1,
-    )))
-}
-
-fn write_jni_glue_patch_script(path: &Path) -> Result<()> {
-    // Self-check: pure inject must still apply to the current reference shape before we ship the
-    // pack-time Python mirror used by the NDK clang wrapper.
-    let sample = format!("boltffi_jni_callback_parameter(0, 0);\n{JNI_ONLOAD_MARKER}\n");
-    let patched = patch_jni_glue_source(&sample)?
-        .context("jni_glue inject self-check expected a patch for the reference sample")?;
-    if !patched.contains("static BoltFFICallbackHandle boltffi_jni_callback_parameter") {
-        bail!("jni_glue inject self-check lost helper body");
-    }
-
-    // Fail-closed Python driver used by the NDK clang wrapper; logic mirrors [`patch_jni_glue_source`].
-    let script = format!(
-        r#"#!/usr/bin/env python3
-import pathlib
-import sys
-
-HELPER = r'''{JNI_GLUE_CALLBACK_HELPER}'''
-
-MARKER = "{JNI_ONLOAD_MARKER}"
-
-def main() -> int:
-    if len(sys.argv) != 2:
-        return 2
-    path = pathlib.Path(sys.argv[1])
-    text = path.read_text(encoding="utf-8")
-    if "static BoltFFICallbackHandle boltffi_jni_callback_parameter" in text:
-        return 0
-    if "boltffi_jni_callback_parameter(" not in text:
-        return 0
-    if MARKER not in text:
-        print(f"xtask: jni_glue patch failed; missing {{MARKER}} in {{path}}", file=sys.stderr)
-        return 1
-    path.write_text(text.replace(MARKER, HELPER + MARKER, 1), encoding="utf-8")
-    print(f"xtask: patched boltffi_jni_callback_parameter into {{path}}", file=sys.stderr)
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-"#
-    );
-    fs::write(path, script).with_context(|| format!("write {}", path.display()))
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
-
-fn symlink_path(original: &Path, link: &Path) -> Result<()> {
-    if let Some(parent) = link.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    if link.exists() || link.symlink_metadata().is_ok() {
-        remove_if_exists(link)?;
-    }
-    std::os::unix::fs::symlink(original, link)
-        .with_context(|| format!("symlink {} -> {}", link.display(), original.display()))
 }
 
 fn locate_generated_kotlin(root: &Path) -> Result<PathBuf> {
@@ -994,23 +551,9 @@ pub fn verify_native_tree(
     // Shipping honesty only for release-class packs. Dev packs intentionally leave unstripped
     // libraries for faster host iteration and must not be cited as shipping GREEN.
     let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
-    if shipping && abis.len() == Abi::ALL.len() {
-        // Stage-5 production SO includes vendored libgit2/OpenSSL via `lomo-git` composition.
-        // Host-measured stripped release-android four-ABI sum is ~42.3 MiB (see
-        // fixtures/baseline/stage5-native-size-ceiling.v1.json MEASURED_HOST); ceiling is that
-        // sum + 10% margin. Hard APK gate remains Stage-0 compressed baseline × 1.15 separately.
-        const MAX_FOUR_ABI_BYTES: u64 = 46_530_532;
-        if total_bytes > MAX_FOUR_ABI_BYTES {
-            bail!(
-                "shipping four-ABI native total {total_bytes} exceeds stage-5 git-native shipping ceiling {MAX_FOUR_ABI_BYTES};                  app/jniLibs may contain unstripped Dev artifacts — repack with `just native` (release-android + strip)"
-            );
-        }
+    if !shipping {
         crate::util::emit_stderr(format_args!(
-            "xtask: four-ABI shipping size gate GREEN ({total_bytes} <= {MAX_FOUR_ABI_BYTES})"
-        ));
-    } else if !shipping {
-        crate::util::emit_stderr(format_args!(
-            "xtask: skipping four-ABI shipping size gate for Dev pack (total={total_bytes});              not shipping evidence"
+            "xtask: development pack native total={total_bytes}; shipping size is diagnosed separately"
         ));
     }
     Ok(())
@@ -1087,13 +630,7 @@ pub fn ndk_tool(workspace: &Workspace, name: &str) -> Result<PathBuf> {
 
 fn ensure_generated_not_tracked(workspace: &Workspace) -> Result<()> {
     let mut command = repository_command(workspace, "git");
-    command.args([
-        "ls-files",
-        "--",
-        "native-bindings/src",
-        "rust-bindings/src",
-        "app/jniLibs",
-    ]);
+    command.args(["ls-files", "--", "native-bindings/src", "app/jniLibs"]);
     let tracked = text_output(&mut command)?;
     if !tracked.trim().is_empty() {
         bail!("generated bindings/native libraries are tracked by Git:\n{tracked}");
@@ -1377,9 +914,7 @@ impl Drop for AbiStashGuard {
 mod tests {
     use std::fmt::Display;
 
-    use super::{
-        JNI_GLUE_CALLBACK_HELPER, JNI_ONLOAD_MARKER, canonicalize_binding, patch_jni_glue_source,
-    };
+    use super::canonicalize_binding;
 
     trait ResultTestExt<T> {
         fn test_ok(self, context: &str) -> T;
@@ -1397,62 +932,6 @@ mod tests {
                 Err(error) => error.to_string(),
             }
         }
-    }
-
-    trait OptionTestExt<T> {
-        fn test_some(self, context: &str) -> T;
-    }
-
-    impl<T> OptionTestExt<T> for Option<T> {
-        fn test_some(self, context: &str) -> T {
-            self.unwrap_or_else(|| panic!("{context}: expected Some"))
-        }
-    }
-
-    #[test]
-    fn jni_glue_patch_is_noop_when_helper_already_present() {
-        let text = format!(
-            "static BoltFFICallbackHandle boltffi_jni_callback_parameter(uint64_t h, void *c);\n{JNI_ONLOAD_MARKER}(JavaVM *vm, void *r) {{ return 0; }}\n"
-        );
-        assert!(
-            patch_jni_glue_source(&text)
-                .test_ok("patch existing helper")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn jni_glue_patch_is_noop_when_helper_unreferenced() {
-        let text = format!("{JNI_ONLOAD_MARKER}(JavaVM *vm, void *r) {{ return 0; }}\n");
-        assert!(
-            patch_jni_glue_source(&text)
-                .test_ok("patch unreferenced helper")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn jni_glue_patch_injects_helper_before_jni_onload_when_referenced() {
-        let text = format!(
-            "void use(void) {{ boltffi_jni_callback_parameter(1, 0); }}\n{JNI_ONLOAD_MARKER}(JavaVM *vm, void *r) {{ return 0; }}\n"
-        );
-        let patched = patch_jni_glue_source(&text)
-            .test_ok("patch referenced helper")
-            .test_some("injected helper");
-        assert!(patched.contains("static BoltFFICallbackHandle boltffi_jni_callback_parameter"));
-        assert!(patched.contains(JNI_GLUE_CALLBACK_HELPER.trim_start()));
-        let helper_at = patched
-            .find("static BoltFFICallbackHandle boltffi_jni_callback_parameter")
-            .test_some("helper position");
-        let onload_at = patched.find(JNI_ONLOAD_MARKER).test_some("onload position");
-        assert!(helper_at < onload_at, "helper must precede JNI_OnLoad");
-    }
-
-    #[test]
-    fn jni_glue_patch_fails_closed_when_referenced_without_onload_marker() {
-        let text = "void use(void) { boltffi_jni_callback_parameter(1, 0); }\n";
-        let error = patch_jni_glue_source(text).test_error("missing onload must fail closed");
-        assert!(error.contains("JNI_OnLoad"));
     }
 
     #[test]

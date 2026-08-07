@@ -1,7 +1,7 @@
 //! Vendored `libgit2` feasibility for local commit/history and bare-remote push/fetch/rebase.
 //!
 //! Stage-0 evidence uses a **local bare** remote (filesystem transport). HTTPS smart-HTTP is an
-//! explicit stage-4 entry precondition on the same `git2` stack; see `fixtures/git/EVIDENCE.md`.
+//! Provider diagnostics are optional and do not participate in architecture ownership.
 
 use std::fs;
 use std::path::Path;

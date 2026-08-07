@@ -36,7 +36,7 @@ mod tests {
     fn digest_of(content: &str) -> String {
         use sha2::{Digest, Sha256};
         let d = Sha256::digest(content.as_bytes());
-        lomo_workspace::hex_encode(d.as_slice())
+        lomo_workspace::hex_encode(&d[..])
     }
 
     #[test]

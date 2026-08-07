@@ -2,7 +2,7 @@
 //!
 //! Deliberately blocking `std::net` rather than a second async runtime: Stage 5 shipped its network
 //! stack on blocking I/O plus `lomo-core`'s bounded worker pool, and LAN transfer is a handful of
-//! peers, not a connection fleet. See `STAGE6-CONTRACT.md` §"Approved divergences".
+//! peers, not a connection fleet. See `fixtures/contracts/lan.md`.
 //!
 //! The read path is the security-critical part. It reads exactly the fixed header, validates magic,
 //! protocol version, frame kind and the per-kind ceiling **before** reserving anything, and only

@@ -1,11 +1,11 @@
 //! Behavior Contract — P5-11 host residual deepen (safe-behavior fixtures)
 //!
-//! - Unit under test: language-agnostic `stage5-safe-behavior-fixtures.v1.json` cases
+//! - Unit under test: language-agnostic `sync-safe-behavior.v1.json` cases
 //!   exercised against `lomo-sync` owner surfaces (`plan_intents`, `run_sync_cycle` /
 //!   `apply_with_verify`, fence restore, diagnostics, action-class gates)
 //! - Owning layer: `lomo-sync` (planner / durable / diagnostics); fixture is language-agnostic
-//!   under `fixtures/baseline`
-//! - Priority tier: P1 (P5-11 residual deepen; not formal exit)
+//!   under `fixtures/baselines`
+//! - Priority tier: required current owner behavior
 //! - Capability: host hermetic differential lock for plan-facing and host-closeable
 //!   state-machine cases without claiming Kotlin parity oracle or APK × 1.15.
 //!
@@ -63,7 +63,7 @@ mod tests {
 
     fn fixture_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fixtures/baseline/stage5-safe-behavior-fixtures.v1.json")
+            .join("../../fixtures/baselines/sync-safe-behavior.v1.json")
     }
 
     fn dig(seed: u8) -> ContentDigest {

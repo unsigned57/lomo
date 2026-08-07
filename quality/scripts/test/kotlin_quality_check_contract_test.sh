@@ -108,8 +108,7 @@ for legacy in \
   quality/scripts/generate_rust_sync_android_libs.sh \
   quality/scripts/check_rust_sync_apk_packaging.sh \
   quality/scripts/ai_local_maintenance_check.sh \
-  quality/scripts/verified_batch_commit.sh \
-  rust-bindings; do
+  quality/scripts/verified_batch_commit.sh; do
   reject_path "$legacy"
 done
 

@@ -234,7 +234,7 @@ pub fn decode_record(bytes: &[u8]) -> Result<LomoRecord, lomo_core::LomoError> {
         .get(payload_start..payload_end)
         .ok_or_else(|| corruption("lomo_record_truncated", "payload slice unreadable"))?;
     let actual = Sha256::digest(payload_bytes);
-    if actual.as_slice() != checksum {
+    if &actual[..] != checksum {
         return Err(corruption(
             "lomo_checksum_mismatch",
             "lomo record checksum mismatch",

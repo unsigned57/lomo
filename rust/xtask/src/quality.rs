@@ -239,9 +239,6 @@ fn rust_full_gate(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
         "lomo-xtask",
         "--exclude",
         "lomo-architecture-tests",
-        // Tooling CLI entrypoint is exercised via `just perf` / corpus generate, not unit tests.
-        "--ignore-filename-regex",
-        "feasibility/src/main\\.rs",
         "--fail-under-lines",
         &coverage_minimum,
     ]);
@@ -425,7 +422,6 @@ fn is_rust_path(path: &str) -> bool {
     path == "Justfile"
         || path.starts_with("rust/")
         || path.starts_with("native-bindings/")
-        || path.starts_with("rust-bindings/")
         || path.starts_with("native-smoke/")
 }
 
@@ -445,7 +441,6 @@ fn is_kotlin_path(path: &str) -> bool {
 
 fn is_native_path(path: &str) -> bool {
     path.starts_with("rust/native/")
-        || path.starts_with("rust/sync-core/")
         || path == "rust/Cargo.toml"
         || path == "rust/Cargo.lock"
         || path == "rust/tools.toml"
@@ -455,7 +450,6 @@ fn is_native_path(path: &str) -> bool {
         || path.starts_with("rust/xtask/src/tools.rs")
         || path.starts_with("native-smoke/")
         || path.starts_with("native-bindings/")
-        || path.starts_with("rust-bindings/")
 }
 
 fn is_quality_infra(path: &str) -> bool {

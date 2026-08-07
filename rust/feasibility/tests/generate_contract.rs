@@ -238,11 +238,6 @@ mod tests {
                 .join("fixtures/remote/rclone-crypt-vectors.json")
                 .is_file()
         );
-        assert!(
-            repository_root()
-                .join("fixtures/git/scenarios.json")
-                .is_file()
-        );
     }
 
     fn walk_size(root: &std::path::Path) -> u64 {

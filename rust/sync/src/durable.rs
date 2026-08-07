@@ -393,7 +393,7 @@ pub fn decode_sync_record(bytes: &[u8]) -> Result<(u32, String), LomoError> {
         .get(payload_start..payload_end)
         .ok_or_else(|| corrupt_state("sync_record_truncated", "payload slice unreadable"))?;
     let actual = Sha256::digest(payload_bytes);
-    if actual.as_slice() != checksum {
+    if &actual[..] != checksum {
         return Err(corrupt_state(
             "sync_checksum_mismatch",
             "sync durable record checksum mismatch",

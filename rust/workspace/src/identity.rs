@@ -108,7 +108,7 @@ impl RemoteIdentityDigest {
     #[must_use]
     pub fn from_canonical_config_bytes(canonical_utf8: &[u8]) -> Self {
         let digest = Sha256::digest(canonical_utf8);
-        Self(hex_encode(digest.as_slice()))
+        Self(hex_encode(&digest[..]))
     }
 
     #[must_use]
