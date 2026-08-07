@@ -9,7 +9,7 @@ mod shared;
 
 pub use document::{
     DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandDriver, DocumentCommandKind,
-    DocumentCommandRequest, DocumentCommandResult,
+    DocumentCommandRequest, DocumentCommandResult, DocumentExpectedState,
 };
 pub use scan::{
     SCAN_DRIVER_KIND, ScanDriver, WorkspaceMemoContentReference, WorkspaceMemoSummary,

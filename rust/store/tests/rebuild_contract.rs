@@ -16,12 +16,19 @@
 //!   `store_rebuilding`.
 //! - Given `SQLite` file deleted while `.lomo` remains, when rebuild runs, then `.lomo` is intact.
 //! - Given bounded memo facts scanned from a SAF workspace, when its app-private projection is
-//!   rebuilt, then queries succeed without creating a Markdown body mirror.
+//!   rebuilt, then queries succeed without creating a Markdown body mirror and the replacement
+//!   publishes a durable, monotonic projection revision.
+//! - Given a SAF projection refresh started from revision N, when a verified live mutation advances
+//!   the projection beyond N before publish, then stale staging is rejected and the live mutation
+//!   remains authoritative.
 //!
 //! Observable outcomes: query rows, error codes, rebuild evidence, durable `.lomo` preservation,
 //! and absence of user Markdown bytes under the SAF projection root.
 //! TDD proof: SAF projection rebuild was RED on 2026-08-02 because `lomo-store` could only rebuild
-//! by traversing a Direct filesystem workspace.
+//! by traversing a Direct filesystem workspace; A-SAF-REV-001 was RED because scanned rebuilds
+//! returned and persisted high-water revision 0 across every replacement.
+//! TDD proof: RED on 2026-08-06 because `SafProjectionRebuild::finish` replaced the live projection
+//! without comparing its captured base revision, so a concurrent verified mutation could be lost.
 //! Excludes: Android `DocumentsContract` execution and FFI conversion.
 
 #[cfg(test)]
@@ -36,6 +43,7 @@ mod tests {
     use lomo_core::{ErrorCategory, OperationId, PageSize};
     use lomo_store::{
         LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase,
+        SafProjectionMutation, SafProjectionMutationKind, SafProjectionRebuild,
         ScannedMemoProjection, StateBody, Store, WriteGate, ensure_writable, fingerprint_content,
         read_record, rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
     };
@@ -92,12 +100,21 @@ mod tests {
             memo_id: "2026-08-02_19:30:00_0".to_owned(),
             source_path: "2026-08-02.md".to_owned(),
             file_fingerprint: fingerprint_content(&body),
+            chronology_epoch_ms: 1_754_128_200_000,
             body: body.clone(),
             tags: vec!["device".to_owned()],
             attachment_paths: Vec::new(),
             has_todo: false,
             has_url: false,
+            reminders: Vec::new(),
         };
+
+        let invalid_projection = tempdir().expect("invalid projection root");
+        let mut invalid_chronology = source.clone();
+        invalid_chronology.chronology_epoch_ms = 0;
+        let error = rebuild_scanned_projection(invalid_projection.path(), &[invalid_chronology])
+            .expect_err("epoch zero must be rejected");
+        assert_eq!(error.code(), "invalid_memo_chronology");
 
         let result = rebuild_scanned_projection(projection.path(), &[source]).expect("rebuild");
         let store = Store::open_projection(projection.path()).expect("open projection");
@@ -114,10 +131,20 @@ mod tests {
 
         assert_eq!(result.memos_indexed, 1);
         assert_eq!(result.workspace_digest, result.store_digest);
+        assert_eq!(result.high_water_revision, 1);
+        assert_eq!(store.high_water_revision(), result.high_water_revision);
         assert_eq!(page.items.len(), 1);
         assert_eq!(
             page.items.first().expect("projected memo").source_path,
             "2026-08-02.md"
+        );
+        assert_eq!(
+            page.items.first().expect("projected memo").created_at_ms,
+            1_754_128_200_000
+        );
+        assert_eq!(
+            page.items.first().expect("projected memo").updated_at_ms,
+            1_754_128_200_000
         );
         assert!(
             !projection.path().join("2026-08-02.md").exists(),
@@ -129,6 +156,345 @@ mod tests {
                 .windows(body.len())
                 .any(|window| window == body.as_bytes()),
             "SAF projection must not persist the complete raw Markdown body"
+        );
+
+        drop(store);
+        let second = rebuild_scanned_projection(projection.path(), &[]).expect("second rebuild");
+        let reopened = Store::open_projection(projection.path()).expect("reopen projection");
+        assert_eq!(second.high_water_revision, 2);
+        assert_eq!(reopened.high_water_revision(), second.high_water_revision);
+    }
+
+    #[test]
+    fn saf_projection_commit_updates_only_projection_and_is_idempotent() {
+        let projection_root = tempdir().expect("projection root");
+        let old_body = "old SAF body".to_owned();
+        let old = ScannedMemoProjection {
+            memo_id: "2026-08-04_09:30:00_0".to_owned(),
+            source_path: "2026-08-04.md".to_owned(),
+            file_fingerprint: fingerprint_content(&old_body),
+            chronology_epoch_ms: 1_754_300_000_000,
+            body: old_body,
+            tags: vec!["old".to_owned()],
+            attachment_paths: Vec::new(),
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        rebuild_scanned_projection(projection_root.path(), std::slice::from_ref(&old))
+            .expect("initial rebuild");
+
+        let new_body = "new SAF body".to_owned();
+        let updated = ScannedMemoProjection {
+            file_fingerprint: fingerprint_content(&new_body),
+            body: new_body,
+            source_path: old.source_path.clone(),
+            chronology_epoch_ms: old.chronology_epoch_ms + 1_000,
+            tags: vec!["new".to_owned()],
+            ..old.clone()
+        };
+        let mut store = Store::open_projection(projection_root.path()).expect("open projection");
+        let commit = store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-update".to_owned(),
+                kind: SafProjectionMutationKind::Update,
+                memo_id: old.memo_id.clone(),
+                expected_revision: 1,
+                expected_fingerprint: Some(old.file_fingerprint.clone()),
+                projection: Some(updated.clone()),
+            })
+            .expect("projection update");
+        assert_eq!(commit.content_revision, 2);
+        assert!(!commit.idempotent_replay);
+        assert_eq!(store.high_water_revision(), commit.core_revision);
+
+        let replay = store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-update".to_owned(),
+                kind: SafProjectionMutationKind::Update,
+                memo_id: old.memo_id.clone(),
+                expected_revision: 1,
+                expected_fingerprint: Some(old.file_fingerprint),
+                projection: Some(updated),
+            })
+            .expect("idempotent replay");
+        assert!(replay.idempotent_replay);
+        assert_eq!(replay.content_revision, 2);
+        assert_eq!(replay.core_revision, commit.core_revision);
+        assert_eq!(replay.event_sequence, commit.event_sequence);
+
+        let conflicting_replay = store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-update".to_owned(),
+                kind: SafProjectionMutationKind::Delete,
+                memo_id: old.memo_id.clone(),
+                expected_revision: 2,
+                expected_fingerprint: Some(commit.file_fingerprint.clone()),
+                projection: None,
+            })
+            .expect_err("one operation id cannot identify two SAF mutations");
+        assert_eq!(conflicting_replay.code(), "saf_operation_conflict");
+
+        let pinned = store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-pin".to_owned(),
+                kind: SafProjectionMutationKind::Pin,
+                memo_id: old.memo_id.clone(),
+                expected_revision: 2,
+                expected_fingerprint: Some(commit.file_fingerprint.clone()),
+                projection: None,
+            })
+            .expect("pin projection");
+        assert_eq!(pinned.content_revision, 2);
+        let pin_replay = store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-pin".to_owned(),
+                kind: SafProjectionMutationKind::Pin,
+                memo_id: old.memo_id.clone(),
+                expected_revision: 2,
+                expected_fingerprint: Some(commit.file_fingerprint.clone()),
+                projection: None,
+            })
+            .expect("pin replay");
+        assert!(pin_replay.idempotent_replay);
+        assert_eq!(pin_replay.core_revision, pinned.core_revision);
+        assert_eq!(pin_replay.event_sequence, pinned.event_sequence);
+
+        store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-delete".to_owned(),
+                kind: SafProjectionMutationKind::Delete,
+                memo_id: old.memo_id,
+                expected_revision: 2,
+                expected_fingerprint: Some(commit.file_fingerprint),
+                projection: None,
+            })
+            .expect("delete projection");
+        assert!(!projection_root.path().join("2026-08-04.md").exists());
+    }
+
+    #[test]
+    fn saf_projection_create_replay_returns_the_original_commit() {
+        let projection_root = tempdir().expect("projection root");
+        rebuild_scanned_projection(projection_root.path(), &[]).expect("empty projection");
+        let body = "new SAF memo".to_owned();
+        let projection = ScannedMemoProjection {
+            memo_id: "2026-08-04_12:00:00_0".to_owned(),
+            source_path: "2026-08-04.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body),
+            chronology_epoch_ms: 1_754_309_000_000,
+            body,
+            tags: Vec::new(),
+            attachment_paths: Vec::new(),
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        let mutation = SafProjectionMutation {
+            operation_id: "saf-op-create".to_owned(),
+            kind: SafProjectionMutationKind::Create,
+            memo_id: projection.memo_id.clone(),
+            expected_revision: 0,
+            expected_fingerprint: None,
+            projection: Some(projection),
+        };
+        let mut store = Store::open_projection(projection_root.path()).expect("open projection");
+
+        let commit = store
+            .commit_saf_projection_mutation(&mutation)
+            .expect("create projection");
+        let replay = store
+            .commit_saf_projection_mutation(&mutation)
+            .expect("create replay");
+
+        assert!(replay.idempotent_replay);
+        assert_eq!(replay.core_revision, commit.core_revision);
+        assert_eq!(replay.event_sequence, commit.event_sequence);
+        assert_eq!(replay.content_revision, commit.content_revision);
+        assert_eq!(replay.file_fingerprint, commit.file_fingerprint);
+    }
+
+    #[test]
+    fn saf_projection_rebuild_pages_are_invisible_until_atomic_finish() {
+        let projection_root = tempdir().expect("projection root");
+        let old_body = "old projection".to_owned();
+        let old = ScannedMemoProjection {
+            memo_id: "2026_08_03_10:00:00_0".to_owned(),
+            source_path: "2026_08_03.md".to_owned(),
+            file_fingerprint: fingerprint_content(&old_body),
+            chronology_epoch_ms: 1_754_200_000_000,
+            body: old_body,
+            tags: vec![],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        rebuild_scanned_projection(projection_root.path(), std::slice::from_ref(&old))
+            .expect("seed projection");
+        let new_body = "new projection".to_owned();
+        let new = ScannedMemoProjection {
+            memo_id: "2026_08_04_10:00:00_0".to_owned(),
+            source_path: "2026_08_04.md".to_owned(),
+            file_fingerprint: fingerprint_content(&new_body),
+            chronology_epoch_ms: 1_754_300_000_000,
+            body: new_body,
+            tags: vec!["streamed".to_owned()],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+
+        let mut rebuild = SafProjectionRebuild::begin(projection_root.path()).expect("begin");
+        rebuild
+            .append_page(std::slice::from_ref(&new))
+            .expect("append page");
+        let before_finish =
+            Store::open_projection(projection_root.path()).expect("live projection");
+        assert!(
+            before_finish
+                .get_memo_projection(&old.memo_id)
+                .expect("old query")
+                .is_some()
+        );
+        assert!(
+            before_finish
+                .get_memo_projection(&new.memo_id)
+                .expect("new query")
+                .is_none()
+        );
+        drop(before_finish);
+
+        let result = rebuild.finish().expect("finish");
+        let finished = Store::open_projection(projection_root.path()).expect("finished projection");
+        assert_eq!(result.memos_indexed, 1);
+        assert!(
+            finished
+                .get_memo_projection(&old.memo_id)
+                .expect("old query")
+                .is_none()
+        );
+        assert!(
+            finished
+                .get_memo_projection(&new.memo_id)
+                .expect("new query")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn saf_projection_refresh_rejects_publish_after_live_revision_advances() {
+        let projection_root = tempdir().expect("projection root");
+        let old_body = "published projection".to_owned();
+        let old = ScannedMemoProjection {
+            memo_id: "2026_08_03_10:00:00_0".to_owned(),
+            source_path: "2026_08_03.md".to_owned(),
+            file_fingerprint: fingerprint_content(&old_body),
+            chronology_epoch_ms: 1_754_200_000_000,
+            body: old_body,
+            tags: vec![],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        rebuild_scanned_projection(projection_root.path(), std::slice::from_ref(&old))
+            .expect("seed projection");
+
+        let refreshed_body = "staged refresh".to_owned();
+        let refreshed = ScannedMemoProjection {
+            file_fingerprint: fingerprint_content(&refreshed_body),
+            body: refreshed_body,
+            ..old.clone()
+        };
+        let mut refresh =
+            SafProjectionRebuild::begin(projection_root.path()).expect("begin refresh");
+        refresh
+            .append_page(std::slice::from_ref(&refreshed))
+            .expect("append staged page");
+
+        let live_body = "verified live mutation".to_owned();
+        let live = ScannedMemoProjection {
+            memo_id: "2026_08_04_11:00:00_0".to_owned(),
+            source_path: "2026_08_04.md".to_owned(),
+            file_fingerprint: fingerprint_content(&live_body),
+            chronology_epoch_ms: 1_754_303_600_000,
+            body: live_body,
+            tags: vec!["live".to_owned()],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        let mut store =
+            Store::open_projection(projection_root.path()).expect("open live projection");
+        store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "saf-op-during-refresh".to_owned(),
+                kind: SafProjectionMutationKind::Create,
+                memo_id: live.memo_id.clone(),
+                expected_revision: 0,
+                expected_fingerprint: None,
+                projection: Some(live.clone()),
+            })
+            .expect("commit verified live mutation");
+        drop(store);
+
+        let error = refresh
+            .finish()
+            .expect_err("staging from an older projection revision must not publish");
+        assert_eq!(error.code(), "stale_saf_projection_rebuild");
+
+        let preserved =
+            Store::open_projection(projection_root.path()).expect("reopen live projection");
+        assert!(
+            preserved
+                .get_memo_projection(&live.memo_id)
+                .expect("live query")
+                .is_some(),
+            "the verified live mutation must survive stale refresh rejection"
+        );
+        let old_after = preserved
+            .get_memo_projection(&old.memo_id)
+            .expect("old query")
+            .expect("old projection remains live");
+        assert_eq!(old_after.file_fingerprint, old.file_fingerprint);
+    }
+
+    #[test]
+    fn saf_projection_rebuild_rejects_duplicate_page_and_abort_preserves_live() {
+        let projection_root = tempdir().expect("projection root");
+        let body = "stable projection".to_owned();
+        let memo = ScannedMemoProjection {
+            memo_id: "2026_08_04_11:00:00_0".to_owned(),
+            source_path: "2026_08_04.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body),
+            chronology_epoch_ms: 1_754_303_600_000,
+            body,
+            tags: vec![],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        rebuild_scanned_projection(projection_root.path(), std::slice::from_ref(&memo))
+            .expect("seed projection");
+        let mut rebuild = SafProjectionRebuild::begin(projection_root.path()).expect("begin");
+        rebuild
+            .append_page(std::slice::from_ref(&memo))
+            .expect("first page");
+        let duplicate = rebuild
+            .append_page(std::slice::from_ref(&memo))
+            .expect_err("duplicate scan page must fail closed");
+        assert_eq!(duplicate.code(), "duplicate_saf_projection_memo");
+        rebuild.abort().expect("abort");
+
+        let live = Store::open_projection(projection_root.path()).expect("live projection");
+        assert!(
+            live.get_memo_projection(&memo.memo_id)
+                .expect("memo query")
+                .is_some()
         );
     }
 

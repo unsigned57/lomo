@@ -13,6 +13,111 @@ use crate::content_facts::project_content_facts;
 use crate::error::storage;
 use crate::lomo_format::{HistoryBody, LomoPaths, LomoRecordKind, read_record};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoHistoryRevision {
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub content: String,
+    pub file_fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoHistoryPage {
+    pub items: Vec<MemoHistoryRevision>,
+    pub next_cursor: Option<String>,
+}
+
+/// Lists durable memo revisions in descending revision order.
+///
+/// # Errors
+///
+/// Returns validation for malformed cursors/limits and storage errors for unreadable history.
+pub fn list_memo_history(
+    workspace_root: &Path,
+    memo_id: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<MemoHistoryPage, lomo_core::LomoError> {
+    if memo_id.is_empty() || limit == 0 || limit > 256 {
+        return Err(crate::error::validation(
+            "invalid_history_page",
+            "memo id and page limit are invalid",
+        ));
+    }
+    let offset = cursor
+        .unwrap_or("0")
+        .parse::<usize>()
+        .map_err(|_parse_error| {
+            crate::error::validation(
+                "invalid_history_cursor",
+                "history cursor must be a decimal offset",
+            )
+        })?;
+    let paths = LomoPaths::for_workspace(workspace_root);
+    let mut revisions = Vec::new();
+    if paths.history.exists() {
+        for entry in fs::read_dir(&paths.history).map_err(|err| {
+            storage(
+                "lomo_history_list_failed",
+                &format!("cannot list history: {err}"),
+            )
+        })? {
+            let path = entry
+                .map_err(|err| {
+                    storage(
+                        "lomo_history_list_failed",
+                        &format!("cannot read history entry: {err}"),
+                    )
+                })?
+                .path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rec") {
+                continue;
+            }
+            let Ok(record) = read_record(&path) else {
+                continue;
+            };
+            if record.payload.kind != LomoRecordKind::History {
+                continue;
+            }
+            let Ok(body) = serde_json::from_str::<HistoryBody>(&record.payload.body_json) else {
+                continue;
+            };
+            if body.memo_id != memo_id {
+                continue;
+            }
+            // behavior-contract: silent-result-ok: mtime is a display hint; revision/content win.
+            let created_at_ms = match fs::metadata(&path).and_then(|m| m.modified()) {
+                Ok(time) => match time.duration_since(UNIX_EPOCH) {
+                    Ok(duration) => i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
+                    Err(_before_epoch) => 0,
+                },
+                Err(_metadata_error) => 0,
+            };
+            revisions.push(MemoHistoryRevision {
+                revision: body.revision,
+                created_at_ms,
+                content: body.content,
+                file_fingerprint: body.file_fingerprint,
+            });
+        }
+    }
+    revisions.sort_by(|a, b| {
+        b.revision
+            .cmp(&a.revision)
+            .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
+    });
+    let end = offset.saturating_add(limit).min(revisions.len());
+    let items = if offset >= revisions.len() {
+        Vec::new()
+    } else {
+        revisions
+            .get(offset..end)
+            .map_or_else(Vec::new, <[MemoHistoryRevision]>::to_vec)
+    };
+    let next_cursor = (end < revisions.len()).then(|| end.to_string());
+    Ok(MemoHistoryPage { items, next_cursor })
+}
+
 /// Default per-memo revision keep count for history media refs (D5/D6 retention window).
 ///
 /// Product policy: keep the newest `N` history revisions per memo for restore + orphan keep-set.

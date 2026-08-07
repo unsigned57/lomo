@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
     ActionId, BatchId, CapabilityToken, ExchangeToken, JobId, LomoError, PageSize,
@@ -9,6 +9,39 @@ use crate::{
 
 const PLATFORM_SCHEMA: u32 = 1;
 const MAX_ACTIONS_PER_BATCH: usize = 64;
+const MAX_DOCUMENT_HANDLE_BYTES: usize = 1_024;
+
+/// Provider-owned, opaque identity returned by document enumeration or stat.
+///
+/// The value is never interpreted as a workspace path. It may contain provider-specific
+/// separators, but must remain bounded and free of controls before it crosses an FFI boundary.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct DocumentHandle(String);
+
+impl DocumentHandle {
+    /// Validates an opaque provider document identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for empty, oversized, or control-bearing handles.
+    pub fn parse(raw: &str) -> Result<Self, LomoError> {
+        if raw.is_empty()
+            || raw.len() > MAX_DOCUMENT_HANDLE_BYTES
+            || raw.chars().any(char::is_control)
+        {
+            return Err(LomoError::validation(
+                "invalid_document_handle",
+                "document handle must be non-empty, bounded UTF-8 without controls",
+            ));
+        }
+        Ok(Self(raw.to_owned()))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Sha256Digest(String);
@@ -162,6 +195,7 @@ pub enum DocumentKind {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DocumentMetadata {
     target: WorkspaceTarget,
+    document_handle: DocumentHandle,
     kind: DocumentKind,
     mime_type: Option<String>,
     evidence: ActionEvidence,
@@ -179,6 +213,31 @@ impl DocumentMetadata {
         mime_type: Option<&str>,
         evidence: ActionEvidence,
     ) -> Result<Self, LomoError> {
+        let handle = match &target {
+            WorkspaceTarget::Root => "root".to_owned(),
+            WorkspaceTarget::Relative(path) => path.as_str().to_owned(),
+        };
+        Self::new_with_handle(
+            target,
+            DocumentHandle::parse(&handle)?,
+            kind,
+            mime_type,
+            evidence,
+        )
+    }
+
+    /// Creates metadata with a provider-owned opaque identity distinct from its display path.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for invalid MIME metadata.
+    pub fn new_with_handle(
+        target: WorkspaceTarget,
+        document_handle: DocumentHandle,
+        kind: DocumentKind,
+        mime_type: Option<&str>,
+        evidence: ActionEvidence,
+    ) -> Result<Self, LomoError> {
         if mime_type.is_some_and(|value| {
             value.is_empty() || value.len() > 255 || value.chars().any(char::is_control)
         }) {
@@ -189,6 +248,7 @@ impl DocumentMetadata {
         }
         Ok(Self {
             target,
+            document_handle,
             kind,
             mime_type: mime_type.map(str::to_owned),
             evidence,
@@ -198,6 +258,11 @@ impl DocumentMetadata {
     #[must_use]
     pub const fn target(&self) -> &WorkspaceTarget {
         &self.target
+    }
+
+    #[must_use]
+    pub const fn document_handle(&self) -> &DocumentHandle {
+        &self.document_handle
     }
 
     #[must_use]
@@ -214,6 +279,12 @@ impl DocumentMetadata {
     pub const fn evidence(&self) -> &ActionEvidence {
         &self.evidence
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum DocumentLocator {
+    Path(RelativeWorkspacePath),
+    Opaque(DocumentHandle),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -306,6 +377,7 @@ pub enum PlatformAction {
         action_id: ActionId,
         capability: CapabilityToken,
         path: RelativeWorkspacePath,
+        locator: DocumentLocator,
         exchange_token: ExchangeToken,
         expected_source: ExpectedFingerprint,
     },
@@ -417,7 +489,31 @@ impl PlatformAction {
         Ok(Self::ReadToExchange {
             action_id,
             capability,
+            locator: DocumentLocator::Path(path.clone()),
             path,
+            exchange_token: ExchangeToken::parse(exchange_token)?,
+            expected_source,
+        })
+    }
+
+    /// Creates a read bound to identity returned by a prior list/stat action.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation when the exchange token is invalid.
+    pub fn read_listed_to_exchange(
+        action_id: ActionId,
+        capability: CapabilityToken,
+        path: RelativeWorkspacePath,
+        document_handle: DocumentHandle,
+        exchange_token: &str,
+        expected_source: ExpectedFingerprint,
+    ) -> Result<Self, LomoError> {
+        Ok(Self::ReadToExchange {
+            action_id,
+            capability,
+            path,
+            locator: DocumentLocator::Opaque(document_handle),
             exchange_token: ExchangeToken::parse(exchange_token)?,
             expected_source,
         })
@@ -490,7 +586,7 @@ impl PlatformAction {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlatformActionBatch {
     schema_version: u32,
     job_id: JobId,
@@ -498,6 +594,38 @@ pub struct PlatformActionBatch {
     attempt: u32,
     deadline_epoch_millis: u64,
     actions: Vec<PlatformAction>,
+}
+
+#[derive(Deserialize)]
+struct PlatformActionBatchWire {
+    schema_version: u32,
+    job_id: JobId,
+    batch_id: BatchId,
+    attempt: u32,
+    deadline_epoch_millis: u64,
+    actions: Vec<PlatformAction>,
+}
+
+impl<'de> Deserialize<'de> for PlatformActionBatch {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = PlatformActionBatchWire::deserialize(deserializer)?;
+        if wire.schema_version != PLATFORM_SCHEMA {
+            return Err(serde::de::Error::custom(
+                "unsupported platform batch schema",
+            ));
+        }
+        Self::new(
+            wire.job_id,
+            wire.batch_id,
+            wire.attempt,
+            wire.deadline_epoch_millis,
+            wire.actions,
+        )
+        .map_err(|error| serde::de::Error::custom(error.to_string()))
+    }
 }
 
 impl PlatformActionBatch {

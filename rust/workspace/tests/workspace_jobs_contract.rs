@@ -8,11 +8,14 @@
 //! Scenarios:
 //! - Given a Direct workspace with markdown files, when a scan job is driven, then a bounded page
 //!   of memo summaries is published with job/workspace-scoped exchange references whose artifacts
-//!   contain the complete exact memo content rather than a truncated preview.
+//!   contain the complete exact memo content rather than a truncated preview, while intermediate
+//!   source artifacts are removed after projection.
 //! - Given two workspace sessions whose journals allocate the same job id, when each publishes scan
 //!   content, then their opaque tokens differ and reveal neither workspace path.
 //! - Given a scan page whose content artifact cannot be published, when the driver advances, then
 //!   the whole job fails and no partial page result is observable.
+//! - Given the same canonical scan request is already active, when startup asks to refresh again,
+//!   then the existing durable job id is returned instead of creating a duplicate scan.
 //! - Given a document replace command with a matching fingerprint, when driven, then the file is
 //!   rewritten once via write-from-exchange and the result fingerprint matches the pure planner.
 //! - Given an external edit after read (stale fingerprint), when the document command advances,
@@ -32,6 +35,10 @@
 //!
 //! Observable outcomes: job steps, durable `read_job_result` JSON, exact exchange artifact bytes,
 //! opaque token scope, on-disk file bytes, write counts.
+//! TDD proof: RED on 2026-08-06 because every cold restore allocated a new workspace scan even
+//! while an identical `WaitingPlatform` job remained durable in the same workspace journal.
+//! TDD proof: RED on 2026-08-06 because scan-read exchange artifacts survived after the driver had
+//! parsed them and published the only durable memo-body references.
 //! Excludes: `BoltFFI` generation (P2-06), production DI dual-stack (P2-09), Kotlin IR presentation.
 
 #[cfg(test)]
@@ -57,7 +64,8 @@ mod tests {
     };
     use lomo_workspace::{
         DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandKind, DocumentCommandRequest,
-        SCAN_DRIVER_KIND, SourceFingerprint, WorkspaceScanRequest, workspace_driver_registry,
+        DocumentExpectedState, SCAN_DRIVER_KIND, SourceFingerprint, WorkspaceScanRequest,
+        workspace_driver_registry,
     };
     use tempfile::tempdir;
 
@@ -220,10 +228,10 @@ mod tests {
                 PlatformAction::WriteFromExchange {
                     artifact,
                     path,
+                    mode,
                     expected_target,
                     ..
                 } => {
-                    self.write_count.fetch_add(1, Ordering::SeqCst);
                     let exchange_path = self.exchange_root.join(artifact.token().as_str());
                     let bytes = fs::read(&exchange_path).test_ok("read exchange write artifact");
                     let digest = {
@@ -231,8 +239,28 @@ mod tests {
                         format!("{:x}", Sha256::digest(&bytes))
                     };
                     assert_eq!(digest, artifact.digest().as_str(), "artifact digest");
-                    // Stale expected target fails closed without write.
-                    if let lomo_core::ExpectedFingerprint::Match(expected) = expected_target {
+                    let full = self.workspace_root.join(path.as_str());
+                    if *mode == lomo_core::WriteMode::Create {
+                        assert!(
+                            matches!(expected_target, lomo_core::ExpectedFingerprint::Absent),
+                            "create must carry an absent target precondition"
+                        );
+                        if full.exists() {
+                            return ActionOutcome::Failed(
+                                lomo_core::LomoError::from_platform_boundary(
+                                    lomo_core::ErrorCategory::Conflict,
+                                    "target_already_exists",
+                                    lomo_core::RetryDisposition::AfterUserAction,
+                                    None,
+                                    None,
+                                    "Create target already exists",
+                                )
+                                .test_ok("error"),
+                            );
+                        }
+                    } else if let lomo_core::ExpectedFingerprint::Match(expected) = expected_target
+                    {
+                        // Stale expected target fails closed without write.
                         let current = match fs::read(self.workspace_root.join(path.as_str())) {
                             Ok(bytes) => Some(bytes),
                             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -264,7 +292,7 @@ mod tests {
                             }
                         }
                     }
-                    let full = self.workspace_root.join(path.as_str());
+                    self.write_count.fetch_add(1, Ordering::SeqCst);
                     fs::write(&full, &bytes).test_ok("write target");
                     let evidence = ActionEvidence::verified(
                         bytes.len() as u64,
@@ -345,13 +373,19 @@ mod tests {
         fn execute_read_to_exchange(&self, action: &PlatformAction) -> ActionOutcome {
             let PlatformAction::ReadToExchange {
                 path,
+                locator,
                 exchange_token,
                 ..
             } = action
             else {
                 panic!("read helper received non-read action: {action:?}");
             };
-            let bytes = fs::read(self.workspace_root.join(path.as_str())).test_ok("read source");
+            let source_identity = match locator {
+                lomo_core::DocumentLocator::Path(source_path) => source_path.as_str(),
+                lomo_core::DocumentLocator::Opaque(document_handle) => document_handle.as_str(),
+            };
+            let bytes = fs::read(self.workspace_root.join(source_identity))
+                .test_ok("read source by locator");
             let digest = {
                 use sha2::{Digest, Sha256};
                 format!("{:x}", Sha256::digest(&bytes))
@@ -368,12 +402,23 @@ mod tests {
             )
             .test_ok("evidence");
             ActionOutcome::Applied(PlatformActionOutput::ReadToExchange {
-                source_metadata: DocumentMetadata::new(
-                    WorkspaceTarget::Relative(path.clone()),
-                    DocumentKind::File,
-                    None,
-                    evidence,
-                )
+                source_metadata: match locator {
+                    lomo_core::DocumentLocator::Path(_) => DocumentMetadata::new(
+                        WorkspaceTarget::Relative(path.clone()),
+                        DocumentKind::File,
+                        None,
+                        evidence,
+                    ),
+                    lomo_core::DocumentLocator::Opaque(document_handle) => {
+                        DocumentMetadata::new_with_handle(
+                            WorkspaceTarget::Relative(path.clone()),
+                            document_handle.clone(),
+                            DocumentKind::File,
+                            None,
+                            evidence,
+                        )
+                    }
+                }
                 .test_ok("metadata"),
                 artifact: ExchangeArtifact::new(
                     exchange_token.as_str(),
@@ -411,10 +456,11 @@ mod tests {
                 &format!("fp.{}", relative.replace('/', ".")),
             )
             .test_ok("evidence");
-            DocumentMetadata::new(
+            DocumentMetadata::new_with_handle(
                 WorkspaceTarget::Relative(
                     lomo_core::RelativeWorkspacePath::parse(&relative).test_ok("path"),
                 ),
+                lomo_core::DocumentHandle::parse(&relative).test_ok("document handle"),
                 kind,
                 None,
                 evidence,
@@ -475,6 +521,81 @@ mod tests {
     }
 
     #[test]
+    fn identical_active_scan_request_reuses_the_durable_job() {
+        let harness = Harness::new();
+        let request_json = serde_json::to_string(&WorkspaceScanRequest {
+            page_size: 63,
+            cursor: None,
+            root_path: None,
+        })
+        .test_ok("request");
+
+        let first = harness
+            .engine
+            .start_user_job(SCAN_DRIVER_KIND, &request_json, Duration::from_secs(30))
+            .test_ok("start first scan");
+        let second = harness
+            .engine
+            .start_user_job(SCAN_DRIVER_KIND, &request_json, Duration::from_secs(30))
+            .test_ok("resume existing scan");
+
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn scan_read_reuses_the_opaque_handle_returned_by_listing() {
+        let harness = Harness::new();
+        harness.write_file("2024-01-09.md", b"- 10:00:00\nhello\n");
+        let request_json = serde_json::to_string(&WorkspaceScanRequest {
+            page_size: 16,
+            cursor: None,
+            root_path: None,
+        })
+        .test_ok("request");
+        let job_id = harness
+            .engine
+            .start_user_job(SCAN_DRIVER_KIND, &request_json, Duration::from_secs(30))
+            .test_ok("start scan");
+        let JobStep::NeedsPlatformBatch { batch: list_batch } =
+            harness.engine.poll_job(&job_id).test_ok("poll list")
+        else {
+            panic!("expected list batch");
+        };
+        let list_results = list_batch
+            .actions()
+            .iter()
+            .map(|action| ActionResult::new(action.id().clone(), harness.execute(action)))
+            .collect();
+        let read_step = harness
+            .engine
+            .submit_platform_result(
+                &job_id,
+                PlatformBatchResult::new(
+                    list_batch.schema_version(),
+                    list_batch.job_id().clone(),
+                    list_batch.batch_id().clone(),
+                    list_batch.attempt(),
+                    list_results,
+                ),
+            )
+            .test_ok("submit list");
+        let JobStep::NeedsPlatformBatch { batch: read_batch } = read_step else {
+            panic!("expected read batch");
+        };
+        let PlatformAction::ReadToExchange { locator, .. } =
+            read_batch.actions().first().expect("read action")
+        else {
+            panic!("expected read action");
+        };
+        assert_eq!(
+            locator,
+            &lomo_core::DocumentLocator::Opaque(
+                lomo_core::DocumentHandle::parse("2024-01-09.md").test_ok("handle"),
+            )
+        );
+    }
+
+    #[test]
     fn scan_content_reference_resolves_the_complete_exact_memo_body() {
         let harness = Harness::new();
         let content = format!("prefix-{}-suffix", "界🙂".repeat(180));
@@ -492,6 +613,11 @@ mod tests {
         assert!(!reference.exchange_token.contains("2024-01-05.md"));
         assert!(!reference.exchange_token.contains('/'));
         assert!(!reference.exchange_token.contains(".."));
+        let artifacts = fs::read_dir(&harness.exchange_root)
+            .test_ok("exchange directory")
+            .map(|entry| entry.test_ok("exchange entry").file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(artifacts, vec![reference.exchange_token.as_str()]);
     }
 
     #[test]
@@ -741,7 +867,9 @@ mod tests {
 
         let toggle = DocumentCommandRequest {
             path: "2024-02-01.md".to_owned(),
-            expected_fingerprint: expected,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected,
+            },
             command: DocumentCommandKind::ToggleTask {
                 source_start: task_start,
                 source_end: task_end,
@@ -769,7 +897,9 @@ mod tests {
         let expected2 = fingerprint_of(&after_toggle);
         let append = DocumentCommandRequest {
             path: "2024-02-01.md".to_owned(),
-            expected_fingerprint: expected2,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected2,
+            },
             command: DocumentCommandKind::Append {
                 time_part: "11:00:00".to_owned(),
                 content: "appended body".to_owned(),
@@ -792,7 +922,9 @@ mod tests {
         let expected3 = fingerprint_of(&after_append);
         let remove = DocumentCommandRequest {
             path: "2024-02-01.md".to_owned(),
-            expected_fingerprint: expected3,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected3,
+            },
             command: DocumentCommandKind::Remove {
                 identity: "2024-02-01_10:00:00_0".to_owned(),
             },
@@ -817,6 +949,67 @@ mod tests {
     }
 
     #[test]
+    fn document_create_writes_an_absent_daily_file_via_exchange() {
+        let harness = Harness::new();
+        let request = DocumentCommandRequest {
+            path: "2026-08-04.md".to_owned(),
+            expected_state: DocumentExpectedState::Absent,
+            command: DocumentCommandKind::Create {
+                time_part: "09:30:00".to_owned(),
+                content: "created through SAF job".to_owned(),
+            },
+        };
+        let request_json = serde_json::to_string(&request).test_ok("create request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start create");
+
+        let terminal = harness.drive_until_terminal(&job_id);
+
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        assert_eq!(harness.write_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            harness.read_file("2026-08-04.md"),
+            b"- 09:30:00\ncreated through SAF job\n"
+        );
+    }
+
+    #[test]
+    fn document_create_rejects_an_existing_daily_file_without_overwrite() {
+        let harness = Harness::new();
+        let original = b"- 08:00:00\nexisting\n";
+        harness.write_file("2026-08-04.md", original);
+        let request = DocumentCommandRequest {
+            path: "2026-08-04.md".to_owned(),
+            expected_state: DocumentExpectedState::Absent,
+            command: DocumentCommandKind::Create {
+                time_part: "09:30:00".to_owned(),
+                content: "must not overwrite".to_owned(),
+            },
+        };
+        let request_json = serde_json::to_string(&request).test_ok("create request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start create");
+
+        let terminal = harness.drive_until_terminal(&job_id);
+
+        assert!(matches!(terminal, JobStep::Failed { .. }), "{terminal:?}");
+        assert_eq!(harness.write_count.load(Ordering::SeqCst), 0);
+        assert_eq!(harness.read_file("2026-08-04.md"), original);
+    }
+
+    #[test]
     fn document_replace_writes_once_via_exchange_and_is_byte_local() {
         let harness = Harness::new();
         let original = b"- 10:00:00\nold body\n\n- 11:00:00\nkeep\n";
@@ -825,7 +1018,9 @@ mod tests {
 
         let request = DocumentCommandRequest {
             path: "2024-01-02.md".to_owned(),
-            expected_fingerprint: expected,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected,
+            },
             command: DocumentCommandKind::Replace {
                 identity: "2024-01-02_10:00:00_0".to_owned(),
                 content: "new body".to_owned(),
@@ -873,7 +1068,9 @@ mod tests {
 
         let request = DocumentCommandRequest {
             path: "2026-07-20.md".to_owned(),
-            expected_fingerprint: second.revision.clone(),
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: second.revision.clone(),
+            },
             command: DocumentCommandKind::RewriteReminder {
                 reminder: second,
                 replacement: replacement.to_owned(),
@@ -907,7 +1104,9 @@ mod tests {
 
         let request = DocumentCommandRequest {
             path: "2024-01-03.md".to_owned(),
-            expected_fingerprint: expected,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected,
+            },
             command: DocumentCommandKind::Replace {
                 identity: "2024-01-03_10:00:00_0".to_owned(),
                 content: "should not land".to_owned(),
@@ -964,7 +1163,9 @@ mod tests {
         let expected = fingerprint_of(original);
         let request = DocumentCommandRequest {
             path: "2024-01-04.md".to_owned(),
-            expected_fingerprint: expected,
+            expected_state: DocumentExpectedState::Match {
+                fingerprint: expected,
+            },
             command: DocumentCommandKind::Replace {
                 identity: "2024-01-04_10:00:00_0".to_owned(),
                 content: "once".to_owned(),
@@ -1085,5 +1286,34 @@ mod tests {
             2,
             "both product date files must scan: {identities:?}"
         );
+    }
+
+    #[test]
+    fn scan_bounds_directory_listing_to_one_driver_budget() {
+        let harness = Harness::new();
+        for index in 0..100 {
+            harness.write_file(
+                &format!("{index:03}.md"),
+                format!("- 10:00:00\nmemo {index}\n").as_bytes(),
+            );
+        }
+
+        let page = harness.scan_page(1, None).test_ok("scan page");
+
+        assert_eq!(page.items.len(), 1);
+        assert!(page.next_cursor.is_some());
+    }
+
+    #[test]
+    fn scan_returns_empty_directory_page_before_consuming_the_next_listing_page() {
+        let harness = Harness::new();
+        for index in 0..100 {
+            harness.write_file(&format!("attachment-{index:03}.bin"), b"not markdown");
+        }
+
+        let page = harness.scan_page(1, None).test_ok("scan page");
+
+        assert!(page.items.is_empty());
+        assert!(page.next_cursor.is_some());
     }
 }

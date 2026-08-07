@@ -43,10 +43,12 @@ pub use media_ffi::{
 };
 pub use store_ffi::{
     StoreHandle, StoreHistoryAttachmentRef, StoreMemoCommand, StoreMemoCommandKind,
-    StoreMemoCommit, StoreMemoFilters, StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot,
-    StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
-    StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
-    StoreReminderSession, StoreSafMemoProjection, StoreTimeZoneContext, StoreZoneTransition,
+    StoreMemoCommit, StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision,
+    StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSummary, StorePageCursor,
+    StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand, StoreReminderCommandKind,
+    StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery, StoreReminderSession,
+    StoreSafMemoProjection, StoreSafMemoProjectionReference, StoreSidebarDateCount,
+    StoreSidebarProjection, StoreSidebarTagCount, StoreTimeZoneContext, StoreZoneTransition,
 };
 pub use sync_ffi::{
     SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
@@ -187,6 +189,10 @@ pub struct WorkspaceScanPage {
 #[data]
 #[derive(Clone, Debug)]
 pub enum WorkspaceDocumentCommandKind {
+    Create {
+        time_part: String,
+        content: String,
+    },
     Append {
         time_part: String,
         content: String,
@@ -210,9 +216,16 @@ pub enum WorkspaceDocumentCommandKind {
 
 #[data]
 #[derive(Clone, Debug)]
+pub enum WorkspaceDocumentExpectedState {
+    Absent,
+    Match { fingerprint: String },
+}
+
+#[data]
+#[derive(Clone, Debug)]
 pub struct WorkspaceDocumentCommand {
     pub path: String,
-    pub expected_fingerprint: String,
+    pub expected_state: WorkspaceDocumentExpectedState,
     pub command: WorkspaceDocumentCommandKind,
 }
 
@@ -334,6 +347,7 @@ pub enum PlatformAction {
         action_id: String,
         capability_token: String,
         path: String,
+        document_handle: Option<String>,
         exchange_token: String,
         expected_source: ExpectedFingerprint,
     },
@@ -383,6 +397,7 @@ pub enum DocumentKind {
 #[derive(Clone, Debug)]
 pub struct DocumentMetadata {
     pub target: WorkspaceTarget,
+    pub document_handle: String,
     pub kind: DocumentKind,
     pub mime_type: Option<String>,
     pub evidence: ActionEvidence,
@@ -1458,8 +1473,16 @@ impl LomoEngine {
     ) -> Result<String, EngineError> {
         let payload = workspace::DocumentCommandRequest {
             path: command.path,
-            expected_fingerprint: command.expected_fingerprint,
+            expected_state: match command.expected_state {
+                WorkspaceDocumentExpectedState::Absent => workspace::DocumentExpectedState::Absent,
+                WorkspaceDocumentExpectedState::Match { fingerprint } => {
+                    workspace::DocumentExpectedState::Match { fingerprint }
+                }
+            },
             command: match command.command {
+                WorkspaceDocumentCommandKind::Create { time_part, content } => {
+                    workspace::DocumentCommandKind::Create { time_part, content }
+                }
                 WorkspaceDocumentCommandKind::Append { time_part, content } => {
                     workspace::DocumentCommandKind::Append { time_part, content }
                 }
@@ -1602,6 +1625,15 @@ impl LomoEngine {
         self.active_store()?.query_memos(query, cursor, page_size)
     }
 
+    /// Complete active sidebar aggregate without memo pagination.
+    ///
+    /// # Errors
+    ///
+    /// No active workspace store, or store projection errors.
+    pub fn sidebar_projection(&self) -> Result<StoreSidebarProjection, EngineError> {
+        self.active_store()?.sidebar_projection()
+    }
+
     /// Dark-build `get_memo`.
     ///
     /// # Errors
@@ -1626,6 +1658,25 @@ impl LomoEngine {
         self.active_store()?.list_history_attachment_refs()
     }
 
+    /// Dark-build bounded memo history page.
+    ///
+    /// # Errors
+    ///
+    /// No active workspace store, or store history list errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned Strings for foreign callers"
+    )]
+    pub fn list_memo_history(
+        &self,
+        memo_id: String,
+        cursor: Option<String>,
+        limit: u32,
+    ) -> Result<StoreMemoHistoryPage, EngineError> {
+        self.active_store()?
+            .list_memo_history(&memo_id, cursor.as_deref(), limit)
+    }
+
     /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
     ///
     /// # Errors
@@ -1636,6 +1687,20 @@ impl LomoEngine {
         command: StoreMemoCommand,
     ) -> Result<StoreMemoCommit, EngineError> {
         self.active_store()?.apply_memo_command(command)
+    }
+
+    /// Commits a verified SAF platform mutation into the app-private projection only.
+    ///
+    /// # Errors
+    ///
+    /// No SAF store, malformed scanned facts, stale revision, or projection transaction errors.
+    pub fn commit_saf_projection_mutation(
+        &self,
+        command: StoreMemoCommand,
+        projection: Option<StoreSafMemoProjection>,
+    ) -> Result<StoreMemoCommit, EngineError> {
+        self.active_store()?
+            .commit_saf_projection_mutation(command, projection)
     }
 
     /// Dark-build `query_reminder_plan`.
@@ -1671,16 +1736,65 @@ impl LomoEngine {
         self.active_store()?.start_rebuild(batch_size)
     }
 
-    /// Replaces the app-private query projection with facts from one completed SAF workspace scan.
+    /// Begins a bounded SAF scan-to-projection rebuild; body bytes stay in Rust exchange storage.
     ///
     /// # Errors
     ///
-    /// Missing store handle, non-SAF workspace, malformed scan facts, or projection I/O errors.
-    pub fn rebuild_saf_store_projection(
+    /// Missing/non-SAF store, active rebuild, or temporary projection creation failure.
+    pub fn begin_saf_projection_rebuild(&self) -> Result<String, EngineError> {
+        self.active_store()?.begin_saf_projection_rebuild()
+    }
+
+    /// Appends one raw workspace scan page; Rust resolves and verifies each exchange artifact.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched rebuild, malformed scan facts, exchange verification, or write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned rebuild id"
+    )]
+    pub fn append_saf_projection_rebuild_page(
         &self,
-        memos: Vec<StoreSafMemoProjection>,
+        rebuild_id: String,
+        memos: Vec<StoreSafMemoProjectionReference>,
+    ) -> Result<(), EngineError> {
+        self.active_store()?.append_saf_projection_rebuild_page(
+            &rebuild_id,
+            memos,
+            self.core.exchange_root(),
+        )
+    }
+
+    /// Finishes and atomically publishes a bounded SAF scan-to-projection rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched rebuild, integrity failure, or atomic publication failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned rebuild id"
+    )]
+    pub fn finish_saf_projection_rebuild(
+        &self,
+        rebuild_id: String,
     ) -> Result<StoreRebuildResult, EngineError> {
-        self.active_store()?.rebuild_saf_projection(memos)
+        self.active_store()?
+            .finish_saf_projection_rebuild(&rebuild_id)
+    }
+
+    /// Aborts a bounded SAF scan-to-projection rebuild without modifying the live projection.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched rebuild or temporary artifact removal failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned rebuild id"
+    )]
+    pub fn abort_saf_projection_rebuild(&self, rebuild_id: String) -> Result<(), EngineError> {
+        self.active_store()?
+            .abort_saf_projection_rebuild(&rebuild_id)
     }
 
     /// Dark-build path-only media stage (P4-09). No full media bytes.
@@ -1911,7 +2025,9 @@ impl LomoEngine {
     }
 }
 
-fn workspace_reminder_to_ffi(value: workspace::ReminderReference) -> WorkspaceReminderReference {
+pub(crate) fn workspace_reminder_to_ffi(
+    value: workspace::ReminderReference,
+) -> WorkspaceReminderReference {
     WorkspaceReminderReference {
         opaque_id: value.opaque_id,
         revision: value.revision,
@@ -1929,7 +2045,9 @@ fn workspace_reminder_to_ffi(value: workspace::ReminderReference) -> WorkspaceRe
     }
 }
 
-fn workspace_reminder_from_ffi(value: WorkspaceReminderReference) -> workspace::ReminderReference {
+pub(crate) fn workspace_reminder_from_ffi(
+    value: WorkspaceReminderReference,
+) -> workspace::ReminderReference {
     workspace::ReminderReference {
         opaque_id: value.opaque_id,
         revision: value.revision,
@@ -2047,8 +2165,9 @@ pub fn output_from_ffi(
 
 #[doc(hidden)]
 pub fn metadata_from_ffi(value: DocumentMetadata) -> Result<core::DocumentMetadata, EngineError> {
-    core::DocumentMetadata::new(
+    core::DocumentMetadata::new_with_handle(
         target_from_ffi(value.target)?,
+        core::DocumentHandle::parse(&value.document_handle).map_err(EngineError::from)?,
         match value.kind {
             DocumentKind::File => core::DocumentKind::File,
             DocumentKind::Directory => core::DocumentKind::Directory,
@@ -2253,12 +2372,17 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             action_id,
             capability,
             path,
+            locator,
             exchange_token,
             expected_source,
         } => PlatformAction::ReadToExchange {
             action_id: action_id.as_str().to_owned(),
             capability_token: capability.as_str().to_owned(),
             path: path.as_str().to_owned(),
+            document_handle: match locator {
+                core::DocumentLocator::Path(_) => None,
+                core::DocumentLocator::Opaque(handle) => Some(handle.as_str().to_owned()),
+            },
             exchange_token: exchange_token.as_str().to_owned(),
             expected_source: expected_to_ffi(expected_source),
         },

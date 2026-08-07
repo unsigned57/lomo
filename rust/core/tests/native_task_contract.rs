@@ -57,7 +57,8 @@ mod tests {
     use lomo_core::{
         CancelOutcome, EngineConfig, EngineState, EphemeralSecretVault, ErrorCategory, JobStep,
         LomoEngine, NativeTaskCompletion, NativeTaskOutcome, NativeWorkerAttach,
-        RecordingNativeExecutor, SecretLeaseId, SecretMaterial, WorkspaceDescriptor,
+        RecordingNativeExecutor, SecretLeaseId, SecretMaterial, ShutdownDeadline,
+        WorkspaceDescriptor,
     };
     use tempfile::tempdir;
 
@@ -716,5 +717,33 @@ mod tests {
                 .must_succeed("some"),
             r#"{"pool":true}"#
         );
+    }
+
+    #[test]
+    fn shutdown_deadline_bounds_actor_and_worker_join() {
+        let (fixture, _executor) = Fixture::with_delayed_pool(Duration::from_millis(400));
+        let engine = LomoEngine::open(fixture.config).must_succeed("open with pool");
+        let _slow_job = engine
+            .start_native_task_job(
+                "slow-shutdown",
+                r#"{"remote":"example"}"#,
+                None,
+                Duration::from_secs(30),
+            )
+            .must_succeed("start slow native");
+        std::thread::sleep(Duration::from_millis(20));
+
+        let started = std::time::Instant::now();
+        let outcome = engine
+            .shutdown(ShutdownDeadline::new(Duration::from_millis(50)).must_succeed("deadline"))
+            .must_succeed("bounded shutdown");
+        assert_eq!(outcome, lomo_core::ShutdownOutcome::DeadlineExceeded);
+        assert!(started.elapsed() < Duration::from_millis(200));
+
+        std::thread::sleep(Duration::from_millis(450));
+        let second = engine
+            .shutdown(ShutdownDeadline::new(Duration::from_secs(1)).must_succeed("deadline"))
+            .must_succeed("join finished actor");
+        assert_eq!(second, lomo_core::ShutdownOutcome::AlreadyShutdown);
     }
 }

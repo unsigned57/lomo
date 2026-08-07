@@ -75,7 +75,7 @@ pub use types::{MemoIdentity, WorkspaceRelativePath};
 
 pub use jobs::{
     DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandDriver, DocumentCommandKind,
-    DocumentCommandRequest, DocumentCommandResult, SCAN_DRIVER_KIND, ScanDriver,
-    WorkspaceMemoContentReference, WorkspaceMemoSummary, WorkspaceScanPage, WorkspaceScanRequest,
-    workspace_driver_registry,
+    DocumentCommandRequest, DocumentCommandResult, DocumentExpectedState, SCAN_DRIVER_KIND,
+    ScanDriver, WorkspaceMemoContentReference, WorkspaceMemoSummary, WorkspaceScanPage,
+    WorkspaceScanRequest, workspace_driver_registry,
 };

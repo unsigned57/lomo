@@ -138,6 +138,20 @@ mod tests {
     }
 
     #[test]
+    fn durable_deserialization_reuses_constrained_boundaries() {
+        assert!(serde_json::from_str::<JobId>(r#""bad/id""#).err().is_some());
+        assert!(
+            serde_json::from_str::<RelativeWorkspacePath>(r#""../escape.md""#)
+                .err()
+                .is_some()
+        );
+        assert!(serde_json::from_str::<PageSize>("257").err().is_some());
+        let bounded = serde_json::from_str::<PageSize>("256")
+            .unwrap_or_else(|error| panic!("bounded page should deserialize: {error}"));
+        assert_eq!(bounded.get(), 256);
+    }
+
+    #[test]
     fn event_sequence_gap_requires_full_invalidate_scope() {
         use lomo_core::{
             EventSequence, InvalidationScope, event_sequence_requires_full_invalidate,

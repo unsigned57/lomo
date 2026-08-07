@@ -175,6 +175,7 @@ mod tests {
     fn output_from_ffi_covers_every_platform_output_variant() {
         let metadata = DocumentMetadata {
             target: WorkspaceTarget::Root,
+            document_handle: "root-document".to_owned(),
             kind: DocumentKind::Directory,
             mime_type: Some("inode/directory".to_owned()),
             evidence: evidence(),
@@ -183,6 +184,7 @@ mod tests {
             target: WorkspaceTarget::Relative {
                 path: "notes/a.md".to_owned(),
             },
+            document_handle: "provider:notes/a.md".to_owned(),
             kind: DocumentKind::File,
             mime_type: Some("text/markdown".to_owned()),
             evidence: evidence(),
@@ -378,6 +380,6 @@ mod tests {
                 dispatch_generation: 7,
             } if task_kind == "sync-preflight"
         ));
-        // P5-13: SyncPlannerError / plan_sync_envelope absorbed with lomo-sync-core.
+        // SyncPlannerError conversion remains owned by lomo-sync.
     }
 }

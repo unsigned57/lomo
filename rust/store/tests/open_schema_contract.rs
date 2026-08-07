@@ -5,7 +5,9 @@
 //!
 //! Scenarios:
 //! - Given a new workspace root, when `Store::open` runs, then `foreign_keys=ON`, `journal_mode=wal`,
-//!   `busy` timeout is applied, `user_version` is schema v1, and quick integrity is ok.
+//!   `busy` timeout is applied, `user_version` is the live schema, and quick integrity is ok.
+//! - Given a v1 projection, when it is opened, then the SAF ledger and reminder projection are
+//!   added atomically and the schema advances to v3 without discarding projection rows.
 //! - Given a database with a higher unknown `user_version`, when open is attempted, then open fails
 //!   closed with `unknown_schema_version` and does not downgrade.
 //!
@@ -33,7 +35,7 @@ mod tests {
         assert!(info.foreign_keys, "foreign_keys must be ON");
         assert_eq!(info.journal_mode, "wal");
         assert_eq!(info.user_version, STORE_SCHEMA_VERSION);
-        assert_eq!(info.user_version, 1);
+        assert_eq!(info.user_version, 3);
         assert!(info.busy_timeout_ms >= 1000);
         assert!(info.integrity_ok);
         assert!(info.database_path.ends_with("store.db"));
@@ -45,7 +47,7 @@ mod tests {
         );
         drop(store);
         let reopened = Store::open(dir.path()).expect("reopen");
-        assert_eq!(reopened.open_info().user_version, 1);
+        assert_eq!(reopened.open_info().user_version, 3);
     }
 
     #[test]
@@ -70,6 +72,52 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read version");
         assert_eq!(version, 99);
+    }
+
+    #[test]
+    fn v1_projection_migrates_to_v2_without_losing_rows() {
+        let dir = tempdir().expect("tempdir");
+        let store = Store::open(dir.path()).expect("create current schema");
+        let db_path = store.open_info().database_path;
+        drop(store);
+
+        {
+            let conn = Connection::open(&db_path).expect("open raw");
+            conn.execute(
+                "INSERT INTO memo( \
+                 memo_id,source_path,file_fingerprint,created_at_ms,updated_at_ms,content_revision \
+                 ) VALUES('v1-memo','2026-08-04.md',?1,1,1,1)",
+                ["0".repeat(64)],
+            )
+            .expect("seed v1 row");
+            conn.execute("DROP TABLE saf_mutation_operation", [])
+                .expect("remove v2 table");
+            conn.execute("ALTER TABLE memo DROP COLUMN reminders_json", [])
+                .expect("remove v3 column");
+            conn.pragma_update(None, "user_version", 1u32)
+                .expect("mark v1");
+        }
+
+        let migrated = Store::open(dir.path()).expect("migrate v1");
+        assert_eq!(migrated.open_info().user_version, STORE_SCHEMA_VERSION);
+        let conn = Connection::open(migrated.open_info().database_path).expect("inspect migrated");
+        let memo_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memo WHERE memo_id='v1-memo'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read memo");
+        let ledger_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type='table' AND name='saf_mutation_operation'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read schema");
+        assert_eq!(memo_count, 1);
+        assert_eq!(ledger_exists, 1);
     }
 
     #[test]

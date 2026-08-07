@@ -11,6 +11,7 @@ use crate::tokenizer::QueryPlan;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageCursor {
     pub query_fingerprint: String,
+    pub sort_rank_bits: Option<u64>,
     pub sort_updated_at_ms: i64,
     pub sort_memo_id: String,
     pub high_water_revision: u64,
@@ -20,22 +21,49 @@ pub struct PageCursor {
 impl PageCursor {
     /// Builds a cursor for the last row of a page under the given query fingerprint.
     #[must_use]
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "String fields are not const-constructible here"
-    )]
     pub fn new(
         query_fingerprint: String,
+        sort_rank: Option<f64>,
         sort_updated_at_ms: i64,
         sort_memo_id: String,
         high_water_revision: u64,
     ) -> Self {
         Self {
             query_fingerprint,
+            sort_rank_bits: sort_rank.map(f64::to_bits),
             sort_updated_at_ms,
             sort_memo_id,
             high_water_revision,
             tokenizer_version: TOKENIZER_VERSION,
+        }
+    }
+
+    /// Resolves and validates the leading FTS sort key for this query shape.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing FTS rank, rank on a non-FTS cursor, and non-finite rank encodings.
+    pub fn validated_sort_rank(
+        &self,
+        requires_rank: bool,
+    ) -> Result<Option<f64>, lomo_core::LomoError> {
+        let rank = self.sort_rank_bits.map(f64::from_bits);
+        if rank.is_some_and(|value| !value.is_finite()) {
+            return Err(validation(
+                "invalid_page_cursor",
+                "page cursor rank must be finite",
+            ));
+        }
+        match (requires_rank, rank) {
+            (true, None) => Err(validation(
+                "invalid_page_cursor",
+                "FTS page cursor must include rank",
+            )),
+            (false, Some(_)) => Err(validation(
+                "invalid_page_cursor",
+                "non-FTS page cursor must not include rank",
+            )),
+            (_, value) => Ok(value),
         }
     }
 

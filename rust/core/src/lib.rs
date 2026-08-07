@@ -23,9 +23,10 @@ pub use native_task::{
     RecordingNativeExecutor,
 };
 pub use platform::{
-    ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, ExchangeArtifact,
-    ExpectedFingerprint, MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionOutput,
-    PlatformBatchResult, Sha256Digest, VerifiedAbsence, WorkspaceTarget, WriteMode,
+    ActionEvidence, ActionOutcome, ActionResult, DocumentHandle, DocumentKind, DocumentLocator,
+    DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, MetadataPage, PlatformAction,
+    PlatformActionBatch, PlatformActionOutput, PlatformBatchResult, Sha256Digest, VerifiedAbsence,
+    WorkspaceTarget, WriteMode,
 };
 pub use secret::{EphemeralSecretVault, SecretLeaseId, SecretMaterial, SharedSecretVault};
 pub use types::{

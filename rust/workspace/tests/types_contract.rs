@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn path_limits_and_control_chars_are_table_driven() {
-        // STAGE2-CONTRACT: relative path max 4096 UTF-8 bytes and per-segment max 255;
+        // Workspace contract: relative path max 4096 UTF-8 bytes and per-segment max 255;
         // both constraints apply. NUL / other controls / escapes fail closed.
 
         let exact_segment = format!("memos/{}", "a".repeat(255));

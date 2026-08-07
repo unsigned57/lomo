@@ -219,6 +219,7 @@ mod tests {
         };
         let metadata = |target: WorkspaceTarget, kind: DocumentKind| DocumentMetadata {
             target,
+            document_handle: "fixture-document".to_owned(),
             kind,
             mime_type: None,
             evidence: evidence(),
@@ -258,6 +259,7 @@ mod tests {
                 PlatformActionOutput::WriteComplete {
                     metadata: DocumentMetadata {
                         target: WorkspaceTarget::Relative { path: path.clone() },
+                        document_handle: path.clone(),
                         kind: DocumentKind::File,
                         mime_type: None,
                         evidence: ActionEvidence {

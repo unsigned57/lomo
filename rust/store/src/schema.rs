@@ -1,7 +1,7 @@
-//! Schema v1 constants and DDL for the rebuildable `SQLite` projection.
+//! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 1;
+pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -24,9 +24,10 @@ pub mod tables {
     pub const ENGINE_DIAGNOSTIC: &str = "engine_diagnostic";
     pub const LOCAL_JOB: &str = "local_job";
     pub const STORE_META: &str = "store_meta";
+    pub const SAF_MUTATION_OPERATION: &str = "saf_mutation_operation";
 }
 
-/// Full schema v1 DDL applied on create (and rebuild temp databases).
+/// Full live schema DDL applied on create (and rebuild temp databases).
 #[must_use]
 #[expect(clippy::too_many_lines, reason = "DDL is a single schema document")]
 pub fn schema_v1_ddl() -> String {
@@ -46,6 +47,7 @@ CREATE TABLE {memo} (
     updated_at_ms INTEGER NOT NULL,
     body_preview TEXT NOT NULL DEFAULT '',
     search_content TEXT NOT NULL DEFAULT '',
+    reminders_json TEXT NOT NULL DEFAULT '[]',
     content_revision INTEGER NOT NULL DEFAULT 0
 );
 
@@ -125,6 +127,16 @@ CREATE TABLE {store_meta} (
     value TEXT NOT NULL
 );
 
+CREATE TABLE {saf_mutation_operation} (
+    operation_id TEXT PRIMARY KEY NOT NULL,
+    mutation_digest TEXT NOT NULL,
+    memo_id TEXT NOT NULL,
+    core_revision INTEGER NOT NULL,
+    event_sequence INTEGER NOT NULL,
+    content_revision INTEGER NOT NULL,
+    file_fingerprint TEXT NOT NULL
+);
+
 INSERT INTO {stats}(key, value_i64) VALUES
     ('memo_count', 0),
     ('pinned_count', 0),
@@ -149,6 +161,27 @@ INSERT INTO {store_meta}(key, value) VALUES
         engine_diagnostic = tables::ENGINE_DIAGNOSTIC,
         local_job = tables::LOCAL_JOB,
         store_meta = tables::STORE_META,
+        saf_mutation_operation = tables::SAF_MUTATION_OPERATION,
         tokenizer_version = TOKENIZER_VERSION,
     )
 }
+
+/// Additive v1 -> v2 migration for durable SAF projection mutation replay.
+pub const MIGRATE_V1_TO_V2_DDL: &str = r"
+CREATE TABLE saf_mutation_operation (
+    operation_id TEXT PRIMARY KEY NOT NULL,
+    mutation_digest TEXT NOT NULL,
+    memo_id TEXT NOT NULL,
+    core_revision INTEGER NOT NULL,
+    event_sequence INTEGER NOT NULL,
+    content_revision INTEGER NOT NULL,
+    file_fingerprint TEXT NOT NULL
+);
+PRAGMA user_version = 2;
+";
+
+/// Additive v2 -> v3 migration for Rust-parsed reminder projection facts.
+pub const MIGRATE_V2_TO_V3_DDL: &str = r"
+ALTER TABLE memo ADD COLUMN reminders_json TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version = 3;
+";

@@ -22,6 +22,10 @@
 //!   reopens, then only the committed journal is authoritative.
 //! - Given a truncated envelope, unknown schema, or bad checksum, when the engine opens, then it
 //!   fails closed and preserves the corrupt bytes for recovery diagnostics.
+//! - Given a checksummed schema-v2 journal whose read action predates opaque document locators,
+//!   when the engine opens, then the path is migrated into the canonical locator and the current
+//!   journal schema is atomically republished.
+//!   atomically republished.
 //!
 //! Observable outcomes: `EngineState`, stable workspace identity, error category/code, lock
 //! release, and exact durable journal bytes.
@@ -29,6 +33,8 @@
 //! without `owner.pid` is immediately reclaimed and an old owner Drop removes any replacement;
 //! Android-safe stale claim recovery was RED on 2026-08-02 with `workspace_lock_unavailable`
 //! because the file-based protocol tried to read the claim directory as a file.
+//! Schema-v2 locator migration was RED on 2026-08-06 with `journal_payload_invalid` because adding
+//! `DocumentLocator` changed the persisted action shape without advancing the journal schema.
 //! Excludes: actor scheduling, listener delivery, cancellation races, SAF execution, and FFI.
 
 #[cfg(test)]
@@ -52,6 +58,7 @@ mod tests {
         CapabilityToken, EngineConfig, EngineState, ErrorCategory, LomoEngine, WorkspaceDescriptor,
         WorkspaceId,
     };
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     use super::failure_support::ResultFailureTestExt;
@@ -393,5 +400,95 @@ mod tests {
                 corrupt
             );
         }
+    }
+
+    #[test]
+    fn schema_v2_read_action_without_locator_migrates_and_republishes_current_schema() {
+        let fixture = Fixture::new();
+        let journal_path = fixture.config.journal_path().must_succeed("journal path");
+        drop(LomoEngine::open(fixture.config.clone()).must_succeed("seed journal"));
+
+        let mut envelope: serde_json::Value =
+            serde_json::from_slice(&fs::read(&journal_path).must_succeed("seeded journal"))
+                .must_succeed("seeded envelope");
+        let payload_text = envelope
+            .get("payload")
+            .must_succeed("payload field")
+            .as_str()
+            .must_succeed("payload text");
+        let mut payload: serde_json::Value =
+            serde_json::from_str(payload_text).must_succeed("payload JSON");
+        *payload
+            .pointer_mut("/jobs/0/batch/actions")
+            .must_succeed("legacy actions") = serde_json::json!([
+            {
+                "ReadToExchange": {
+                    "action_id": "action-legacy-read",
+                    "capability": "direct-root",
+                    "path": "2026-08-06.md",
+                    "exchange_token": "ex.0123456789abcdef0123456789abcdef.legacy",
+                    "expected_source": "Absent"
+                }
+            }
+        ]);
+        *payload
+            .pointer_mut("/jobs/0/driver_state_json")
+            .must_succeed("legacy driver state") =
+            serde_json::Value::String("legacy scan continuation".repeat(1024));
+        let legacy_payload = serde_json::to_string(&payload).must_succeed("legacy payload");
+        envelope
+            .as_object_mut()
+            .must_succeed("legacy envelope object")
+            .extend([
+                ("schema".to_owned(), serde_json::json!(2)),
+                (
+                    "payload".to_owned(),
+                    serde_json::Value::String(legacy_payload.clone()),
+                ),
+                (
+                    "checksum".to_owned(),
+                    serde_json::Value::String(format!(
+                        "{:x}",
+                        Sha256::digest(legacy_payload.as_bytes())
+                    )),
+                ),
+            ]);
+        fs::write(
+            &journal_path,
+            serde_json::to_vec(&envelope).must_succeed("legacy envelope"),
+        )
+        .must_succeed("inject schema-v2 journal");
+
+        drop(LomoEngine::open(fixture.config).must_succeed("migrate schema-v2 journal"));
+
+        let migrated_envelope: serde_json::Value =
+            serde_json::from_slice(&fs::read(journal_path).must_succeed("migrated journal"))
+                .must_succeed("migrated envelope");
+        assert_eq!(
+            migrated_envelope
+                .get("schema")
+                .must_succeed("migrated schema"),
+            &serde_json::json!(4)
+        );
+        let migrated_payload: serde_json::Value = serde_json::from_str(
+            migrated_envelope
+                .get("payload")
+                .must_succeed("migrated payload field")
+                .as_str()
+                .must_succeed("migrated payload text"),
+        )
+        .must_succeed("migrated payload");
+        assert_eq!(
+            migrated_payload
+                .pointer("/jobs/0/batch/actions/0/ReadToExchange/locator")
+                .must_succeed("migrated locator"),
+            &serde_json::json!({"Path": "2026-08-06.md"})
+        );
+        assert_eq!(
+            migrated_payload
+                .pointer("/jobs/0/driver_state_json")
+                .must_succeed("compacted driver state"),
+            &serde_json::Value::Null
+        );
     }
 }

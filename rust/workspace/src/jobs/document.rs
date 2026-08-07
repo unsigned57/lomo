@@ -30,13 +30,24 @@ pub const DOCUMENT_COMMAND_DRIVER_KIND: &str = "workspace-document-command-v1";
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DocumentCommandRequest {
     pub path: String,
-    pub expected_fingerprint: String,
+    pub expected_state: DocumentExpectedState,
     pub command: DocumentCommandKind,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentExpectedState {
+    Absent,
+    Match { fingerprint: String },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DocumentCommandKind {
+    Create {
+        time_part: String,
+        content: String,
+    },
     Append {
         time_part: String,
         content: String,
@@ -68,7 +79,7 @@ pub struct DocumentCommandResult {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct DocumentState {
     path: String,
-    expected_fingerprint: String,
+    expected_fingerprint: Option<String>,
     command: DocumentCommandKind,
     phase: DocumentPhase,
     read_token: Option<String>,
@@ -96,6 +107,34 @@ impl JobDriver for DocumentCommandDriver {
         DOCUMENT_COMMAND_DRIVER_KIND
     }
 
+    fn recover_canonical_request_json(
+        &self,
+        state_json: &str,
+    ) -> Result<Option<String>, LomoError> {
+        let state: DocumentState = serde_json::from_str(state_json).map_err(|_error| {
+            validation(
+                "document_command_state_invalid",
+                "document command durable state is invalid",
+            )
+        })?;
+        let expected_state = state
+            .expected_fingerprint
+            .map_or(DocumentExpectedState::Absent, |fingerprint| {
+                DocumentExpectedState::Match { fingerprint }
+            });
+        let request = DocumentCommandRequest {
+            path: state.path,
+            expected_state,
+            command: state.command,
+        };
+        serde_json::to_string(&request).map(Some).map_err(|_error| {
+            validation(
+                "document_command_state_invalid",
+                "document command request identity cannot be reconstructed",
+            )
+        })
+    }
+
     fn start(
         &self,
         ctx: &mut JobDriverContext<'_>,
@@ -109,8 +148,29 @@ impl JobDriver for DocumentCommandDriver {
                 )
             })?;
         let path = WorkspaceRelativePath::parse(&request.path)?;
-        let fingerprint = SourceFingerprint::parse(&request.expected_fingerprint)?;
-        validate_command_shape(&request.command, &fingerprint)?;
+        let fingerprint = match &request.expected_state {
+            DocumentExpectedState::Absent => None,
+            DocumentExpectedState::Match { fingerprint } => {
+                Some(SourceFingerprint::parse(fingerprint)?)
+            }
+        };
+        validate_command_shape(&request.command, fingerprint.as_ref())?;
+
+        if matches!(request.command, DocumentCommandKind::Create { .. }) {
+            if !matches!(request.expected_state, DocumentExpectedState::Absent) {
+                return Err(validation(
+                    "invalid_document_expected_state",
+                    "create requires an absent target",
+                ));
+            }
+            return start_create(ctx, request, &path);
+        }
+        let expected_fingerprint = fingerprint.ok_or_else(|| {
+            validation(
+                "invalid_document_expected_state",
+                "editing an existing document requires a matching fingerprint",
+            )
+        })?;
 
         let token = exchange_token_for(
             ctx.workspace.identity().as_str(),
@@ -126,7 +186,7 @@ impl JobDriver for DocumentCommandDriver {
         )?;
         let state = DocumentState {
             path: request.path,
-            expected_fingerprint: request.expected_fingerprint,
+            expected_fingerprint: Some(expected_fingerprint.as_str().to_owned()),
             command: request.command,
             phase: DocumentPhase::Read,
             read_token: Some(token),
@@ -169,6 +229,60 @@ impl JobDriver for DocumentCommandDriver {
     }
 }
 
+fn start_create(
+    ctx: &mut JobDriverContext<'_>,
+    request: DocumentCommandRequest,
+    path: &WorkspaceRelativePath,
+) -> Result<DriverStart, LomoError> {
+    let DocumentCommandKind::Create { time_part, content } = &request.command else {
+        return Err(validation(
+            "invalid_document_command",
+            "create start requires a create command",
+        ));
+    };
+    let source = SourceBytes::try_from_str(&format!("- {time_part}\n{content}\n"))?;
+    let result_fingerprint = source.fingerprint().as_str().to_owned();
+    let write_token = exchange_token_for(
+        ctx.workspace.identity().as_str(),
+        ctx.job_id.as_str(),
+        "doc-create",
+    );
+    let (write_length, write_digest) =
+        write_exchange_bytes(ctx.exchange_root, &write_token, source.as_bytes())?;
+    let artifact = ExchangeArtifact::new(
+        &write_token,
+        write_length,
+        Sha256Digest::parse(&write_digest)?,
+    )?;
+    let state = DocumentState {
+        path: request.path,
+        expected_fingerprint: None,
+        command: request.command,
+        phase: DocumentPhase::Write,
+        read_token: None,
+        write_token: Some(write_token),
+        write_length: Some(write_length),
+        write_digest: Some(write_digest),
+        result_fingerprint: Some(result_fingerprint),
+        source_evidence_length: None,
+        source_evidence_digest: None,
+        source_evidence_fingerprint: None,
+    };
+    let write = PlatformAction::write_from_exchange(
+        ctx.next_action_id("doc-create")?,
+        ctx.capability(),
+        artifact,
+        to_core_path(path)?,
+        WriteMode::Create,
+        ExpectedFingerprint::absent(),
+    );
+    Ok(DriverStart {
+        state_json: encode_state(&state)?,
+        actions: vec![write],
+        result_json: None,
+    })
+}
+
 fn advance_after_read(
     ctx: &mut JobDriverContext<'_>,
     state: &mut DocumentState,
@@ -191,7 +305,7 @@ fn advance_after_read(
     }
     let bytes = read_exchange_bytes(ctx.exchange_root, &token)?;
     let source_fp = source_fingerprint_of(&bytes);
-    if source_fp.as_str() != state.expected_fingerprint {
+    if Some(source_fp.as_str()) != state.expected_fingerprint.as_deref() {
         return Err(validation(
             "stale_snapshot",
             "document fingerprint does not match expected snapshot",
@@ -201,7 +315,13 @@ fn advance_after_read(
     let stem = filename_stem(&state.path)?;
     let document = parse_workspace_document(&source, &stem)?;
     let path = WorkspaceRelativePath::parse(&state.path)?;
-    let expected = SourceFingerprint::parse(&state.expected_fingerprint)?;
+    let expected =
+        SourceFingerprint::parse(state.expected_fingerprint.as_deref().ok_or_else(|| {
+            validation(
+                "document_missing_expected_fingerprint",
+                "read phase requires a matching source fingerprint",
+            )
+        })?)?;
     let command = to_patch_command(&path, &expected, &state.command)?;
     let plan = plan_document_patch(&document, &command)?;
 
@@ -299,10 +419,14 @@ fn advance_after_write(
 
 fn validate_command_shape(
     command: &DocumentCommandKind,
-    expected_fingerprint: &SourceFingerprint,
+    expected_fingerprint: Option<&SourceFingerprint>,
 ) -> Result<(), LomoError> {
     match command {
-        DocumentCommandKind::Append {
+        DocumentCommandKind::Create {
+            time_part,
+            content: _,
+        }
+        | DocumentCommandKind::Append {
             time_part,
             content: _,
         } => {
@@ -339,6 +463,12 @@ fn validate_command_shape(
             replacement: _,
         } => {
             let parsed = ReminderRef::try_from_reference(reminder.clone())?;
+            let expected_fingerprint = expected_fingerprint.ok_or_else(|| {
+                validation(
+                    "invalid_document_expected_state",
+                    "reminder rewrite requires a matching source fingerprint",
+                )
+            })?;
             if parsed.revision() != expected_fingerprint {
                 return Err(validation(
                     "invalid_reminder_reference",
@@ -356,6 +486,12 @@ fn to_patch_command(
     command: &DocumentCommandKind,
 ) -> Result<DocumentPatchCommand, LomoError> {
     Ok(match command {
+        DocumentCommandKind::Create { .. } => {
+            return Err(validation(
+                "invalid_document_command",
+                "create does not use the existing-document patch planner",
+            ));
+        }
         DocumentCommandKind::Append { time_part, content } => DocumentPatchCommand::Append {
             path: path.clone(),
             expected_fingerprint: expected.clone(),

@@ -21,9 +21,11 @@ use crate::{
 };
 
 const JOURNAL_MAGIC: &str = "LOMO_ENGINE";
-/// Journal envelope schema. v1 journals (platform-only jobs) migrate in-memory on open; unknown
-/// schemas fail closed as corruption → callers observe open failure (no clean slate).
-const JOURNAL_SCHEMA: u32 = 2;
+/// Journal envelope schema. v1-v3 journals migrate in-memory on open; unknown schemas fail closed
+/// as corruption → callers observe open failure (no clean slate).
+const JOURNAL_SCHEMA: u32 = 4;
+const JOURNAL_SCHEMA_V3: u32 = 3;
+const JOURNAL_SCHEMA_V2: u32 = 2;
 const JOURNAL_SCHEMA_V1: u32 = 1;
 const COMMAND_CAPACITY: usize = 256;
 const EVENT_CAPACITY: usize = 256;
@@ -308,6 +310,12 @@ impl fmt::Debug for LomoEngine {
 }
 
 impl LomoEngine {
+    /// Returns the application-private exchange root used by workspace jobs.
+    #[must_use]
+    pub fn exchange_root(&self) -> &Path {
+        &self.config.exchange_root
+    }
+
     /// Opens the application kernel, recovers its journal, and starts the bounded single writer.
     ///
     /// # Errors
@@ -577,15 +585,26 @@ impl LomoEngine {
     ///
     /// Returns an engine-closed error when the actor is unavailable.
     pub fn shutdown(&self, deadline: ShutdownDeadline) -> Result<ShutdownOutcome, LomoError> {
+        let deadline_at = Instant::now() + deadline.0;
         let (reply, response) = mpsc::channel();
-        if self.actor.lock().map_err(actor_handle_error)?.is_none() {
+        let actor_state = self.actor.lock().map_err(actor_handle_error)?;
+        if actor_state.is_none() {
             return Ok(ShutdownOutcome::AlreadyShutdown);
         }
+        if actor_state.as_ref().is_some_and(JoinHandle::is_finished) {
+            drop(actor_state);
+            self.join_actor_until(deadline_at)?;
+            return Ok(ShutdownOutcome::AlreadyShutdown);
+        }
+        drop(actor_state);
         self.send(Command::Shutdown { reply })?;
-        match response.recv_timeout(deadline.0) {
+        let remaining = deadline_at.saturating_duration_since(Instant::now());
+        match response.recv_timeout(remaining) {
             Ok(result) => {
                 let outcome = result?;
-                self.join_actor()?;
+                if !self.join_actor_until(deadline_at)? {
+                    return Ok(ShutdownOutcome::DeadlineExceeded);
+                }
                 Ok(outcome)
             }
             Err(mpsc::RecvTimeoutError::Timeout) => Ok(ShutdownOutcome::DeadlineExceeded),
@@ -605,14 +624,31 @@ impl LomoEngine {
             })
     }
 
-    fn join_actor(&self) -> Result<(), LomoError> {
-        let actor = self.actor.lock().map_err(actor_handle_error)?.take();
-        if let Some(actor) = actor {
-            actor.join().map_err(|_panic| {
-                LomoError::internal("engine_actor_panicked", "single-writer thread panicked")
-            })?;
+    fn join_actor_until(&self, deadline: Instant) -> Result<bool, LomoError> {
+        loop {
+            let mut actor_guard = self.actor.lock().map_err(actor_handle_error)?;
+            let Some(actor) = actor_guard.as_ref() else {
+                return Ok(true);
+            };
+            if actor.is_finished() {
+                let Some(actor) = actor_guard.take() else {
+                    return Ok(true);
+                };
+                actor.join().map_err(|_panic| {
+                    LomoError::internal("engine_actor_panicked", "single-writer thread panicked")
+                })?;
+                return Ok(true);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            drop(actor_guard);
+            std::thread::sleep(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(1)),
+            );
         }
-        Ok(())
     }
 }
 
@@ -720,9 +756,14 @@ fn prepare_runtime(config: &EngineConfig) -> Result<PreparedRuntime, LomoError> 
     } else {
         JournalState::initial(workspace.identity().clone())
     };
+    recover_legacy_request_identities(&mut journal, &config.drivers)?;
     advance_generation(&mut journal)?;
     expire_wall_clock_jobs(&mut journal, epoch_millis()?);
     ensure_bootstrap(&mut journal, workspace, config.bootstrap_deadline)?;
+    // Legacy journals may already contain the terminal history bound. Normalize that history
+    // before validation so a bounded journal remains reopenable across schema upgrades.
+    retain_bounded_terminals(&mut journal);
+    compact_terminal_job_payloads(&mut journal);
     journal.event_sequence = checked_next_event(journal.event_sequence)?;
     journal.lifecycle = lifecycle_for(&journal);
     validate_journal_state(&journal, workspace.identity())?;
@@ -1200,6 +1241,17 @@ fn start_user_job(
             "user jobs require a Ready engine",
         ));
     }
+    let driver = runtime.drivers.get(driver_kind).ok_or_else(|| {
+        LomoError::validation(
+            "unknown_job_driver",
+            "job driver is not registered with the engine",
+        )
+    })?;
+    let canonical_request = driver.canonical_request_json(request_json)?;
+    let request_identity = job_request_identity(driver_kind, &canonical_request);
+    if let Some(existing) = existing_active_job(current, driver_kind, &request_identity) {
+        return Ok(existing.job_id.clone());
+    }
     let active_count = current.jobs.iter().filter(|job| job.is_active()).count();
     if active_count >= MAX_ACTIVE_JOBS {
         return Err(LomoError::resource_limit(
@@ -1207,12 +1259,6 @@ fn start_user_job(
             "engine supports at most 64 active jobs",
         ));
     }
-    let driver = runtime.drivers.get(driver_kind).ok_or_else(|| {
-        LomoError::validation(
-            "unknown_job_driver",
-            "job driver is not registered with the engine",
-        )
-    })?;
     let workspace = runtime.workspace.as_ref().ok_or_else(|| {
         LomoError::validation(
             "workspace_not_selected",
@@ -1220,12 +1266,7 @@ fn start_user_job(
         )
     })?;
 
-    if deadline < Duration::from_millis(1) || deadline > MAX_BOOTSTRAP_DEADLINE {
-        return Err(LomoError::validation(
-            "invalid_job_deadline",
-            "job deadline must be within 1 millisecond..=24 hours",
-        ));
-    }
+    validate_user_job_deadline(deadline)?;
 
     let (mut candidate, job_id, operation_id) = allocate_user_job(current)?;
     let deadline_epoch_millis = checked_deadline_epoch(deadline)?;
@@ -1268,6 +1309,7 @@ fn start_user_job(
             PersistedJobStatus::WaitingPlatform
         },
         driver_kind: Some(kind.as_str().to_owned()),
+        request_identity: PersistedRequestIdentity::Canonical(request_identity),
         driver_state_json: if completed_immediately {
             None
         } else {
@@ -1289,6 +1331,64 @@ fn start_user_job(
     }
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
     Ok(job_id)
+}
+
+fn existing_active_job<'a>(
+    current: &'a JournalState,
+    driver_kind: &str,
+    request_identity: &str,
+) -> Option<&'a JobRecord> {
+    current.jobs.iter().find(|job| {
+        job.is_active()
+            && job.driver_kind.as_deref() == Some(driver_kind)
+            && job.request_identity.matches(request_identity)
+    })
+}
+
+fn validate_user_job_deadline(deadline: Duration) -> Result<(), LomoError> {
+    if deadline < Duration::from_millis(1) || deadline > MAX_BOOTSTRAP_DEADLINE {
+        return Err(LomoError::validation(
+            "invalid_job_deadline",
+            "job deadline must be within 1 millisecond..=24 hours",
+        ));
+    }
+    Ok(())
+}
+
+fn job_request_identity(driver_kind: &str, canonical_request_json: &str) -> String {
+    sha256_hex(format!("{driver_kind}\0{canonical_request_json}").as_bytes())
+}
+
+fn recover_legacy_request_identities(
+    journal: &mut JournalState,
+    drivers: &JobDriverRegistry,
+) -> Result<(), LomoError> {
+    for job in &mut journal.jobs {
+        if !job.is_active()
+            || !matches!(
+                job.request_identity,
+                PersistedRequestIdentity::LegacyUnidentified
+            )
+        {
+            continue;
+        }
+        let (Some(driver_kind), Some(state_json)) =
+            (job.driver_kind.as_deref(), job.driver_state_json.as_deref())
+        else {
+            continue;
+        };
+        let Some(driver) = drivers.get(driver_kind) else {
+            continue;
+        };
+        let Some(canonical_request) = driver.recover_canonical_request_json(state_json)? else {
+            continue;
+        };
+        job.request_identity = PersistedRequestIdentity::Canonical(job_request_identity(
+            driver_kind,
+            &canonical_request,
+        ));
+    }
+    Ok(())
 }
 
 fn start_native_task_job(
@@ -1346,6 +1446,7 @@ fn start_native_task_job(
         batch,
         status: PersistedJobStatus::RunningNative,
         driver_kind: Some("native-task".to_owned()),
+        request_identity: PersistedRequestIdentity::Unique,
         driver_state_json: None,
         result_json: None,
         is_bootstrap: false,
@@ -1603,6 +1704,7 @@ fn commit_candidate(
 ) -> Result<(), LomoError> {
     candidate.event_sequence = checked_next_event(candidate.event_sequence)?;
     candidate.lifecycle = lifecycle_for(&candidate);
+    compact_terminal_job_payloads(&mut candidate);
     retain_bounded_terminals(&mut candidate);
     let path = runtime.journal_path.as_ref().ok_or_else(|| {
         LomoError::internal(
@@ -1736,6 +1838,8 @@ struct JobRecord {
     #[serde(default)]
     driver_kind: Option<String>,
     #[serde(default)]
+    request_identity: PersistedRequestIdentity,
+    #[serde(default)]
     driver_state_json: Option<String>,
     #[serde(default)]
     result_json: Option<String>,
@@ -1744,6 +1848,20 @@ struct JobRecord {
     /// Pending durable effect (platform batch by default for schema v1 recovery).
     #[serde(default)]
     pending_effect: PendingEffect,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+enum PersistedRequestIdentity {
+    Unique,
+    Canonical(String),
+    #[default]
+    LegacyUnidentified,
+}
+
+impl PersistedRequestIdentity {
+    fn matches(&self, expected: &str) -> bool {
+        matches!(self, Self::Canonical(identity) if identity == expected)
+    }
 }
 
 impl JobRecord {
@@ -1884,6 +2002,7 @@ fn ensure_bootstrap(
         batch: PlatformActionBatch::new(job_id, batch_id, 1, deadline_epoch_millis, actions)?,
         status,
         driver_kind: None,
+        request_identity: PersistedRequestIdentity::Unique,
         driver_state_json: None,
         result_json: None,
         is_bootstrap: true,
@@ -2003,6 +2122,20 @@ fn retain_bounded_terminals(journal: &mut JournalState) {
     });
 }
 
+/// Terminal status/result is authoritative; continuation state has no recovery meaning after the
+/// job can no longer advance. Dropping it prevents completed scans from pinning whole-workspace
+/// projections in every later journal generation.
+fn compact_terminal_job_payloads(journal: &mut JournalState) {
+    for job in &mut journal.jobs {
+        if !job.is_active() {
+            job.driver_state_json = None;
+            if matches!(job.status, PersistedJobStatus::Failed(_)) {
+                job.result_json = None;
+            }
+        }
+    }
+}
+
 fn validate_journal_state(
     state: &JournalState,
     expected_workspace: &WorkspaceId,
@@ -2014,16 +2147,57 @@ fn validate_journal_state(
         .iter()
         .map(|job| &job.job_id)
         .collect::<BTreeSet<_>>();
-    if &state.workspace_id != expected_workspace
-        || state.next_id == 0
+    if &state.workspace_id != expected_workspace {
+        return Err(LomoError::corruption(
+            "journal_workspace_identity_mismatch",
+            "engine journal belongs to a different workspace identity",
+        ));
+    }
+    if state.next_id == 0
         || active_count > MAX_ACTIVE_JOBS
         || terminal_count > MAX_TERMINAL_JOBS
         || ids.len() != state.jobs.len()
     {
+        let code = if state.next_id == 0 {
+            "journal_identifier_counter_invalid"
+        } else if active_count > MAX_ACTIVE_JOBS {
+            "journal_active_job_bound_exceeded"
+        } else if terminal_count > MAX_TERMINAL_JOBS {
+            "journal_terminal_job_bound_exceeded"
+        } else {
+            "journal_duplicate_job_id"
+        };
         return Err(LomoError::corruption(
-            "journal_state_inconsistent",
+            code,
             "engine journal identity, bounds, or job ids are inconsistent",
         ));
+    }
+    for job in &state.jobs {
+        if job.batch.job_id() != &job.job_id {
+            return Err(LomoError::corruption(
+                "journal_job_batch_identity_mismatch",
+                "journal job and platform batch identities disagree",
+            ));
+        }
+        let pending_matches_status = match (&job.status, &job.pending_effect) {
+            (PersistedJobStatus::WaitingPlatform, PendingEffect::PlatformBatch)
+            | (PersistedJobStatus::BlockedByConflict, PendingEffect::BlockedByConflict)
+            | (
+                PersistedJobStatus::Completed | PersistedJobStatus::Failed(_),
+                PendingEffect::Done,
+            ) => true,
+            (
+                PersistedJobStatus::QueuedNative | PersistedJobStatus::RunningNative,
+                PendingEffect::NativeTask { task_kind, .. },
+            ) => !task_kind.is_empty(),
+            _ => false,
+        };
+        if !pending_matches_status {
+            return Err(LomoError::corruption(
+                "journal_pending_effect_mismatch",
+                "journal job status and pending effect disagree",
+            ));
+        }
     }
     // Secrets must never appear as plaintext values in durable journal payload encodings.
     // Opaque lease ids (field name secret_lease_id) are allowed; plaintext markers are not.
@@ -2514,7 +2688,11 @@ fn read_journal(path: &Path, expected_workspace: &WorkspaceId) -> Result<Journal
         ));
     }
     // Unknown schema fails closed (corruption / ReadOnlyRecovery path for callers) — never clean slate.
-    if envelope.schema != JOURNAL_SCHEMA && envelope.schema != JOURNAL_SCHEMA_V1 {
+    if envelope.schema != JOURNAL_SCHEMA
+        && envelope.schema != JOURNAL_SCHEMA_V3
+        && envelope.schema != JOURNAL_SCHEMA_V2
+        && envelope.schema != JOURNAL_SCHEMA_V1
+    {
         return Err(LomoError::corruption(
             "journal_schema_unknown",
             "engine journal magic or schema is unknown",
@@ -2526,12 +2704,7 @@ fn read_journal(path: &Path, expected_workspace: &WorkspaceId) -> Result<Journal
             "engine journal checksum does not match its payload",
         ));
     }
-    let mut state: JournalState = serde_json::from_str(&envelope.payload).map_err(|_error| {
-        LomoError::corruption(
-            "journal_payload_invalid",
-            "engine journal payload is malformed",
-        )
-    })?;
+    let mut state = decode_journal_payload(envelope.schema, &envelope.payload)?;
     // Crash recovery: RunningNative → QueuedNative for idempotent replay after process death.
     for job in &mut state.jobs {
         job.recover_native_on_open();
@@ -2544,6 +2717,50 @@ fn read_journal(path: &Path, expected_workspace: &WorkspaceId) -> Result<Journal
     }
     validate_journal_state(&state, expected_workspace)?;
     Ok(state)
+}
+
+fn decode_journal_payload(schema: u32, payload: &str) -> Result<JournalState, LomoError> {
+    let invalid = || {
+        LomoError::corruption(
+            "journal_payload_invalid",
+            "engine journal payload is malformed",
+        )
+    };
+    if schema == JOURNAL_SCHEMA {
+        return serde_json::from_str(payload).map_err(|_error| invalid());
+    }
+
+    let mut value: serde_json::Value = serde_json::from_str(payload).map_err(|_error| invalid())?;
+    let jobs = value
+        .get_mut("jobs")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(&invalid)?;
+    for job in jobs {
+        let actions = job
+            .get_mut("batch")
+            .and_then(|batch| batch.get_mut("actions"))
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(&invalid)?;
+        for action in actions {
+            let Some(read) = action
+                .as_object_mut()
+                .and_then(|variants| variants.get_mut("ReadToExchange"))
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            if read.contains_key("locator") {
+                continue;
+            }
+            let path = read
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(&invalid)?
+                .to_owned();
+            read.insert("locator".to_owned(), serde_json::json!({ "Path": path }));
+        }
+    }
+    serde_json::from_value(value).map_err(|_error| invalid())
 }
 
 fn write_journal(path: &Path, state: &JournalState) -> Result<(), LomoError> {

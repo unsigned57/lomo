@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::LomoError;
@@ -12,8 +12,18 @@ const MAX_METADATA_PAGE_SIZE: u32 = 256;
 
 macro_rules! constrained_id {
     ($name:ident, $code:literal) => {
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
         pub struct $name(String);
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let raw = String::deserialize(deserializer)?;
+                Self::parse(&raw).map_err(|error| serde::de::Error::custom(error.to_string()))
+            }
+        }
 
         impl $name {
             /// Parses an opaque protocol identifier.
@@ -163,8 +173,18 @@ pub const fn event_sequence_requires_full_invalidate(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct PageSize(u32);
+
+impl<'de> Deserialize<'de> for PageSize {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u32::deserialize(deserializer)?;
+        Self::new(value).map_err(|error| serde::de::Error::custom(error.to_string()))
+    }
+}
 
 impl PageSize {
     /// Creates a bounded metadata page size.
@@ -188,8 +208,18 @@ impl PageSize {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct RelativeWorkspacePath(String);
+
+impl<'de> Deserialize<'de> for RelativeWorkspacePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(|error| serde::de::Error::custom(error.to_string()))
+    }
+}
 
 impl RelativeWorkspacePath {
     /// Parses a canonical workspace-relative path without normalization.

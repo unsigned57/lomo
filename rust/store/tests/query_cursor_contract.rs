@@ -10,6 +10,8 @@
 //!   high-water revision, then `stale_cursor` is returned.
 //! - Given multiple pages, when cursors are chained under a stable revision, then pages are
 //!   disjoint and ordered.
+//! - Given a tag path, exact matching returns only that tag while subtree matching also returns
+//!   slash-delimited descendants and never prefix siblings.
 //!
 //! Observable outcomes: page items, `next_cursor`, stats, structured `stale_cursor` errors.
 
@@ -22,7 +24,9 @@
 )]
 mod tests {
     use lomo_core::{ErrorCategory, OperationId, PageSize};
-    use lomo_store::{MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, PageCursor, Store};
+    use lomo_store::{
+        MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, PageCursor, Store, TagSelectionMode,
+    };
     use tempfile::tempdir;
 
     fn create(store: &mut Store, id: &str, content: &str, tags: &[&str]) {
@@ -147,6 +151,17 @@ mod tests {
         let stats = store.stats().expect("stats");
         assert_eq!(stats.memo_count, 3);
         assert_eq!(stats.pinned_count, 1);
+        let sidebar = store.sidebar_projection().expect("sidebar projection");
+        assert_eq!(sidebar.schema_version, 1);
+        assert_eq!(sidebar.memo_count, 3);
+        assert_eq!(
+            sidebar
+                .date_counts
+                .iter()
+                .map(|bucket| bucket.count)
+                .sum::<i64>(),
+            3
+        );
 
         let page1 = store
             .query_memos(
@@ -274,5 +289,58 @@ mod tests {
         let snap = store.get_memo("img1").expect("get").expect("present");
         assert!(snap.summary.tags.iter().any(|t| t == "travel"));
         assert_eq!(snap.summary.image_urls, vec!["images/cover.png".to_owned()]);
+    }
+
+    #[test]
+    fn tag_selection_distinguishes_exact_from_subtree() {
+        let dir = tempdir().expect("tempdir");
+        let mut store = Store::open(dir.path()).expect("open");
+        create(&mut store, "root", "root", &["work"]);
+        create(&mut store, "child", "child", &["work/project"]);
+        create(&mut store, "sibling", "sibling", &["workspace"]);
+
+        let exact = store
+            .query_memos(
+                &MemoQuery {
+                    search_text: None,
+                    filters: MemoFilters {
+                        tag: Some("work".into()),
+                        tag_selection: TagSelectionMode::Exact,
+                        ..MemoFilters::default()
+                    },
+                },
+                None,
+                PageSize::new(10).expect("page"),
+            )
+            .expect("exact tag");
+        assert_eq!(
+            exact
+                .items
+                .iter()
+                .map(|item| item.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["root"]
+        );
+
+        let subtree = store
+            .query_memos(
+                &MemoQuery {
+                    search_text: None,
+                    filters: MemoFilters {
+                        tag: Some("work".into()),
+                        tag_selection: TagSelectionMode::Subtree,
+                        ..MemoFilters::default()
+                    },
+                },
+                None,
+                PageSize::new(10).expect("page"),
+            )
+            .expect("subtree tag");
+        let ids = subtree
+            .items
+            .iter()
+            .map(|item| item.memo_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids, std::collections::BTreeSet::from(["child", "root"]));
     }
 }

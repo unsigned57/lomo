@@ -1,20 +1,30 @@
 //! `query_memos` + filters + bm25/tie-breaker + stats.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use lomo_core::PageSize;
 
 use crate::cursor::{PageCursor, fingerprint_query};
-use crate::error::{from_sqlite, resource_limit, storage, validation};
+use crate::error::{corruption, from_sqlite, resource_limit, storage, validation};
 use crate::schema::TOKENIZER_VERSION;
 use crate::tokenizer::{QueryPlan, Tokenizer, UnicodeTokenizer};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TagSelectionMode {
+    #[default]
+    Exact,
+    Subtree,
+}
 
 /// Filters applied in the store query layer (parity with Room capabilities).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoFilters {
     pub tag: Option<String>,
+    pub tag_selection: TagSelectionMode,
     pub date_from_ms: Option<i64>,
     pub date_to_ms: Option<i64>,
     pub has_todo: Option<bool>,
@@ -29,8 +39,9 @@ impl MemoFilters {
     #[must_use]
     pub fn fingerprint(&self) -> String {
         format!(
-            "tag={:?}|from={:?}|to={:?}|todo={:?}|att={:?}|url={:?}|pin={}|trash={}|trash_only={}",
+            "tag={:?}|tag_subtree={}|from={:?}|to={:?}|todo={:?}|att={:?}|url={:?}|pin={}|trash={}|trash_only={}",
             self.tag,
+            matches!(self.tag_selection, TagSelectionMode::Subtree),
             self.date_from_ms,
             self.date_to_ms,
             self.has_todo,
@@ -74,6 +85,7 @@ pub struct MemoSummary {
     pub tags: Vec<String>,
     /// Non-audio attachment relative paths (gallery/image surfaces).
     pub image_urls: Vec<String>,
+    pub reminders: Vec<lomo_workspace::ReminderReference>,
 }
 
 /// Bounded page result.
@@ -92,6 +104,28 @@ pub struct StoreStats {
     pub pinned_count: i64,
     pub trashed_count: i64,
     pub tag_count: i64,
+}
+
+pub const SIDEBAR_PROJECTION_SCHEMA: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarDateCount {
+    pub date: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarTagCount {
+    pub name: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarProjection {
+    pub schema_version: u32,
+    pub memo_count: i64,
+    pub date_counts: Vec<SidebarDateCount>,
+    pub tag_counts: Vec<SidebarTagCount>,
 }
 
 /// Executes a bounded memo query with optional `FTS` and filters.
@@ -119,9 +153,13 @@ pub fn query_memos(
     let query_fingerprint =
         fingerprint_query(plan.match_expr.as_deref(), &filter_fp, TOKENIZER_VERSION);
 
-    if let Some(cur) = cursor {
+    let use_fts = plan.match_expr.is_some();
+    let cursor_rank = if let Some(cur) = cursor {
         cur.validate_against(&query_fingerprint, high_water_revision)?;
-    }
+        cur.validated_sort_rank(use_fts)?
+    } else {
+        None
+    };
 
     let limit = i64::from(page_size.get());
     // Fetch one extra row to detect a next page without offset scanning.
@@ -131,24 +169,26 @@ pub fn query_memos(
 
     let (sql, bind_search) = build_sql(query, &plan, cursor.is_some())?;
     let mut stmt = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
-
-    let mut rows = if let Some(match_expr) = bind_search.as_deref() {
-        if let Some(cur) = cursor {
-            stmt.query(params![
-                match_expr,
-                cur.sort_updated_at_ms,
-                cur.sort_memo_id,
-                fetch
-            ])
-        } else {
-            stmt.query(params![match_expr, fetch])
-        }
-    } else if let Some(cur) = cursor {
-        stmt.query(params![cur.sort_updated_at_ms, cur.sort_memo_id, fetch])
-    } else {
-        stmt.query(params![fetch])
+    let mut bindings = Vec::new();
+    if let Some(tag) = query.filters.tag.as_deref() {
+        bindings.push(Value::Text(tag.to_owned()));
     }
-    .map_err(|err| from_sqlite(&err))?;
+    if let Some(match_expr) = bind_search {
+        bindings.push(Value::Text(match_expr));
+    }
+    if let Some(cur) = cursor {
+        if use_fts {
+            bindings.push(Value::Real(cursor_rank.ok_or_else(|| {
+                validation("invalid_page_cursor", "FTS page cursor must include rank")
+            })?));
+        }
+        bindings.push(Value::Integer(cur.sort_updated_at_ms));
+        bindings.push(Value::Text(cur.sort_memo_id.clone()));
+    }
+    bindings.push(Value::Integer(fetch));
+    let mut rows = stmt
+        .query(params_from_iter(bindings.iter()))
+        .map_err(|err| from_sqlite(&err))?;
 
     let mut items = Vec::new();
     while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
@@ -175,6 +215,10 @@ pub fn query_memos(
                 .map_err(|err| from_sqlite(&err))?,
             tags: Vec::new(),
             image_urls: Vec::new(),
+            reminders: serde_json::from_str(
+                &row.get::<_, String>(13).map_err(|err| from_sqlite(&err))?,
+            )
+            .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
         };
         items.push(summary);
     }
@@ -185,6 +229,7 @@ pub fn query_memos(
         if let Some(last) = items.last() {
             next_cursor = Some(PageCursor::new(
                 query_fingerprint.clone(),
+                last.rank,
                 last.updated_at_ms,
                 last.memo_id.clone(),
                 high_water_revision,
@@ -247,27 +292,29 @@ fn build_sql(
         where_clauses.push(format!("m.updated_at_ms <= {to}"));
     }
     if let Some(tag) = &f.tag {
-        // Tag names are constrained; reject injection characters.
-        if tag.is_empty() || tag.len() > 128 || tag.contains('\'') {
+        // Tag names are constrained; bind the value and keep subtree semantics at the query owner.
+        if tag.is_empty() || tag.len() > 128 || tag.contains('\'') || tag.contains('\0') {
             return Err(validation("invalid_tag_filter", "tag filter is invalid"));
         }
+        let predicate = if matches!(f.tag_selection, TagSelectionMode::Subtree) {
+            "(tg.name = ?1 OR tg.name LIKE (?1 || '/%'))"
+        } else {
+            "tg.name = ?1"
+        };
         where_clauses.push(format!(
-            "EXISTS (SELECT 1 FROM memo_tag mt JOIN tag tg ON tg.id = mt.tag_id WHERE mt.memo_id = m.memo_id AND tg.name = '{tag}')"
+            "EXISTS (SELECT 1 FROM memo_tag mt JOIN tag tg ON tg.id = mt.tag_id WHERE mt.memo_id = m.memo_id AND {predicate})"
         ));
     }
 
     let use_fts = plan.match_expr.is_some();
+    let has_tag = f.tag.is_some();
+    let search_idx = if has_tag { 2 } else { 1 };
     if use_fts {
-        where_clauses.push("memo_fts MATCH ?1".to_owned());
+        where_clauses.push(format!("memo_fts MATCH ?{search_idx}"));
     }
 
     if has_cursor {
-        // Keyset pagination: (updated_at_ms, memo_id) DESC
-        let idx = if use_fts { 2 } else { 1 };
-        where_clauses.push(format!(
-            "(m.updated_at_ms < ?{idx} OR (m.updated_at_ms = ?{idx} AND m.memo_id < ?{}))",
-            idx + 1
-        ));
+        where_clauses.push(cursor_predicate(use_fts, search_idx));
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -296,11 +343,11 @@ fn build_sql(
     };
 
     let limit_idx = if use_fts {
-        if has_cursor { 4 } else { 2 }
+        search_idx + if has_cursor { 4 } else { 1 }
     } else if has_cursor {
-        3
+        search_idx + 2
     } else {
-        1
+        search_idx
     };
 
     let sql = format!(
@@ -308,7 +355,7 @@ fn build_sql(
          m.has_todo, m.has_url, m.has_attachment, \
          EXISTS(SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id), \
          EXISTS(SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id), \
-         m.body_preview, m.content_revision, {rank_select} \
+         m.body_preview, m.content_revision, {rank_select}, m.reminders_json \
          FROM {from_sql} \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
@@ -316,6 +363,27 @@ fn build_sql(
     );
 
     Ok((sql, plan.match_expr.clone()))
+}
+
+fn cursor_predicate(use_fts: bool, search_idx: usize) -> String {
+    if use_fts {
+        format!(
+            "(bm25(memo_fts) > ?{} OR (bm25(memo_fts) = ?{} AND \
+             (m.updated_at_ms < ?{} OR (m.updated_at_ms = ?{} AND m.memo_id < ?{}))))",
+            search_idx + 1,
+            search_idx + 1,
+            search_idx + 2,
+            search_idx + 2,
+            search_idx + 3,
+        )
+    } else {
+        format!(
+            "(m.updated_at_ms < ?{} OR (m.updated_at_ms = ?{} AND m.memo_id < ?{}))",
+            search_idx,
+            search_idx,
+            search_idx + 1,
+        )
+    }
 }
 
 /// Full memo snapshot for `get_memo` (list summary + Markdown body from the workspace file).
@@ -385,7 +453,7 @@ pub fn get_memo_projection(
                     m.has_todo, m.has_url, m.has_attachment, \
                     CASE WHEN p.memo_id IS NULL THEN 0 ELSE 1 END, \
                     CASE WHEN t.memo_id IS NULL THEN 0 ELSE 1 END, \
-                    m.body_preview, m.content_revision \
+                    m.body_preview, m.content_revision, m.reminders_json \
              FROM memo m \
              LEFT JOIN memo_pin p ON p.memo_id = m.memo_id \
              LEFT JOIN memo_trash t ON t.memo_id = m.memo_id \
@@ -411,6 +479,13 @@ pub fn get_memo_projection(
                     rank: None,
                     tags: Vec::new(),
                     image_urls: Vec::new(),
+                    reminders: serde_json::from_str(&row.get::<_, String>(12)?).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            12,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
                 })
             },
         )
@@ -428,59 +503,92 @@ pub fn get_memo_projection(
     Ok(Some(summary))
 }
 
-/// Loads tag names and non-audio attachment paths for each summary in place.
+/// Loads tag names and non-audio attachment paths for one bounded page in two statements.
 fn attach_tags_and_images(
     connection: &Connection,
     items: &mut [MemoSummary],
 ) -> Result<(), lomo_core::LomoError> {
-    for item in items.iter_mut() {
-        item.tags = load_tags(connection, &item.memo_id)?;
-        item.image_urls = load_image_urls(connection, &item.memo_id)?;
+    if items.is_empty() {
+        return Ok(());
     }
-    Ok(())
-}
-
-fn load_tags(connection: &Connection, memo_id: &str) -> Result<Vec<String>, lomo_core::LomoError> {
+    let memo_ids = items
+        .iter()
+        .map(|item| Value::Text(item.memo_id.clone()))
+        .collect::<Vec<_>>();
+    let placeholders = std::iter::repeat_n("?", memo_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut tags_by_memo = items
+        .iter()
+        .map(|item| (item.memo_id.clone(), Vec::<String>::new()))
+        .collect::<BTreeMap<_, _>>();
     let mut stmt = connection
-        .prepare(
-            "SELECT tg.name FROM memo_tag mt \
+        .prepare(&format!(
+            "SELECT mt.memo_id, tg.name FROM memo_tag mt \
              JOIN tag tg ON tg.id = mt.tag_id \
-             WHERE mt.memo_id = ?1 \
-             ORDER BY tg.name",
-        )
+             WHERE mt.memo_id IN ({placeholders}) \
+             ORDER BY mt.memo_id, tg.name"
+        ))
         .map_err(|err| from_sqlite(&err))?;
     let rows = stmt
-        .query_map(params![memo_id], |row| row.get::<_, String>(0))
+        .query_map(params_from_iter(memo_ids.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|err| from_sqlite(&err))?;
-    let mut tags = Vec::new();
     for row in rows {
-        tags.push(row.map_err(|err| from_sqlite(&err))?);
+        let (memo_id, tag) = row.map_err(|err| from_sqlite(&err))?;
+        let tags = tags_by_memo.get_mut(&memo_id).ok_or_else(|| {
+            validation(
+                "memo_tag_owner_missing",
+                "bulk tag query returned an owner outside the requested page",
+            )
+        })?;
+        tags.push(tag);
     }
-    Ok(tags)
-}
 
-fn load_image_urls(
-    connection: &Connection,
-    memo_id: &str,
-) -> Result<Vec<String>, lomo_core::LomoError> {
+    let mut images_by_memo = items
+        .iter()
+        .map(|item| (item.memo_id.clone(), Vec::<String>::new()))
+        .collect::<BTreeMap<_, _>>();
     let mut stmt = connection
-        .prepare(
-            "SELECT relative_path FROM attachment_ref \
-             WHERE memo_id = ?1 \
-             ORDER BY relative_path",
-        )
+        .prepare(&format!(
+            "SELECT memo_id, relative_path FROM attachment_ref \
+             WHERE memo_id IN ({placeholders}) \
+             ORDER BY memo_id, relative_path"
+        ))
         .map_err(|err| from_sqlite(&err))?;
     let rows = stmt
-        .query_map(params![memo_id], |row| row.get::<_, String>(0))
+        .query_map(params_from_iter(memo_ids.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|err| from_sqlite(&err))?;
-    let mut paths = Vec::new();
     for row in rows {
-        let path = row.map_err(|err| from_sqlite(&err))?;
+        let (memo_id, path) = row.map_err(|err| from_sqlite(&err))?;
         if !is_audio_target(&path) {
+            let paths = images_by_memo.get_mut(&memo_id).ok_or_else(|| {
+                validation(
+                    "memo_attachment_owner_missing",
+                    "bulk attachment query returned an owner outside the requested page",
+                )
+            })?;
             paths.push(path);
         }
     }
-    Ok(paths)
+    for item in items {
+        item.tags = tags_by_memo.remove(&item.memo_id).ok_or_else(|| {
+            validation(
+                "memo_tag_owner_missing",
+                "requested page item was missing from the bulk tag projection",
+            )
+        })?;
+        item.image_urls = images_by_memo.remove(&item.memo_id).ok_or_else(|| {
+            validation(
+                "memo_attachment_owner_missing",
+                "requested page item was missing from the bulk attachment projection",
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn is_audio_target(target: &str) -> bool {
@@ -517,6 +625,72 @@ pub fn query_stats(connection: &Connection) -> Result<StoreStats, lomo_core::Lom
         pinned_count: read("pinned_count")?,
         trashed_count: read("trashed_count")?,
         tag_count: read("tag_count")?,
+    })
+}
+
+/// Reads the complete active sidebar projection without paging through memo bodies.
+///
+/// # Errors
+///
+/// Storage errors when the memo/tag projection is unreadable.
+pub fn query_sidebar_projection(
+    connection: &Connection,
+) -> Result<SidebarProjection, lomo_core::LomoError> {
+    let memo_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM memo m LEFT JOIN memo_trash t ON t.memo_id = m.memo_id \
+             WHERE t.memo_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|err| from_sqlite(&err))?;
+
+    let mut date_statement = connection
+        .prepare(
+            "SELECT date(m.created_at_ms / 1000, 'unixepoch', 'localtime'), COUNT(*) \
+             FROM memo m LEFT JOIN memo_trash t ON t.memo_id = m.memo_id \
+             WHERE t.memo_id IS NULL GROUP BY 1 ORDER BY 1",
+        )
+        .map_err(|err| from_sqlite(&err))?;
+    let date_rows = date_statement
+        .query_map([], |row| {
+            Ok(SidebarDateCount {
+                date: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut date_counts = Vec::new();
+    for row in date_rows {
+        date_counts.push(row.map_err(|err| from_sqlite(&err))?);
+    }
+
+    let mut tag_statement = connection
+        .prepare(
+            "SELECT tg.name, COUNT(*) FROM memo_tag mt \
+             JOIN tag tg ON tg.id = mt.tag_id \
+             LEFT JOIN memo_trash t ON t.memo_id = mt.memo_id \
+             WHERE t.memo_id IS NULL GROUP BY tg.name ORDER BY COUNT(*) DESC, tg.name",
+        )
+        .map_err(|err| from_sqlite(&err))?;
+    let tag_rows = tag_statement
+        .query_map([], |row| {
+            Ok(SidebarTagCount {
+                name: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut tag_counts = Vec::new();
+    for row in tag_rows {
+        tag_counts.push(row.map_err(|err| from_sqlite(&err))?);
+    }
+
+    Ok(SidebarProjection {
+        schema_version: SIDEBAR_PROJECTION_SCHEMA,
+        memo_count,
+        date_counts,
+        tag_counts,
     })
 }
 

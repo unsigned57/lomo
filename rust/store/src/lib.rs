@@ -34,8 +34,9 @@ pub use content_facts::{
 };
 pub use cursor::{PageCursor, fingerprint_plan, fingerprint_query};
 pub use history_refs::{
-    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, list_history_attachment_refs,
-    list_history_attachment_refs_with_retention,
+    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, MemoHistoryPage,
+    MemoHistoryRevision, list_history_attachment_refs, list_history_attachment_refs_with_retention,
+    list_memo_history,
 };
 pub use lomo_format::{
     HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload,
@@ -44,12 +45,15 @@ pub use lomo_format::{
 };
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSummary, StoreStats, get_memo,
-    get_memo_projection, query_memos, query_stats,
+    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSummary, SIDEBAR_PROJECTION_SCHEMA,
+    SidebarDateCount, SidebarProjection, SidebarTagCount, StoreStats, TagSelectionMode, get_memo,
+    get_memo_projection, query_memos, query_sidebar_projection, query_stats,
 };
 pub use rebuild::{
-    RebuildCheckpoint, RebuildPhase, RebuildResult, ScannedMemoProjection, ensure_writable,
-    rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
+    RebuildCheckpoint, RebuildPhase, RebuildResult, SafProjectionCommitResult,
+    SafProjectionMutation, SafProjectionMutationKind, SafProjectionRebuild, ScannedMemoProjection,
+    commit_saf_projection_mutation, ensure_writable, rebuild_scanned_projection, run_rebuild,
+    write_gate_for_checkpoint,
 };
 pub use reminder::{
     PlannedAlarm, ReminderCommand, ReminderCommandResult, ReminderPlan, ReminderQuery,
@@ -305,6 +309,38 @@ impl Store {
         get_memo_projection(&self.opened.connection, memo_id)
     }
 
+    /// Lists durable memo revisions in a bounded page.
+    ///
+    /// # Errors
+    ///
+    /// Propagates history validation and storage errors.
+    pub fn list_memo_history(
+        &self,
+        memo_id: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<MemoHistoryPage, LomoError> {
+        list_memo_history(&self.workspace_root, memo_id, cursor, limit)
+    }
+
+    /// Commits a verified SAF mutation into this app-private projection only.
+    ///
+    /// User Markdown must already have been changed by the platform-action executor; this method
+    /// never receives a workspace path and cannot write user bytes.
+    ///
+    /// # Errors
+    ///
+    /// See [`commit_saf_projection_mutation`].
+    pub fn commit_saf_projection_mutation(
+        &mut self,
+        mutation: &SafProjectionMutation,
+    ) -> Result<SafProjectionCommitResult, LomoError> {
+        let result = commit_saf_projection_mutation(&self.workspace_root, mutation)?;
+        self.high_water_revision = result.core_revision;
+        self.event_sequence = result.event_sequence;
+        Ok(result)
+    }
+
     /// Attachment paths still referenced by durable history revision bodies (D6 orphan keep-set).
     ///
     /// # Errors
@@ -321,6 +357,15 @@ impl Store {
     /// See [`query_stats`].
     pub fn stats(&self) -> Result<StoreStats, LomoError> {
         query_stats(&self.opened.connection)
+    }
+
+    /// Complete active sidebar aggregate without memo pagination.
+    ///
+    /// # Errors
+    ///
+    /// See [`query_sidebar_projection`].
+    pub fn sidebar_projection(&self) -> Result<SidebarProjection, LomoError> {
+        query_sidebar_projection(&self.opened.connection)
     }
 
     /// Coarse local sync snapshot (path/digest/revision/media; no full-text bulk).

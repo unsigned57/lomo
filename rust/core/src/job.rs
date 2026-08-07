@@ -124,6 +124,44 @@ pub trait JobDriver: Send + Sync + 'static {
     /// Stable driver kind string.
     fn kind(&self) -> &'static str;
 
+    /// Canonicalizes the semantic request used to identify one active durable operation.
+    ///
+    /// The default accepts any JSON value and serializes its normalized representation. Drivers
+    /// may override when multiple wire requests represent the same domain operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation when the request is not JSON, or internal failure when its canonical
+    /// representation cannot be encoded.
+    fn canonical_request_json(&self, request_json: &str) -> Result<String, LomoError> {
+        let value: serde_json::Value = serde_json::from_str(request_json).map_err(|_error| {
+            LomoError::validation(
+                "invalid_job_request_json",
+                "job driver request must be valid JSON",
+            )
+        })?;
+        serde_json::to_string(&value).map_err(|_error| {
+            LomoError::internal(
+                "job_request_identity_unavailable",
+                "job driver request identity cannot be encoded",
+            )
+        })
+    }
+
+    /// Recovers a canonical request from legacy active driver state when it is provable.
+    ///
+    /// `None` means the old state lacks enough facts; it remains active but cannot be coalesced.
+    ///
+    /// # Errors
+    ///
+    /// Drivers return corruption when the legacy continuation cannot be decoded safely.
+    fn recover_canonical_request_json(
+        &self,
+        _state_json: &str,
+    ) -> Result<Option<String>, LomoError> {
+        Ok(None)
+    }
+
     /// Plans the first platform batch from an opaque request payload (JSON text).
     ///
     /// # Errors

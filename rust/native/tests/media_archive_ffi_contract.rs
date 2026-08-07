@@ -156,6 +156,7 @@ mod tests {
                     staged,
                     final_relative_path: final_rel.clone(),
                 }],
+                chronology_epoch_ms: None,
             })
             .test_ok("apply with pending_promotes");
         assert_eq!(commit.memo_id, "memo-promote-ffi");
@@ -190,6 +191,7 @@ mod tests {
                 tags: vec!["t".to_owned()],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("seed");
         fs::create_dir_all(source.join("media")).expect("media");

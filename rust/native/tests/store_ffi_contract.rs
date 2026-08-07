@@ -26,10 +26,12 @@
 //! - Given zone transitions on the reminder query, when planned, then the plan succeeds without
 //!   dropping the session.
 //! - Given a SAF engine and memo facts produced by the Rust workspace scan, when its app-private
-//!   projection is rebuilt, then bounded queries and full in-memory snapshots are readable.
+//!   projection is rebuilt, then bounded queries and full in-memory snapshots are readable and
+//!   each successfully appended single-consumer exchange body is removed.
 //!
 //! Observable outcomes: FFI DTO fields, structured `EngineError` codes.
 //! TDD proof: RED before store methods exist on `LomoEngine`.
+//! TDD proof: RED on 2026-08-06 because projection append retained every verified exchange body.
 //! Excludes: production DI cutover (P3-10), Room deletion, device smoke.
 
 #[cfg(test)]
@@ -42,13 +44,14 @@ mod support;
 )]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use std::fs;
+    use std::{fs, path::Path};
 
     use lomo_native::{
         EngineConfig, LomoEngine, StoreMemoCommand, StoreMemoCommandKind, StoreMemoFilters,
         StoreMemoQuery, StorePageCursor, StoreReminderCommand, StoreReminderCommandKind,
-        StoreReminderQuery, StoreReminderSession, StoreSafMemoProjection, StoreTimeZoneContext,
-        StoreZoneTransition, WorkspaceDescriptor,
+        StoreReminderQuery, StoreReminderSession, StoreSafMemoProjection,
+        StoreSafMemoProjectionReference, StoreTimeZoneContext, StoreZoneTransition,
+        WorkspaceDescriptor, WorkspaceMemoContentReference,
     };
     use tempfile::tempdir;
 
@@ -73,6 +76,47 @@ mod tests {
         (temporary, engine)
     }
 
+    fn stream_saf_projection(
+        engine: &LomoEngine,
+        exchange: &Path,
+        memo_id: &str,
+        source_path: &str,
+        chronology_epoch_ms: i64,
+        body: &str,
+        tags: Vec<String>,
+    ) -> lomo_native::StoreRebuildResult {
+        let digest = lomo_store::fingerprint_content(body);
+        let token = format!("ex.{digest}.body");
+        fs::write(exchange.join(&token), body).test_ok("exchange body");
+        let rebuild_id = engine
+            .begin_saf_projection_rebuild()
+            .test_ok("begin streaming rebuild");
+        engine
+            .append_saf_projection_rebuild_page(
+                rebuild_id.clone(),
+                vec![StoreSafMemoProjectionReference {
+                    memo_id: memo_id.to_owned(),
+                    source_path: source_path.to_owned(),
+                    file_fingerprint: digest.clone(),
+                    chronology_epoch_ms,
+                    content: WorkspaceMemoContentReference {
+                        exchange_token: token,
+                        length: body.len() as u64,
+                        digest,
+                    },
+                    tags,
+                    attachment_paths: vec![],
+                    has_todo: false,
+                    has_url: false,
+                    reminders: vec![],
+                }],
+            )
+            .test_ok("append streaming page");
+        engine
+            .finish_saf_projection_rebuild(rebuild_id)
+            .test_ok("finish streaming rebuild")
+    }
+
     #[test]
     fn apply_memo_and_query_memos_round_trip_with_scopes() {
         let (_tmp, engine) = open_engine();
@@ -87,6 +131,7 @@ mod tests {
                 tags: vec!["tag/a".to_owned()],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("create");
         assert!(!commit.scopes.is_empty(), "commit must publish scopes");
@@ -117,6 +162,12 @@ mod tests {
         assert!(snap.is_some());
         let missing = engine.get_memo("nope".to_owned()).test_ok("missing");
         assert!(missing.is_none());
+        let sidebar = engine.sidebar_projection().test_ok("sidebar aggregate");
+        assert_eq!(sidebar.schema_version, 1);
+        assert_eq!(sidebar.memo_count, 1);
+        let tag = sidebar.tag_counts.first().cloned().test_ok("sidebar tag");
+        assert_eq!(tag.name, "tag/a");
+        assert_eq!(tag.count, 1);
     }
 
     #[test]
@@ -138,18 +189,15 @@ mod tests {
         .test_ok("open SAF engine");
         let body = "readable body from SAF";
 
-        let rebuilt = engine
-            .rebuild_saf_store_projection(vec![StoreSafMemoProjection {
-                memo_id: "2026-08-02_19:30:00_0".to_owned(),
-                source_path: "2026-08-02.md".to_owned(),
-                file_fingerprint: lomo_store::fingerprint_content(body),
-                body: body.to_owned(),
-                tags: vec!["device".to_owned()],
-                attachment_paths: Vec::new(),
-                has_todo: false,
-                has_url: false,
-            }])
-            .test_ok("rebuild SAF projection");
+        let rebuilt = stream_saf_projection(
+            &engine,
+            &exchange,
+            "2026-08-02_19:30:00_0",
+            "2026-08-02.md",
+            1_754_128_200_000,
+            body,
+            vec!["device".to_owned()],
+        );
         let page = engine
             .query_memos(StoreMemoQuery::default(), None, 10)
             .test_ok("query SAF projection");
@@ -161,6 +209,194 @@ mod tests {
         assert_eq!(rebuilt.memos_indexed, 1);
         assert_eq!(page.items.len(), 1);
         assert_eq!(memo.body, body);
+    }
+
+    #[test]
+    fn saf_projection_mutation_ffi_is_idempotent_and_rejects_unplanned_restore() {
+        let temporary = tempdir().test_ok("temp");
+        let control = temporary.path().join("control");
+        let exchange = temporary.path().join("exchange");
+        fs::create_dir_all(&control).test_ok("control");
+        fs::create_dir_all(&exchange).test_ok("exchange");
+        let engine = LomoEngine::open(EngineConfig {
+            control_root: control.display().to_string(),
+            exchange_root: exchange.display().to_string(),
+            workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-mutation-test".to_owned(),
+                capability_token: "cap-saf-mutation-test".to_owned(),
+            }),
+            bootstrap_deadline_millis: 30_000,
+        })
+        .test_ok("open SAF engine");
+        let old_body = "old body";
+        let old_fingerprint = lomo_store::fingerprint_content(old_body);
+        let memo_id = "2026_08_04_10:00:00_0".to_owned();
+        stream_saf_projection(
+            &engine,
+            &exchange,
+            &memo_id,
+            "2026_08_04.md",
+            1_754_300_000_000,
+            old_body,
+            vec![],
+        );
+
+        let updated_body = "updated body";
+        let updated_fingerprint = lomo_store::fingerprint_content(updated_body);
+        let update = StoreMemoCommand {
+            operation_id: "ffi-saf-update".to_owned(),
+            kind: StoreMemoCommandKind::Update,
+            memo_id: memo_id.clone(),
+            expected_revision: 1,
+            expected_fingerprint: Some(old_fingerprint),
+            content: None,
+            tags: vec![],
+            pin: None,
+            pending_promotes: vec![],
+            chronology_epoch_ms: None,
+        };
+        let projection = StoreSafMemoProjection {
+            memo_id: memo_id.clone(),
+            source_path: "2026_08_04.md".to_owned(),
+            file_fingerprint: updated_fingerprint.clone(),
+            chronology_epoch_ms: 1_754_300_001_000,
+            body: updated_body.to_owned(),
+            tags: vec!["updated".to_owned()],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: vec![],
+        };
+        let first = engine
+            .commit_saf_projection_mutation(update.clone(), Some(projection.clone()))
+            .test_ok("SAF update");
+        let replay = engine
+            .commit_saf_projection_mutation(update, Some(projection))
+            .test_ok("SAF update replay");
+        assert!(!first.idempotent_replay);
+        assert!(replay.idempotent_replay);
+        assert_eq!(replay.core_revision, first.core_revision);
+        assert_eq!(replay.event_sequence, first.event_sequence);
+        assert_eq!(
+            engine
+                .get_memo(memo_id.clone())
+                .test_ok("get updated")
+                .test_ok("updated memo")
+                .body,
+            updated_body
+        );
+
+        let pin = engine
+            .commit_saf_projection_mutation(
+                StoreMemoCommand {
+                    operation_id: "ffi-saf-pin".to_owned(),
+                    kind: StoreMemoCommandKind::Pin,
+                    memo_id: memo_id.clone(),
+                    expected_revision: 2,
+                    expected_fingerprint: Some(updated_fingerprint.clone()),
+                    content: None,
+                    tags: vec![],
+                    pin: Some(true),
+                    pending_promotes: vec![],
+                    chronology_epoch_ms: None,
+                },
+                None,
+            )
+            .test_ok("SAF pin");
+        assert_eq!(pin.content_revision, 2);
+
+        let restore = engine
+            .commit_saf_projection_mutation(
+                StoreMemoCommand {
+                    operation_id: "ffi-saf-restore".to_owned(),
+                    kind: StoreMemoCommandKind::Restore,
+                    memo_id,
+                    expected_revision: 2,
+                    expected_fingerprint: Some(updated_fingerprint),
+                    content: None,
+                    tags: vec![],
+                    pin: None,
+                    pending_promotes: vec![],
+                    chronology_epoch_ms: None,
+                },
+                None,
+            )
+            .test_err("SAF restore requires a platform plan");
+        assert_eq!(restore.code(), "unsupported_saf_projection_command");
+    }
+
+    #[test]
+    fn saf_projection_streaming_ffi_reads_exchange_body_only_in_rust() {
+        let temporary = tempdir().test_ok("temp");
+        let control = temporary.path().join("control");
+        let exchange = temporary.path().join("exchange");
+        fs::create_dir_all(&control).test_ok("control");
+        fs::create_dir_all(&exchange).test_ok("exchange");
+        let engine = LomoEngine::open(EngineConfig {
+            control_root: control.display().to_string(),
+            exchange_root: exchange.display().to_string(),
+            workspace: Some(WorkspaceDescriptor::Saf {
+                stable_workspace_id: "ws-saf-stream-test".to_owned(),
+                capability_token: "cap-saf-stream-test".to_owned(),
+            }),
+            bootstrap_deadline_millis: 30_000,
+        })
+        .test_ok("open SAF engine");
+        let token = "ex.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.body";
+        let body = "streamed body from exchange";
+        fs::write(exchange.join(token), body).test_ok("exchange body");
+        let rebuild_id = engine
+            .begin_saf_projection_rebuild()
+            .test_ok("begin streaming rebuild");
+        engine
+            .append_saf_projection_rebuild_page(
+                rebuild_id.clone(),
+                vec![StoreSafMemoProjectionReference {
+                    memo_id: "2026_08_04_12:00:00_0".to_owned(),
+                    source_path: "2026_08_04.md".to_owned(),
+                    file_fingerprint: lomo_store::fingerprint_content(body),
+                    chronology_epoch_ms: 1_754_308_800_000,
+                    content: WorkspaceMemoContentReference {
+                        exchange_token: token.to_owned(),
+                        length: body.len() as u64,
+                        digest: lomo_store::fingerprint_content(body),
+                    },
+                    tags: vec!["streamed".to_owned()],
+                    attachment_paths: vec![],
+                    has_todo: false,
+                    has_url: false,
+                    reminders: vec![],
+                }],
+            )
+            .test_ok("append streaming page");
+        assert!(!exchange.join(token).exists());
+        let result = engine
+            .finish_saf_projection_rebuild(rebuild_id)
+            .test_ok("finish streaming rebuild");
+        assert_eq!(result.memos_indexed, 1);
+        let memo = engine
+            .get_memo("2026_08_04_12:00:00_0".to_owned())
+            .test_ok("get streamed memo")
+            .test_ok("streamed memo snapshot");
+        assert_eq!(memo.body, body);
+
+        let aborted_id = engine
+            .begin_saf_projection_rebuild()
+            .test_ok("begin replacement rebuild");
+        let still_live = engine
+            .get_memo("2026_08_04_12:00:00_0".to_owned())
+            .test_ok("query live projection during rebuild")
+            .test_ok("live memo during rebuild");
+        assert_eq!(still_live.body, body);
+        engine
+            .abort_saf_projection_rebuild(aborted_id)
+            .test_ok("abort replacement rebuild");
+        assert!(
+            engine
+                .get_memo("2026_08_04_12:00:00_0".to_owned())
+                .test_ok("query live projection after abort")
+                .is_some()
+        );
     }
 
     #[test]
@@ -252,6 +488,7 @@ mod tests {
                 tags: vec!["k".to_owned()],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("create");
         assert!(!create.idempotent_replay);
@@ -268,6 +505,7 @@ mod tests {
                 tags: vec!["k".to_owned(), "u".to_owned()],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("update");
         assert_eq!(update.content_revision, create.content_revision + 1);
@@ -284,6 +522,7 @@ mod tests {
                 tags: vec![],
                 pin: Some(true),
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("pin");
         assert!(pin.scopes.iter().any(|s| s == "pin"));
@@ -324,6 +563,7 @@ mod tests {
                 tags: vec![],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("delete");
         assert!(deleted.scopes.iter().any(|s| s == "trash"));
@@ -360,6 +600,7 @@ mod tests {
                 tags: vec![],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("restore");
         assert!(restored.scopes.iter().any(|s| s == "trash"));
@@ -375,6 +616,7 @@ mod tests {
                 tags: vec![],
                 pin: Some(false),
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("unpin");
 
@@ -389,6 +631,7 @@ mod tests {
                 tags: vec!["h".to_owned()],
                 pin: None,
                 pending_promotes: vec![],
+                chronology_epoch_ms: None,
             })
             .test_ok("history restore");
         assert_eq!(hist.content_revision, update.content_revision + 1);
@@ -413,10 +656,11 @@ mod tests {
                     memo_id: format!("page-{i}"),
                     expected_revision: 0,
                     expected_fingerprint: None,
-                    content: Some(format!("body {i}")),
+                    content: Some(format!("needle {} body {i}", "needle ".repeat(i))),
                     tags: vec![],
                     pin: None,
                     pending_promotes: vec![],
+                    chronology_epoch_ms: None,
                 })
                 .test_ok("create page memo");
         }
@@ -437,10 +681,11 @@ mod tests {
             .clone()
             .test_ok("must page when more rows exist");
         assert!(
-            cursor.encoded.split('|').count() == 5,
+            cursor.encoded.split('|').count() == 6,
             "cursor wire form: {}",
             cursor.encoded
         );
+        assert_eq!(cursor.encoded.split('|').nth(1), Some("none"));
 
         let second = engine
             .query_memos(
@@ -465,6 +710,34 @@ mod tests {
             .test_ok("second page item");
         assert_ne!(first_id, second_id, "pages must be disjoint");
 
+        let fts_first = engine
+            .query_memos(
+                StoreMemoQuery {
+                    search_text: Some("needle".to_owned()),
+                    filters: StoreMemoFilters::default(),
+                },
+                None,
+                1,
+            )
+            .test_ok("FTS page1");
+        let fts_cursor = fts_first.next_cursor.test_ok("FTS must page");
+        assert_ne!(fts_cursor.encoded.split('|').nth(1), Some("none"));
+        let fts_second = engine
+            .query_memos(
+                StoreMemoQuery {
+                    search_text: Some("needle".to_owned()),
+                    filters: StoreMemoFilters::default(),
+                },
+                Some(fts_cursor),
+                1,
+            )
+            .test_ok("FTS page2");
+        assert_eq!(fts_second.items.len(), 1);
+        assert_ne!(
+            fts_first.items.first().map(|item| &item.memo_id),
+            fts_second.items.first().map(|item| &item.memo_id),
+        );
+
         let bad = engine
             .query_memos(
                 StoreMemoQuery {
@@ -486,7 +759,7 @@ mod tests {
                     filters: StoreMemoFilters::default(),
                 },
                 Some(StorePageCursor {
-                    encoded: "fp|not-i64|id|1|1".to_owned(),
+                    encoded: "fp|none|not-i64|id|1|1".to_owned(),
                 }),
                 1,
             )
@@ -494,9 +767,11 @@ mod tests {
         assert_eq!(bad_num.code(), "invalid_page_cursor");
 
         for bad in [
-            "fp|1|id|not-u64|1",
-            "fp|1|id|1|not-u32",
-            "fp|1|id|1|1|extra",
+            "fp|not-u64-bits|1|id|1|1",
+            "fp|1|id|1|1",
+            "fp|none|1|id|not-u64|1",
+            "fp|none|1|id|1|not-u32",
+            "fp|none|1|id|1|1|extra",
         ] {
             let err = engine
                 .query_memos(
@@ -512,6 +787,54 @@ mod tests {
                 .test_err(bad);
             assert_eq!(err.code(), "invalid_page_cursor", "cursor={bad}");
         }
+    }
+
+    #[test]
+    fn tag_subtree_selection_survives_native_boundary() {
+        let (_tmp, engine) = open_engine();
+        for (id, tag) in [
+            ("tag-root", "work"),
+            ("tag-child", "work/project"),
+            ("tag-sibling", "workspace"),
+        ] {
+            engine
+                .apply_memo_command(StoreMemoCommand {
+                    operation_id: format!("op-{id}"),
+                    kind: StoreMemoCommandKind::Create,
+                    memo_id: id.to_owned(),
+                    expected_revision: 0,
+                    expected_fingerprint: None,
+                    content: Some(id.to_owned()),
+                    tags: vec![tag.to_owned()],
+                    pin: None,
+                    pending_promotes: vec![],
+                    chronology_epoch_ms: None,
+                })
+                .test_ok("create tagged memo");
+        }
+        let page = engine
+            .query_memos(
+                StoreMemoQuery {
+                    search_text: None,
+                    filters: StoreMemoFilters {
+                        tag: Some("work".to_owned()),
+                        tag_subtree: true,
+                        ..StoreMemoFilters::default()
+                    },
+                },
+                None,
+                10,
+            )
+            .test_ok("query tag subtree");
+        let ids = page
+            .items
+            .iter()
+            .map(|item| item.memo_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            ids,
+            std::collections::BTreeSet::from(["tag-child", "tag-root"])
+        );
     }
 
     #[test]

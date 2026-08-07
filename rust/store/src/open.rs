@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
-use crate::schema::{BUSY_TIMEOUT_MS, STORE_SCHEMA_VERSION, schema_v1_ddl};
+use crate::schema::{
+    BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, STORE_SCHEMA_VERSION,
+    schema_v1_ddl,
+};
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
 pub const SQLITE_DIR_NAME: &str = ".lomo-sqlite";
@@ -31,13 +34,13 @@ pub fn database_path(workspace_root: &Path) -> PathBuf {
     workspace_root.join(SQLITE_DIR_NAME).join(SQLITE_FILE_NAME)
 }
 
-/// Opens or creates the store database with schema v1 open contract.
+/// Opens or creates the store database with the live schema contract.
 ///
 /// # Errors
 ///
 /// - `unknown_schema_version` when `user_version` is higher than this crate's schema (fail closed;
 ///   no destructive downgrade).
-/// - `schema_mismatch` when `user_version` is non-zero and not equal to v1.
+/// - migration/storage errors when an older supported schema cannot be upgraded atomically.
 /// - storage/corruption errors for I/O or integrity failures.
 pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoError> {
     let db_path = database_path(workspace_root);
@@ -68,16 +71,22 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
             ),
         ));
     }
-    // With schema v1, open accepts only empty (0 → apply DDL) or exact v1. Intermediate
-    // non-zero versions cannot exist without a future schema bump; when that ships, add an
-    // explicit migration table rather than a silent mismatch branch.
-
     if created || user_version == 0 {
         connection
             .execute_batch(&schema_v1_ddl())
             .map_err(|err| from_sqlite(&err))?;
         connection
             .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
+            .map_err(|err| from_sqlite(&err))?;
+    } else if user_version == 1 {
+        connection
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}COMMIT;"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+    } else if user_version == 2 {
+        connection
+            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}COMMIT;"))
             .map_err(|err| from_sqlite(&err))?;
     }
 

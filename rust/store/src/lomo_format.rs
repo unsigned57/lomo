@@ -48,6 +48,7 @@ pub enum MemoCommandKind {
     Create,
     Update,
     Delete,
+    PermanentDelete,
     Restore,
     Pin,
     Unpin,

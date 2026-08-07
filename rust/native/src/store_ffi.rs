@@ -7,10 +7,13 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
 use boltffi::data;
-use lomo_core::{ErrorCategory, LomoError, OperationId, PageSize, RetryDisposition};
+use lomo_core::{ErrorCategory, ExchangeToken, LomoError, OperationId, PageSize, RetryDisposition};
 use lomo_store::{
     self as store, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, PageCursor,
     ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore, Store, TimeZoneContext,
@@ -18,6 +21,8 @@ use lomo_store::{
 };
 
 use crate::EngineError;
+
+static NEXT_SAF_REBUILD_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Materializes one already bounded LAN attachment into the app-private staging path.
 ///
@@ -104,6 +109,7 @@ pub struct StorePageCursor {
 #[derive(Clone, Debug, Default)]
 pub struct StoreMemoFilters {
     pub tag: Option<String>,
+    pub tag_subtree: bool,
     pub date_from_ms: Option<i64>,
     pub date_to_ms: Option<i64>,
     pub has_todo: Option<bool>,
@@ -139,6 +145,7 @@ pub struct StoreMemoSummary {
     pub rank: Option<f64>,
     pub tags: Vec<String>,
     pub image_urls: Vec<String>,
+    pub reminders: Vec<crate::WorkspaceReminderReference>,
 }
 
 #[data]
@@ -148,6 +155,29 @@ pub struct StoreMemoPage {
     pub next_cursor: Option<StorePageCursor>,
     pub high_water_revision: u64,
     pub query_fingerprint: String,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSidebarDateCount {
+    pub date: String,
+    pub count: i64,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSidebarTagCount {
+    pub name: String,
+    pub count: i64,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSidebarProjection {
+    pub schema_version: u32,
+    pub memo_count: i64,
+    pub date_counts: Vec<StoreSidebarDateCount>,
+    pub tag_counts: Vec<StoreSidebarTagCount>,
 }
 
 #[data]
@@ -168,11 +198,28 @@ pub struct StoreHistoryAttachmentRef {
 }
 
 #[data]
+#[derive(Clone, Debug)]
+pub struct StoreMemoHistoryRevision {
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub content: String,
+    pub file_fingerprint: String,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreMemoHistoryPage {
+    pub items: Vec<StoreMemoHistoryRevision>,
+    pub next_cursor: Option<String>,
+}
+
+#[data]
 #[derive(Clone, Copy, Debug)]
 pub enum StoreMemoCommandKind {
     Create,
     Update,
     Delete,
+    PermanentDelete,
     Restore,
     Pin,
     Unpin,
@@ -192,6 +239,8 @@ pub struct StoreMemoCommand {
     pub pin: Option<bool>,
     /// Path-only promote plans under the same operation-id (P4-09 dark wire).
     pub pending_promotes: Vec<crate::media_ffi::MediaPromotePlanDto>,
+    /// Source chronology required by SAF create; non-create commands may omit it.
+    pub chronology_epoch_ms: Option<i64>,
 }
 
 #[data]
@@ -313,11 +362,29 @@ pub struct StoreSafMemoProjection {
     pub memo_id: String,
     pub source_path: String,
     pub file_fingerprint: String,
+    pub chronology_epoch_ms: i64,
     pub body: String,
     pub tags: Vec<String>,
     pub attachment_paths: Vec<String>,
     pub has_todo: bool,
     pub has_url: bool,
+    pub reminders: Vec<crate::WorkspaceReminderReference>,
+}
+
+/// SAF scan facts for the streaming rebuild. Body bytes stay in Rust-owned exchange storage.
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSafMemoProjectionReference {
+    pub memo_id: String,
+    pub source_path: String,
+    pub file_fingerprint: String,
+    pub chronology_epoch_ms: i64,
+    pub content: crate::WorkspaceMemoContentReference,
+    pub tags: Vec<String>,
+    pub attachment_paths: Vec<String>,
+    pub has_todo: bool,
+    pub has_url: bool,
+    pub reminders: Vec<crate::WorkspaceReminderReference>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,6 +401,13 @@ pub struct StoreHandle {
     snooze: Mutex<SnoozeStore>,
     saf_bodies: Mutex<BTreeMap<String, String>>,
     projection_gate: Mutex<()>,
+    saf_rebuild: Mutex<Option<SafProjectionRebuildState>>,
+}
+
+struct SafProjectionRebuildState {
+    id: String,
+    rebuild: store::SafProjectionRebuild,
+    bodies: BTreeMap<String, String>,
 }
 
 impl std::fmt::Debug for StoreHandle {
@@ -366,6 +440,7 @@ impl StoreHandle {
             snooze: Mutex::new(snooze),
             saf_bodies: Mutex::new(BTreeMap::new()),
             projection_gate: Mutex::new(()),
+            saf_rebuild: Mutex::new(None),
         })
     }
 
@@ -384,6 +459,7 @@ impl StoreHandle {
             snooze: Mutex::new(snooze),
             saf_bodies: Mutex::new(BTreeMap::new()),
             projection_gate: Mutex::new(()),
+            saf_rebuild: Mutex::new(None),
         })
     }
 
@@ -433,6 +509,31 @@ impl StoreHandle {
         let mut guard = self.lock_store()?;
         if guard.is_none() {
             *guard = Some(Store::open(&self.workspace_root).map_err(EngineError::from)?);
+        }
+        let store = guard.as_mut().ok_or_else(|| {
+            EngineError::from(boundary_err(
+                "store_missing",
+                "store handle missing after open",
+            ))
+        })?;
+        let result = f(store).map_err(EngineError::from)?;
+        drop(guard);
+        Ok(result)
+    }
+
+    fn with_projection_store_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Store) -> Result<R, LomoError>,
+    ) -> Result<R, EngineError> {
+        if self.mode != StoreWorkspaceMode::Saf {
+            return Err(EngineError::from(boundary_err(
+                "saf_projection_commit_requires_saf",
+                "projection-only commit is available only for SAF stores",
+            )));
+        }
+        let mut guard = self.lock_store()?;
+        if guard.is_none() {
+            *guard = Some(self.open_store()?);
         }
         let store = guard.as_mut().ok_or_else(|| {
             EngineError::from(boundary_err(
@@ -548,6 +649,11 @@ impl StoreHandle {
             search_text: query.search_text,
             filters: MemoFilters {
                 tag: query.filters.tag,
+                tag_selection: if query.filters.tag_subtree {
+                    store::TagSelectionMode::Subtree
+                } else {
+                    store::TagSelectionMode::Exact
+                },
                 date_from_ms: query.filters.date_from_ms,
                 date_to_ms: query.filters.date_to_ms,
                 has_todo: query.filters.has_todo,
@@ -567,6 +673,41 @@ impl StoreHandle {
             }),
             high_water_revision: page.high_water_revision,
             query_fingerprint: page.query_fingerprint,
+        })
+    }
+
+    /// Reads the complete active sidebar aggregate without memo pagination.
+    ///
+    /// # Errors
+    ///
+    /// Store projection errors.
+    pub fn sidebar_projection(&self) -> Result<StoreSidebarProjection, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let projection = self.with_store(Store::sidebar_projection)?;
+        Ok(StoreSidebarProjection {
+            schema_version: projection.schema_version,
+            memo_count: projection.memo_count,
+            date_counts: projection
+                .date_counts
+                .into_iter()
+                .map(|bucket| StoreSidebarDateCount {
+                    date: bucket.date,
+                    count: bucket.count,
+                })
+                .collect(),
+            tag_counts: projection
+                .tag_counts
+                .into_iter()
+                .map(|tag| StoreSidebarTagCount {
+                    name: tag.name,
+                    count: tag.count,
+                })
+                .collect(),
         })
     }
 
@@ -632,6 +773,33 @@ impl StoreHandle {
             .collect())
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Store history list errors.
+    pub fn list_memo_history(
+        &self,
+        memo_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<StoreMemoHistoryPage, EngineError> {
+        let page =
+            self.with_store(|store| store.list_memo_history(memo_id, cursor, limit as usize))?;
+        Ok(StoreMemoHistoryPage {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| StoreMemoHistoryRevision {
+                    revision: item.revision,
+                    created_at_ms: item.created_at_ms,
+                    content: item.content,
+                    file_fingerprint: item.file_fingerprint,
+                })
+                .collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
     /// See plan `apply_memo_command` (dark-build returns commit facts synchronously).
     ///
     /// # Errors
@@ -645,6 +813,7 @@ impl StoreHandle {
             StoreMemoCommandKind::Create => MemoCommandKind::Create,
             StoreMemoCommandKind::Update => MemoCommandKind::Update,
             StoreMemoCommandKind::Delete => MemoCommandKind::Delete,
+            StoreMemoCommandKind::PermanentDelete => MemoCommandKind::PermanentDelete,
             StoreMemoCommandKind::Restore => MemoCommandKind::Restore,
             StoreMemoCommandKind::Pin => MemoCommandKind::Pin,
             StoreMemoCommandKind::Unpin => MemoCommandKind::Unpin,
@@ -673,6 +842,93 @@ impl StoreHandle {
             content_revision: result.content_revision,
             file_fingerprint: result.file_fingerprint,
             scopes: result.scopes.into_iter().map(scope_name).collect(),
+            idempotent_replay: result.idempotent_replay,
+        })
+    }
+
+    /// Commits facts from a completed SAF platform job into the app-private projection only.
+    ///
+    /// # Errors
+    ///
+    /// Rejects Direct callers, malformed facts, stale revisions, or projection transaction errors.
+    pub fn commit_saf_projection_mutation(
+        &self,
+        command: StoreMemoCommand,
+        projection: Option<StoreSafMemoProjection>,
+    ) -> Result<StoreMemoCommit, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let projected_body = projection
+            .as_ref()
+            .map(|value| (value.memo_id.clone(), value.body.clone()));
+        let kind = match command.kind {
+            StoreMemoCommandKind::Create => store::SafProjectionMutationKind::Create,
+            StoreMemoCommandKind::Update => store::SafProjectionMutationKind::Update,
+            StoreMemoCommandKind::Delete => store::SafProjectionMutationKind::Delete,
+            StoreMemoCommandKind::PermanentDelete => {
+                return Err(EngineError::from(boundary_err(
+                    "unsupported_saf_projection_command",
+                    "permanent delete requires the Direct store command path",
+                )));
+            }
+            StoreMemoCommandKind::Pin => store::SafProjectionMutationKind::Pin,
+            StoreMemoCommandKind::Unpin => store::SafProjectionMutationKind::Unpin,
+            StoreMemoCommandKind::Restore | StoreMemoCommandKind::HistoryRestore => {
+                return Err(EngineError::from(boundary_err(
+                    "unsupported_saf_projection_command",
+                    "restore commands require a dedicated platform mutation plan",
+                )));
+            }
+        };
+        let facts = projection.map(|value| store::ScannedMemoProjection {
+            memo_id: value.memo_id,
+            source_path: value.source_path,
+            file_fingerprint: value.file_fingerprint,
+            chronology_epoch_ms: value.chronology_epoch_ms,
+            body: value.body,
+            tags: value.tags,
+            attachment_paths: value.attachment_paths,
+            has_todo: value.has_todo,
+            has_url: value.has_url,
+            reminders: value
+                .reminders
+                .into_iter()
+                .map(crate::workspace_reminder_from_ffi)
+                .collect(),
+        });
+        let mutation = store::SafProjectionMutation {
+            operation_id: command.operation_id,
+            kind,
+            memo_id: command.memo_id,
+            expected_revision: command.expected_revision,
+            expected_fingerprint: command.expected_fingerprint,
+            projection: facts,
+        };
+        let result = self
+            .with_projection_store_mut(|store| store.commit_saf_projection_mutation(&mutation))?;
+        if let Some((memo_id, body)) = projected_body {
+            self.saf_bodies
+                .lock()
+                .map_err(|_error| {
+                    EngineError::from(boundary_err(
+                        "saf_store_body_mutex_poisoned",
+                        "SAF memo body snapshot mutex poisoned",
+                    ))
+                })?
+                .insert(memo_id, body);
+        }
+        Ok(StoreMemoCommit {
+            operation_id: result.operation_id,
+            memo_id: result.memo_id,
+            core_revision: result.core_revision,
+            event_sequence: result.event_sequence,
+            content_revision: result.content_revision,
+            file_fingerprint: result.file_fingerprint,
+            scopes: vec!["memo".to_owned()],
             idempotent_replay: result.idempotent_replay,
         })
     }
@@ -805,58 +1061,176 @@ impl StoreHandle {
         Ok(rebuild_result_to_ffi(result))
     }
 
-    /// Replaces the SAF query projection and current-process body snapshots atomically.
+    /// Begins a Rust-owned, page-at-a-time SAF projection rebuild.
     ///
     /// # Errors
     ///
-    /// Returns validation for a Direct handle, malformed scan facts, or projection I/O failures.
-    pub fn rebuild_saf_projection(
-        &self,
-        memos: Vec<StoreSafMemoProjection>,
-    ) -> Result<StoreRebuildResult, EngineError> {
+    /// Returns validation for a non-SAF/busy handle or storage errors while creating the temporary
+    /// projection. The live projection remains open until finish.
+    pub fn begin_saf_projection_rebuild(&self) -> Result<String, EngineError> {
         if self.mode != StoreWorkspaceMode::Saf {
             return Err(EngineError::from(boundary_err(
                 "saf_store_projection_requires_saf_workspace",
-                "SAF projection input cannot be applied to a Direct workspace",
+                "SAF projection rebuild requires a SAF workspace",
             )));
         }
+        let mut state = self.saf_rebuild.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        if state.is_some() {
+            return Err(EngineError::from(boundary_err(
+                "saf_projection_rebuild_busy",
+                "a SAF projection rebuild is already active",
+            )));
+        }
+        let rebuild =
+            store::SafProjectionRebuild::begin(&self.workspace_root).map_err(EngineError::from)?;
+        let id = format!(
+            "saf-rebuild-{}",
+            NEXT_SAF_REBUILD_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        *state = Some(SafProjectionRebuildState {
+            id: id.clone(),
+            rebuild,
+            bodies: BTreeMap::new(),
+        });
+        drop(state);
+        Ok(id)
+    }
+
+    /// Appends one bounded SAF scan page. Exchange artifacts are read and verified in Rust.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a missing/mismatched rebuild, invalid exchange reference, duplicate
+    /// memo, oversized page, or projection write failure.
+    pub fn append_saf_projection_rebuild_page(
+        &self,
+        rebuild_id: &str,
+        memos: Vec<StoreSafMemoProjectionReference>,
+        exchange_root: &Path,
+    ) -> Result<(), EngineError> {
+        let mut state_guard = self.saf_rebuild.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let state = state_guard.as_mut().ok_or_else(|| {
+            EngineError::from(boundary_err(
+                "saf_projection_rebuild_missing",
+                "no SAF projection rebuild is active",
+            ))
+        })?;
+        if state.id != rebuild_id {
+            return Err(EngineError::from(boundary_err(
+                "saf_projection_rebuild_id_mismatch",
+                "SAF projection rebuild id does not match the active rebuild",
+            )));
+        }
+        let mut projections = Vec::with_capacity(memos.len());
+        let mut bodies = BTreeMap::new();
+        let mut consumed_tokens = Vec::with_capacity(memos.len());
+        for memo in memos {
+            consumed_tokens.push(memo.content.exchange_token.clone());
+            let body = read_projection_exchange_body(exchange_root, &memo.content)?;
+            if bodies.insert(memo.memo_id.clone(), body.clone()).is_some() {
+                return Err(EngineError::from(boundary_err(
+                    "duplicate_saf_memo_id",
+                    "SAF workspace scan produced a duplicate memo identity",
+                )));
+            }
+            projections.push(store::ScannedMemoProjection {
+                memo_id: memo.memo_id,
+                source_path: memo.source_path,
+                file_fingerprint: memo.file_fingerprint,
+                chronology_epoch_ms: memo.chronology_epoch_ms,
+                body,
+                tags: memo.tags,
+                attachment_paths: memo.attachment_paths,
+                has_todo: memo.has_todo,
+                has_url: memo.has_url,
+                reminders: memo
+                    .reminders
+                    .into_iter()
+                    .map(crate::workspace_reminder_from_ffi)
+                    .collect(),
+            });
+        }
+        state
+            .rebuild
+            .append_page(&projections)
+            .map_err(EngineError::from)?;
+        state.bodies.extend(bodies);
+        for token in consumed_tokens {
+            remove_projection_exchange_body(exchange_root, &token)?;
+        }
+        drop(state_guard);
+        Ok(())
+    }
+
+    /// Finishes and atomically publishes the active SAF projection rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a missing/mismatched rebuild or storage/corruption errors while
+    /// verifying and publishing it. On publish failure the previous live projection is reopened.
+    pub fn finish_saf_projection_rebuild(
+        &self,
+        rebuild_id: &str,
+    ) -> Result<StoreRebuildResult, EngineError> {
+        // The projection gate is the single publication boundary shared with SAF mutations and
+        // queries. It must span final revision validation, live-state copy, atomic replacement,
+        // and reopening so no writer can enter the revision-check-to-rename window.
         let _projection = self.projection_gate.lock().map_err(|_error| {
             EngineError::from(boundary_err(
                 "store_projection_mutex_poisoned",
                 "store projection mutex poisoned",
             ))
         })?;
-        let mut bodies = BTreeMap::new();
-        let projections = memos
-            .into_iter()
-            .map(|memo| {
-                if bodies
-                    .insert(memo.memo_id.clone(), memo.body.clone())
-                    .is_some()
-                {
-                    return Err(EngineError::from(boundary_err(
-                        "duplicate_saf_memo_id",
-                        "SAF workspace scan produced a duplicate memo identity",
-                    )));
-                }
-                Ok(store::ScannedMemoProjection {
-                    memo_id: memo.memo_id,
-                    source_path: memo.source_path,
-                    file_fingerprint: memo.file_fingerprint,
-                    body: memo.body,
-                    tags: memo.tags,
-                    attachment_paths: memo.attachment_paths,
-                    has_todo: memo.has_todo,
-                    has_url: memo.has_url,
-                })
-            })
-            .collect::<Result<Vec<_>, EngineError>>()?;
+        let state = {
+            let mut guard = self.saf_rebuild.lock().map_err(|_error| {
+                EngineError::from(boundary_err(
+                    "store_projection_mutex_poisoned",
+                    "store projection mutex poisoned",
+                ))
+            })?;
+            let state = guard.take().ok_or_else(|| {
+                EngineError::from(boundary_err(
+                    "saf_projection_rebuild_missing",
+                    "no SAF projection rebuild is active",
+                ))
+            })?;
+            if state.id != rebuild_id {
+                *guard = Some(state);
+                drop(guard);
+                return Err(EngineError::from(boundary_err(
+                    "saf_projection_rebuild_id_mismatch",
+                    "SAF projection rebuild id does not match the active rebuild",
+                )));
+            }
+            drop(guard);
+            state
+        };
         {
-            let mut guard = self.lock_store()?;
-            drop(guard.take());
+            let mut store_guard = self.lock_store()?;
+            drop(store_guard.take());
+            drop(store_guard);
         }
-        let result = store::rebuild_scanned_projection(&self.workspace_root, &projections)
-            .map_err(EngineError::from)?;
+        let result = match state.rebuild.finish() {
+            Ok(result) => result,
+            Err(error) => {
+                let reopened =
+                    Store::open_projection(&self.workspace_root).map_err(EngineError::from)?;
+                let mut store_guard = self.lock_store()?;
+                *store_guard = Some(reopened);
+                drop(store_guard);
+                return Err(EngineError::from(error));
+            }
+        };
         let reopened = Store::open_projection(&self.workspace_root).map_err(EngineError::from)?;
         {
             let mut body_guard = self.saf_bodies.lock().map_err(|_error| {
@@ -865,18 +1239,103 @@ impl StoreHandle {
                     "SAF memo body snapshot mutex poisoned",
                 ))
             })?;
-            *body_guard = bodies;
+            *body_guard = state.bodies;
         }
-        {
-            let mut store_guard = self.lock_store()?;
-            *store_guard = Some(reopened);
-        }
+        let mut store_guard = self.lock_store()?;
+        *store_guard = Some(reopened);
+        drop(store_guard);
         Ok(rebuild_result_to_ffi(result))
+    }
+
+    /// Aborts the active SAF projection rebuild without changing the live projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a missing/mismatched rebuild or storage errors while removing its
+    /// temporary artifacts.
+    pub fn abort_saf_projection_rebuild(&self, rebuild_id: &str) -> Result<(), EngineError> {
+        let state = {
+            let mut guard = self.saf_rebuild.lock().map_err(|_error| {
+                EngineError::from(boundary_err(
+                    "store_projection_mutex_poisoned",
+                    "store projection mutex poisoned",
+                ))
+            })?;
+            let state = guard.take().ok_or_else(|| {
+                EngineError::from(boundary_err(
+                    "saf_projection_rebuild_missing",
+                    "no SAF projection rebuild is active",
+                ))
+            })?;
+            if state.id != rebuild_id {
+                *guard = Some(state);
+                drop(guard);
+                return Err(EngineError::from(boundary_err(
+                    "saf_projection_rebuild_id_mismatch",
+                    "SAF projection rebuild id does not match the active rebuild",
+                )));
+            }
+            drop(guard);
+            state
+        };
+        state.rebuild.abort().map_err(EngineError::from)
     }
 
     #[must_use]
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
+    }
+}
+
+fn read_projection_exchange_body(
+    exchange_root: &Path,
+    reference: &crate::WorkspaceMemoContentReference,
+) -> Result<String, EngineError> {
+    let token = ExchangeToken::parse(&reference.exchange_token).map_err(EngineError::from)?;
+    let path = exchange_root.join(token.as_str());
+    let bytes = fs::read(&path).map_err(|error| {
+        let diagnostic = format!("cannot read SAF projection exchange artifact: {error}");
+        EngineError::from(boundary_err(
+            "saf_projection_exchange_read_failed",
+            &diagnostic,
+        ))
+    })?;
+    if u64::try_from(bytes.len()).map_err(|_error| {
+        EngineError::from(boundary_err(
+            "saf_projection_exchange_length_invalid",
+            "exchange artifact length exceeds u64",
+        ))
+    })? != reference.length
+    {
+        return Err(EngineError::from(boundary_err(
+            "saf_projection_exchange_length_mismatch",
+            "exchange artifact length differs from the scan reference",
+        )));
+    }
+    let body = String::from_utf8(bytes).map_err(|_error| {
+        EngineError::from(boundary_err(
+            "saf_projection_exchange_not_utf8",
+            "exchange artifact is not valid UTF-8",
+        ))
+    })?;
+    if store::fingerprint_content(&body) != reference.digest {
+        return Err(EngineError::from(boundary_err(
+            "saf_projection_exchange_digest_mismatch",
+            "exchange artifact digest differs from the scan reference",
+        )));
+    }
+    Ok(body)
+}
+
+fn remove_projection_exchange_body(exchange_root: &Path, token: &str) -> Result<(), EngineError> {
+    let token = ExchangeToken::parse(token).map_err(EngineError::from)?;
+    match fs::remove_file(exchange_root.join(token.as_str())) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(EngineError::from(boundary_err(
+            "saf_projection_exchange_cleanup_failed",
+            &format!("cannot remove consumed exchange artifact: {error}"),
+        ))),
     }
 }
 
@@ -1042,6 +1501,11 @@ fn summary_to_ffi(s: store::MemoSummary) -> StoreMemoSummary {
         rank: s.rank,
         tags: s.tags,
         image_urls: s.image_urls,
+        reminders: s
+            .reminders
+            .into_iter()
+            .map(crate::workspace_reminder_to_ffi)
+            .collect(),
     }
 }
 
@@ -1060,8 +1524,11 @@ fn scope_name(scope: lomo_core::InvalidationScope) -> String {
 
 fn encode_cursor(cursor: &PageCursor) -> String {
     format!(
-        "{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}",
         cursor.query_fingerprint,
+        cursor
+            .sort_rank_bits
+            .map_or_else(|| "none".to_owned(), |rank| rank.to_string()),
         cursor.sort_updated_at_ms,
         cursor.sort_memo_id,
         cursor.high_water_revision,
@@ -1073,6 +1540,7 @@ fn decode_cursor(encoded: &str) -> Result<PageCursor, EngineError> {
     let parts: Vec<&str> = encoded.split('|').collect();
     let (
         Some(query_fingerprint),
+        Some(sort_rank),
         Some(sort_updated),
         Some(sort_memo_id),
         Some(high_water),
@@ -1083,6 +1551,7 @@ fn decode_cursor(encoded: &str) -> Result<PageCursor, EngineError> {
         parts.get(2).copied(),
         parts.get(3).copied(),
         parts.get(4).copied(),
+        parts.get(5).copied(),
     )
     else {
         return Err(EngineError::from(boundary_err(
@@ -1090,12 +1559,22 @@ fn decode_cursor(encoded: &str) -> Result<PageCursor, EngineError> {
             "store page cursor encoding mismatch",
         )));
     };
-    if parts.len() != 5 {
+    if parts.len() != 6 {
         return Err(EngineError::from(boundary_err(
             "invalid_page_cursor",
             "store page cursor encoding mismatch",
         )));
     }
+    let sort_rank_bits = if sort_rank == "none" {
+        None
+    } else {
+        Some(sort_rank.parse::<u64>().map_err(|_e| {
+            EngineError::from(boundary_err(
+                "invalid_page_cursor",
+                "store page cursor rank is not u64 bits",
+            ))
+        })?)
+    };
     let sort_updated_at_ms = sort_updated.parse::<i64>().map_err(|_e| {
         EngineError::from(boundary_err(
             "invalid_page_cursor",
@@ -1116,6 +1595,7 @@ fn decode_cursor(encoded: &str) -> Result<PageCursor, EngineError> {
     })?;
     Ok(PageCursor {
         query_fingerprint: query_fingerprint.to_owned(),
+        sort_rank_bits,
         sort_updated_at_ms,
         sort_memo_id: sort_memo_id.to_owned(),
         high_water_revision: high_water,

@@ -11,11 +11,13 @@
 //! - Given a result with the wrong identity or action order, when validated, then it cannot advance.
 //! - Given an already-satisfied result, when evidence is built, then digest, length, and fingerprint
 //!   are all mandatory.
+//! - Given SAF listing metadata, when a later content read is planned, then the provider's opaque
+//!   document handle is preserved independently of the mutable display path.
 //!
 //! Observable outcomes: batch fields, exact action order, structured validation errors, and a
 //! validated ordered result prefix.
 //! TDD proof: the first run fails because the versioned platform protocol types do not exist;
-//! GREEN is recorded in `STAGE1-EVIDENCE.md`.
+//! The current platform protocol tests are the executable evidence.
 //! Excludes: Android `ContentResolver` execution, actor scheduling, journal receipts, and FFI DTOs.
 
 #[cfg(test)]
@@ -30,9 +32,10 @@ mod tests {
 
     use lomo_core::{
         ActionEvidence, ActionId, ActionOutcome, ActionResult, BatchId, CapabilityToken,
-        DocumentKind, DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, JobId, MetadataPage,
-        PageSize, PlatformAction, PlatformActionBatch, PlatformActionOutput, PlatformBatchResult,
-        RelativeWorkspacePath, Sha256Digest, WorkspaceTarget, WriteMode,
+        DocumentHandle, DocumentKind, DocumentLocator, DocumentMetadata, ExchangeArtifact,
+        ExpectedFingerprint, JobId, MetadataPage, PageSize, PlatformAction, PlatformActionBatch,
+        PlatformActionOutput, PlatformBatchResult, RelativeWorkspacePath, Sha256Digest,
+        WorkspaceTarget, WriteMode,
     };
 
     use super::failure_support::ResultFailureTestExt;
@@ -90,6 +93,37 @@ mod tests {
         ]
     }
 
+    #[test]
+    fn durable_batch_deserialization_rechecks_shape_invariants() {
+        let empty = serde_json::json!({
+            "schema_version": 1,
+            "job_id": "job-1",
+            "batch_id": "batch-1",
+            "attempt": 1,
+            "deadline_epoch_millis": 1,
+            "actions": []
+        });
+        assert!(
+            serde_json::from_value::<PlatformActionBatch>(empty)
+                .err()
+                .is_some()
+        );
+
+        let unknown_schema = serde_json::json!({
+            "schema_version": 99,
+            "job_id": "job-1",
+            "batch_id": "batch-1",
+            "attempt": 1,
+            "deadline_epoch_millis": 1,
+            "actions": []
+        });
+        assert!(
+            serde_json::from_value::<PlatformActionBatch>(unknown_schema)
+                .err()
+                .is_some()
+        );
+    }
+
     fn fixture_batch() -> PlatformActionBatch {
         PlatformActionBatch::new(
             JobId::parse("job-1").must_succeed("job id"),
@@ -114,6 +148,40 @@ mod tests {
             .must_succeed("evidence"),
         )
         .must_succeed("metadata")
+    }
+
+    #[test]
+    fn listed_document_handle_is_the_identity_used_by_a_later_read() {
+        let handle =
+            DocumentHandle::parse("provider:opaque/document-42").must_succeed("document handle");
+        let metadata = DocumentMetadata::new_with_handle(
+            WorkspaceTarget::Relative(path("mutable-name.md")),
+            handle.clone(),
+            DocumentKind::File,
+            Some("text/markdown"),
+            ActionEvidence::verified(
+                12,
+                Sha256Digest::parse(&"a".repeat(64)).must_succeed("digest"),
+                "fingerprint-1",
+            )
+            .must_succeed("evidence"),
+        )
+        .must_succeed("metadata");
+
+        assert_eq!(metadata.document_handle(), &handle);
+        let read = PlatformAction::read_listed_to_exchange(
+            action_id(9),
+            CapabilityToken::parse("root-capability").must_succeed("capability"),
+            path("mutable-name.md"),
+            handle.clone(),
+            "exchange-read-handle",
+            ExpectedFingerprint::absent(),
+        )
+        .must_succeed("read action");
+        let PlatformAction::ReadToExchange { locator, .. } = read else {
+            panic!("expected read action");
+        };
+        assert_eq!(locator, DocumentLocator::Opaque(handle));
     }
 
     #[test]

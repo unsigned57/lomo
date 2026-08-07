@@ -36,8 +36,8 @@ mod tests {
         ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
         ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionOutput,
         PlatformBatchResult, RenderNodeKind, RenderRequest, WorkspaceDescriptor,
-        WorkspaceDocumentCommand, WorkspaceDocumentCommandKind, WorkspaceScanRequest,
-        WorkspaceTarget,
+        WorkspaceDocumentCommand, WorkspaceDocumentCommandKind, WorkspaceDocumentExpectedState,
+        WorkspaceScanRequest, WorkspaceTarget,
     };
     use lomo_workspace::SourceFingerprint;
     use tempfile::tempdir;
@@ -147,6 +147,7 @@ mod tests {
                         output: PlatformActionOutput::ReadToExchange {
                             source_metadata: DocumentMetadata {
                                 target: WorkspaceTarget::Relative { path: path.clone() },
+                                document_handle: path.clone(),
                                 kind: DocumentKind::File,
                                 mime_type: None,
                                 evidence: ActionEvidence {
@@ -175,6 +176,7 @@ mod tests {
                         output: PlatformActionOutput::WriteComplete {
                             metadata: DocumentMetadata {
                                 target: WorkspaceTarget::Relative { path: path.clone() },
+                                document_handle: path.clone(),
                                 kind: DocumentKind::File,
                                 mime_type: None,
                                 evidence: ActionEvidence {
@@ -277,6 +279,7 @@ mod tests {
                 target: WorkspaceTarget::Relative {
                     path: relative.clone(),
                 },
+                document_handle: relative.clone(),
                 kind,
                 mime_type: None,
                 evidence: ActionEvidence {
@@ -392,7 +395,9 @@ mod tests {
             .start_workspace_document_command(
                 WorkspaceDocumentCommand {
                     path: "2024-02-02.md".to_owned(),
-                    expected_fingerprint: fingerprint_of(original),
+                    expected_state: WorkspaceDocumentExpectedState::Match {
+                        fingerprint: fingerprint_of(original),
+                    },
                     command: WorkspaceDocumentCommandKind::Replace {
                         identity: "2024-02-02_10:00:00_0".to_owned(),
                         content: "new".to_owned(),
@@ -454,7 +459,9 @@ mod tests {
             .start_workspace_document_command(
                 WorkspaceDocumentCommand {
                     path: "2026-07-20.md".to_owned(),
-                    expected_fingerprint: second.revision.clone(),
+                    expected_state: WorkspaceDocumentExpectedState::Match {
+                        fingerprint: second.revision.clone(),
+                    },
                     command: WorkspaceDocumentCommandKind::RewriteReminder {
                         reminder: second,
                         replacement: replacement.to_owned(),

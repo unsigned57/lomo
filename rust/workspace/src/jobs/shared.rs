@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use lomo_core::{
-    ActionOutcome, DocumentKind, ExpectedFingerprint, JobDriver, JobDriverRegistry, PlatformAction,
-    PlatformActionBatch, PlatformActionOutput, PlatformBatchResult, RelativeWorkspacePath,
+    ActionOutcome, DocumentHandle, DocumentKind, ExpectedFingerprint, JobDriver, JobDriverRegistry,
+    PlatformAction, PlatformActionBatch, PlatformActionOutput, PlatformBatchResult,
+    RelativeWorkspacePath,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -128,6 +129,20 @@ pub(super) fn read_exchange_bytes(
         )
         .unwrap_or_else(|e| e)
     })
+}
+
+pub(super) fn remove_exchange_artifact(
+    root: &Path,
+    token: &str,
+) -> Result<(), lomo_core::LomoError> {
+    let _validated_token = lomo_core::ExchangeToken::parse(token)?;
+    match std::fs::remove_file(exchange_path(root, token)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(exchange_storage_error(&format!(
+            "exchange artifact cannot be removed after consumption: {error}"
+        ))),
+    }
 }
 
 pub(super) fn hex_sha256(bytes: &[u8]) -> String {
@@ -257,14 +272,14 @@ pub(super) struct ScanCursorV2 {
     pub v: u32,
     pub root_path: Option<String>,
     pub list_cursor: Option<String>,
-    pub pending_paths: Vec<String>,
+    pub pending_documents: Vec<ListedDocument>,
     pub pending_index: usize,
     pub current_file: Option<FileMemoCursor>,
     pub emitted: u64,
 }
 
 impl ScanCursorV2 {
-    pub(super) const VERSION: u32 = 2;
+    pub(super) const VERSION: u32 = 3;
 
     pub(super) fn encode(&self) -> Result<String, lomo_core::LomoError> {
         serde_json::to_string(self).map_err(|_error| {
@@ -288,7 +303,7 @@ impl ScanCursorV2 {
                 "workspace scan cursor schema is unknown",
             ));
         }
-        if cursor.pending_index > cursor.pending_paths.len() {
+        if cursor.pending_index > cursor.pending_documents.len() {
             return Err(validation(
                 "invalid_workspace_scan_cursor",
                 "workspace scan cursor pending index is outside the listed file page",
@@ -297,11 +312,13 @@ impl ScanCursorV2 {
         if let Some(path) = cursor.root_path.as_deref() {
             let _validated = WorkspaceRelativePath::parse(path)?;
         }
-        for path in &cursor.pending_paths {
-            let _validated = WorkspaceRelativePath::parse(path)?;
+        for document in &cursor.pending_documents {
+            let _validated = WorkspaceRelativePath::parse(&document.path)?;
+            let _handle = DocumentHandle::parse(&document.document_handle)?;
         }
         if let Some(file) = &cursor.current_file {
             let _validated_path = WorkspaceRelativePath::parse(&file.path)?;
+            let _handle = DocumentHandle::parse(&file.document_handle)?;
             let _validated_fingerprint = SourceFingerprint::parse(&file.source_fingerprint)?;
             if file.next_memo_index == 0 {
                 return Err(validation(
@@ -318,8 +335,15 @@ impl ScanCursorV2 {
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub(super) struct FileMemoCursor {
     pub path: String,
+    pub document_handle: String,
     pub source_fingerprint: String,
     pub next_memo_index: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub(super) struct ListedDocument {
+    pub path: String,
+    pub document_handle: String,
 }
 
 pub(super) fn is_file_metadata(metadata: &lomo_core::DocumentMetadata) -> bool {
@@ -334,4 +358,22 @@ pub(super) fn plan_read(
     expected: ExpectedFingerprint,
 ) -> Result<PlatformAction, lomo_core::LomoError> {
     PlatformAction::read_to_exchange(action_id, capability, path, exchange_token, expected)
+}
+
+pub(super) fn plan_listed_read(
+    action_id: lomo_core::ActionId,
+    capability: lomo_core::CapabilityToken,
+    path: RelativeWorkspacePath,
+    document_handle: &str,
+    exchange_token: &str,
+    expected: ExpectedFingerprint,
+) -> Result<PlatformAction, lomo_core::LomoError> {
+    PlatformAction::read_listed_to_exchange(
+        action_id,
+        capability,
+        path,
+        DocumentHandle::parse(document_handle)?,
+        exchange_token,
+        expected,
+    )
 }

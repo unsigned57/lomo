@@ -17,9 +17,10 @@ use crate::source::SourceBytes;
 use crate::types::WorkspaceRelativePath;
 
 use super::shared::{
-    FileMemoCursor, ScanCursorV2, exchange_token_for, filename_stem, first_applied_output,
-    is_file_metadata, is_markdown_file, listed_page, plan_read, read_exchange_bytes,
-    read_to_exchange_output, source_fingerprint_of, to_core_path,
+    FileMemoCursor, ListedDocument, ScanCursorV2, exchange_token_for, filename_stem,
+    first_applied_output, is_file_metadata, is_markdown_file, listed_page, plan_listed_read,
+    read_exchange_bytes, read_to_exchange_output, remove_exchange_artifact, source_fingerprint_of,
+    to_core_path,
 };
 
 pub const SCAN_DRIVER_KIND: &str = "workspace-scan-v1";
@@ -85,7 +86,7 @@ struct ScanState {
     page_size: u32,
     root_path: Option<String>,
     list_cursor: Option<String>,
-    pending_paths: Vec<String>,
+    pending_documents: Vec<ListedDocument>,
     pending_index: usize,
     current_file: Option<FileMemoCursor>,
     phase: ScanPhase,
@@ -109,6 +110,34 @@ impl JobDriver for ScanDriver {
         SCAN_DRIVER_KIND
     }
 
+    fn recover_canonical_request_json(
+        &self,
+        state_json: &str,
+    ) -> Result<Option<String>, LomoError> {
+        let state: ScanState = serde_json::from_str(state_json).map_err(|_error| {
+            corruption(
+                "workspace_scan_state_invalid",
+                "workspace scan durable state is invalid",
+            )
+        })?;
+        // A zero emitted offset proves this active legacy job began at the first logical page.
+        // Later-page legacy cursors cannot be reconstructed exactly and are left uncoalesced.
+        if state.emitted_total != 0 {
+            return Ok(None);
+        }
+        let request = WorkspaceScanRequest {
+            page_size: state.page_size,
+            cursor: None,
+            root_path: state.root_path,
+        };
+        serde_json::to_string(&request).map(Some).map_err(|_error| {
+            corruption(
+                "workspace_scan_state_invalid",
+                "workspace scan request identity cannot be reconstructed",
+            )
+        })
+    }
+
     fn start(
         &self,
         ctx: &mut JobDriverContext<'_>,
@@ -126,7 +155,7 @@ impl JobDriver for ScanDriver {
             let _root_path = WorkspaceRelativePath::parse(path)?;
         }
 
-        let (list_cursor, pending_paths, pending_index, current_file, emitted_total) =
+        let (list_cursor, pending_documents, pending_index, current_file, emitted_total) =
             if let Some(raw) = request.cursor.as_deref() {
                 let cursor = ScanCursorV2::decode(raw)?;
                 if cursor.root_path != request.root_path {
@@ -137,7 +166,7 @@ impl JobDriver for ScanDriver {
                 }
                 (
                     cursor.list_cursor,
-                    cursor.pending_paths,
+                    cursor.pending_documents,
                     cursor.pending_index,
                     cursor.current_file,
                     cursor.emitted,
@@ -150,7 +179,7 @@ impl JobDriver for ScanDriver {
             page_size: request.page_size,
             root_path: request.root_path,
             list_cursor,
-            pending_paths,
+            pending_documents,
             pending_index,
             current_file,
             phase: ScanPhase::List,
@@ -160,7 +189,7 @@ impl JobDriver for ScanDriver {
             emitted_total,
         };
 
-        if state.current_file.is_some() || state.pending_index < state.pending_paths.len() {
+        if state.current_file.is_some() || state.pending_index < state.pending_documents.len() {
             // Resume mid-pending list without re-listing.
             let mut resumed = state;
             return plan_next_read(ctx, &mut resumed);
@@ -212,19 +241,22 @@ fn advance_after_list(
 ) -> Result<DriverAdvance, LomoError> {
     let output = first_applied_output(batch, result, 0)?;
     let page = listed_page(output)?;
-    let paths = page
+    let documents = page
         .items()
         .iter()
         .filter(|item| is_file_metadata(item))
         .filter_map(|item| match item.target() {
             WorkspaceTarget::Relative(path) if is_markdown_file(path.as_str()) => {
-                Some(path.as_str().to_owned())
+                Some(ListedDocument {
+                    path: path.as_str().to_owned(),
+                    document_handle: item.document_handle().as_str().to_owned(),
+                })
             }
             WorkspaceTarget::Root | WorkspaceTarget::Relative(_) => None,
         })
         .collect();
     state.list_cursor = page.next_cursor().map(|cursor| cursor.as_str().to_owned());
-    state.pending_paths = paths;
+    state.pending_documents = documents;
     state.pending_index = 0;
     state.current_file = None;
     driver_start_to_advance(plan_next_read(ctx, state)?)
@@ -258,6 +290,7 @@ fn advance_after_read(
     }
     let bytes = read_exchange_bytes(ctx.exchange_root, &token)?;
     project_file_page(ctx, state, &path, bytes)?;
+    remove_exchange_artifact(ctx.exchange_root, &token)?;
     state.exchange_token = None;
     state.current_path = None;
     driver_start_to_advance(plan_next_read(ctx, state)?)
@@ -341,6 +374,17 @@ fn project_file_page(
     if next_memo_index < document.memos().len() {
         state.current_file = Some(FileMemoCursor {
             path: path.to_owned(),
+            document_handle: state
+                .pending_documents
+                .get(state.pending_index)
+                .ok_or_else(|| {
+                    corruption(
+                        "scan_pending_document_missing",
+                        "listed document is absent at the pending index",
+                    )
+                })?
+                .document_handle
+                .clone(),
             source_fingerprint: fingerprint,
             next_memo_index,
         });
@@ -430,7 +474,10 @@ fn list_action(
 ) -> Result<PlatformAction, LomoError> {
     let action_id = ctx.next_action_id("scan-list")?;
     let capability = ctx.capability();
-    let page_size = PageSize::new(256)?;
+    // A scan job is driven by a bounded platform-batch budget. One list batch plus at most
+    // `MAX_SCAN_LIST_PAGE_SIZE` file reads must fit within that budget, including directories and
+    // non-Markdown files that produce no memo output.
+    let page_size = PageSize::new(MAX_SCAN_LIST_PAGE_SIZE)?;
     match state.root_path.as_deref() {
         Some(path) => {
             let relative = to_core_path(&WorkspaceRelativePath::parse(path)?)?;
@@ -451,6 +498,8 @@ fn list_action(
     }
 }
 
+const MAX_SCAN_LIST_PAGE_SIZE: u32 = 63;
+
 fn plan_next_read(
     ctx: &mut JobDriverContext<'_>,
     state: &mut ScanState,
@@ -466,11 +515,14 @@ fn plan_next_read(
         return finish_page(state);
     }
 
-    if state.pending_index < state.pending_paths.len() {
-        let path = match state.current_file.as_ref() {
-            Some(current) => current.path.clone(),
+    if state.pending_index < state.pending_documents.len() {
+        let document = match state.current_file.as_ref() {
+            Some(current) => ListedDocument {
+                path: current.path.clone(),
+                document_handle: current.document_handle.clone(),
+            },
             None => state
-                .pending_paths
+                .pending_documents
                 .get(state.pending_index)
                 .cloned()
                 .ok_or_else(|| {
@@ -489,17 +541,18 @@ fn plan_next_read(
             ctx.job_id.as_str(),
             &format!("scan-{}-{memo_offset}", state.pending_index),
         );
-        let relative = to_core_path(&WorkspaceRelativePath::parse(&path)?)?;
-        let action = plan_read(
+        let relative = to_core_path(&WorkspaceRelativePath::parse(&document.path)?)?;
+        let action = plan_listed_read(
             ctx.next_action_id("scan-read")?,
             ctx.capability(),
             relative,
+            &document.document_handle,
             &token,
             ExpectedFingerprint::absent(),
         )?;
         state.phase = ScanPhase::ReadFile;
         state.exchange_token = Some(token);
-        state.current_path = Some(path);
+        state.current_path = Some(document.path);
         return Ok(DriverStart {
             state_json: encode_state(state)?,
             actions: vec![action],
@@ -509,17 +562,10 @@ fn plan_next_read(
 
     // Pending exhausted.
     if state.list_cursor.is_some() {
-        // More listing available — either publish partial page or continue listing if empty.
-        if !state.accumulated.is_empty() {
-            return finish_page(state);
-        }
-        state.phase = ScanPhase::List;
-        let action = list_action(ctx, state)?;
-        return Ok(DriverStart {
-            state_json: encode_state(state)?,
-            actions: vec![action],
-            result_json: None,
-        });
+        // More listing is available. Always publish this page, including an empty page, so one
+        // job owns exactly one directory listing page and remains within the platform batch
+        // budget. The opaque cursor lets the caller launch the next bounded job.
+        return finish_page(state);
     }
 
     // Fully drained.
@@ -528,7 +574,7 @@ fn plan_next_read(
 
 fn finish_page(state: &mut ScanState) -> Result<DriverStart, LomoError> {
     let has_more = state.current_file.is_some()
-        || state.pending_index < state.pending_paths.len()
+        || state.pending_index < state.pending_documents.len()
         || state.list_cursor.is_some();
     let next_cursor = if has_more {
         let emitted = u64::try_from(state.accumulated.len()).map_err(|_error| {
@@ -541,7 +587,7 @@ fn finish_page(state: &mut ScanState) -> Result<DriverStart, LomoError> {
             v: ScanCursorV2::VERSION,
             root_path: state.root_path.clone(),
             list_cursor: state.list_cursor.clone(),
-            pending_paths: state.pending_paths.clone(),
+            pending_documents: state.pending_documents.clone(),
             pending_index: state.pending_index,
             current_file: state.current_file.clone(),
             emitted: state.emitted_total.checked_add(emitted).ok_or_else(|| {

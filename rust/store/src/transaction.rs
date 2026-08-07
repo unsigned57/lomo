@@ -190,6 +190,7 @@ fn apply_memo_command_with_created_at(
             merge_tags(&command.tags, &facts.tags)?
         }
         MemoCommandKind::Delete
+        | MemoCommandKind::PermanentDelete
         | MemoCommandKind::Restore
         | MemoCommandKind::Pin
         | MemoCommandKind::Unpin => command.tags.clone(),
@@ -601,6 +602,21 @@ fn validate_command(
                     "expected content revision does not match store",
                 ));
             }
+            if command.kind == MemoCommandKind::PermanentDelete {
+                let trashed: bool = connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM memo_trash WHERE memo_id = ?1)",
+                        params![command.memo_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|err| from_sqlite(&err))?;
+                if !trashed {
+                    return Err(validation(
+                        "memo_not_trashed",
+                        "permanent delete requires a memo already in trash",
+                    ));
+                }
+            }
             if let Some(expected_fp) = &command.expected_fingerprint
                 && &row.file_fingerprint != expected_fp
             {
@@ -614,6 +630,7 @@ fn validate_command(
             }
         }
         MemoCommandKind::Delete
+        | MemoCommandKind::PermanentDelete
         | MemoCommandKind::Restore
         | MemoCommandKind::Pin
         | MemoCommandKind::Unpin => {
@@ -786,6 +803,20 @@ fn commit_files(
             } else {
                 Ok((String::new(), intent.expected_revision))
             }
+        }
+        MemoCommandKind::PermanentDelete => {
+            let trash_path = workspace_root
+                .join("trash")
+                .join(format!("{}.md", intent.memo_id));
+            if trash_path.exists() {
+                std::fs::remove_file(&trash_path).map_err(|err| {
+                    storage(
+                        "permanent_delete_failed",
+                        &format!("cannot remove trashed memo: {err}"),
+                    )
+                })?;
+            }
+            Ok((String::new(), intent.expected_revision))
         }
         MemoCommandKind::Restore => {
             let trash_path = workspace_root
@@ -1011,6 +1042,44 @@ fn update_projections(
                 },
             )?;
         }
+        MemoCommandKind::PermanentDelete => {
+            connection.execute("DELETE FROM memo_fts WHERE rowid = (SELECT rowid FROM memo WHERE memo_id = ?1)", params![intent.memo_id]).map_err(|err| from_sqlite(&err))?;
+            connection
+                .execute(
+                    "DELETE FROM memo WHERE memo_id = ?1",
+                    params![intent.memo_id],
+                )
+                .map_err(|err| from_sqlite(&err))?;
+            connection
+                .execute(
+                    "DELETE FROM memo_trash WHERE memo_id = ?1",
+                    params![intent.memo_id],
+                )
+                .map_err(|err| from_sqlite(&err))?;
+            connection
+                .execute(
+                    "DELETE FROM memo_pin WHERE memo_id = ?1",
+                    params![intent.memo_id],
+                )
+                .map_err(|err| from_sqlite(&err))?;
+            connection
+                .execute(
+                    "DELETE FROM revision_index WHERE memo_id = ?1",
+                    params![intent.memo_id],
+                )
+                .map_err(|err| from_sqlite(&err))?;
+            merge_write_state(
+                paths,
+                &intent.memo_id,
+                StatePatch {
+                    pinned: Some(false),
+                    trashed: Some(false),
+                    pinned_at_ms: TimestampPatch::Clear,
+                    trashed_at_ms: TimestampPatch::Clear,
+                    tags: Some(Vec::new()),
+                },
+            )?;
+        }
         MemoCommandKind::Restore => {
             connection
                 .execute(
@@ -1224,7 +1293,7 @@ fn scopes_for(kind: MemoCommandKind) -> Vec<InvalidationScope> {
                 InvalidationScope::Stats,
             ]
         }
-        MemoCommandKind::Delete | MemoCommandKind::Restore => {
+        MemoCommandKind::Delete | MemoCommandKind::PermanentDelete | MemoCommandKind::Restore => {
             vec![
                 InvalidationScope::MemoList,
                 InvalidationScope::Trash,

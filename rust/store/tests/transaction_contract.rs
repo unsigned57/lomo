@@ -18,6 +18,8 @@
 //!   reflect the new body without losing identity.
 //! - Given wrong expected fingerprint on update, when applied, then `stale_snapshot` fails closed.
 //! - Given delete then restore, when listed, then the memo is active again and trash flag is false.
+//! - Given delete then permanent-delete, when queried, then the memo, trash file and durable state
+//!   are gone and a second permanent delete fails closed.
 //! - Given pin then unpin, when filtered, then `pinned_only` no longer includes the memo.
 //! - Given history-restore with new content at matching revision, when `get_memo` runs, then body
 //!   matches the restored content and `content_revision` advances.
@@ -289,6 +291,50 @@ mod tests {
         assert_eq!(page.items.len(), 1);
         let item = page.items.first().expect("one item");
         assert!(item.is_pinned && item.is_trashed);
+    }
+
+    #[test]
+    fn permanent_delete_removes_trash_fact_and_file() {
+        let dir = tempdir().expect("tempdir");
+        let mut store = Store::open(dir.path()).expect("open");
+        store
+            .apply_memo_command(&create_cmd("op-pd-c", "pd", "body"), None)
+            .expect("create");
+        store
+            .apply_memo_command(
+                &MemoCommand {
+                    operation_id: OperationId::parse("op-pd-t").expect("op"),
+                    kind: MemoCommandKind::Delete,
+                    memo_id: "pd".into(),
+                    expected_revision: 1,
+                    expected_fingerprint: None,
+                    content: None,
+                    tags: vec![],
+                    pin: None,
+                    pending_promotes: vec![],
+                },
+                None,
+            )
+            .expect("trash");
+        assert!(dir.path().join("trash/pd.md").is_file());
+        store
+            .apply_memo_command(
+                &MemoCommand {
+                    operation_id: OperationId::parse("op-pd-d").expect("op"),
+                    kind: MemoCommandKind::PermanentDelete,
+                    memo_id: "pd".into(),
+                    expected_revision: 1,
+                    expected_fingerprint: None,
+                    content: None,
+                    tags: vec![],
+                    pin: None,
+                    pending_promotes: vec![],
+                },
+                None,
+            )
+            .expect("permanent delete");
+        assert!(!dir.path().join("trash/pd.md").exists());
+        assert!(store.get_memo("pd").expect("query").is_none());
     }
 
     #[test]
