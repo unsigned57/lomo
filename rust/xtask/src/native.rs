@@ -152,14 +152,46 @@ pub fn ensure_android_libraries(
     });
 
     if all_exist {
+        let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
+        let matches_profile = !shipping || all_shipping_libraries_stripped(workspace, abis)?;
+        if matches_profile {
+            crate::util::emit_stderr(format_args!(
+                "xtask: native libraries for {} ABI(s) already exist for {profile:?}; reusing cached .so files",
+                abis.len()
+            ));
+            return Ok(());
+        }
         crate::util::emit_stderr(format_args!(
-            "xtask: native libraries for {} ABI(s) already exist; reusing cached .so files",
+            "xtask: existing native libraries are Dev/unstripped; regenerating {profile:?} libraries for {} ABI(s)",
             abis.len()
         ));
-        return Ok(());
     }
 
     generate_android(workspace, profile, abis)
+}
+
+/// A shipping-class (Release/ReleaseCi) native library must not carry debug sections; that is
+/// the profile-identity contract that makes reuse of an existing `.so` file safe. Returns
+/// `Ok(false)` when any selected ABI is missing or still carries Dev debug sections.
+fn all_shipping_libraries_stripped(workspace: &Workspace, abis: &[Abi]) -> Result<bool> {
+    let readelf = ndk_tool(workspace, "llvm-readelf")?;
+    for &abi in abis {
+        let path = workspace
+            .jni_libs()
+            .join(abi.android_name())
+            .join(NATIVE_LIBRARY);
+        if !path.is_file() || has_debug_sections(&readelf, &path)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn has_debug_sections(readelf: &Path, path: &Path) -> Result<bool> {
+    let mut sections = Command::new(readelf);
+    sections.args(["-S", path.to_string_lossy().as_ref()]);
+    let sections = text_output(&mut sections)?;
+    Ok(sections.lines().any(|line| line.contains(".debug_")))
 }
 
 pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[Abi]) -> Result<()> {
@@ -508,7 +540,7 @@ fn verify_smoke_native_tree(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
             .join("native-smoke/jniLibs")
             .join(abi.android_name())
             .join(NATIVE_LIBRARY);
-        verify_one_library(&readelf, abi, &path)?;
+        verify_one_library(&readelf, abi, &path, false)?;
     }
     Ok(())
 }
@@ -520,12 +552,14 @@ pub fn verify_native_tree(
 ) -> Result<()> {
     let readelf = ndk_tool(workspace, "llvm-readelf")?;
     let mut total_bytes = 0u64;
+    // Shipping honesty: release-class packs must never contain unstripped Dev libraries.
+    let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
     for &abi in abis {
         let path = workspace
             .jni_libs()
             .join(abi.android_name())
             .join(NATIVE_LIBRARY);
-        verify_one_library(&readelf, abi, &path)?;
+        verify_one_library(&readelf, abi, &path, shipping)?;
         // Production tree must not contain UniFFI/JNA leftovers.
         let dir = workspace.jni_libs().join(abi.android_name());
         for forbidden in ["libjnidispatch.so", "liblomo_native.so"] {
@@ -550,7 +584,6 @@ pub fn verify_native_tree(
     }
     // Shipping honesty only for release-class packs. Dev packs intentionally leave unstripped
     // libraries for faster host iteration and must not be cited as shipping GREEN.
-    let shipping = matches!(profile, NativeProfile::Release | NativeProfile::ReleaseCi);
     if !shipping {
         crate::util::emit_stderr(format_args!(
             "xtask: development pack native total={total_bytes}; shipping size is diagnosed separately"
@@ -559,7 +592,7 @@ pub fn verify_native_tree(
     Ok(())
 }
 
-fn verify_one_library(readelf: &Path, abi: Abi, path: &Path) -> Result<()> {
+fn verify_one_library(readelf: &Path, abi: Abi, path: &Path, shipping: bool) -> Result<()> {
     if !path.is_file() {
         bail!("native library is missing: {}", path.display());
     }
@@ -607,6 +640,13 @@ fn verify_one_library(readelf: &Path, abi: Abi, path: &Path) -> Result<()> {
         bail!(
             "{} has undefined zlib symbols without DT_NEEDED libz.so; force -lz on the final shared link",
             path.display()
+        );
+    }
+    if shipping && has_debug_sections(readelf, path)? {
+        bail!(
+            "{} carries debug sections; unstripped Dev library must not ship as {}",
+            path.display(),
+            abi.android_name()
         );
     }
     Ok(())
