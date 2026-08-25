@@ -157,9 +157,7 @@ fn planned_replacements(
         "quality/README.md",
         "CLAUDE.md",
         "AGENTS.md",
-        ".github/workflows/quality_nightly.yml",
         ".github/workflows/android_release.yml",
-        ".github/workflows/rust_diagnostics.yml",
         ".github/workflows/architecture_checks.yml",
     ];
     for relative in doc_paths {

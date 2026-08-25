@@ -88,7 +88,6 @@ GREEN.
 - Path filter decides which of Rust host, four-ABI native, Android/Kotlin, and API 26 smoke must run.
 - PR native builds use the thin-LTO `release-ci` profile (`ci-native release-ci <abi>`).
 - PR Rust/Android gates use `ci-rust fast` / `ci-android fast` (no instrumented coverage).
-- Nightly `quality_nightly.yml` runs `ci-rust coverage` and `ci-android coverage`.
 - Shipping APKs still use fat `release` via `just android release` / local `just ci`.
 - A final job named `quality` aggregates only the required job results for branch protection.
 - Tag releases call the same xtask Android release path.
