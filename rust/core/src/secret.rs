@@ -73,9 +73,7 @@ impl SecretMaterial {
 impl Drop for SecretMaterial {
     fn drop(&mut self) {
         // Best-effort wipe of process-local secret bytes on drop.
-        for byte in &mut self.bytes {
-            *byte = 0;
-        }
+        self.bytes.fill(0);
     }
 }
 

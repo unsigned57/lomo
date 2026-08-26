@@ -604,6 +604,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(20).expect("page"),

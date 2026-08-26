@@ -18,10 +18,28 @@
 //!   then the existing durable job id is returned instead of creating a duplicate scan.
 //! - Given a document replace command with a matching fingerprint, when driven, then the file is
 //!   rewritten once via write-from-exchange and the result fingerprint matches the pure planner.
+//! - Given a successful create/update/remove, when the result is published, then it carries the
+//!   Rust-parsed affected memo facts and all intermediate document exchange files are removed.
+//! - Given a SAF soft delete, when its platform job completes, then a checksummed workspace trash
+//!   record is durable before success while the source document remains byte-identical.
+//! - Given a matching trash record, when restore completes, then only the durable marker is removed;
+//!   given permanent delete, then source removal is verified before that marker can disappear.
+//! - Given durable trash records, when the trash scan is paged, then checksummed Rust-decoded facts
+//!   and exact body exchange references are published without Kotlin parsing record bytes.
+//! - Given an empty trash directory or more records than one provider listing page, when trash scan
+//!   resumes, then it terminates empty or advances to the next provider cursor without repeating an
+//!   empty page or losing a record.
+//! - Given terminal exchange cleanup is temporarily unavailable after a verified write, when the
+//!   platform result is committed, then the job is still durably Completed and a later poll
+//!   retries the idempotent cleanup instead of converting success into failure.
 //! - Given an external edit after read (stale fingerprint), when the document command advances,
 //!   then the job fails with `stale_snapshot` and the on-disk file is unchanged.
 //! - Given a completed write whose postcondition is already satisfied, when the same write batch is
 //!   replayed with `AlreadySatisfied`, then no second mutating plan is emitted.
+//! - Given one listed page contains multiple Markdown files, when the scan plans independent reads,
+//!   then those reads share one bounded platform batch instead of one durable round trip per file.
+//! - Given a workspace scan starts, when it requests a provider listing page, then it uses the
+//!   protocol maximum of 256 documents before partitioning independent reads into bounded batches.
 //! - Given one file with 257+ memos or a page boundary inside a later file, when scan resumes from
 //!   its opaque cursor, then every memo is emitted exactly once in file order.
 //! - Given a cursor that points inside a file, when that file changes before resume, then scan fails
@@ -34,11 +52,17 @@
 //!   occurrence changes; a tampered or stale reference fails closed before any write.
 //!
 //! Observable outcomes: job steps, durable `read_job_result` JSON, exact exchange artifact bytes,
-//! opaque token scope, on-disk file bytes, write counts.
+//! opaque token scope, on-disk file bytes, bounded read-batch width, write counts.
 //! TDD proof: RED on 2026-08-06 because every cold restore allocated a new workspace scan even
 //! while an identical `WaitingPlatform` job remained durable in the same workspace journal.
 //! TDD proof: RED on 2026-08-06 because scan-read exchange artifacts survived after the driver had
 //! parsed them and published the only durable memo-body references.
+//! TDD proof: RED on 2026-08-09 because a trash cursor whose listed records were fully consumed but
+//! whose provider cursor had a next page returned the same empty cursor forever.
+//! TDD proof: RED on 2026-08-25 because a scan planned exactly one `ReadToExchange` action per
+//! durable batch, making a 217-file SAF workspace pay hundreds of serial actor/provider round trips.
+//! TDD proof: RED on 2026-08-25 because the scan still requested 63-document provider pages after
+//! independent reads had acquired their own 63-action batch boundary.
 //! Excludes: `BoltFFI` generation (P2-06), production DI dual-stack (P2-09), Kotlin IR presentation.
 
 #[cfg(test)]
@@ -53,20 +77,26 @@ mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
     use sha2::{Digest, Sha256};
     use std::fs;
-    use std::path::PathBuf;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use lomo_core::{
         ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
-        ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch,
-        PlatformActionOutput, PlatformBatchResult, Sha256Digest, WorkspaceDescriptor,
-        WorkspaceTarget,
+        ExchangeArtifact, ExpectedFingerprint, JobStep, LomoEngine, MetadataPage, PlatformAction,
+        PlatformActionBatch, PlatformActionOutput, PlatformBatchResult, Sha256Digest,
+        VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget, WriteMode,
     };
     use lomo_workspace::{
         DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandKind, DocumentCommandRequest,
-        DocumentExpectedState, SCAN_DRIVER_KIND, SourceFingerprint, WorkspaceScanRequest,
+        DocumentCommandResult, DocumentExpectedState, DocumentHistoryWrite,
+        HISTORY_SCAN_DRIVER_KIND, HistoryScanPage, HistoryScanRequest, LomoRecordKind,
+        SCAN_DRIVER_KIND, SourceFingerprint, TRASH_COMMAND_DRIVER_KIND, TRASH_SCAN_DRIVER_KIND,
+        TrashCommandKind, TrashCommandRequest, TrashCommandResult, TrashMemoSummary,
+        TrashRecordCreate, TrashRecordV1, TrashScanPage, TrashScanRequest, WorkspaceScanRequest,
+        decode_record, decode_trash_record, encode_trash_record, trash_record_relative_path,
         workspace_driver_registry,
     };
     use tempfile::tempdir;
@@ -145,7 +175,7 @@ mod tests {
             !matches!(step, JobStep::NeedsPlatformBatch { .. } | JobStep::Running)
         }
 
-        fn guard_create_target(full: &std::path::Path) -> Option<ActionOutcome> {
+        fn guard_create_target(full: &Path) -> Option<ActionOutcome> {
             if full.exists() {
                 Some(ActionOutcome::Failed(
                     lomo_core::LomoError::from_platform_boundary(
@@ -268,73 +298,192 @@ mod tests {
             })
         }
 
+        fn trash_command(&self, request: &TrashCommandRequest) -> TrashCommandResult {
+            let request_json = serde_json::to_string(request).test_ok("trash request");
+            let job_id = self
+                .engine
+                .start_user_job(
+                    TRASH_COMMAND_DRIVER_KIND,
+                    &request_json,
+                    Duration::from_secs(30),
+                )
+                .test_ok("start trash command");
+            let terminal = self.drive_until_terminal(&job_id);
+            assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+            let payload = self
+                .engine
+                .read_job_result(&job_id)
+                .test_ok("trash result")
+                .test_ok("trash payload");
+            serde_json::from_str(&payload).test_ok("decode trash result")
+        }
+
+        fn trash_scan_page(&self, page_size: u32, cursor: Option<String>) -> TrashScanPage {
+            let request = TrashScanRequest { page_size, cursor };
+            let request_json = serde_json::to_string(&request).test_ok("trash scan request");
+            let job_id = self
+                .engine
+                .start_user_job(
+                    TRASH_SCAN_DRIVER_KIND,
+                    &request_json,
+                    Duration::from_secs(30),
+                )
+                .test_ok("start trash scan");
+            let terminal = self.drive_until_terminal(&job_id);
+            assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+            let payload = self
+                .engine
+                .read_job_result(&job_id)
+                .test_ok("trash scan result")
+                .test_ok("trash scan payload");
+            serde_json::from_str(&payload).test_ok("decode trash scan page")
+        }
+
+        fn write_trash_record(&self, record: &TrashRecordV1) {
+            let path = trash_record_relative_path(&record.memo_id).test_ok("trash record path");
+            let bytes = encode_trash_record(record).test_ok("encode trash record");
+            self.write_file(path.as_str(), &bytes);
+        }
+
         fn execute(&self, action: &PlatformAction) -> ActionOutcome {
             match action {
                 PlatformAction::ListChildren { .. } => self.execute_list_children(action),
                 PlatformAction::ReadToExchange { .. } => self.execute_read_to_exchange(action),
-                PlatformAction::WriteFromExchange {
-                    artifact,
-                    path,
-                    mode,
-                    expected_target,
-                    ..
-                } => {
-                    let exchange_path = self.exchange_root.join(artifact.token().as_str());
-                    let bytes = fs::read(&exchange_path).test_ok("read exchange write artifact");
-                    let digest = {
-                        use sha2::{Digest, Sha256};
-                        format!("{:x}", Sha256::digest(&bytes))
-                    };
-                    assert_eq!(digest, artifact.digest().as_str(), "artifact digest");
-                    let full = self.workspace_root.join(path.as_str());
-                    if *mode == lomo_core::WriteMode::Create {
-                        assert!(
-                            matches!(expected_target, lomo_core::ExpectedFingerprint::Absent),
-                            "create must carry an absent target precondition"
-                        );
-                        if let Some(outcome) = Self::guard_create_target(&full) {
-                            return outcome;
-                        }
-                    } else if let lomo_core::ExpectedFingerprint::Match(expected) = expected_target
-                    {
-                        // Stale expected target fails closed without write.
-                        let current = match fs::read(self.workspace_root.join(path.as_str())) {
-                            Ok(bytes) => Some(bytes),
-                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                            Err(error) => panic!("failed to read expected target: {error}"),
-                        };
-                        let stale = current.as_deref().and_then(|current_bytes| {
-                            Self::verify_current_target(current_bytes, expected)
-                        });
-                        if let Some(outcome) = stale {
-                            return outcome;
-                        }
-                    }
-                    self.write_count.fetch_add(1, Ordering::SeqCst);
-                    fs::write(&full, &bytes).test_ok("write target");
-                    let evidence = ActionEvidence::verified(
-                        bytes.len() as u64,
-                        Sha256Digest::parse(&digest).test_ok("digest"),
-                        &format!("fp.{}", path.as_str().replace('/', ".")),
-                    )
-                    .test_ok("evidence");
-                    ActionOutcome::Applied(PlatformActionOutput::WriteComplete {
-                        metadata: DocumentMetadata::new(
-                            WorkspaceTarget::Relative(path.clone()),
-                            DocumentKind::File,
-                            None,
-                            evidence,
-                        )
-                        .test_ok("metadata"),
-                    })
+                PlatformAction::WriteFromExchange { .. } => {
+                    self.execute_write_from_exchange(action)
                 }
-                PlatformAction::Stat { .. }
-                | PlatformAction::EnsureDirectory { .. }
-                | PlatformAction::Move { .. }
-                | PlatformAction::Delete { .. } => {
+                PlatformAction::EnsureDirectory { .. } => self.execute_ensure_directory(action),
+                PlatformAction::Delete { .. } => self.execute_delete(action),
+                PlatformAction::Stat { .. } | PlatformAction::Move { .. } => {
                     panic!("unexpected action in harness: {action:?}")
                 }
             }
+        }
+
+        fn execute_write_from_exchange(&self, action: &PlatformAction) -> ActionOutcome {
+            let PlatformAction::WriteFromExchange {
+                artifact,
+                path,
+                mode,
+                expected_target,
+                ..
+            } = action
+            else {
+                panic!("write helper received non-write action: {action:?}");
+            };
+            let bytes = fs::read(self.exchange_root.join(artifact.token().as_str()))
+                .test_ok("read exchange write artifact");
+            let digest = format!("{:x}", Sha256::digest(&bytes));
+            assert_eq!(digest, artifact.digest().as_str(), "artifact digest");
+            let full = self.workspace_root.join(path.as_str());
+            if let Some(outcome) = Self::guard_write_target(&full, *mode, expected_target) {
+                return outcome;
+            }
+            self.write_count.fetch_add(1, Ordering::SeqCst);
+            fs::write(&full, &bytes).test_ok("write target");
+            let evidence = ActionEvidence::verified(
+                bytes.len() as u64,
+                Sha256Digest::parse(&digest).test_ok("digest"),
+                &format!("fp.{}", path.as_str().replace('/', ".")),
+            )
+            .test_ok("evidence");
+            ActionOutcome::Applied(PlatformActionOutput::WriteComplete {
+                metadata: DocumentMetadata::new(
+                    WorkspaceTarget::Relative(path.clone()),
+                    DocumentKind::File,
+                    None,
+                    evidence,
+                )
+                .test_ok("metadata"),
+            })
+        }
+
+        fn guard_write_target(
+            full: &Path,
+            mode: WriteMode,
+            expected_target: &ExpectedFingerprint,
+        ) -> Option<ActionOutcome> {
+            if mode == WriteMode::Create {
+                assert!(
+                    matches!(expected_target, ExpectedFingerprint::Absent),
+                    "create must carry an absent target precondition"
+                );
+                return Self::guard_create_target(full);
+            }
+            let ExpectedFingerprint::Match(expected) = expected_target else {
+                return None;
+            };
+            let current = match fs::read(full) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => panic!("failed to read expected target: {error}"),
+            };
+            current
+                .as_deref()
+                .and_then(|bytes| Self::verify_current_target(bytes, expected))
+        }
+
+        fn execute_ensure_directory(&self, action: &PlatformAction) -> ActionOutcome {
+            let PlatformAction::EnsureDirectory { path, .. } = action else {
+                panic!("directory helper received non-directory action: {action:?}");
+            };
+            fs::create_dir_all(self.workspace_root.join(path.as_str())).test_ok("ensure directory");
+            let digest = format!("{:x}", Sha256::digest([]));
+            let evidence = ActionEvidence::verified(
+                0,
+                Sha256Digest::parse(&digest).test_ok("directory digest"),
+                &format!("fp.dir.{}", path.as_str().replace('/', ".")),
+            )
+            .test_ok("directory evidence");
+            ActionOutcome::Applied(PlatformActionOutput::DirectoryReady {
+                metadata: DocumentMetadata::new(
+                    WorkspaceTarget::Relative(path.clone()),
+                    DocumentKind::Directory,
+                    None,
+                    evidence,
+                )
+                .test_ok("directory metadata"),
+            })
+        }
+
+        fn execute_delete(&self, action: &PlatformAction) -> ActionOutcome {
+            let PlatformAction::Delete {
+                path,
+                expected_target,
+                ..
+            } = action
+            else {
+                panic!("delete helper received non-delete action: {action:?}");
+            };
+            let full = self.workspace_root.join(path.as_str());
+            if let Some(outcome) = Self::guard_delete_target(&full, expected_target) {
+                return outcome;
+            }
+            if full.exists() {
+                fs::remove_file(&full).test_ok("delete target");
+            }
+            let fingerprint = match expected_target {
+                ExpectedFingerprint::Match(expected) => expected.fingerprint(),
+                ExpectedFingerprint::Absent => "absent.delete",
+            };
+            ActionOutcome::Applied(PlatformActionOutput::DeleteComplete {
+                absence: VerifiedAbsence::new(WorkspaceTarget::Relative(path.clone()), fingerprint)
+                    .test_ok("verified absence"),
+            })
+        }
+
+        fn guard_delete_target(
+            full: &Path,
+            expected_target: &ExpectedFingerprint,
+        ) -> Option<ActionOutcome> {
+            if !full.exists() {
+                return None;
+            }
+            let ExpectedFingerprint::Match(expected) = expected_target else {
+                return None;
+            };
+            let current = fs::read(full).test_ok("read delete target");
+            Self::verify_current_target(&current, expected)
         }
 
         fn execute_list_children(&self, action: &PlatformAction) -> ActionOutcome {
@@ -611,6 +760,86 @@ mod tests {
                 lomo_core::DocumentHandle::parse("2024-01-09.md").test_ok("handle"),
             )
         );
+    }
+
+    #[test]
+    fn scan_batches_independent_file_reads_from_one_listing_page() {
+        let harness = Harness::new();
+        for day in 1..=4 {
+            harness.write_file(
+                &format!("2024-01-{day:02}.md"),
+                format!("- 10:00:00\nmemo {day}\n").as_bytes(),
+            );
+        }
+        let request_json = serde_json::to_string(&WorkspaceScanRequest {
+            page_size: 16,
+            cursor: None,
+            root_path: None,
+        })
+        .test_ok("request");
+        let job_id = harness
+            .engine
+            .start_user_job(SCAN_DRIVER_KIND, &request_json, Duration::from_secs(30))
+            .test_ok("start scan");
+        let JobStep::NeedsPlatformBatch { batch: list_batch } =
+            harness.engine.poll_job(&job_id).test_ok("poll list")
+        else {
+            panic!("expected list batch");
+        };
+        let list_results = list_batch
+            .actions()
+            .iter()
+            .map(|action| ActionResult::new(action.id().clone(), harness.execute(action)))
+            .collect();
+        let read_step = harness
+            .engine
+            .submit_platform_result(
+                &job_id,
+                PlatformBatchResult::new(
+                    list_batch.schema_version(),
+                    list_batch.job_id().clone(),
+                    list_batch.batch_id().clone(),
+                    list_batch.attempt(),
+                    list_results,
+                ),
+            )
+            .test_ok("submit list");
+        let JobStep::NeedsPlatformBatch { batch: read_batch } = read_step else {
+            panic!("expected read batch");
+        };
+
+        assert_eq!(read_batch.actions().len(), 4);
+        assert!(
+            read_batch
+                .actions()
+                .iter()
+                .all(|action| matches!(action, PlatformAction::ReadToExchange { .. }))
+        );
+    }
+
+    #[test]
+    fn scan_uses_protocol_max_listing_page_before_partitioning_reads() {
+        let harness = Harness::new();
+        let request_json = serde_json::to_string(&WorkspaceScanRequest {
+            page_size: 256,
+            cursor: None,
+            root_path: None,
+        })
+        .test_ok("request");
+        let job_id = harness
+            .engine
+            .start_user_job(SCAN_DRIVER_KIND, &request_json, Duration::from_secs(30))
+            .test_ok("start scan");
+        let JobStep::NeedsPlatformBatch { batch: list_batch } =
+            harness.engine.poll_job(&job_id).test_ok("poll list")
+        else {
+            panic!("expected list batch");
+        };
+        let [PlatformAction::ListChildren { page_size, .. }] = list_batch.actions() else {
+            panic!("expected one list action, got {:?}", list_batch.actions());
+        };
+
+        assert_eq!(page_size.get(), 256);
     }
 
     #[test]
@@ -892,6 +1121,7 @@ mod tests {
                 source_start: task_start,
                 source_end: task_end,
             },
+            history: None,
         };
         let toggle_json = serde_json::to_string(&toggle).test_ok("toggle request");
         let job_id = harness
@@ -922,6 +1152,7 @@ mod tests {
                 time_part: "11:00:00".to_owned(),
                 content: "appended body".to_owned(),
             },
+            history: None,
         };
         let append_json = serde_json::to_string(&append).test_ok("append request");
         let job_id = harness
@@ -946,6 +1177,7 @@ mod tests {
             command: DocumentCommandKind::Remove {
                 identity: "2024-02-01_10:00:00_0".to_owned(),
             },
+            history: None,
         };
         let remove_json = serde_json::to_string(&remove).test_ok("remove request");
         let job_id = harness
@@ -976,6 +1208,7 @@ mod tests {
                 time_part: "09:30:00".to_owned(),
                 content: "created through SAF job".to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("create request");
         let job_id = harness
@@ -995,6 +1228,385 @@ mod tests {
             harness.read_file("2026-08-04.md"),
             b"- 09:30:00\ncreated through SAF job\n"
         );
+        let payload = harness
+            .engine
+            .read_job_result(&job_id)
+            .test_ok("result")
+            .test_ok("payload");
+        let result: DocumentCommandResult = serde_json::from_str(&payload).test_ok("decode result");
+        let affected = result.affected_memo.test_ok("affected memo facts");
+        assert_eq!(affected.identity, "2026-08-04_09:30:00_0");
+        assert_eq!(affected.time_part, "09:30:00");
+        assert_eq!(affected.fingerprint, result.result_fingerprint);
+        assert_eq!(
+            fs::read_dir(&harness.exchange_root)
+                .test_ok("exchange dir")
+                .count(),
+            0,
+            "document job must remove read/write exchange artifacts at terminal success"
+        );
+    }
+
+    #[test]
+    fn document_create_commits_history_sidecar_before_job_completion() {
+        let harness = Harness::new();
+        let request = DocumentCommandRequest {
+            path: "2026-08-26.md".to_owned(),
+            expected_state: DocumentExpectedState::Absent,
+            command: DocumentCommandKind::Create {
+                time_part: "12:00:00".to_owned(),
+                content: "history survives projection rebuild".to_owned(),
+            },
+            history: Some(DocumentHistoryWrite {
+                revision: 1,
+                created_at_ms: 1_777_000_000_000,
+            }),
+        };
+        let request_json = serde_json::to_string(&request).test_ok("history create request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start history create");
+
+        let terminal = harness.drive_until_terminal(&job_id);
+
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        let history_path = harness
+            .workspace_root
+            .join(".lomo/history/v1/2026-08-26_12:00:00_0-r1.rec");
+        let record = decode_record(&fs::read(history_path).test_ok("history record bytes"))
+            .test_ok("history record");
+        assert_eq!(record.payload.kind, LomoRecordKind::History);
+        assert!(
+            record
+                .payload
+                .body_json
+                .contains("history survives projection rebuild")
+        );
+        assert_eq!(harness.write_count.load(Ordering::SeqCst), 2);
+
+        let scan_request = serde_json::to_string(&HistoryScanRequest {
+            page_size: 16,
+            cursor: None,
+        })
+        .test_ok("history scan request");
+        let scan_job = harness
+            .engine
+            .start_user_job(
+                HISTORY_SCAN_DRIVER_KIND,
+                &scan_request,
+                Duration::from_secs(30),
+            )
+            .test_ok("start history scan");
+        assert!(matches!(
+            harness.drive_until_terminal(&scan_job),
+            JobStep::Completed
+        ));
+        let payload = harness
+            .engine
+            .read_job_result(&scan_job)
+            .test_ok("history scan result")
+            .test_ok("history scan payload");
+        let page: HistoryScanPage = serde_json::from_str(&payload).test_ok("decode history page");
+        let revision = page.items.first().test_ok("history revision");
+        assert_eq!(revision.memo_id, "2026-08-26_12:00:00_0");
+        assert_eq!(revision.revision, 1);
+        assert_eq!(revision.created_at_ms, 1_777_000_000_000);
+        assert_eq!(
+            harness.read_exchange_token(&revision.content.exchange_token),
+            b"history survives projection rebuild"
+        );
+    }
+
+    #[test]
+    fn document_completion_precedes_retryable_exchange_cleanup() {
+        let harness = Harness::new();
+        let request = DocumentCommandRequest {
+            path: "2026-08-05.md".to_owned(),
+            expected_state: DocumentExpectedState::Absent,
+            command: DocumentCommandKind::Create {
+                time_part: "09:31:00".to_owned(),
+                content: "commit before cleanup".to_owned(),
+            },
+            history: None,
+        };
+        let request_json = serde_json::to_string(&request).test_ok("create request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                DOCUMENT_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start create");
+        let JobStep::NeedsPlatformBatch { batch } =
+            harness.engine.poll_job(&job_id).test_ok("initial batch")
+        else {
+            panic!("create must require one platform write");
+        };
+        let results = harness.execute_batch(&batch);
+        let platform_result = PlatformBatchResult::new(
+            batch.schema_version(),
+            batch.job_id().clone(),
+            batch.batch_id().clone(),
+            batch.attempt(),
+            results,
+        );
+
+        let original_mode = fs::metadata(&harness.exchange_root)
+            .test_ok("exchange metadata")
+            .permissions()
+            .mode();
+        fs::set_permissions(
+            &harness.exchange_root,
+            fs::Permissions::from_mode(original_mode & !0o222),
+        )
+        .test_ok("make exchange cleanup unavailable");
+        let terminal = harness
+            .engine
+            .submit_platform_result(&job_id, platform_result)
+            .test_ok("submit verified write");
+
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        assert_eq!(
+            harness.read_file("2026-08-05.md"),
+            b"- 09:31:00\ncommit before cleanup\n"
+        );
+        assert_eq!(
+            fs::read_dir(&harness.exchange_root)
+                .test_ok("pending exchange cleanup")
+                .count(),
+            1,
+            "cleanup failure must retain a durable retry target"
+        );
+
+        fs::set_permissions(
+            &harness.exchange_root,
+            fs::Permissions::from_mode(original_mode),
+        )
+        .test_ok("restore exchange permissions");
+        let recovered = harness.engine.poll_job(&job_id).test_ok("retry cleanup");
+        assert!(matches!(recovered, JobStep::Completed), "{recovered:?}");
+        assert_eq!(
+            fs::read_dir(&harness.exchange_root)
+                .test_ok("exchange cleaned")
+                .count(),
+            0,
+            "poll must reclaim the committed terminal artifact idempotently"
+        );
+    }
+
+    #[test]
+    fn trash_command_persists_recoverable_record_without_rewriting_source_document() {
+        let harness = Harness::new();
+        let source = b"- 09:30:00\nkeep\n\n- 10:45:00\ndelete me #tag\n";
+        harness.write_file("2026_08_09.md", source);
+        let identity = "2026_08_09_10:45:00_0";
+        let request = TrashCommandRequest {
+            path: "2026_08_09.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Trash {
+                identity: identity.to_owned(),
+                chronology_epoch_ms: 1_754_721_900_000,
+            },
+        };
+        let request_json = serde_json::to_string(&request).test_ok("trash request");
+        let job_id = harness
+            .engine
+            .start_user_job(
+                TRASH_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_secs(30),
+            )
+            .test_ok("start trash");
+
+        let terminal = harness.drive_until_terminal(&job_id);
+
+        assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        assert_eq!(harness.read_file("2026_08_09.md"), source);
+        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        let marker_bytes = harness.read_file(marker_path.as_str());
+        let marker = decode_trash_record(&marker_bytes).test_ok("trash record");
+        assert_eq!(marker.memo_id, identity);
+        assert_eq!(marker.source_path, "2026_08_09.md");
+        assert_eq!(marker.body, "delete me #tag");
+        assert_eq!(marker.tags, vec!["tag"]);
+        assert_eq!(marker.source_fingerprint, fingerprint_of(source));
+        let payload = harness
+            .engine
+            .read_job_result(&job_id)
+            .test_ok("result")
+            .test_ok("payload");
+        let result: TrashCommandResult = serde_json::from_str(&payload).test_ok("decode result");
+        assert_eq!(result.path, "2026_08_09.md");
+        assert_eq!(result.result_fingerprint, fingerprint_of(source));
+        assert_eq!(result.affected_memo.identity, identity);
+        assert_eq!(result.trashed_at_ms, Some(marker.trashed_at_ms));
+        assert_eq!(
+            fs::read_dir(&harness.exchange_root)
+                .test_ok("exchange dir")
+                .count(),
+            0,
+            "terminal trash success must reclaim private exchange artifacts"
+        );
+    }
+
+    #[test]
+    fn restore_command_removes_only_the_validated_trash_record() {
+        let harness = Harness::new();
+        let source = b"- 09:30:00\nkeep\n\n- 10:45:00\nrestore me\n";
+        harness.write_file("2026_08_10.md", source);
+        let identity = "2026_08_10_10:45:00_0";
+        harness.trash_command(&TrashCommandRequest {
+            path: "2026_08_10.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Trash {
+                identity: identity.to_owned(),
+                chronology_epoch_ms: 1_754_808_300_000,
+            },
+        });
+        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        assert!(harness.workspace_root.join(marker_path.as_str()).is_file());
+
+        let restored = harness.trash_command(&TrashCommandRequest {
+            path: "2026_08_10.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Restore {
+                identity: identity.to_owned(),
+            },
+        });
+
+        assert_eq!(harness.read_file("2026_08_10.md"), source);
+        assert!(!harness.workspace_root.join(marker_path.as_str()).exists());
+        assert_eq!(restored.result_fingerprint, fingerprint_of(source));
+        assert_eq!(restored.affected_memo.identity, identity);
+        assert_eq!(restored.trashed_at_ms, None);
+    }
+
+    #[test]
+    fn permanent_delete_rewrites_source_before_removing_the_recovery_record() {
+        let harness = Harness::new();
+        let source = b"- 09:30:00\nkeep\n\n- 10:45:00\ndelete forever\n";
+        harness.write_file("2026_08_11.md", source);
+        let identity = "2026_08_11_10:45:00_0";
+        harness.trash_command(&TrashCommandRequest {
+            path: "2026_08_11.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Trash {
+                identity: identity.to_owned(),
+                chronology_epoch_ms: 1_754_894_700_000,
+            },
+        });
+        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+
+        let deleted = harness.trash_command(&TrashCommandRequest {
+            path: "2026_08_11.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::PermanentDelete {
+                identity: identity.to_owned(),
+            },
+        });
+
+        let after = harness.read_file("2026_08_11.md");
+        assert!(after.windows(4).any(|window| window == b"keep"));
+        assert!(!after.windows(14).any(|window| window == b"delete forever"));
+        assert!(!harness.workspace_root.join(marker_path.as_str()).exists());
+        assert_eq!(deleted.result_fingerprint, fingerprint_of(&after));
+        assert_eq!(deleted.affected_memo.identity, identity);
+        assert_eq!(deleted.trashed_at_ms, None);
+    }
+
+    #[test]
+    fn trash_scan_publishes_rebuildable_record_facts_and_exact_body_reference() {
+        let harness = Harness::new();
+        let source = b"- 08:15:00\ntrash scan body #scan\n";
+        harness.write_file("2026_08_12.md", source);
+        let identity = "2026_08_12_08:15:00_0";
+        let deleted = harness.trash_command(&TrashCommandRequest {
+            path: "2026_08_12.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Trash {
+                identity: identity.to_owned(),
+                chronology_epoch_ms: 1_754_972_100_000,
+            },
+        });
+
+        let page = harness.trash_scan_page(16, None);
+
+        assert_eq!(page.next_cursor, None);
+        assert_eq!(page.items.len(), 1);
+        let item = page.items.first().test_ok("trash item");
+        assert_eq!(item.memo_id, identity);
+        assert_eq!(item.source_path, "2026_08_12.md");
+        assert_eq!(item.source_fingerprint, fingerprint_of(source));
+        assert_eq!(item.chronology_epoch_ms, 1_754_972_100_000);
+        assert_eq!(
+            item.trashed_at_ms,
+            deleted.trashed_at_ms.test_ok("trash time")
+        );
+        assert_eq!(item.tags, vec!["scan"]);
+        assert_eq!(
+            harness.read_exchange_token(&item.content.exchange_token),
+            b"trash scan body #scan"
+        );
+    }
+
+    #[test]
+    fn trash_scan_returns_one_terminal_empty_page_for_an_empty_directory() {
+        let harness = Harness::new();
+
+        let page = harness.trash_scan_page(16, None);
+
+        assert!(page.items.is_empty());
+        assert!(page.next_cursor.is_none());
+    }
+
+    #[test]
+    fn trash_scan_advances_past_a_fully_consumed_provider_page() {
+        let harness = Harness::new();
+        for index in 0..64 {
+            let memo_id = format!("2026_08_13_08:15:00_{index}");
+            harness.write_trash_record(
+                &TrashRecordV1::try_new(TrashRecordCreate {
+                    memo_id,
+                    source_path: "2026_08_13.md".to_owned(),
+                    time_part: "08:15:00".to_owned(),
+                    source_fingerprint: fingerprint_of(b"source"),
+                    chronology_epoch_ms: 1_755_058_500_000 + i64::from(index),
+                    trashed_at_ms: 1_755_058_600_000 + i64::from(index),
+                    body: format!("trash-{index}"),
+                    tags: Vec::new(),
+                    attachments: Vec::new(),
+                    reminders: Vec::new(),
+                    has_todo: false,
+                    has_url: false,
+                })
+                .test_ok("trash record"),
+            );
+        }
+
+        let first = harness.trash_scan_page(61, None);
+        let second = harness.trash_scan_page(2, first.next_cursor);
+        let third = harness.trash_scan_page(2, second.next_cursor);
+        let all: Vec<&TrashMemoSummary> = first
+            .items
+            .iter()
+            .chain(&second.items)
+            .chain(&third.items)
+            .collect();
+
+        assert_eq!(first.items.len(), 61);
+        assert_eq!(second.items.len(), 2);
+        assert_eq!(third.items.len(), 1);
+        assert!(third.next_cursor.is_none());
+        assert_eq!(all.len(), 64);
+        let identities: std::collections::BTreeSet<_> =
+            all.iter().map(|item| item.memo_id.as_str()).collect();
+        assert_eq!(identities.len(), 64);
     }
 
     #[test]
@@ -1009,6 +1621,7 @@ mod tests {
                 time_part: "09:30:00".to_owned(),
                 content: "must not overwrite".to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("create request");
         let job_id = harness
@@ -1043,6 +1656,7 @@ mod tests {
                 identity: "2024-01-02_10:00:00_0".to_owned(),
                 content: "new body".to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("request");
         let job_id = harness
@@ -1093,6 +1707,7 @@ mod tests {
                 reminder: second,
                 replacement: replacement.to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("request");
         let job_id = harness
@@ -1129,6 +1744,7 @@ mod tests {
                 identity: "2024-01-03_10:00:00_0".to_owned(),
                 content: "should not land".to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("request");
         let job_id = harness
@@ -1188,6 +1804,7 @@ mod tests {
                 identity: "2024-01-04_10:00:00_0".to_owned(),
                 content: "once".to_owned(),
             },
+            history: None,
         };
         let request_json = serde_json::to_string(&request).test_ok("request");
         let job_id = harness
@@ -1230,6 +1847,7 @@ mod tests {
             .iter()
             .map(|action| ActionResult::new(action.id().clone(), harness.execute(action)))
             .collect();
+        let replay_outputs = write_results.clone();
         let write_result = PlatformBatchResult::new(
             write_batch.schema_version(),
             write_batch.job_id().clone(),
@@ -1245,19 +1863,18 @@ mod tests {
         assert_eq!(harness.write_count.load(Ordering::SeqCst), 1);
 
         // Late replay with AlreadySatisfied must not mutate again; job stays completed.
-        let replay_results: Vec<_> = write_batch
-            .actions()
-            .iter()
-            .map(|action| {
-                let applied = harness.execute(action);
-                // Convert Applied → AlreadySatisfied for replay semantics.
-                let outcome = match applied {
+        let replay_results: Vec<_> = replay_outputs
+            .into_iter()
+            .map(|applied| {
+                // Convert the already observed Applied result into the provider's replay response;
+                // terminal cleanup has correctly reclaimed the private write artifact by now.
+                let outcome = match applied.outcome().clone() {
                     ActionOutcome::Applied(output) | ActionOutcome::AlreadySatisfied(output) => {
                         ActionOutcome::AlreadySatisfied(output)
                     }
                     ActionOutcome::Failed(error) => ActionOutcome::Failed(error),
                 };
-                ActionResult::new(action.id().clone(), outcome)
+                ActionResult::new(applied.action_id().clone(), outcome)
             })
             .collect();
         let replay = PlatformBatchResult::new(
@@ -1272,8 +1889,7 @@ mod tests {
             .submit_platform_result(&job_id, replay)
             .test_ok("late replay");
         assert!(matches!(late, JobStep::Completed));
-        // execute() still runs for harness bookkeeping on replay construction above — count may
-        // increase in this test harness; the durable engine must not plan a new write batch.
+        assert_eq!(harness.write_count.load(Ordering::SeqCst), 1);
         let polled = harness.engine.poll_job(&job_id).test_ok("poll terminal");
         assert!(matches!(polled, JobStep::Completed));
     }
@@ -1325,7 +1941,7 @@ mod tests {
     #[test]
     fn scan_returns_empty_directory_page_before_consuming_the_next_listing_page() {
         let harness = Harness::new();
-        for index in 0..100 {
+        for index in 0..257 {
             harness.write_file(&format!("attachment-{index:03}.bin"), b"not markdown");
         }
 

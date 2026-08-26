@@ -45,13 +45,15 @@ pub use lomo_format::{
 };
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSummary, SIDEBAR_PROJECTION_SCHEMA,
-    SidebarDateCount, SidebarProjection, SidebarTagCount, StoreStats, TagSelectionMode, get_memo,
-    get_memo_projection, query_memos, query_sidebar_projection, query_stats,
+    MemoFilters, MemoPage, MemoQuery, MemoSnapshot, MemoSort, MemoSortField, MemoSummary,
+    SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection, SidebarTagCount, SortDirection,
+    StoreStats, TagSelectionMode, get_memo, get_memo_projection, get_projected_memo, query_memos,
+    query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 pub use rebuild::{
     RebuildCheckpoint, RebuildPhase, RebuildResult, SafProjectionCommitResult,
-    SafProjectionMutation, SafProjectionMutationKind, SafProjectionRebuild, ScannedMemoProjection,
+    SafProjectionMutation, SafProjectionMutationKind, SafProjectionRebuild,
+    ScannedHistoryProjection, ScannedMemoProjection, ScannedTrashProjection,
     commit_saf_projection_mutation, ensure_writable, rebuild_scanned_projection, run_rebuild,
     write_gate_for_checkpoint,
 };
@@ -309,6 +311,27 @@ impl Store {
         get_memo_projection(&self.opened.connection, memo_id)
     }
 
+    /// Complete memo snapshot from the rebuildable app-private projection.
+    ///
+    /// # Errors
+    ///
+    /// See [`get_projected_memo`].
+    pub fn get_projected_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
+        get_projected_memo(&self.opened.connection, memo_id)
+    }
+
+    /// Canonical fingerprint for one source document, shared by all projected memo siblings.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation/corruption/storage errors from [`source_document_fingerprint`].
+    pub fn source_document_fingerprint(
+        &self,
+        source_path: &str,
+    ) -> Result<Option<String>, LomoError> {
+        source_document_fingerprint(&self.opened.connection, source_path)
+    }
+
     /// Lists durable memo revisions in a bounded page.
     ///
     /// # Errors
@@ -320,7 +343,7 @@ impl Store {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<MemoHistoryPage, LomoError> {
-        list_memo_history(&self.workspace_root, memo_id, cursor, limit)
+        list_memo_history(&self.opened.connection, memo_id, cursor, limit)
     }
 
     /// Commits a verified SAF mutation into this app-private projection only.

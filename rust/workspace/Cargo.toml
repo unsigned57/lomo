@@ -87,6 +87,10 @@ path = "tests/history_state_v2_contract.rs"
 name = "migration_v2_contract"
 path = "tests/migration_v2_contract.rs"
 
+[[test]]
+name = "trash_record_contract"
+path = "tests/trash_record_contract.rs"
+
 [[example]]
 name = "workspace_scale_benchmark"
 path = "examples/workspace_scale_benchmark.rs"

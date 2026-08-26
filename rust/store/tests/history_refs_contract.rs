@@ -43,6 +43,7 @@ mod tests {
             revision,
             content: content.to_owned(),
             file_fingerprint: "fp".to_owned(),
+            created_at_ms: 0,
         };
         let body_json = serde_json::to_string(&body).expect("json");
         let payload = LomoPayload {

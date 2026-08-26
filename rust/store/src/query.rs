@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use rusqlite::types::Value;
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 
 use lomo_core::PageSize;
 
@@ -20,13 +20,51 @@ pub enum TagSelectionMode {
     Subtree,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MemoSortField {
+    #[default]
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortDirection {
+    Ascending,
+    #[default]
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MemoSort {
+    pub field: MemoSortField,
+    pub direction: SortDirection,
+}
+
+impl MemoSort {
+    const fn fingerprint(self) -> &'static str {
+        match (self.field, self.direction) {
+            (MemoSortField::CreatedAt, SortDirection::Ascending) => "created_at:asc",
+            (MemoSortField::CreatedAt, SortDirection::Descending) => "created_at:desc",
+            (MemoSortField::UpdatedAt, SortDirection::Ascending) => "updated_at:asc",
+            (MemoSortField::UpdatedAt, SortDirection::Descending) => "updated_at:desc",
+        }
+    }
+
+    const fn primary_value(self, summary: &MemoSummary) -> i64 {
+        match self.field {
+            MemoSortField::CreatedAt => summary.created_at_ms,
+            MemoSortField::UpdatedAt => summary.updated_at_ms,
+        }
+    }
+}
+
 /// Filters applied in the store query layer (parity with Room capabilities).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoFilters {
     pub tag: Option<String>,
     pub tag_selection: TagSelectionMode,
-    pub date_from_ms: Option<i64>,
-    pub date_to_ms: Option<i64>,
+    pub date_from_inclusive_ms: Option<i64>,
+    pub date_until_exclusive_ms: Option<i64>,
     pub has_todo: Option<bool>,
     pub has_attachment: Option<bool>,
     pub has_url: Option<bool>,
@@ -42,8 +80,8 @@ impl MemoFilters {
             "tag={:?}|tag_subtree={}|from={:?}|to={:?}|todo={:?}|att={:?}|url={:?}|pin={}|trash={}|trash_only={}",
             self.tag,
             matches!(self.tag_selection, TagSelectionMode::Subtree),
-            self.date_from_ms,
-            self.date_to_ms,
+            self.date_from_inclusive_ms,
+            self.date_until_exclusive_ms,
             self.has_todo,
             self.has_attachment,
             self.has_url,
@@ -59,6 +97,7 @@ impl MemoFilters {
 pub struct MemoQuery {
     pub search_text: Option<String>,
     pub filters: MemoFilters,
+    pub sort: MemoSort,
 }
 
 /// One memo row projection for list UI (no full body).
@@ -149,7 +188,11 @@ pub fn query_memos(
             match_expr: None,
         },
     };
-    let filter_fp = query.filters.fingerprint();
+    let filter_fp = format!(
+        "{}|sort={}",
+        query.filters.fingerprint(),
+        query.sort.fingerprint()
+    );
     let query_fingerprint =
         fingerprint_query(plan.match_expr.as_deref(), &filter_fp, TOKENIZER_VERSION);
 
@@ -182,7 +225,9 @@ pub fn query_memos(
                 validation("invalid_page_cursor", "FTS page cursor must include rank")
             })?));
         }
-        bindings.push(Value::Integer(cur.sort_updated_at_ms));
+        bindings.push(Value::Integer(i64::from(cur.sort_pinned)));
+        bindings.push(Value::Integer(cur.sort_primary_ms));
+        bindings.push(Value::Integer(cur.sort_created_at_ms));
         bindings.push(Value::Text(cur.sort_memo_id.clone()));
     }
     bindings.push(Value::Integer(fetch));
@@ -192,35 +237,7 @@ pub fn query_memos(
 
     let mut items = Vec::new();
     while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
-        let summary = MemoSummary {
-            memo_id: row.get(0).map_err(|err| from_sqlite(&err))?,
-            source_path: row.get(1).map_err(|err| from_sqlite(&err))?,
-            file_fingerprint: row.get(2).map_err(|err| from_sqlite(&err))?,
-            updated_at_ms: row.get(3).map_err(|err| from_sqlite(&err))?,
-            created_at_ms: row.get(4).map_err(|err| from_sqlite(&err))?,
-            has_todo: row.get::<_, i64>(5).map_err(|err| from_sqlite(&err))? != 0,
-            has_url: row.get::<_, i64>(6).map_err(|err| from_sqlite(&err))? != 0,
-            has_attachment: row.get::<_, i64>(7).map_err(|err| from_sqlite(&err))? != 0,
-            is_pinned: row.get::<_, i64>(8).map_err(|err| from_sqlite(&err))? != 0,
-            is_trashed: row.get::<_, i64>(9).map_err(|err| from_sqlite(&err))? != 0,
-            body_preview: row.get(10).map_err(|err| from_sqlite(&err))?,
-            content_revision: {
-                let v: i64 = row.get(11).map_err(|err| from_sqlite(&err))?;
-                u64::try_from(v).map_err(|_overflow| {
-                    validation("invalid_content_revision", "content_revision out of u64")
-                })?
-            },
-            rank: row
-                .get::<_, Option<f64>>(12)
-                .map_err(|err| from_sqlite(&err))?,
-            tags: Vec::new(),
-            image_urls: Vec::new(),
-            reminders: serde_json::from_str(
-                &row.get::<_, String>(13).map_err(|err| from_sqlite(&err))?,
-            )
-            .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
-        };
-        items.push(summary);
+        items.push(memo_summary_from_row(row)?);
     }
 
     let mut next_cursor = None;
@@ -230,7 +247,9 @@ pub fn query_memos(
             next_cursor = Some(PageCursor::new(
                 query_fingerprint.clone(),
                 last.rank,
-                last.updated_at_ms,
+                last.is_pinned,
+                query.sort.primary_value(last),
+                last.created_at_ms,
                 last.memo_id.clone(),
                 high_water_revision,
             ));
@@ -247,64 +266,42 @@ pub fn query_memos(
     })
 }
 
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "filter clause assembly is flat match arms"
-)]
+fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoError> {
+    let content_revision = row.get::<_, i64>(11).map_err(|err| from_sqlite(&err))?;
+    Ok(MemoSummary {
+        memo_id: row.get(0).map_err(|err| from_sqlite(&err))?,
+        source_path: row.get(1).map_err(|err| from_sqlite(&err))?,
+        file_fingerprint: row.get(2).map_err(|err| from_sqlite(&err))?,
+        updated_at_ms: row.get(3).map_err(|err| from_sqlite(&err))?,
+        created_at_ms: row.get(4).map_err(|err| from_sqlite(&err))?,
+        has_todo: row.get::<_, i64>(5).map_err(|err| from_sqlite(&err))? != 0,
+        has_url: row.get::<_, i64>(6).map_err(|err| from_sqlite(&err))? != 0,
+        has_attachment: row.get::<_, i64>(7).map_err(|err| from_sqlite(&err))? != 0,
+        is_pinned: row.get::<_, i64>(8).map_err(|err| from_sqlite(&err))? != 0,
+        is_trashed: row.get::<_, i64>(9).map_err(|err| from_sqlite(&err))? != 0,
+        body_preview: row.get(10).map_err(|err| from_sqlite(&err))?,
+        content_revision: u64::try_from(content_revision).map_err(|_overflow| {
+            validation("invalid_content_revision", "content_revision out of u64")
+        })?,
+        rank: row
+            .get::<_, Option<f64>>(12)
+            .map_err(|err| from_sqlite(&err))?,
+        tags: Vec::new(),
+        image_urls: Vec::new(),
+        reminders: serde_json::from_str(
+            &row.get::<_, String>(13).map_err(|err| from_sqlite(&err))?,
+        )
+        .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
+    })
+}
+
 fn build_sql(
     query: &MemoQuery,
     plan: &QueryPlan,
     has_cursor: bool,
 ) -> Result<(String, Option<String>), lomo_core::LomoError> {
-    let mut where_clauses = Vec::new();
     let f = &query.filters;
-
-    if f.trash_only {
-        where_clauses
-            .push("EXISTS (SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id)".to_owned());
-    } else if !f.include_trash {
-        where_clauses
-            .push("NOT EXISTS (SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id)".to_owned());
-    }
-    if f.pinned_only {
-        where_clauses
-            .push("EXISTS (SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id)".to_owned());
-    }
-    if f.has_todo == Some(true) {
-        where_clauses.push("m.has_todo = 1".to_owned());
-    } else if f.has_todo == Some(false) {
-        where_clauses.push("m.has_todo = 0".to_owned());
-    }
-    if f.has_attachment == Some(true) {
-        where_clauses.push("m.has_attachment = 1".to_owned());
-    } else if f.has_attachment == Some(false) {
-        where_clauses.push("m.has_attachment = 0".to_owned());
-    }
-    if f.has_url == Some(true) {
-        where_clauses.push("m.has_url = 1".to_owned());
-    } else if f.has_url == Some(false) {
-        where_clauses.push("m.has_url = 0".to_owned());
-    }
-    if let Some(from) = f.date_from_ms {
-        where_clauses.push(format!("m.updated_at_ms >= {from}"));
-    }
-    if let Some(to) = f.date_to_ms {
-        where_clauses.push(format!("m.updated_at_ms <= {to}"));
-    }
-    if let Some(tag) = &f.tag {
-        // Tag names are constrained; bind the value and keep subtree semantics at the query owner.
-        if tag.is_empty() || tag.len() > 128 || tag.contains('\'') || tag.contains('\0') {
-            return Err(validation("invalid_tag_filter", "tag filter is invalid"));
-        }
-        let predicate = if matches!(f.tag_selection, TagSelectionMode::Subtree) {
-            "(tg.name = ?1 OR tg.name LIKE (?1 || '/%'))"
-        } else {
-            "tg.name = ?1"
-        };
-        where_clauses.push(format!(
-            "EXISTS (SELECT 1 FROM memo_tag mt JOIN tag tg ON tg.id = mt.tag_id WHERE mt.memo_id = m.memo_id AND {predicate})"
-        ));
-    }
+    let mut where_clauses = filter_clauses(f)?;
 
     let use_fts = plan.match_expr.is_some();
     let has_tag = f.tag.is_some();
@@ -313,8 +310,9 @@ fn build_sql(
         where_clauses.push(format!("memo_fts MATCH ?{search_idx}"));
     }
 
+    let first_cursor_idx = search_idx + usize::from(use_fts);
     if has_cursor {
-        where_clauses.push(cursor_predicate(use_fts, search_idx));
+        where_clauses.push(cursor_predicate(use_fts, query.sort, first_cursor_idx));
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -335,25 +333,20 @@ fn build_sql(
         "memo m"
     };
 
-    let order_sql = if use_fts {
-        // bm25 lower is better; unique tie-breaker on (updated_at_ms, memo_id).
-        "rank ASC, m.updated_at_ms DESC, m.memo_id DESC"
-    } else {
-        "m.updated_at_ms DESC, m.memo_id DESC"
-    };
+    let order_sql = order_sql(query.sort, use_fts);
 
-    let limit_idx = if use_fts {
-        search_idx + if has_cursor { 4 } else { 1 }
-    } else if has_cursor {
-        search_idx + 2
+    let non_cursor_binding_count = usize::from(has_tag) + usize::from(use_fts);
+    let cursor_binding_count = if has_cursor {
+        usize::from(use_fts) + 4
     } else {
-        search_idx
+        0
     };
+    let limit_idx = non_cursor_binding_count + cursor_binding_count + 1;
 
     let sql = format!(
         "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
          m.has_todo, m.has_url, m.has_attachment, \
-         EXISTS(SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id), \
+         EXISTS(SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id) AS is_pinned, \
          EXISTS(SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id), \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json \
          FROM {from_sql} \
@@ -365,25 +358,98 @@ fn build_sql(
     Ok((sql, plan.match_expr.clone()))
 }
 
-fn cursor_predicate(use_fts: bool, search_idx: usize) -> String {
-    if use_fts {
-        format!(
-            "(bm25(memo_fts) > ?{} OR (bm25(memo_fts) = ?{} AND \
-             (m.updated_at_ms < ?{} OR (m.updated_at_ms = ?{} AND m.memo_id < ?{}))))",
-            search_idx + 1,
-            search_idx + 1,
-            search_idx + 2,
-            search_idx + 2,
-            search_idx + 3,
-        )
-    } else {
-        format!(
-            "(m.updated_at_ms < ?{} OR (m.updated_at_ms = ?{} AND m.memo_id < ?{}))",
-            search_idx,
-            search_idx,
-            search_idx + 1,
-        )
+fn filter_clauses(filters: &MemoFilters) -> Result<Vec<String>, lomo_core::LomoError> {
+    let mut clauses = Vec::new();
+    if filters.trash_only {
+        clauses.push("EXISTS (SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id)".to_owned());
+    } else if !filters.include_trash {
+        clauses
+            .push("NOT EXISTS (SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id)".to_owned());
     }
+    if filters.pinned_only {
+        clauses.push("EXISTS (SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id)".to_owned());
+    }
+    push_boolean_clause(&mut clauses, "m.has_todo", filters.has_todo);
+    push_boolean_clause(&mut clauses, "m.has_attachment", filters.has_attachment);
+    push_boolean_clause(&mut clauses, "m.has_url", filters.has_url);
+    if let Some(from) = filters.date_from_inclusive_ms {
+        clauses.push(format!("m.created_at_ms >= {from}"));
+    }
+    if let Some(until) = filters.date_until_exclusive_ms {
+        clauses.push(format!("m.created_at_ms < {until}"));
+    }
+    if let Some(tag) = &filters.tag {
+        if tag.is_empty() || tag.len() > 128 || tag.contains('\'') || tag.contains('\0') {
+            return Err(validation("invalid_tag_filter", "tag filter is invalid"));
+        }
+        let predicate = if matches!(filters.tag_selection, TagSelectionMode::Subtree) {
+            "(tg.name = ?1 OR tg.name LIKE (?1 || '/%'))"
+        } else {
+            "tg.name = ?1"
+        };
+        clauses.push(format!(
+            "EXISTS (SELECT 1 FROM memo_tag mt JOIN tag tg ON tg.id = mt.tag_id WHERE mt.memo_id = m.memo_id AND {predicate})"
+        ));
+    }
+    Ok(clauses)
+}
+
+fn push_boolean_clause(clauses: &mut Vec<String>, column: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        clauses.push(format!("{column} = {}", u8::from(value)));
+    }
+}
+
+fn order_sql(sort: MemoSort, use_fts: bool) -> String {
+    let primary_column = match sort.field {
+        MemoSortField::CreatedAt => "m.created_at_ms",
+        MemoSortField::UpdatedAt => "m.updated_at_ms",
+    };
+    let direction = match sort.direction {
+        SortDirection::Ascending => "ASC",
+        SortDirection::Descending => "DESC",
+    };
+    let temporal = format!(
+        "is_pinned DESC, {primary_column} {direction}, m.created_at_ms {direction}, m.memo_id {direction}"
+    );
+    if use_fts {
+        format!("rank ASC, {temporal}")
+    } else {
+        temporal
+    }
+}
+
+fn cursor_predicate(use_fts: bool, sort: MemoSort, first_cursor_idx: usize) -> String {
+    let rank_idx = use_fts.then_some(first_cursor_idx);
+    let pin_idx = first_cursor_idx + usize::from(use_fts);
+    let primary_idx = pin_idx + 1;
+    let created_idx = primary_idx + 1;
+    let memo_id_idx = created_idx + 1;
+    let comparison = match sort.direction {
+        SortDirection::Ascending => ">",
+        SortDirection::Descending => "<",
+    };
+    let primary_column = match sort.field {
+        MemoSortField::CreatedAt => "m.created_at_ms",
+        MemoSortField::UpdatedAt => "m.updated_at_ms",
+    };
+    let pinned =
+        "CASE WHEN EXISTS(SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id) THEN 1 ELSE 0 END";
+    let temporal = format!(
+        "({pinned} < ?{pin_idx} OR ({pinned} = ?{pin_idx} AND \
+         ({primary_column} {comparison} ?{primary_idx} OR \
+          ({primary_column} = ?{primary_idx} AND \
+           (m.created_at_ms {comparison} ?{created_idx} OR \
+            (m.created_at_ms = ?{created_idx} AND m.memo_id {comparison} ?{memo_id_idx}))))))"
+    );
+    rank_idx.map_or_else(
+        || temporal.clone(),
+        |rank_idx| {
+            format!(
+                "(bm25(memo_fts) > ?{rank_idx} OR (bm25(memo_fts) = ?{rank_idx} AND {temporal}))"
+            )
+        },
+    )
 }
 
 /// Full memo snapshot for `get_memo` (list summary + Markdown body from the workspace file).
@@ -501,6 +567,69 @@ pub fn get_memo_projection(
         .next()
         .ok_or_else(|| validation("memo_projection_missing", "summary vanished after attach"))?;
     Ok(Some(summary))
+}
+
+/// Loads one complete memo snapshot entirely from the app-private projection.
+///
+/// This is the SAF read path: user bytes cannot be reached through a filesystem path, so the
+/// verified scan must have published the body in the same `SQLite` row as its summary. A migrated v3
+/// row has `NULL` here and is rejected until a verified rebuild replaces it.
+///
+/// # Errors
+///
+/// Returns `SQLite` failures or `projection_rebuild_required` for a legacy/incomplete projection.
+pub fn get_projected_memo(
+    connection: &Connection,
+    memo_id: &str,
+) -> Result<Option<MemoSnapshot>, lomo_core::LomoError> {
+    let Some(summary) = get_memo_projection(connection, memo_id)? else {
+        return Ok(None);
+    };
+    let body = connection
+        .query_row(
+            "SELECT body FROM memo WHERE memo_id = ?1",
+            params![memo_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .map_err(|error| from_sqlite(&error))?
+        .ok_or_else(|| {
+            validation(
+                "projection_rebuild_required",
+                "memo body is absent from the durable projection; a verified rebuild is required",
+            )
+        })?;
+    Ok(Some(MemoSnapshot { summary, body }))
+}
+
+/// Reads the one canonical fingerprint shared by every memo projected from a source document.
+///
+/// # Errors
+///
+/// Returns corruption when sibling rows disagree, because no caller may guess which document
+/// revision is authoritative.
+pub fn source_document_fingerprint(
+    connection: &Connection,
+    source_path: &str,
+) -> Result<Option<String>, lomo_core::LomoError> {
+    let _path = lomo_workspace::WorkspaceRelativePath::parse(source_path)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 ORDER BY file_fingerprint LIMIT 2",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let fingerprints = statement
+        .query_map(params![source_path], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| from_sqlite(&error))?;
+    match fingerprints.as_slice() {
+        [] => Ok(None),
+        [fingerprint] => Ok(Some(fingerprint.clone())),
+        _ => Err(corruption(
+            "inconsistent_source_document_fingerprint",
+            "memos from one source document disagree on its fingerprint",
+        )),
+    }
 }
 
 /// Loads tag names and non-audio attachment paths for one bounded page in two statements.

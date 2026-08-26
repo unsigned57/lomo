@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 3;
+pub const STORE_SCHEMA_VERSION: u32 = 5;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -46,6 +46,7 @@ CREATE TABLE {memo} (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
     body_preview TEXT NOT NULL DEFAULT '',
+    body TEXT,
     search_content TEXT NOT NULL DEFAULT '',
     reminders_json TEXT NOT NULL DEFAULT '[]',
     content_revision INTEGER NOT NULL DEFAULT 0
@@ -91,6 +92,8 @@ CREATE TABLE {revision_index} (
     revision INTEGER NOT NULL,
     history_record_id TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
+    content TEXT,
+    file_fingerprint TEXT,
     PRIMARY KEY (memo_id, revision)
 );
 
@@ -184,4 +187,24 @@ PRAGMA user_version = 2;
 pub const MIGRATE_V2_TO_V3_DDL: &str = r"
 ALTER TABLE memo ADD COLUMN reminders_json TEXT NOT NULL DEFAULT '[]';
 PRAGMA user_version = 3;
+";
+
+/// Additive v3 -> v4 migration for complete app-private SAF memo snapshots.
+///
+/// Existing rows deliberately remain `NULL`: the old schema never persisted the source bytes, so
+/// inventing an empty body would turn an incomplete projection into false readable state. Resetting
+/// the projection revision to zero prevents read admission until the next verified SAF rebuild
+/// fills every row and publishes one complete revision.
+pub const MIGRATE_V3_TO_V4_DDL: &str = r"
+ALTER TABLE memo ADD COLUMN body TEXT;
+UPDATE store_meta SET value = '0' WHERE key = 'high_water_revision';
+PRAGMA user_version = 4;
+";
+
+/// Additive v4 -> v5 migration for complete bounded history pages from the local projection.
+/// Existing rows stay incomplete instead of inventing an empty revision body.
+pub const MIGRATE_V4_TO_V5_DDL: &str = r"
+ALTER TABLE revision_index ADD COLUMN content TEXT;
+ALTER TABLE revision_index ADD COLUMN file_fingerprint TEXT;
+PRAGMA user_version = 5;
 ";

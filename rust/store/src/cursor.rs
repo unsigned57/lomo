@@ -12,7 +12,9 @@ use crate::tokenizer::QueryPlan;
 pub struct PageCursor {
     pub query_fingerprint: String,
     pub sort_rank_bits: Option<u64>,
-    pub sort_updated_at_ms: i64,
+    pub sort_pinned: bool,
+    pub sort_primary_ms: i64,
+    pub sort_created_at_ms: i64,
     pub sort_memo_id: String,
     pub high_water_revision: u64,
     pub tokenizer_version: u32,
@@ -24,14 +26,18 @@ impl PageCursor {
     pub fn new(
         query_fingerprint: String,
         sort_rank: Option<f64>,
-        sort_updated_at_ms: i64,
+        sort_pinned: bool,
+        sort_primary_ms: i64,
+        sort_created_at_ms: i64,
         sort_memo_id: String,
         high_water_revision: u64,
     ) -> Self {
         Self {
             query_fingerprint,
             sort_rank_bits: sort_rank.map(f64::to_bits),
-            sort_updated_at_ms,
+            sort_pinned,
+            sort_primary_ms,
+            sort_created_at_ms,
             sort_memo_id,
             high_water_revision,
             tokenizer_version: TOKENIZER_VERSION,

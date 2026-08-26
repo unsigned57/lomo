@@ -16,12 +16,21 @@ use crate::source::SourceFingerprint;
 use crate::types::WorkspaceRelativePath;
 
 use super::document::DocumentCommandDriver;
+use super::history_scan::HistoryScanDriver;
 use super::scan::ScanDriver;
+use super::trash_command::TrashCommandDriver;
+use super::trash_scan::TrashScanDriver;
 
 /// Driver kind strings registered with the engine.
 #[must_use]
 pub fn default_workspace_drivers() -> Vec<Arc<dyn JobDriver>> {
-    vec![Arc::new(ScanDriver), Arc::new(DocumentCommandDriver)]
+    vec![
+        Arc::new(ScanDriver),
+        Arc::new(DocumentCommandDriver),
+        Arc::new(HistoryScanDriver),
+        Arc::new(TrashCommandDriver),
+        Arc::new(TrashScanDriver),
+    ]
 }
 
 /// Registry containing scan + document-command drivers.

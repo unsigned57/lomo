@@ -44,11 +44,13 @@ pub use media_ffi::{
 pub use store_ffi::{
     StoreHandle, StoreHistoryAttachmentRef, StoreMemoCommand, StoreMemoCommandKind,
     StoreMemoCommit, StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision,
-    StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSummary, StorePageCursor,
-    StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand, StoreReminderCommandKind,
-    StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery, StoreReminderSession,
-    StoreSafMemoProjection, StoreSafMemoProjectionReference, StoreSidebarDateCount,
-    StoreSidebarProjection, StoreSidebarTagCount, StoreTimeZoneContext, StoreZoneTransition,
+    StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSort, StoreMemoSortField,
+    StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
+    StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
+    StoreReminderSession, StoreSafHistoryProjectionReference, StoreSafMemoProjection,
+    StoreSafMemoProjectionReference, StoreSafTrashProjectionReference, StoreSidebarDateCount,
+    StoreSidebarProjection, StoreSidebarTagCount, StoreSortDirection, StoreTimeZoneContext,
+    StoreZoneTransition,
 };
 pub use sync_ffi::{
     SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
@@ -222,11 +224,33 @@ pub enum WorkspaceDocumentExpectedState {
 }
 
 #[data]
+#[derive(Clone, Copy, Debug)]
+pub struct WorkspaceDocumentHistoryWrite {
+    pub revision: u64,
+    pub created_at_ms: i64,
+}
+
+#[data]
 #[derive(Clone, Debug)]
 pub struct WorkspaceDocumentCommand {
     pub path: String,
     pub expected_state: WorkspaceDocumentExpectedState,
     pub command: WorkspaceDocumentCommandKind,
+    pub history: Option<WorkspaceDocumentHistoryWrite>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceDocumentMemoFacts {
+    pub path: String,
+    pub identity: String,
+    pub time_part: String,
+    pub fingerprint: String,
+    pub tags: Vec<String>,
+    pub attachments: Vec<String>,
+    pub reminders: Vec<WorkspaceReminderReference>,
+    pub has_todo: bool,
+    pub has_url: bool,
 }
 
 #[data]
@@ -235,6 +259,94 @@ pub struct WorkspaceDocumentCommandResult {
     pub path: String,
     pub result_fingerprint: String,
     pub bytes_written: u64,
+    pub affected_memo: Option<WorkspaceDocumentMemoFacts>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub enum WorkspaceTrashCommandKind {
+    Trash {
+        identity: String,
+        chronology_epoch_ms: i64,
+    },
+    Restore {
+        identity: String,
+    },
+    PermanentDelete {
+        identity: String,
+    },
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceTrashCommand {
+    pub path: String,
+    pub expected_fingerprint: String,
+    pub command: WorkspaceTrashCommandKind,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceTrashCommandResult {
+    pub path: String,
+    pub result_fingerprint: String,
+    pub affected_memo: WorkspaceDocumentMemoFacts,
+    pub trashed_at_ms: Option<i64>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceTrashScanRequest {
+    pub page_size: u32,
+    pub cursor: Option<String>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceTrashMemoSummary {
+    pub memo_id: String,
+    pub source_path: String,
+    pub time_part: String,
+    pub source_fingerprint: String,
+    pub chronology_epoch_ms: i64,
+    pub trashed_at_ms: i64,
+    pub tags: Vec<String>,
+    pub attachments: Vec<String>,
+    pub reminders: Vec<WorkspaceReminderReference>,
+    pub has_todo: bool,
+    pub has_url: bool,
+    pub content: WorkspaceMemoContentReference,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceTrashScanPage {
+    pub items: Vec<WorkspaceTrashMemoSummary>,
+    pub next_cursor: Option<String>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceHistoryScanRequest {
+    pub page_size: u32,
+    pub cursor: Option<String>,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceHistoryRevisionSummary {
+    pub memo_id: String,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub file_fingerprint: String,
+    pub content: WorkspaceMemoContentReference,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct WorkspaceHistoryScanPage {
+    pub items: Vec<WorkspaceHistoryRevisionSummary>,
+    pub next_cursor: Option<String>,
 }
 
 #[data]
@@ -1407,7 +1519,7 @@ impl LomoEngine {
         drop(job_id);
         let payload = self
             .core
-            .read_job_result(&parsed)
+            .take_job_result(&parsed)
             .map_err(EngineError::from)?
             .ok_or_else(|| {
                 EngineError::from(static_boundary_error(
@@ -1461,6 +1573,192 @@ impl LomoEngine {
         })
     }
 
+    /// Starts a bounded scan of durable workspace trash records.
+    ///
+    /// # Errors
+    ///
+    /// Returns structured engine/driver validation errors.
+    pub fn start_workspace_trash_scan(
+        &self,
+        request: WorkspaceTrashScanRequest,
+        deadline_millis: u64,
+    ) -> Result<String, EngineError> {
+        let payload = workspace::TrashScanRequest {
+            page_size: request.page_size,
+            cursor: request.cursor,
+        };
+        let request_json = serde_json::to_string(&payload).map_err(|_error| {
+            EngineError::from(static_boundary_error(
+                core::ErrorCategory::Validation,
+                "invalid_workspace_trash_scan_request",
+                core::RetryDisposition::Never,
+                None,
+                "workspace trash scan request cannot be serialized",
+            ))
+        })?;
+        let job_id = self
+            .core
+            .start_user_job(
+                workspace::TRASH_SCAN_DRIVER_KIND,
+                &request_json,
+                Duration::from_millis(deadline_millis),
+            )
+            .map_err(EngineError::from)?;
+        Ok(job_id.as_str().to_owned())
+    }
+
+    /// Reads the durable page published by a completed workspace trash scan.
+    ///
+    /// # Errors
+    ///
+    /// Returns unknown-job or decode errors.
+    pub fn read_workspace_trash_scan_page(
+        &self,
+        job_id: String,
+    ) -> Result<WorkspaceTrashScanPage, EngineError> {
+        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
+        drop(job_id);
+        let payload = self
+            .core
+            .take_job_result(&parsed)
+            .map_err(EngineError::from)?
+            .ok_or_else(|| {
+                EngineError::from(static_boundary_error(
+                    core::ErrorCategory::Validation,
+                    "workspace_trash_scan_page_unavailable",
+                    core::RetryDisposition::Transient,
+                    Some(parsed.as_str()),
+                    "workspace trash scan page has not been published yet",
+                ))
+            })?;
+        let page: workspace::TrashScanPage = serde_json::from_str(&payload).map_err(|_error| {
+            EngineError::from(static_boundary_error(
+                core::ErrorCategory::Corruption,
+                "workspace_trash_scan_page_corrupt",
+                core::RetryDisposition::AfterUserAction,
+                Some(parsed.as_str()),
+                "workspace trash scan page payload cannot be decoded",
+            ))
+        })?;
+        Ok(WorkspaceTrashScanPage {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| WorkspaceTrashMemoSummary {
+                    memo_id: item.memo_id,
+                    source_path: item.source_path,
+                    time_part: item.time_part,
+                    source_fingerprint: item.source_fingerprint,
+                    chronology_epoch_ms: item.chronology_epoch_ms,
+                    trashed_at_ms: item.trashed_at_ms,
+                    tags: item.tags,
+                    attachments: item.attachments,
+                    reminders: item
+                        .reminders
+                        .into_iter()
+                        .map(workspace_reminder_to_ffi)
+                        .collect(),
+                    has_todo: item.has_todo,
+                    has_url: item.has_url,
+                    content: WorkspaceMemoContentReference {
+                        exchange_token: item.content.exchange_token,
+                        length: item.content.length,
+                        digest: item.content.digest,
+                    },
+                })
+                .collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    /// Starts a bounded scan of durable workspace history records.
+    ///
+    /// # Errors
+    ///
+    /// Returns structured engine/driver validation errors.
+    pub fn start_workspace_history_scan(
+        &self,
+        request: WorkspaceHistoryScanRequest,
+        deadline_millis: u64,
+    ) -> Result<String, EngineError> {
+        let payload = workspace::HistoryScanRequest {
+            page_size: request.page_size,
+            cursor: request.cursor,
+        };
+        let request_json = serde_json::to_string(&payload).map_err(|_error| {
+            EngineError::from(static_boundary_error(
+                core::ErrorCategory::Validation,
+                "invalid_workspace_history_scan_request",
+                core::RetryDisposition::Never,
+                None,
+                "workspace history scan request cannot be serialized",
+            ))
+        })?;
+        let job_id = self
+            .core
+            .start_user_job(
+                workspace::HISTORY_SCAN_DRIVER_KIND,
+                &request_json,
+                Duration::from_millis(deadline_millis),
+            )
+            .map_err(EngineError::from)?;
+        Ok(job_id.as_str().to_owned())
+    }
+
+    /// Reads the durable page published by a completed workspace history scan.
+    ///
+    /// # Errors
+    ///
+    /// Returns unknown-job or decode errors.
+    pub fn read_workspace_history_scan_page(
+        &self,
+        job_id: String,
+    ) -> Result<WorkspaceHistoryScanPage, EngineError> {
+        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
+        drop(job_id);
+        let payload = self
+            .core
+            .take_job_result(&parsed)
+            .map_err(EngineError::from)?
+            .ok_or_else(|| {
+                EngineError::from(static_boundary_error(
+                    core::ErrorCategory::Validation,
+                    "workspace_history_scan_page_unavailable",
+                    core::RetryDisposition::Transient,
+                    Some(parsed.as_str()),
+                    "workspace history scan page has not been published yet",
+                ))
+            })?;
+        let page: workspace::HistoryScanPage =
+            serde_json::from_str(&payload).map_err(|_error| {
+                EngineError::from(static_boundary_error(
+                    core::ErrorCategory::Corruption,
+                    "workspace_history_scan_page_corrupt",
+                    core::RetryDisposition::AfterUserAction,
+                    Some(parsed.as_str()),
+                    "workspace history scan page payload cannot be decoded",
+                ))
+            })?;
+        Ok(WorkspaceHistoryScanPage {
+            items: page
+                .items
+                .into_iter()
+                .map(|item| WorkspaceHistoryRevisionSummary {
+                    memo_id: item.memo_id,
+                    revision: item.revision,
+                    created_at_ms: item.created_at_ms,
+                    file_fingerprint: item.file_fingerprint,
+                    content: WorkspaceMemoContentReference {
+                        exchange_token: item.content.exchange_token,
+                        length: item.content.length,
+                        digest: item.content.digest,
+                    },
+                })
+                .collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
     /// Starts a workspace document command job.
     ///
     /// # Errors
@@ -1507,6 +1805,12 @@ impl LomoEngine {
                     replacement,
                 },
             },
+            history: command
+                .history
+                .map(|history| workspace::DocumentHistoryWrite {
+                    revision: history.revision,
+                    created_at_ms: history.created_at_ms,
+                }),
         };
         let request_json = serde_json::to_string(&payload).map_err(|_error| {
             EngineError::from(static_boundary_error(
@@ -1541,7 +1845,7 @@ impl LomoEngine {
         drop(job_id);
         let payload = self
             .core
-            .read_job_result(&parsed)
+            .take_job_result(&parsed)
             .map_err(EngineError::from)?
             .ok_or_else(|| {
                 EngineError::from(static_boundary_error(
@@ -1566,6 +1870,127 @@ impl LomoEngine {
             path: result.path,
             result_fingerprint: result.result_fingerprint,
             bytes_written: result.bytes_written,
+            affected_memo: result.affected_memo.map(|memo| WorkspaceDocumentMemoFacts {
+                path: memo.path,
+                identity: memo.identity,
+                time_part: memo.time_part,
+                fingerprint: memo.fingerprint,
+                tags: memo.tags,
+                attachments: memo.attachments,
+                reminders: memo
+                    .reminders
+                    .into_iter()
+                    .map(workspace_reminder_to_ffi)
+                    .collect(),
+                has_todo: memo.has_todo,
+                has_url: memo.has_url,
+            }),
+        })
+    }
+
+    /// Starts a durable provider-backed trash command job.
+    ///
+    /// # Errors
+    ///
+    /// Returns structured engine/driver validation errors.
+    pub fn start_workspace_trash_command(
+        &self,
+        command: WorkspaceTrashCommand,
+        deadline_millis: u64,
+    ) -> Result<String, EngineError> {
+        let payload = workspace::TrashCommandRequest {
+            path: command.path,
+            expected_fingerprint: command.expected_fingerprint,
+            command: match command.command {
+                WorkspaceTrashCommandKind::Trash {
+                    identity,
+                    chronology_epoch_ms,
+                } => workspace::TrashCommandKind::Trash {
+                    identity,
+                    chronology_epoch_ms,
+                },
+                WorkspaceTrashCommandKind::Restore { identity } => {
+                    workspace::TrashCommandKind::Restore { identity }
+                }
+                WorkspaceTrashCommandKind::PermanentDelete { identity } => {
+                    workspace::TrashCommandKind::PermanentDelete { identity }
+                }
+            },
+        };
+        let request_json = serde_json::to_string(&payload).map_err(|_error| {
+            EngineError::from(static_boundary_error(
+                core::ErrorCategory::Validation,
+                "invalid_workspace_trash_command_request",
+                core::RetryDisposition::Never,
+                None,
+                "workspace trash command request cannot be serialized",
+            ))
+        })?;
+        let job_id = self
+            .core
+            .start_user_job(
+                workspace::TRASH_COMMAND_DRIVER_KIND,
+                &request_json,
+                Duration::from_millis(deadline_millis),
+            )
+            .map_err(EngineError::from)?;
+        Ok(job_id.as_str().to_owned())
+    }
+
+    /// Reads a completed durable trash-command result.
+    ///
+    /// # Errors
+    ///
+    /// Returns unknown-job or decode errors.
+    pub fn read_workspace_trash_command_result(
+        &self,
+        job_id: String,
+    ) -> Result<WorkspaceTrashCommandResult, EngineError> {
+        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
+        drop(job_id);
+        let payload = self
+            .core
+            .take_job_result(&parsed)
+            .map_err(EngineError::from)?
+            .ok_or_else(|| {
+                EngineError::from(static_boundary_error(
+                    core::ErrorCategory::Validation,
+                    "workspace_trash_command_result_unavailable",
+                    core::RetryDisposition::Transient,
+                    Some(parsed.as_str()),
+                    "workspace trash command result has not been published yet",
+                ))
+            })?;
+        let result: workspace::TrashCommandResult =
+            serde_json::from_str(&payload).map_err(|_error| {
+                EngineError::from(static_boundary_error(
+                    core::ErrorCategory::Corruption,
+                    "workspace_trash_command_result_corrupt",
+                    core::RetryDisposition::AfterUserAction,
+                    Some(parsed.as_str()),
+                    "workspace trash command result payload cannot be decoded",
+                ))
+            })?;
+        Ok(WorkspaceTrashCommandResult {
+            path: result.path,
+            result_fingerprint: result.result_fingerprint,
+            affected_memo: WorkspaceDocumentMemoFacts {
+                path: result.affected_memo.path,
+                identity: result.affected_memo.identity,
+                time_part: result.affected_memo.time_part,
+                fingerprint: result.affected_memo.fingerprint,
+                tags: result.affected_memo.tags,
+                attachments: result.affected_memo.attachments,
+                reminders: result
+                    .affected_memo
+                    .reminders
+                    .into_iter()
+                    .map(workspace_reminder_to_ffi)
+                    .collect(),
+                has_todo: result.affected_memo.has_todo,
+                has_url: result.affected_memo.has_url,
+            },
+            trashed_at_ms: result.trashed_at_ms,
         })
     }
 
@@ -1645,6 +2070,23 @@ impl LomoEngine {
     )]
     pub fn get_memo(&self, memo_id: String) -> Result<Option<StoreMemoSnapshot>, EngineError> {
         self.active_store()?.get_memo(&memo_id)
+    }
+
+    /// Canonical source-document fingerprint for O(1) SAF create/append planning.
+    ///
+    /// # Errors
+    ///
+    /// No active workspace store, invalid path, inconsistent sibling projection, or store errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn source_document_fingerprint(
+        &self,
+        source_path: String,
+    ) -> Result<Option<String>, EngineError> {
+        self.active_store()?
+            .source_document_fingerprint(&source_path)
     }
 
     /// Dark-build history attachment paths for D6 orphan keep-set.
@@ -1764,6 +2206,46 @@ impl LomoEngine {
             memos,
             self.core.exchange_root(),
         )
+    }
+
+    /// Appends one durable trash-record scan page to the active SAF projection rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched rebuild, malformed trash facts, exchange verification, or write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned rebuild id"
+    )]
+    pub fn append_saf_trash_projection_rebuild_page(
+        &self,
+        rebuild_id: String,
+        memos: Vec<StoreSafTrashProjectionReference>,
+    ) -> Result<(), EngineError> {
+        self.active_store()?
+            .append_saf_trash_projection_rebuild_page(&rebuild_id, memos, self.core.exchange_root())
+    }
+
+    /// Appends one durable history scan page to the active SAF projection rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched rebuild, exchange verification, or write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires an owned rebuild id"
+    )]
+    pub fn append_saf_history_projection_rebuild_page(
+        &self,
+        rebuild_id: String,
+        revisions: Vec<StoreSafHistoryProjectionReference>,
+    ) -> Result<(), EngineError> {
+        self.active_store()?
+            .append_saf_history_projection_rebuild_page(
+                &rebuild_id,
+                revisions,
+                self.core.exchange_root(),
+            )
     }
 
     /// Finishes and atomically publishes a bounded SAF scan-to-projection rebuild.

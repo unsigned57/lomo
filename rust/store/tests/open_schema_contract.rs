@@ -6,12 +6,14 @@
 //! Scenarios:
 //! - Given a new workspace root, when `Store::open` runs, then `foreign_keys=ON`, `journal_mode=wal`,
 //!   `busy` timeout is applied, `user_version` is the live schema, and quick integrity is ok.
-//! - Given a v1 projection, when it is opened, then the SAF ledger and reminder projection are
-//!   added atomically and the schema advances to v3 without discarding projection rows.
+//! - Given a v1 projection, when it is opened, then the SAF ledger, reminder projection, and durable
+//!   body/history columns are added atomically and the schema advances to v5 without discarding
+//!   rows or inventing content that the old projection never persisted.
 //! - Given a database with a higher unknown `user_version`, when open is attempted, then open fails
 //!   closed with `unknown_schema_version` and does not downgrade.
 //!
 //! Observable outcomes: `OpenInfo` fields and structured open errors.
+//! TDD proof: RED on 2026-08-17 because schema v3 had no durable complete SAF body column.
 //! Excludes: tokenizer, query, transactions, rebuild (later packages).
 
 #[cfg(test)]
@@ -35,7 +37,7 @@ mod tests {
         assert!(info.foreign_keys, "foreign_keys must be ON");
         assert_eq!(info.journal_mode, "wal");
         assert_eq!(info.user_version, STORE_SCHEMA_VERSION);
-        assert_eq!(info.user_version, 3);
+        assert_eq!(info.user_version, 5);
         assert!(info.busy_timeout_ms >= 1000);
         assert!(info.integrity_ok);
         assert!(info.database_path.ends_with("store.db"));
@@ -47,7 +49,7 @@ mod tests {
         );
         drop(store);
         let reopened = Store::open(dir.path()).expect("reopen");
-        assert_eq!(reopened.open_info().user_version, 3);
+        assert_eq!(reopened.open_info().user_version, 5);
     }
 
     #[test]
@@ -94,6 +96,20 @@ mod tests {
                 .expect("remove v2 table");
             conn.execute("ALTER TABLE memo DROP COLUMN reminders_json", [])
                 .expect("remove v3 column");
+            conn.execute("ALTER TABLE memo DROP COLUMN body", [])
+                .expect("remove v4 column");
+            conn.execute("ALTER TABLE revision_index DROP COLUMN content", [])
+                .expect("remove v5 content column");
+            conn.execute(
+                "ALTER TABLE revision_index DROP COLUMN file_fingerprint",
+                [],
+            )
+            .expect("remove v5 fingerprint column");
+            conn.execute(
+                "UPDATE store_meta SET value='41' WHERE key='high_water_revision'",
+                [],
+            )
+            .expect("seed previously readable projection revision");
             conn.pragma_update(None, "user_version", 1u32)
                 .expect("mark v1");
         }
@@ -118,6 +134,20 @@ mod tests {
             .expect("read schema");
         assert_eq!(memo_count, 1);
         assert_eq!(ledger_exists, 1);
+        let migrated_body: Option<String> = conn
+            .query_row("SELECT body FROM memo WHERE memo_id='v1-memo'", [], |row| {
+                row.get(0)
+            })
+            .expect("read migrated body state");
+        assert_eq!(
+            migrated_body, None,
+            "migration must not invent source bytes"
+        );
+        assert_eq!(
+            migrated.high_water_revision(),
+            0,
+            "an incomplete migrated body projection must not remain read-admissible",
+        );
     }
 
     #[test]

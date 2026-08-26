@@ -1,21 +1,22 @@
 //! Rebuild state machine: read-only → temp DB → batched checkpoint → integrity → atomic replace.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use serde::Serialize;
 
 use crate::content_facts::{aggregate_memo_digest, fingerprint_content, project_content_facts};
 use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation};
 use crate::lomo_format::{
-    HistoryBody, LomoPaths, LomoRecordKind, StateBody, isolate_corrupt_record, read_record,
+    HistoryBody, LomoPaths, LomoRecordKind, MemoCommandKind, StateBody, isolate_corrupt_record,
+    read_record,
 };
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
 use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
-use crate::transaction::WriteGate;
+use crate::transaction::{WriteGate, memo_command_scopes};
 
 /// Sidecar basename for the previous live DB during crash-safe replace.
 const LIVE_BAK_NAME: &str = "store.db.bak";
@@ -107,12 +108,32 @@ pub struct ScannedMemoProjection {
     pub reminders: Vec<lomo_workspace::ReminderReference>,
 }
 
+/// One durable trash-record projection decoded by the Rust workspace owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScannedTrashProjection {
+    pub memo: ScannedMemoProjection,
+    pub trashed_at_ms: i64,
+}
+
+/// One durable history snapshot decoded and verified by the Rust workspace scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScannedHistoryProjection {
+    pub memo_id: String,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub content: String,
+    pub file_fingerprint: String,
+}
+
 /// SAF mutation kind after the Android platform action has been verified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum SafProjectionMutationKind {
     Create,
     Update,
+    HistoryRestore,
     Delete,
+    Restore,
+    PermanentDelete,
     Pin,
     Unpin,
 }
@@ -126,6 +147,7 @@ pub struct SafProjectionMutation {
     pub expected_revision: u64,
     pub expected_fingerprint: Option<String>,
     pub projection: Option<ScannedMemoProjection>,
+    pub trashed_at_ms: Option<i64>,
 }
 
 /// Commit facts returned after a verified SAF projection mutation.
@@ -137,6 +159,7 @@ pub struct SafProjectionCommitResult {
     pub event_sequence: u64,
     pub content_revision: u64,
     pub file_fingerprint: String,
+    pub scopes: Vec<lomo_core::InvalidationScope>,
     pub idempotent_replay: bool,
 }
 
@@ -169,6 +192,33 @@ pub fn commit_saf_projection_mutation(
             "invalid_memo_id",
             "SAF projection memo id must be non-empty and bounded",
         ));
+    }
+    match mutation.kind {
+        SafProjectionMutationKind::Delete => {
+            if mutation
+                .trashed_at_ms
+                .is_none_or(|timestamp| timestamp <= 0)
+            {
+                return Err(validation(
+                    "invalid_trash_timestamp",
+                    "SAF delete requires a positive durable trash timestamp",
+                ));
+            }
+        }
+        SafProjectionMutationKind::Create
+        | SafProjectionMutationKind::Update
+        | SafProjectionMutationKind::HistoryRestore
+        | SafProjectionMutationKind::Restore
+        | SafProjectionMutationKind::PermanentDelete
+        | SafProjectionMutationKind::Pin
+        | SafProjectionMutationKind::Unpin => {
+            if mutation.trashed_at_ms.is_some() {
+                return Err(validation(
+                    "unexpected_trash_timestamp",
+                    "only SAF delete may publish a trash timestamp",
+                ));
+            }
+        }
     }
     let database = database_path(projection_root);
     let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
@@ -216,14 +266,21 @@ pub fn commit_saf_projection_mutation(
             event_sequence: stored_revision(event_sequence)?,
             content_revision: stored_revision(content_revision)?,
             file_fingerprint: fingerprint,
+            scopes: saf_projection_scopes(mutation.kind),
             idempotent_replay: true,
         });
     }
     let current = transaction
         .query_row(
-            "SELECT content_revision, file_fingerprint FROM memo WHERE memo_id = ?1",
+            "SELECT content_revision, file_fingerprint, source_path FROM memo WHERE memo_id = ?1",
             params![&mutation.memo_id],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(|error| from_sqlite(&error))?;
@@ -256,7 +313,7 @@ pub fn commit_saf_projection_mutation(
             upsert_saf_projection(&transaction, projection, revision)?;
             (revision, projection.file_fingerprint.clone())
         }
-        SafProjectionMutationKind::Update => {
+        SafProjectionMutationKind::Update | SafProjectionMutationKind::HistoryRestore => {
             let projection = mutation.projection.as_ref().ok_or_else(|| {
                 validation(
                     "saf_projection_facts_missing",
@@ -269,7 +326,7 @@ pub fn commit_saf_projection_mutation(
                     "scanned projection memo id does not match mutation",
                 ));
             }
-            let (revision, fingerprint) = current.as_ref().ok_or_else(|| {
+            let (revision, fingerprint, _source_path) = current.as_ref().ok_or_else(|| {
                 validation("memo_not_found", "SAF projection update target is absent")
             })?;
             let expected_revision = i64::try_from(mutation.expected_revision)
@@ -291,7 +348,20 @@ pub fn commit_saf_projection_mutation(
             (next_revision, projection.file_fingerprint.clone())
         }
         SafProjectionMutationKind::Delete => {
-            let (revision, fingerprint) = current.ok_or_else(|| {
+            let projection = mutation.projection.as_ref().ok_or_else(|| {
+                validation(
+                    "saf_projection_facts_missing",
+                    "delete SAF projection commit requires the verified result fingerprint",
+                )
+            })?;
+            if projection.memo_id != mutation.memo_id {
+                return Err(validation(
+                    "saf_projection_memo_id_mismatch",
+                    "scanned projection memo id does not match mutation",
+                ));
+            }
+            validate_scanned_projection(projection)?;
+            let (revision, fingerprint, source_path) = current.ok_or_else(|| {
                 validation("memo_not_found", "SAF projection delete target is absent")
             })?;
             let expected_revision = i64::try_from(mutation.expected_revision)
@@ -304,10 +374,99 @@ pub fn commit_saf_projection_mutation(
                     "SAF projection delete snapshot is stale",
                 ));
             }
+            if projection.source_path != source_path {
+                return Err(validation(
+                    "saf_projection_source_path_mismatch",
+                    "delete projection source path does not match the current memo",
+                ));
+            }
+            if projection.file_fingerprint != fingerprint {
+                return Err(validation(
+                    "saf_soft_delete_rewrote_source",
+                    "soft delete must not change the active source document fingerprint",
+                ));
+            }
+            transaction
+                .execute(
+                    "UPDATE memo SET file_fingerprint=?1 WHERE source_path=?2",
+                    params![&projection.file_fingerprint, &source_path],
+                )
+                .map_err(|error| from_sqlite(&error))?;
             transaction
                 .execute(
                     "INSERT OR REPLACE INTO memo_trash(memo_id, trashed_at_ms) VALUES(?1, ?2)",
-                    params![&mutation.memo_id, current_time_ms()?],
+                    params![
+                        &mutation.memo_id,
+                        mutation.trashed_at_ms.ok_or_else(|| validation(
+                            "invalid_trash_timestamp",
+                            "SAF delete requires a durable trash timestamp",
+                        ))?
+                    ],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            (
+                u64::try_from(revision)
+                    .map_err(|_error| validation("revision_overflow", "negative revision"))?,
+                projection.file_fingerprint.clone(),
+            )
+        }
+        SafProjectionMutationKind::Restore => {
+            let projection = mutation.projection.as_ref().ok_or_else(|| {
+                validation(
+                    "saf_projection_facts_missing",
+                    "restore SAF projection commit requires verified active memo facts",
+                )
+            })?;
+            if projection.memo_id != mutation.memo_id {
+                return Err(validation(
+                    "saf_projection_memo_id_mismatch",
+                    "restore projection memo id does not match mutation",
+                ));
+            }
+            validate_scanned_projection(projection)?;
+            let (revision, fingerprint, source_path) = current.ok_or_else(|| {
+                validation("memo_not_found", "SAF projection restore target is absent")
+            })?;
+            let expected_revision = i64::try_from(mutation.expected_revision)
+                .map_err(|_error| validation("revision_overflow", "revision overflow"))?;
+            if revision != expected_revision
+                || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
+            {
+                return Err(validation(
+                    "stale_snapshot",
+                    "SAF projection restore snapshot is stale",
+                ));
+            }
+            if projection.source_path != source_path || projection.file_fingerprint != fingerprint {
+                return Err(validation(
+                    "saf_restore_source_mismatch",
+                    "restore facts do not match the verified active source document",
+                ));
+            }
+            let trashed: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM memo_trash WHERE memo_id=?1)",
+                    params![&mutation.memo_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            if !trashed {
+                return Err(validation(
+                    "memo_not_trashed",
+                    "SAF restore requires a memo currently projected in trash",
+                ));
+            }
+            upsert_saf_projection(
+                &transaction,
+                projection,
+                u64::try_from(revision).map_err(|_error| {
+                    corruption("invalid_content_revision", "negative content revision")
+                })?,
+            )?;
+            transaction
+                .execute(
+                    "DELETE FROM memo_trash WHERE memo_id=?1",
+                    params![&mutation.memo_id],
                 )
                 .map_err(|error| from_sqlite(&error))?;
             (
@@ -316,8 +475,87 @@ pub fn commit_saf_projection_mutation(
                 fingerprint,
             )
         }
+        SafProjectionMutationKind::PermanentDelete => {
+            let projection = mutation.projection.as_ref().ok_or_else(|| {
+                validation(
+                    "saf_projection_facts_missing",
+                    "permanent delete requires the verified result source fingerprint",
+                )
+            })?;
+            if projection.memo_id != mutation.memo_id {
+                return Err(validation(
+                    "saf_projection_memo_id_mismatch",
+                    "permanent delete projection memo id does not match mutation",
+                ));
+            }
+            validate_scanned_projection(projection)?;
+            let (revision, fingerprint, source_path) = current.ok_or_else(|| {
+                validation(
+                    "memo_not_found",
+                    "SAF projection permanent delete target is absent",
+                )
+            })?;
+            let expected_revision = i64::try_from(mutation.expected_revision)
+                .map_err(|_error| validation("revision_overflow", "revision overflow"))?;
+            if revision != expected_revision
+                || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
+            {
+                return Err(validation(
+                    "stale_snapshot",
+                    "SAF projection permanent delete snapshot is stale",
+                ));
+            }
+            if projection.source_path != source_path {
+                return Err(validation(
+                    "saf_projection_source_path_mismatch",
+                    "permanent delete source path does not match the current memo",
+                ));
+            }
+            let trashed: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM memo_trash WHERE memo_id=?1)",
+                    params![&mutation.memo_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            if !trashed {
+                return Err(validation(
+                    "memo_not_trashed",
+                    "permanent delete requires a memo currently projected in trash",
+                ));
+            }
+            transaction
+                .execute(
+                    "UPDATE memo SET file_fingerprint=?1 WHERE source_path=?2",
+                    params![&projection.file_fingerprint, &source_path],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            transaction
+                .execute(
+                    "INSERT INTO memo_fts(memo_fts,rowid,search_content) SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1",
+                    params![&mutation.memo_id],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            transaction
+                .execute(
+                    "DELETE FROM memo WHERE memo_id=?1",
+                    params![&mutation.memo_id],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            transaction
+                .execute(
+                    "DELETE FROM revision_index WHERE memo_id=?1",
+                    params![&mutation.memo_id],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            (
+                u64::try_from(revision)
+                    .map_err(|_error| validation("revision_overflow", "negative revision"))?,
+                projection.file_fingerprint.clone(),
+            )
+        }
         SafProjectionMutationKind::Pin | SafProjectionMutationKind::Unpin => {
-            let (revision, fingerprint) = current.ok_or_else(|| {
+            let (revision, fingerprint, _source_path) = current.ok_or_else(|| {
                 validation("memo_not_found", "SAF projection pin target is absent")
             })?;
             let expected_revision = i64::try_from(mutation.expected_revision)
@@ -352,6 +590,34 @@ pub fn commit_saf_projection_mutation(
             )
         }
     };
+    if matches!(
+        mutation.kind,
+        SafProjectionMutationKind::Create
+            | SafProjectionMutationKind::Update
+            | SafProjectionMutationKind::HistoryRestore
+    ) {
+        let projection = mutation.projection.as_ref().ok_or_else(|| {
+            validation(
+                "saf_projection_facts_missing",
+                "history projection requires the committed memo body",
+            )
+        })?;
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO revision_index( \
+                 memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
+                 ) VALUES(?1,?2,?3,?4,?5,?6)",
+                params![
+                    &mutation.memo_id,
+                    persisted_revision(content_revision)?,
+                    format!("{}-r{content_revision}", mutation.memo_id),
+                    projection.chronology_epoch_ms,
+                    &projection.body,
+                    &file_fingerprint,
+                ],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+    }
     recompute_stats(&transaction)?;
     let core_revision = crate::read_meta_u64(&transaction, "high_water_revision")?
         .checked_add(1)
@@ -385,7 +651,21 @@ pub fn commit_saf_projection_mutation(
         event_sequence,
         content_revision,
         file_fingerprint,
+        scopes: saf_projection_scopes(mutation.kind),
         idempotent_replay: false,
+    })
+}
+
+fn saf_projection_scopes(kind: SafProjectionMutationKind) -> Vec<lomo_core::InvalidationScope> {
+    memo_command_scopes(match kind {
+        SafProjectionMutationKind::Create => MemoCommandKind::Create,
+        SafProjectionMutationKind::Update => MemoCommandKind::Update,
+        SafProjectionMutationKind::HistoryRestore => MemoCommandKind::HistoryRestore,
+        SafProjectionMutationKind::Delete => MemoCommandKind::Delete,
+        SafProjectionMutationKind::Restore => MemoCommandKind::Restore,
+        SafProjectionMutationKind::PermanentDelete => MemoCommandKind::PermanentDelete,
+        SafProjectionMutationKind::Pin => MemoCommandKind::Pin,
+        SafProjectionMutationKind::Unpin => MemoCommandKind::Unpin,
     })
 }
 
@@ -404,10 +684,16 @@ fn persisted_revision(value: u64) -> Result<i64, lomo_core::LomoError> {
     reason = "projection upsert keeps memo, FTS, tags, and attachments in one transaction"
 )]
 fn upsert_saf_projection(
-    connection: &rusqlite::Transaction<'_>,
+    connection: &Transaction<'_>,
     projection: &ScannedMemoProjection,
     revision: u64,
 ) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute(
+            "UPDATE memo SET file_fingerprint=?1 WHERE source_path=?2",
+            params![&projection.file_fingerprint, &projection.source_path],
+        )
+        .map_err(|error| from_sqlite(&error))?;
     let existing: Option<i64> = connection
         .query_row(
             "SELECT rowid FROM memo WHERE memo_id = ?1",
@@ -438,7 +724,7 @@ fn upsert_saf_projection(
             .map_err(|error| from_sqlite(&error))?;
         connection
             .execute(
-                "UPDATE memo SET source_path=?1,file_fingerprint=?2,has_todo=?3,has_url=?4,has_attachment=?5,created_at_ms=created_at_ms,updated_at_ms=?6,body_preview=?7,search_content=?8,content_revision=?9,reminders_json=?10 WHERE memo_id=?11",
+                "UPDATE memo SET source_path=?1,file_fingerprint=?2,has_todo=?3,has_url=?4,has_attachment=?5,created_at_ms=created_at_ms,updated_at_ms=?6,body_preview=?7,body=?8,search_content=?9,content_revision=?10,reminders_json=?11 WHERE memo_id=?12",
                 params![
                     &projection.source_path,
                     &projection.file_fingerprint,
@@ -447,6 +733,7 @@ fn upsert_saf_projection(
                     i64::from(!projection.attachment_paths.is_empty()),
                     projection.chronology_epoch_ms,
                     preview,
+                    &projection.body,
                     search_content,
                     revision_i64,
                     reminders_json,
@@ -463,7 +750,7 @@ fn upsert_saf_projection(
     } else {
         connection
             .execute(
-                "INSERT INTO memo(memo_id,source_path,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,search_content,content_revision,reminders_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11)",
+                "INSERT INTO memo(memo_id,source_path,file_fingerprint,has_todo,has_url,has_attachment,created_at_ms,updated_at_ms,body_preview,body,search_content,content_revision,reminders_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11,?12)",
                 params![
                     &projection.memo_id,
                     &projection.source_path,
@@ -473,6 +760,7 @@ fn upsert_saf_projection(
                     i64::from(!projection.attachment_paths.is_empty()),
                     projection.chronology_epoch_ms,
                     preview,
+                    &projection.body,
                     search_content,
                     revision_i64,
                     reminders_json,
@@ -540,9 +828,12 @@ pub struct SafProjectionRebuild {
     base_high_water_revision: u64,
     high_water_revision: u64,
     event_sequence: u64,
-    memos_indexed: u64,
+    workspace_evidence: BTreeMap<String, ScannedProjectionEvidence>,
+}
+
+struct ScannedProjectionEvidence {
+    fingerprint: String,
     attachment_count: u64,
-    workspace_pairs: Vec<(String, String)>,
 }
 
 impl SafProjectionRebuild {
@@ -576,9 +867,7 @@ impl SafProjectionRebuild {
             base_high_water_revision,
             high_water_revision,
             event_sequence,
-            memos_indexed: 0,
-            attachment_count: 0,
-            workspace_pairs: Vec::new(),
+            workspace_evidence: BTreeMap::new(),
         })
     }
 
@@ -608,8 +897,7 @@ impl SafProjectionRebuild {
             .unchecked_transaction()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_ids = BTreeSet::new();
-        let mut pairs = Vec::with_capacity(memos.len());
-        let mut page_attachment_count = 0_u64;
+        let mut page_evidence = Vec::with_capacity(memos.len());
         for memo in memos {
             validate_scanned_projection(memo)?;
             if !page_ids.insert(memo.memo_id.as_str()) {
@@ -632,32 +920,143 @@ impl SafProjectionRebuild {
                 ));
             }
             index_scanned_memo(&transaction, memo)?;
-            pairs.push((memo.memo_id.clone(), memo.file_fingerprint.clone()));
-            page_attachment_count = page_attachment_count
-                .checked_add(
-                    u64::try_from(memo.attachment_paths.len()).map_err(|_error| {
-                        validation("attachment_count_overflow", "attachment count exceeds u64")
-                    })?,
-                )
-                .ok_or_else(|| {
-                    validation("attachment_count_overflow", "attachment count exceeds u64")
-                })?;
+            page_evidence.push((
+                memo.memo_id.clone(),
+                ScannedProjectionEvidence {
+                    fingerprint: memo.file_fingerprint.clone(),
+                    attachment_count: u64::try_from(memo.attachment_paths.len()).map_err(
+                        |_error| {
+                            validation("attachment_count_overflow", "attachment count exceeds u64")
+                        },
+                    )?,
+                },
+            ));
         }
         transaction.commit().map_err(|error| from_sqlite(&error))?;
-        self.memos_indexed =
-            self.memos_indexed
-                .checked_add(u64::try_from(memos.len()).map_err(|_error| {
-                    validation("memo_count_overflow", "memo count exceeds u64")
-                })?)
-                .ok_or_else(|| validation("memo_count_overflow", "memo count exceeds u64"))?;
-        self.attachment_count = self
-            .attachment_count
-            .checked_add(page_attachment_count)
-            .ok_or_else(|| {
-                validation("attachment_count_overflow", "attachment count exceeds u64")
-            })?;
-        self.workspace_pairs.extend(pairs);
+        for (memo_id, evidence) in page_evidence {
+            if self.workspace_evidence.insert(memo_id, evidence).is_some() {
+                return Err(corruption(
+                    "duplicate_saf_projection_memo",
+                    "committed SAF projection evidence contains a duplicate memo identity",
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// Appends durable trash-record facts after active document pages.
+    ///
+    /// One active projection and one trash record for the same identity are expected: the trash
+    /// snapshot owns recoverable body/semantic facts, while the current active document (or one of
+    /// its siblings) owns the canonical source fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for oversized/duplicate/malformed trash pages, inconsistent source
+    /// identity, or storage errors while atomically merging the page.
+    pub fn append_trash_page(
+        &mut self,
+        trash_memos: &[ScannedTrashProjection],
+    ) -> Result<(), lomo_core::LomoError> {
+        if trash_memos.len() > MAX_SAF_PROJECTION_PAGE_SIZE {
+            return Err(validation(
+                "saf_projection_page_too_large",
+                "SAF trash projection rebuild page exceeds 256 memos",
+            ));
+        }
+        let connection = self.connection.as_mut().ok_or_else(|| {
+            validation(
+                "saf_projection_rebuild_closed",
+                "SAF projection rebuild is already finished or aborted",
+            )
+        })?;
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| from_sqlite(&error))?;
+        let mut page_ids = BTreeSet::new();
+        let mut page_evidence = Vec::with_capacity(trash_memos.len());
+        for trash in trash_memos {
+            validate_scanned_projection(&trash.memo)?;
+            if trash.trashed_at_ms <= 0 {
+                return Err(validation(
+                    "invalid_trash_timestamp",
+                    "SAF trash timestamp must be a positive epoch millisecond",
+                ));
+            }
+            if !page_ids.insert(trash.memo.memo_id.as_str()) {
+                return Err(validation(
+                    "duplicate_saf_trash_memo",
+                    "SAF trash page contains a duplicate memo identity",
+                ));
+            }
+            page_evidence.push(merge_trash_projection(&transaction, trash)?);
+        }
+        transaction.commit().map_err(|error| from_sqlite(&error))?;
+        for (memo_id, evidence) in page_evidence {
+            self.workspace_evidence.insert(memo_id, evidence);
+        }
+        Ok(())
+    }
+
+    /// Appends verified durable history snapshots to the pending projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for malformed/duplicate snapshots or storage failures.
+    pub fn append_history_page(
+        &mut self,
+        revisions: &[ScannedHistoryProjection],
+    ) -> Result<(), lomo_core::LomoError> {
+        if revisions.len() > MAX_SAF_PROJECTION_PAGE_SIZE {
+            return Err(validation(
+                "saf_projection_page_too_large",
+                "SAF history projection rebuild page exceeds 256 revisions",
+            ));
+        }
+        let connection = self.connection.as_mut().ok_or_else(|| {
+            validation(
+                "saf_projection_rebuild_closed",
+                "SAF projection rebuild is already finished or aborted",
+            )
+        })?;
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| from_sqlite(&error))?;
+        let mut page_ids = BTreeSet::new();
+        for revision in revisions {
+            if revision.memo_id.trim().is_empty()
+                || revision.revision == 0
+                || revision.created_at_ms <= 0
+                || revision.file_fingerprint.trim().is_empty()
+            {
+                return Err(validation(
+                    "invalid_history_projection",
+                    "history projection requires memo, revision, time, and fingerprint",
+                ));
+            }
+            if !page_ids.insert((revision.memo_id.as_str(), revision.revision)) {
+                return Err(validation(
+                    "duplicate_saf_history_revision",
+                    "SAF history page contains a duplicate revision",
+                ));
+            }
+            transaction
+                .execute(
+                    "INSERT OR REPLACE INTO revision_index( \
+                     memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
+                     ) VALUES(?1,?2,?3,?4,?5,?6)",
+                    params![
+                        &revision.memo_id,
+                        persisted_revision(revision.revision)?,
+                        format!("{}-r{}", revision.memo_id, revision.revision),
+                        revision.created_at_ms,
+                        &revision.content,
+                        &revision.file_fingerprint,
+                    ],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+        }
+        transaction.commit().map_err(|error| from_sqlite(&error))
     }
 
     /// Verifies and atomically publishes the completed projection.
@@ -679,15 +1078,27 @@ impl SafProjectionRebuild {
         crate::write_meta_u64(&connection, "high_water_revision", self.high_water_revision)?;
         crate::write_meta_u64(&connection, "event_sequence", self.event_sequence)?;
         ensure_quick_check(&connection, "SAF projection temp")?;
-        let evidence = compare_scanned_pairs_to_store(
-            &mut self.workspace_pairs,
-            self.attachment_count,
-            &connection,
-        )?;
+        let mut workspace_pairs = self
+            .workspace_evidence
+            .iter()
+            .map(|(memo_id, evidence)| (memo_id.clone(), evidence.fingerprint.clone()))
+            .collect::<Vec<_>>();
+        let attachment_count =
+            self.workspace_evidence
+                .values()
+                .try_fold(0_u64, |total, evidence| {
+                    total.checked_add(evidence.attachment_count).ok_or_else(|| {
+                        validation("attachment_count_overflow", "attachment count exceeds u64")
+                    })
+                })?;
+        let memos_indexed = u64::try_from(self.workspace_evidence.len())
+            .map_err(|_error| validation("memo_count_overflow", "memo count exceeds u64"))?;
+        let evidence =
+            compare_scanned_pairs_to_store(&mut workspace_pairs, attachment_count, &connection)?;
         drop(connection);
         finish_atomic_replace(&self.live_db, &self.temp_db, &self.live_bak)?;
         Ok(RebuildResult {
-            memos_indexed: self.memos_indexed,
+            memos_indexed,
             file_count: evidence.file_count,
             attachment_count: evidence.attachment_count,
             workspace_digest: evidence.workspace_digest,
@@ -712,6 +1123,80 @@ impl SafProjectionRebuild {
     pub fn projection_root(&self) -> &Path {
         &self.projection_root
     }
+}
+
+fn merge_trash_projection(
+    transaction: &Transaction<'_>,
+    trash: &ScannedTrashProjection,
+) -> Result<(String, ScannedProjectionEvidence), lomo_core::LomoError> {
+    let already_trashed: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM memo_trash WHERE memo_id=?1",
+            params![&trash.memo.memo_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    if already_trashed != 0 {
+        return Err(validation(
+            "duplicate_saf_trash_memo",
+            "SAF projection rebuild received a duplicate trash record",
+        ));
+    }
+    let current = transaction
+        .query_row(
+            "SELECT content_revision,source_path,file_fingerprint FROM memo WHERE memo_id=?1",
+            params![&trash.memo.memo_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| from_sqlite(&error))?;
+    let canonical_fingerprint = if let Some((_revision, source_path, fingerprint)) = &current {
+        if source_path != &trash.memo.source_path {
+            return Err(validation(
+                "saf_trash_source_path_mismatch",
+                "active memo and trash record disagree on the source document",
+            ));
+        }
+        fingerprint.clone()
+    } else {
+        crate::query::source_document_fingerprint(transaction, &trash.memo.source_path)?
+            .unwrap_or_else(|| trash.memo.file_fingerprint.clone())
+    };
+    let mut merged = trash.memo.clone();
+    merged.file_fingerprint.clone_from(&canonical_fingerprint);
+    if let Some((revision, _, _)) = current {
+        let revision = u64::try_from(revision).map_err(|_error| {
+            corruption(
+                "invalid_content_revision",
+                "SAF trash target has a negative content revision",
+            )
+        })?;
+        upsert_saf_projection(transaction, &merged, revision)?;
+    } else {
+        index_scanned_memo(transaction, &merged)?;
+    }
+    transaction
+        .execute(
+            "INSERT INTO memo_trash(memo_id,trashed_at_ms) VALUES(?1,?2)",
+            params![&merged.memo_id, trash.trashed_at_ms],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let attachment_count = u64::try_from(merged.attachment_paths.len()).map_err(|_error| {
+        validation("attachment_count_overflow", "attachment count exceeds u64")
+    })?;
+    Ok((
+        merged.memo_id,
+        ScannedProjectionEvidence {
+            fingerprint: canonical_fingerprint,
+            attachment_count,
+        },
+    ))
 }
 
 /// Atomically replaces an app-private query projection from bounded SAF scan facts.
@@ -1082,16 +1567,12 @@ fn copy_saf_private_state(live_db: &Path, target: &Connection) -> Result<(), lom
     }
     let live = Connection::open_with_flags(live_db, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| from_sqlite(&error))?;
-    for table in ["memo_pin", "memo_trash"] {
+    // Pin is still app-private projection state. Trash is deliberately not copied: durable
+    // workspace trash records are the sole rebuild authority, so a deleted/absent marker restores
+    // the active memo instead of preserving stale SQLite state.
+    for table in ["memo_pin"] {
         let mut statement = live
-            .prepare(&format!(
-                "SELECT memo_id,{} FROM {table}",
-                if table == "memo_pin" {
-                    "pinned_at_ms"
-                } else {
-                    "trashed_at_ms"
-                }
-            ))
+            .prepare(&format!("SELECT memo_id,pinned_at_ms FROM {table}"))
             .map_err(|error| from_sqlite(&error))?;
         let rows = statement
             .query_map([], |row| {
@@ -1100,13 +1581,11 @@ fn copy_saf_private_state(live_db: &Path, target: &Connection) -> Result<(), lom
             .map_err(|error| from_sqlite(&error))?;
         for row in rows {
             let (memo_id, timestamp) = row.map_err(|error| from_sqlite(&error))?;
-            let sql = if table == "memo_pin" {
-                "INSERT OR REPLACE INTO memo_pin(memo_id,pinned_at_ms) VALUES(?1,?2)"
-            } else {
-                "INSERT OR REPLACE INTO memo_trash(memo_id,trashed_at_ms) VALUES(?1,?2)"
-            };
             target
-                .execute(sql, params![memo_id, timestamp])
+                .execute(
+                    "INSERT OR REPLACE INTO memo_pin(memo_id,pinned_at_ms) VALUES(?1,?2)",
+                    params![memo_id, timestamp],
+                )
                 .map_err(|error| from_sqlite(&error))?;
         }
     }
@@ -1532,8 +2011,8 @@ fn index_scanned_memo(
 
     conn.execute(
         "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, has_attachment, \
-         created_at_ms, updated_at_ms, body_preview, search_content, content_revision, reminders_json) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,1,?10)",
+         created_at_ms, updated_at_ms, body_preview, body, search_content, content_revision, reminders_json) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,1,?11)",
         params![
             &memo.memo_id,
             &memo.source_path,
@@ -1543,6 +2022,7 @@ fn index_scanned_memo(
             has_attachment,
             memo.chronology_epoch_ms,
             preview,
+            &memo.body,
             search_content,
             reminders_json,
         ],
@@ -1709,9 +2189,17 @@ fn apply_history_dir(conn: &Connection, paths: &LomoPaths) -> Result<u64, lomo_c
                     })?;
                 let rev = i64::try_from(body.revision).unwrap_or(i64::MAX);
                 conn.execute(
-                    "INSERT OR REPLACE INTO revision_index(memo_id, revision, history_record_id, created_at_ms) \
-                     VALUES(?1,?2,?3,0)",
-                    params![body.memo_id, rev, record.payload.record_id],
+                    "INSERT OR REPLACE INTO revision_index( \
+                     memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
+                     ) VALUES(?1,?2,?3,?4,?5,?6)",
+                    params![
+                        body.memo_id,
+                        rev,
+                        record.payload.record_id,
+                        body.created_at_ms,
+                        body.content,
+                        body.file_fingerprint,
+                    ],
                 )
                 .map_err(|err| from_sqlite(&err))?;
             }

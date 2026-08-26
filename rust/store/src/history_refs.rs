@@ -12,6 +12,7 @@ use std::time::UNIX_EPOCH;
 use crate::content_facts::project_content_facts;
 use crate::error::storage;
 use crate::lomo_format::{HistoryBody, LomoPaths, LomoRecordKind, read_record};
+use rusqlite::{Connection, params};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoHistoryRevision {
@@ -33,7 +34,7 @@ pub struct MemoHistoryPage {
 ///
 /// Returns validation for malformed cursors/limits and storage errors for unreadable history.
 pub fn list_memo_history(
-    workspace_root: &Path,
+    connection: &Connection,
     memo_id: &str,
     cursor: Option<&str>,
     limit: usize,
@@ -53,68 +54,51 @@ pub fn list_memo_history(
                 "history cursor must be a decimal offset",
             )
         })?;
-    let paths = LomoPaths::for_workspace(workspace_root);
-    let mut revisions = Vec::new();
-    if paths.history.exists() {
-        for entry in fs::read_dir(&paths.history).map_err(|err| {
-            storage(
-                "lomo_history_list_failed",
-                &format!("cannot list history: {err}"),
-            )
-        })? {
-            let path = entry
-                .map_err(|err| {
-                    storage(
-                        "lomo_history_list_failed",
-                        &format!("cannot read history entry: {err}"),
-                    )
-                })?
-                .path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rec") {
-                continue;
-            }
-            let Ok(record) = read_record(&path) else {
-                continue;
-            };
-            if record.payload.kind != LomoRecordKind::History {
-                continue;
-            }
-            let Ok(body) = serde_json::from_str::<HistoryBody>(&record.payload.body_json) else {
-                continue;
-            };
-            if body.memo_id != memo_id {
-                continue;
-            }
-            // behavior-contract: silent-result-ok: mtime is a display hint; revision/content win.
-            let created_at_ms = match fs::metadata(&path).and_then(|m| m.modified()) {
-                Ok(time) => match time.duration_since(UNIX_EPOCH) {
-                    Ok(duration) => i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
-                    Err(_before_epoch) => 0,
-                },
-                Err(_metadata_error) => 0,
-            };
-            revisions.push(MemoHistoryRevision {
-                revision: body.revision,
-                created_at_ms,
-                content: body.content,
-                file_fingerprint: body.file_fingerprint,
-            });
-        }
+    let offset_i64 = i64::try_from(offset).map_err(|_error| {
+        crate::error::validation("invalid_history_cursor", "history cursor exceeds SQLite")
+    })?;
+    let fetch = limit.checked_add(1).ok_or_else(|| {
+        crate::error::validation("invalid_history_page", "history page limit overflow")
+    })?;
+    let fetch_i64 = i64::try_from(fetch).map_err(|_error| {
+        crate::error::validation("invalid_history_page", "history page limit exceeds SQLite")
+    })?;
+    let mut statement = connection
+        .prepare(
+            "SELECT revision,created_at_ms,content,file_fingerprint FROM revision_index \
+             WHERE memo_id=?1 AND content IS NOT NULL AND file_fingerprint IS NOT NULL \
+             ORDER BY revision DESC,created_at_ms DESC LIMIT ?2 OFFSET ?3",
+        )
+        .map_err(|error| crate::error::from_sqlite(&error))?;
+    let rows = statement
+        .query_map(params![memo_id, fetch_i64, offset_i64], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| crate::error::from_sqlite(&error))?;
+    let mut items = Vec::with_capacity(fetch);
+    for row in rows {
+        let (revision, created_at_ms, content, file_fingerprint) =
+            row.map_err(|error| crate::error::from_sqlite(&error))?;
+        items.push(MemoHistoryRevision {
+            revision: u64::try_from(revision).map_err(|_error| {
+                crate::error::corruption(
+                    "invalid_history_revision",
+                    "negative projected history revision",
+                )
+            })?,
+            created_at_ms,
+            content,
+            file_fingerprint,
+        });
     }
-    revisions.sort_by(|a, b| {
-        b.revision
-            .cmp(&a.revision)
-            .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
-    });
-    let end = offset.saturating_add(limit).min(revisions.len());
-    let items = if offset >= revisions.len() {
-        Vec::new()
-    } else {
-        revisions
-            .get(offset..end)
-            .map_or_else(Vec::new, <[MemoHistoryRevision]>::to_vec)
-    };
-    let next_cursor = (end < revisions.len()).then(|| end.to_string());
+    let has_more = items.len() > limit;
+    items.truncate(limit);
+    let next_cursor = has_more.then(|| offset.saturating_add(limit).to_string());
     Ok(MemoHistoryPage { items, next_cursor })
 }
 

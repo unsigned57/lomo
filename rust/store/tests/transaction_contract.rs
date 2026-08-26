@@ -123,6 +123,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -199,6 +200,7 @@ mod tests {
                 &MemoQuery {
                     search_text: Some("after".into()),
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -283,6 +285,7 @@ mod tests {
                         pinned_only: true,
                         ..MemoFilters::default()
                     },
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(5).expect("page"),
@@ -448,6 +451,7 @@ mod tests {
                     &MemoQuery {
                         search_text: None,
                         filters: MemoFilters::default(),
+                        sort: lomo_store::MemoSort::default(),
                     },
                     None,
                     PageSize::new(10).expect("page"),
@@ -502,6 +506,7 @@ mod tests {
                         pinned_only: true,
                         ..MemoFilters::default()
                     },
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),

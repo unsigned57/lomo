@@ -4,8 +4,8 @@
 //! (max 256 memo items) with an opaque Rust-owned cursor. Large file bodies never cross FFI.
 
 use lomo_core::{
-    DriverAdvance, DriverStart, ExpectedFingerprint, JobDriver, JobDriverContext, LomoError,
-    PageSize, PlatformAction, PlatformActionBatch, PlatformBatchResult, WorkspaceTarget,
+    DriverAdvance, DriverStart, ExchangeToken, ExpectedFingerprint, JobDriver, JobDriverContext,
+    LomoError, PageSize, PlatformAction, PlatformActionBatch, PlatformBatchResult, WorkspaceTarget,
 };
 use serde::{Deserialize, Serialize};
 
@@ -92,8 +92,17 @@ struct ScanState {
     phase: ScanPhase,
     exchange_token: Option<String>,
     current_path: Option<String>,
+    #[serde(default)]
+    read_batch: Vec<PlannedScanRead>,
     accumulated: Vec<WorkspaceMemoSummary>,
     emitted_total: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct PlannedScanRead {
+    pending_index: usize,
+    path: String,
+    exchange_token: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -136,6 +145,25 @@ impl JobDriver for ScanDriver {
                 "workspace scan request identity cannot be reconstructed",
             )
         })
+    }
+
+    fn terminal_cleanup_exchange_artifacts(
+        &self,
+        state_json: &str,
+    ) -> Result<Vec<ExchangeToken>, LomoError> {
+        let state: ScanState = serde_json::from_str(state_json).map_err(|_error| {
+            corruption(
+                "workspace_scan_state_invalid",
+                "workspace scan durable state is invalid",
+            )
+        })?;
+        state
+            .read_batch
+            .into_iter()
+            .map(|read| read.exchange_token)
+            .chain(state.exchange_token)
+            .map(|token| ExchangeToken::parse(&token))
+            .collect()
     }
 
     fn start(
@@ -185,6 +213,7 @@ impl JobDriver for ScanDriver {
             phase: ScanPhase::List,
             exchange_token: None,
             current_path: None,
+            read_batch: Vec::new(),
             accumulated: Vec::new(),
             emitted_total,
         };
@@ -268,31 +297,52 @@ fn advance_after_read(
     batch: &PlatformActionBatch,
     result: &PlatformBatchResult,
 ) -> Result<DriverAdvance, LomoError> {
-    let output = first_applied_output(batch, result, 0)?;
-    let (_metadata, artifact) = read_to_exchange_output(output)?;
-    let path = state.current_path.clone().ok_or_else(|| {
+    let planned_reads = if state.read_batch.is_empty() {
+        vec![PlannedScanRead {
+            pending_index: state.pending_index,
+            path: state.current_path.clone().ok_or_else(|| {
+                validation(
+                    "scan_missing_current_path",
+                    "scan read phase is missing the current path",
+                )
+            })?,
+            exchange_token: state.exchange_token.clone().ok_or_else(|| {
+                validation(
+                    "scan_missing_exchange_token",
+                    "scan read phase is missing the exchange token",
+                )
+            })?,
+        }]
+    } else {
+        state.read_batch.clone()
+    };
+    let page_size = usize::try_from(state.page_size).map_err(|_error| {
         validation(
-            "scan_missing_current_path",
-            "scan read phase is missing the current path",
+            "invalid_workspace_scan_page_size",
+            "workspace scan page size cannot be represented",
         )
     })?;
-    let token = state.exchange_token.clone().ok_or_else(|| {
-        validation(
-            "scan_missing_exchange_token",
-            "scan read phase is missing the exchange token",
-        )
-    })?;
-    if artifact.token().as_str() != token {
-        return Err(validation(
-            "scan_exchange_token_mismatch",
-            "read-to-exchange token does not match the planned token",
-        ));
+    let mut can_project = true;
+    for (index, planned) in planned_reads.iter().enumerate() {
+        let output = first_applied_output(batch, result, index)?;
+        let (_metadata, artifact) = read_to_exchange_output(output)?;
+        if artifact.token().as_str() != planned.exchange_token {
+            return Err(validation(
+                "scan_exchange_token_mismatch",
+                "read-to-exchange token does not match the planned token",
+            ));
+        }
+        let bytes = read_exchange_bytes(ctx.exchange_root, &planned.exchange_token)?;
+        if can_project && state.accumulated.len() < page_size {
+            state.pending_index = planned.pending_index;
+            project_file_page(ctx, state, &planned.path, bytes)?;
+            can_project = state.current_file.is_none() && state.accumulated.len() < page_size;
+        }
+        remove_exchange_artifact(ctx.exchange_root, &planned.exchange_token)?;
     }
-    let bytes = read_exchange_bytes(ctx.exchange_root, &token)?;
-    project_file_page(ctx, state, &path, bytes)?;
-    remove_exchange_artifact(ctx.exchange_root, &token)?;
     state.exchange_token = None;
     state.current_path = None;
+    state.read_batch.clear();
     driver_start_to_advance(plan_next_read(ctx, state)?)
 }
 
@@ -474,9 +524,8 @@ fn list_action(
 ) -> Result<PlatformAction, LomoError> {
     let action_id = ctx.next_action_id("scan-list")?;
     let capability = ctx.capability();
-    // A scan job is driven by a bounded platform-batch budget. One list batch plus at most
-    // `MAX_SCAN_LIST_PAGE_SIZE` file reads must fit within that budget, including directories and
-    // non-Markdown files that produce no memo output.
+    // Enumerate at the protocol limit. Independent reads are repartitioned below into batches of
+    // at most 63 actions, so one full listing page needs at most five read batches.
     let page_size = PageSize::new(MAX_SCAN_LIST_PAGE_SIZE)?;
     match state.root_path.as_deref() {
         Some(path) => {
@@ -498,7 +547,8 @@ fn list_action(
     }
 }
 
-const MAX_SCAN_LIST_PAGE_SIZE: u32 = 63;
+const MAX_SCAN_LIST_PAGE_SIZE: u32 = 256;
+const MAX_SCAN_READ_BATCH_SIZE: usize = 63;
 
 fn plan_next_read(
     ctx: &mut JobDriverContext<'_>,
@@ -516,46 +566,65 @@ fn plan_next_read(
     }
 
     if state.pending_index < state.pending_documents.len() {
-        let document = match state.current_file.as_ref() {
-            Some(current) => ListedDocument {
-                path: current.path.clone(),
-                document_handle: current.document_handle.clone(),
-            },
-            None => state
-                .pending_documents
-                .get(state.pending_index)
-                .cloned()
-                .ok_or_else(|| {
-                    corruption(
-                        "scan_pending_path_missing",
-                        "workspace scan pending path index is out of range",
-                    )
-                })?,
+        let remaining_page_capacity = page_size.saturating_sub(state.accumulated.len());
+        let batch_size = if state.current_file.is_some() {
+            1
+        } else {
+            remaining_page_capacity
+                .min(MAX_SCAN_READ_BATCH_SIZE)
+                .min(state.pending_documents.len() - state.pending_index)
         };
-        let memo_offset = state
-            .current_file
-            .as_ref()
-            .map_or(0, |current| current.next_memo_index);
-        let token = exchange_token_for(
-            ctx.workspace.identity().as_str(),
-            ctx.job_id.as_str(),
-            &format!("scan-{}-{memo_offset}", state.pending_index),
-        );
-        let relative = to_core_path(&WorkspaceRelativePath::parse(&document.path)?)?;
-        let action = plan_listed_read(
-            ctx.next_action_id("scan-read")?,
-            ctx.capability(),
-            relative,
-            &document.document_handle,
-            &token,
-            ExpectedFingerprint::absent(),
-        )?;
+        let mut actions = Vec::with_capacity(batch_size);
+        let mut planned_reads = Vec::with_capacity(batch_size);
+        for offset in 0..batch_size {
+            let pending_index = state.pending_index + offset;
+            let document = match state.current_file.as_ref() {
+                Some(current) => ListedDocument {
+                    path: current.path.clone(),
+                    document_handle: current.document_handle.clone(),
+                },
+                None => state
+                    .pending_documents
+                    .get(pending_index)
+                    .cloned()
+                    .ok_or_else(|| {
+                        corruption(
+                            "scan_pending_path_missing",
+                            "workspace scan pending path index is out of range",
+                        )
+                    })?,
+            };
+            let memo_offset = state
+                .current_file
+                .as_ref()
+                .map_or(0, |current| current.next_memo_index);
+            let token = exchange_token_for(
+                ctx.workspace.identity().as_str(),
+                ctx.job_id.as_str(),
+                &format!("scan-{pending_index}-{memo_offset}"),
+            );
+            let relative = to_core_path(&WorkspaceRelativePath::parse(&document.path)?)?;
+            actions.push(plan_listed_read(
+                ctx.next_action_id("scan-read")?,
+                ctx.capability(),
+                relative,
+                &document.document_handle,
+                &token,
+                ExpectedFingerprint::absent(),
+            )?);
+            planned_reads.push(PlannedScanRead {
+                pending_index,
+                path: document.path,
+                exchange_token: token,
+            });
+        }
         state.phase = ScanPhase::ReadFile;
-        state.exchange_token = Some(token);
-        state.current_path = Some(document.path);
+        state.exchange_token = None;
+        state.current_path = None;
+        state.read_batch = planned_reads;
         return Ok(DriverStart {
             state_json: encode_state(state)?,
-            actions: vec![action],
+            actions,
             result_json: None,
         });
     }

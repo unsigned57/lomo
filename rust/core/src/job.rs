@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ActionId, BatchId, CapabilityToken, JobId, LomoError, PlatformAction, PlatformActionBatch,
-    PlatformBatchResult, WorkspaceDescriptor,
+    ActionId, BatchId, CapabilityToken, ExchangeToken, JobId, LomoError, PlatformAction,
+    PlatformActionBatch, PlatformBatchResult, WorkspaceDescriptor,
 };
 
 /// Opaque driver identity registered with the engine.
@@ -160,6 +160,24 @@ pub trait JobDriver: Send + Sync + 'static {
         _state_json: &str,
     ) -> Result<Option<String>, LomoError> {
         Ok(None)
+    }
+
+    /// Returns driver-private exchange artifacts that become reclaimable only after a terminal
+    /// journal state has been durably published.
+    ///
+    /// The core records this manifest in the terminal job before attempting any deletion. Cleanup
+    /// is therefore idempotent and recoverable across a crash after the domain effect but before
+    /// artifact reclamation. Result artifacts that callers still need must not be returned here.
+    ///
+    /// # Errors
+    ///
+    /// Returns corruption/validation when durable driver state cannot identify its private
+    /// artifacts safely.
+    fn terminal_cleanup_exchange_artifacts(
+        &self,
+        _state_json: &str,
+    ) -> Result<Vec<ExchangeToken>, LomoError> {
+        Ok(Vec::new())
     }
 
     /// Plans the first platform batch from an opaque request payload (JSON text).

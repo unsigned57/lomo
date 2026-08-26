@@ -113,6 +113,7 @@ mod tests {
                 &MemoQuery {
                     search_text: Some("你好世界".into()),
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -159,6 +160,7 @@ mod tests {
         let query = MemoQuery {
             search_text: Some("needle".into()),
             filters: MemoFilters::default(),
+            sort: lomo_store::MemoSort::default(),
         };
         let full = store
             .query_memos(&query, None, PageSize::new(10).expect("page"))

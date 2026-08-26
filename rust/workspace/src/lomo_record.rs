@@ -126,6 +126,8 @@ pub enum LomoRecordKind {
     LayoutHead,
     /// Permanent prune tombstone for a history revision.
     HistoryTombstone,
+    /// Recoverable soft-delete memo snapshot.
+    Trash,
 }
 
 /// High-level durable payload stored inside the framed envelope.
@@ -134,6 +136,17 @@ pub struct LomoPayload {
     pub kind: LomoRecordKind,
     pub record_id: String,
     pub body_json: String,
+}
+
+/** Full memo snapshot stored by the v1 history layout and projected by `lomo-store`. */
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistorySnapshotV1 {
+    pub memo_id: String,
+    pub revision: u64,
+    pub content: String,
+    pub file_fingerprint: String,
+    #[serde(default)]
+    pub created_at_ms: i64,
 }
 
 /// Fully decoded durable record.

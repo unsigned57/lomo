@@ -14,10 +14,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     ActionId, ActionOutcome, BatchId, CapabilityToken, CoreRevision, DriverAdvance, EventSequence,
-    JobDriverContext, JobDriverKind, JobDriverRegistry, JobId, LomoError, NativeTaskCompletion,
-    NativeTaskDispatch, NativeTaskOutcome, NativeTaskWorkerPool, NativeWorkerAttach, PageSize,
-    PendingEffect, PlatformAction, PlatformActionBatch, PlatformBatchResult, RetryDisposition,
-    SecretLeaseId, WorkspaceDescriptor, WorkspaceId,
+    ExchangeToken, JobDriverContext, JobDriverKind, JobDriverRegistry, JobId, LomoError,
+    NativeTaskCompletion, NativeTaskDispatch, NativeTaskOutcome, NativeTaskWorkerPool,
+    NativeWorkerAttach, PageSize, PendingEffect, PlatformAction, PlatformActionBatch,
+    PlatformBatchResult, RetryDisposition, SecretLeaseId, WorkspaceDescriptor, WorkspaceId,
 };
 
 const JOURNAL_MAGIC: &str = "LOMO_ENGINE";
@@ -30,7 +30,9 @@ const JOURNAL_SCHEMA_V1: u32 = 1;
 const COMMAND_CAPACITY: usize = 256;
 const EVENT_CAPACITY: usize = 256;
 const MAX_ACTIVE_JOBS: usize = 64;
-const MAX_TERMINAL_JOBS: usize = 256;
+// Terminal records are diagnostic recovery history, not a result queue. Production boundaries
+// consume owned results explicitly; this small bound also compacts legacy journals on open.
+const MAX_TERMINAL_JOBS: usize = 32;
 const DEFAULT_BOOTSTRAP_DEADLINE: Duration = Duration::from_mins(5);
 const MAX_BOOTSTRAP_DEADLINE: Duration = Duration::from_hours(24);
 const WORKSPACE_LOCK_INITIALIZATION_GRACE: Duration = Duration::from_secs(30);
@@ -579,6 +581,24 @@ impl LomoEngine {
         receive_response(&response)
     }
 
+    /// Transfers a completed durable result to its single owning boundary.
+    ///
+    /// After the transfer commits, a cleanup-free terminal job is removed from the journal. A job
+    /// with a pending exchange cleanup manifest remains only as a cleanup record with no replayable
+    /// result payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns unknown-job, non-terminal-job, journal, or engine-closed errors.
+    pub fn take_job_result(&self, job_id: &JobId) -> Result<Option<String>, LomoError> {
+        let (reply, response) = mpsc::channel();
+        self.send(Command::TakeJobResult {
+            job_id: job_id.clone(),
+            reply,
+        })?;
+        receive_response(&response)
+    }
+
     /// Requests bounded, explicit actor shutdown.
     ///
     /// # Errors
@@ -700,6 +720,10 @@ enum Command {
         job_id: JobId,
         reply: mpsc::Sender<Result<Option<String>, LomoError>>,
     },
+    TakeJobResult {
+        job_id: JobId,
+        reply: mpsc::Sender<Result<Option<String>, LomoError>>,
+    },
     RedispatchQueuedNative {
         reply: mpsc::Sender<Result<u32, LomoError>>,
     },
@@ -780,6 +804,7 @@ fn prepare_runtime(config: &EngineConfig) -> Result<PreparedRuntime, LomoError> 
 }
 
 fn actor_loop(mut runtime: ActorRuntime, receiver: &Receiver<Command>) {
+    reclaim_committed_exchange_artifacts(&mut runtime);
     loop {
         // Drain worker completions before taking the next command so long network work never
         // monopolizes the writer: completions only arrive after external workers finish.
@@ -821,6 +846,7 @@ fn drain_native_completions(runtime: &mut ActorRuntime) {
 fn handle_command(runtime: &mut ActorRuntime, command: Command) -> bool {
     match command {
         Command::Poll { job_id, reply } => {
+            reclaim_committed_exchange_artifacts(runtime);
             let _reply_result = reply.send(poll_job(runtime.journal.as_ref(), &job_id));
         }
         Command::Submit {
@@ -865,7 +891,13 @@ fn handle_command(runtime: &mut ActorRuntime, command: Command) -> bool {
             let _reply_result = reply.send(response);
         }
         Command::ReadJobResult { job_id, reply } => {
+            reclaim_committed_exchange_artifacts(runtime);
             let response = read_job_result(runtime.journal.as_ref(), &job_id);
+            let _reply_result = reply.send(response);
+        }
+        Command::TakeJobResult { job_id, reply } => {
+            reclaim_committed_exchange_artifacts(runtime);
+            let response = take_job_result(runtime, &job_id);
             let _reply_result = reply.send(response);
         }
         Command::RedispatchQueuedNative { reply } => {
@@ -973,6 +1005,7 @@ fn submit_result(
         })?;
     apply_platform_batch_outcome(runtime, &mut candidate, job_index, result, prefix)?;
     commit_candidate(runtime, candidate, Some(job_id.clone()))?;
+    reclaim_committed_exchange_artifacts(runtime);
     if !matches!(
         poll_job(runtime.journal.as_ref(), job_id)?,
         JobStep::NeedsPlatformBatch { .. } | JobStep::RunningNative { .. }
@@ -1214,6 +1247,8 @@ fn apply_driver_advance(
             job.pending_effect = PendingEffect::PlatformBatch;
         }
         DriverAdvance::Done { result_json } => {
+            job.terminal_cleanup_exchange_artifacts =
+                driver.terminal_cleanup_exchange_artifacts(&state_json)?;
             job.driver_state_json = None;
             job.result_json = Some(result_json);
             job.status = PersistedJobStatus::Completed;
@@ -1322,6 +1357,7 @@ fn start_user_job(
         } else {
             PendingEffect::PlatformBatch
         },
+        terminal_cleanup_exchange_artifacts: Vec::new(),
     });
 
     if !completed_immediately {
@@ -1457,6 +1493,7 @@ fn start_native_task_job(
             dispatch_generation,
             secret_lease_id: secret_lease_id.clone(),
         },
+        terminal_cleanup_exchange_artifacts: Vec::new(),
     });
     runtime
         .monotonic_deadlines
@@ -1697,6 +1734,49 @@ fn read_job_result(
     Ok(job.result_json.clone())
 }
 
+fn take_job_result(
+    runtime: &mut ActorRuntime,
+    job_id: &JobId,
+) -> Result<Option<String>, LomoError> {
+    let journal = runtime.journal.as_ref().ok_or_else(|| {
+        LomoError::validation(
+            "workspace_not_selected",
+            "jobs are unavailable until a workspace is selected",
+        )
+    })?;
+    let job = journal
+        .jobs
+        .iter()
+        .find(|job| &job.job_id == job_id)
+        .ok_or_else(|| unknown_job_error(job_id))?;
+    if job.is_active() {
+        return Err(LomoError::validation(
+            "job_result_not_terminal",
+            "job result ownership cannot transfer before the job is terminal",
+        ));
+    }
+    let Some(payload) = job.result_json.clone() else {
+        return Ok(None);
+    };
+    let has_pending_cleanup = !job.terminal_cleanup_exchange_artifacts.is_empty();
+
+    let mut candidate = journal.clone();
+    if has_pending_cleanup {
+        let candidate_job = candidate
+            .jobs
+            .iter_mut()
+            .find(|candidate_job| &candidate_job.job_id == job_id)
+            .ok_or_else(|| unknown_job_error(job_id))?;
+        candidate_job.result_json = None;
+    } else {
+        candidate
+            .jobs
+            .retain(|candidate_job| &candidate_job.job_id != job_id);
+    }
+    commit_candidate(runtime, candidate, Some(job_id.clone()))?;
+    Ok(Some(payload))
+}
+
 fn commit_candidate(
     runtime: &mut ActorRuntime,
     mut candidate: JournalState,
@@ -1724,6 +1804,43 @@ fn commit_candidate(
         Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {}
     }
     Ok(())
+}
+
+/// Reclaims only artifacts whose terminal job generation is already the durable authority.
+///
+/// A failed unlink remains represented by the persisted manifest and is retried on actor start,
+/// poll, result read, or the next platform completion. Deleting a file before clearing its
+/// manifest is safe because `NotFound` is the idempotent replay postcondition.
+fn reclaim_committed_exchange_artifacts(runtime: &mut ActorRuntime) {
+    let Some(current) = runtime.journal.as_ref() else {
+        return;
+    };
+    let mut candidate = current.clone();
+    let mut changed = false;
+    for job in &mut candidate.jobs {
+        if job.is_active() || job.terminal_cleanup_exchange_artifacts.is_empty() {
+            continue;
+        }
+        job.terminal_cleanup_exchange_artifacts.retain(|token| {
+            match fs::remove_file(runtime.exchange_root.join(token.as_str())) {
+                Ok(()) => {
+                    changed = true;
+                    false
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    changed = true;
+                    false
+                }
+                Err(_error) => true,
+            }
+        });
+    }
+    if changed {
+        // behavior-contract: silent-result-ok: terminal business state is already durable; a
+        // journal publish failure leaves the prior cleanup manifest authoritative for idempotent
+        // retry and must not rewrite Completed as a user-visible failure.
+        drop(commit_candidate(runtime, candidate, None));
+    }
 }
 
 fn transition_to_shutdown(runtime: &mut ActorRuntime) -> Result<ShutdownOutcome, LomoError> {
@@ -1848,6 +1965,9 @@ struct JobRecord {
     /// Pending durable effect (platform batch by default for schema v1 recovery).
     #[serde(default)]
     pending_effect: PendingEffect,
+    /// Driver-private exchange files retained until the terminal journal generation is durable.
+    #[serde(default)]
+    terminal_cleanup_exchange_artifacts: Vec<ExchangeToken>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -2007,6 +2127,7 @@ fn ensure_bootstrap(
         result_json: None,
         is_bootstrap: true,
         pending_effect,
+        terminal_cleanup_exchange_artifacts: Vec::new(),
     });
     Ok(())
 }

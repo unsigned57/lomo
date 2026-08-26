@@ -10,6 +10,8 @@
 //!   high-water revision, then `stale_cursor` is returned.
 //! - Given multiple pages, when cursors are chained under a stable revision, then pages are
 //!   disjoint and ordered.
+//! - Given created/updated timestamps and each direction, when the typed sort changes, then all
+//!   four orderings are honored and the cursor remains coupled to that sort identity.
 //! - Given a tag path, exact matching returns only that tag while subtree matching also returns
 //!   slash-delimited descendants and never prefix siblings.
 //!
@@ -25,7 +27,8 @@
 mod tests {
     use lomo_core::{ErrorCategory, OperationId, PageSize};
     use lomo_store::{
-        MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, PageCursor, Store, TagSelectionMode,
+        MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, MemoSort, MemoSortField, PageCursor,
+        SortDirection, Store, TagSelectionMode,
     };
     use tempfile::tempdir;
 
@@ -88,6 +91,7 @@ mod tests {
                         has_todo: Some(true),
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -107,6 +111,7 @@ mod tests {
                         tag: Some("work".into()),
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -122,6 +127,7 @@ mod tests {
                         pinned_only: true,
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -141,6 +147,7 @@ mod tests {
                         has_url: Some(true),
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -168,6 +175,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(2).expect("page"),
@@ -180,6 +188,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: MemoSort::default(),
                 },
                 Some(&cursor),
                 PageSize::new(2).expect("page"),
@@ -206,6 +215,7 @@ mod tests {
                         pinned_only: true,
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 Some(&cursor),
                 PageSize::new(2).expect("page"),
@@ -220,6 +230,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: MemoSort::default(),
                 },
                 Some(&cursor),
                 PageSize::new(2).expect("page"),
@@ -267,6 +278,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -308,6 +320,7 @@ mod tests {
                         tag_selection: TagSelectionMode::Exact,
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -331,6 +344,7 @@ mod tests {
                         tag_selection: TagSelectionMode::Subtree,
                         ..MemoFilters::default()
                     },
+                    sort: MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page"),
@@ -342,5 +356,109 @@ mod tests {
             .map(|item| item.memo_id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(ids, std::collections::BTreeSet::from(["child", "root"]));
+    }
+
+    #[test]
+    fn created_and_updated_sort_directions_are_query_and_cursor_identity() {
+        let dir = tempdir().expect("tempdir");
+        let mut store = Store::open(dir.path()).expect("open");
+        create(&mut store, "a", "first", &[]);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        create(&mut store, "b", "second", &[]);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let update = OperationId::parse("op-update-a").expect("op");
+        store
+            .apply_memo_command(
+                &MemoCommand {
+                    operation_id: update,
+                    kind: MemoCommandKind::Update,
+                    memo_id: "a".into(),
+                    expected_revision: 1,
+                    expected_fingerprint: None,
+                    content: Some("first updated".into()),
+                    tags: vec![],
+                    pin: None,
+                    pending_promotes: vec![],
+                },
+                None,
+            )
+            .expect("update a");
+
+        let cases = [
+            (
+                MemoSortField::CreatedAt,
+                SortDirection::Ascending,
+                vec!["a", "b"],
+            ),
+            (
+                MemoSortField::CreatedAt,
+                SortDirection::Descending,
+                vec!["b", "a"],
+            ),
+            (
+                MemoSortField::UpdatedAt,
+                SortDirection::Ascending,
+                vec!["b", "a"],
+            ),
+            (
+                MemoSortField::UpdatedAt,
+                SortDirection::Descending,
+                vec!["a", "b"],
+            ),
+        ];
+        for (field, direction, expected) in cases {
+            let page = store
+                .query_memos(
+                    &MemoQuery {
+                        search_text: None,
+                        filters: MemoFilters::default(),
+                        sort: MemoSort { field, direction },
+                    },
+                    None,
+                    PageSize::new(1).expect("page"),
+                )
+                .expect("sorted first page");
+            assert_eq!(page.items.len(), 1);
+            assert_eq!(
+                page.items.first().map(|memo| memo.memo_id.as_str()),
+                expected.first().copied()
+            );
+            let cursor = page.next_cursor.expect("second page cursor");
+            let second = store
+                .query_memos(
+                    &MemoQuery {
+                        search_text: None,
+                        filters: MemoFilters::default(),
+                        sort: MemoSort { field, direction },
+                    },
+                    Some(&cursor),
+                    PageSize::new(1).expect("page"),
+                )
+                .expect("sorted second page");
+            assert_eq!(
+                second.items.first().map(|memo| memo.memo_id.as_str()),
+                expected.get(1).copied()
+            );
+
+            let opposite = match direction {
+                SortDirection::Ascending => SortDirection::Descending,
+                SortDirection::Descending => SortDirection::Ascending,
+            };
+            let error = store
+                .query_memos(
+                    &MemoQuery {
+                        search_text: None,
+                        filters: MemoFilters::default(),
+                        sort: MemoSort {
+                            field,
+                            direction: opposite,
+                        },
+                    },
+                    Some(&cursor),
+                    PageSize::new(1).expect("page"),
+                )
+                .expect_err("cursor must be coupled to sort direction");
+            assert_eq!(error.code(), "stale_cursor");
+        }
     }
 }

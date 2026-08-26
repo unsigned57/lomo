@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 // Re-export codec surface so existing `lomo_store::…` call sites keep compiling.
 pub use lomo_workspace::{
-    LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecord,
-    LomoRecordKind, decode_record, encode_record, isolate_corrupt_record, read_record,
-    write_record_atomic,
+    HistorySnapshotV1 as HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths,
+    LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, isolate_corrupt_record,
+    read_record, write_record_atomic,
 };
 
 /// Operation intent body (step 2 durable journal).
@@ -78,15 +78,4 @@ pub struct StateBody {
     /// Durable tag names for the memo (rebuildable into `tag` / `memo_tag`).
     #[serde(default)]
     pub tags: Vec<String>,
-}
-
-/// History full-snapshot body (v1 `memoId-rN` form).
-///
-/// v2 content-addressed revisions live in `lomo-workspace::HistoryRevisionV2`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HistoryBody {
-    pub memo_id: String,
-    pub revision: u64,
-    pub content: String,
-    pub file_fingerprint: String,
 }

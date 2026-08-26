@@ -99,6 +99,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page size"),
@@ -132,6 +133,7 @@ mod tests {
                 &MemoQuery {
                     search_text: None,
                     filters: MemoFilters::default(),
+                    sort: lomo_store::MemoSort::default(),
                 },
                 None,
                 PageSize::new(10).expect("page size"),

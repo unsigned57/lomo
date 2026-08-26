@@ -543,7 +543,7 @@ fn run_remaining_steps(
         )?;
     }
 
-    let scopes = scopes_for(intent.command);
+    let scopes = memo_command_scopes(intent.command);
     let content_revision = intent
         .content_revision_after
         .unwrap_or(intent.expected_revision);
@@ -707,6 +707,7 @@ fn append_history(paths: &LomoPaths, intent: &OperationIntent) -> Result<(), lom
         revision,
         content,
         file_fingerprint: fingerprint,
+        created_at_ms: now_ms(),
     };
     let body_json = serde_json::to_string(&body).map_err(|err| {
         validation(
@@ -922,8 +923,8 @@ fn update_projections(
                 connection
                     .execute(
                         "UPDATE memo SET source_path=?1, file_fingerprint=?2, has_todo=?3, has_url=?4, \
-                         has_attachment=?5, updated_at_ms=?6, body_preview=?7, search_content=?8, content_revision=?9 \
-                         WHERE memo_id=?10",
+                         has_attachment=?5, updated_at_ms=?6, body_preview=?7, body=?8, search_content=?9, \
+                         content_revision=?10 WHERE memo_id=?11",
                         params![
                             source_path,
                             fingerprint,
@@ -932,6 +933,7 @@ fn update_projections(
                             has_attachment,
                             now,
                             preview,
+                            content,
                             search_content,
                             revision,
                             intent.memo_id
@@ -945,12 +947,12 @@ fn update_projections(
                     )
                     .map_err(|err| from_sqlite(&err))?;
             } else {
-                let created_at_ms = intent.created_at_ms.map_or(now, |original| original);
+                let created_at_ms = intent.created_at_ms.unwrap_or(now);
                 connection
                     .execute(
                         "INSERT INTO memo(memo_id, source_path, file_fingerprint, has_todo, has_url, \
-                         has_attachment, created_at_ms, updated_at_ms, body_preview, search_content, content_revision) \
-                         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10)",
+                         has_attachment, created_at_ms, updated_at_ms, body_preview, body, search_content, content_revision) \
+                         VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,?11)",
                         params![
                             intent.memo_id,
                             source_path,
@@ -960,6 +962,7 @@ fn update_projections(
                             has_attachment,
                             created_at_ms,
                             preview,
+                            content,
                             search_content,
                             revision
                         ],
@@ -1010,13 +1013,16 @@ fn update_projections(
                 })?;
                 connection
                     .execute(
-                        "INSERT OR REPLACE INTO revision_index(memo_id, revision, history_record_id, created_at_ms) \
-                         VALUES(?1,?2,?3,?4)",
+                        "INSERT OR REPLACE INTO revision_index( \
+                         memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
+                         ) VALUES(?1,?2,?3,?4,?5,?6)",
                         params![
                             intent.memo_id,
                             rev_i,
                             format!("{}-r{rev}", intent.memo_id),
-                            now
+                            now,
+                            option_string(intent.content.clone()),
+                            fingerprint_content(&option_string(intent.content.clone())),
                         ],
                     )
                     .map_err(|err| from_sqlite(&err))?;
@@ -1283,7 +1289,7 @@ fn merge_write_state(
     )
 }
 
-fn scopes_for(kind: MemoCommandKind) -> Vec<InvalidationScope> {
+pub fn memo_command_scopes(kind: MemoCommandKind) -> Vec<InvalidationScope> {
     match kind {
         MemoCommandKind::Create | MemoCommandKind::Update | MemoCommandKind::HistoryRestore => {
             vec![

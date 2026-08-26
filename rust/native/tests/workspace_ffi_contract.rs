@@ -11,11 +11,18 @@
 //!   are driven, then `read_workspace_scan_page` returns a bounded page whose typed content
 //!   reference resolves to the complete exact memo body without facade-owned parsing.
 //! - Given a replace command with a matching fingerprint, when driven, then the document command
-//!   result fingerprint matches the pure planner and the file is rewritten once.
+//!   result fingerprint and Rust-parsed affected memo facts match the pure planner and the file is
+//!   rewritten once.
 //! - Given a typed reminder reference returned by scan, when it crosses the conversion-only
 //!   document-command DTO, then only that exact occurrence is rewritten.
+//! - Given a memo in a provider-backed source document, when trash, trash scan, restore, and
+//!   permanent delete are driven through typed FFI jobs, then the durable record is the only soft
+//!   delete fact, restore removes it without rewriting source bytes, and permanent delete removes
+//!   source bytes before the record disappears.
 //!
 //! Observable outcomes: FFI DTOs, job ids, durable result payloads, on-disk bytes.
+//! TDD proof: RED on 2026-08-09 because `lomo-native` exposed neither typed trash jobs nor the
+//! `EnsureDirectory`/`Delete` platform lifecycle required to drive them.
 //! Excludes: production DI dual-stack (P2-09), Kotlin IR presentation (P2-07).
 
 #[cfg(test)]
@@ -37,7 +44,8 @@ mod tests {
         ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionOutput,
         PlatformBatchResult, RenderNodeKind, RenderRequest, WorkspaceDescriptor,
         WorkspaceDocumentCommand, WorkspaceDocumentCommandKind, WorkspaceDocumentExpectedState,
-        WorkspaceScanRequest, WorkspaceTarget,
+        WorkspaceScanRequest, WorkspaceTarget, WorkspaceTrashCommand, WorkspaceTrashCommandKind,
+        WorkspaceTrashScanRequest,
     };
     use lomo_workspace::SourceFingerprint;
     use tempfile::tempdir;
@@ -167,6 +175,9 @@ mod tests {
                 PlatformAction::WriteFromExchange { artifact, path, .. } => {
                     self.write_count.fetch_add(1, Ordering::SeqCst);
                     let bytes = fs::read(self.exchange_root.join(&artifact.token)).test_ok("ex");
+                    if let Some(parent) = self.workspace_root.join(path).parent() {
+                        fs::create_dir_all(parent).test_ok("write parent");
+                    }
                     fs::write(self.workspace_root.join(path), &bytes).test_ok("write");
                     let digest = {
                         use sha2::{Digest, Sha256};
@@ -188,10 +199,26 @@ mod tests {
                         },
                     }
                 }
-                PlatformAction::Stat { .. }
-                | PlatformAction::EnsureDirectory { .. }
-                | PlatformAction::Move { .. }
-                | PlatformAction::Delete { .. } => {
+                PlatformAction::EnsureDirectory { path, .. } => {
+                    fs::create_dir_all(self.workspace_root.join(path)).test_ok("ensure directory");
+                    ActionOutcome::Applied {
+                        output: PlatformActionOutput::DirectoryReady {
+                            metadata: self.metadata_for_relative(path),
+                        },
+                    }
+                }
+                PlatformAction::Delete { path, .. } => {
+                    fs::remove_file(self.workspace_root.join(path)).test_ok("delete");
+                    ActionOutcome::Applied {
+                        output: PlatformActionOutput::DeleteComplete {
+                            absence: lomo_native::VerifiedAbsence {
+                                target: WorkspaceTarget::Relative { path: path.clone() },
+                                fingerprint: "verified-absent".to_owned(),
+                            },
+                        },
+                    }
+                }
+                PlatformAction::Stat { .. } | PlatformAction::Move { .. } => {
                     panic!("unexpected {action:?}")
                 }
             }
@@ -280,6 +307,38 @@ mod tests {
                     path: relative.clone(),
                 },
                 document_handle: relative.clone(),
+                kind,
+                mime_type: None,
+                evidence: ActionEvidence {
+                    length: bytes.len() as u64,
+                    digest,
+                    fingerprint: format!("fp.{}", relative.replace('/', ".")),
+                },
+            }
+        }
+
+        fn metadata_for_relative(&self, relative: &str) -> DocumentMetadata {
+            let full = self.workspace_root.join(relative);
+            let metadata = fs::metadata(&full).test_ok("metadata");
+            let kind = if metadata.is_dir() {
+                DocumentKind::Directory
+            } else {
+                DocumentKind::File
+            };
+            let bytes = if metadata.is_file() {
+                fs::read(&full).test_ok("read relative file")
+            } else {
+                Vec::new()
+            };
+            let digest = {
+                use sha2::{Digest, Sha256};
+                format!("{:x}", Sha256::digest(&bytes))
+            };
+            DocumentMetadata {
+                target: WorkspaceTarget::Relative {
+                    path: relative.to_owned(),
+                },
+                document_handle: relative.to_owned(),
                 kind,
                 mime_type: None,
                 evidence: ActionEvidence {
@@ -402,6 +461,7 @@ mod tests {
                         identity: "2024-02-02_10:00:00_0".to_owned(),
                         content: "new".to_owned(),
                     },
+                    history: None,
                 },
                 30_000,
             )
@@ -415,6 +475,11 @@ mod tests {
             .test_ok("result");
         assert_eq!(result.path, "2024-02-02.md");
         assert!(!result.result_fingerprint.is_empty());
+        let affected = result.affected_memo.expect("affected memo facts");
+        assert_eq!(affected.identity, "2024-02-02_10:00:00_0");
+        assert_eq!(affected.path, result.path);
+        assert_eq!(affected.fingerprint, result.result_fingerprint);
+        assert_eq!(affected.time_part, "10:00:00");
         let after = fs::read(harness.workspace_root.join("2024-02-02.md")).test_ok("read");
         assert!(after.windows(3).any(|window| window == b"new"));
     }
@@ -466,6 +531,7 @@ mod tests {
                         reminder: second,
                         replacement: replacement.to_owned(),
                     },
+                    history: None,
                 },
                 30_000,
             )
@@ -477,6 +543,182 @@ mod tests {
         assert_eq!(
             fs::read(harness.workspace_root.join("2026-07-20.md")).test_ok("read"),
             format!("- 10:00:00\nfirst {token} then {replacement}\n").as_bytes()
+        );
+    }
+
+    fn trash_memo(
+        harness: &Harness,
+        path: &str,
+        identity: &str,
+        expected_fingerprint: &str,
+    ) -> String {
+        let trash_job = harness
+            .engine
+            .start_workspace_trash_command(
+                WorkspaceTrashCommand {
+                    path: path.to_owned(),
+                    expected_fingerprint: expected_fingerprint.to_owned(),
+                    command: WorkspaceTrashCommandKind::Trash {
+                        identity: identity.to_owned(),
+                        chronology_epoch_ms: 1_755_148_400_000,
+                    },
+                },
+                30_000,
+            )
+            .test_ok("start trash");
+        assert!(matches!(
+            harness.drive_until_terminal(&trash_job),
+            JobStep::Completed
+        ));
+        trash_job
+    }
+
+    #[test]
+    fn ffi_soft_delete_keeps_source_and_exposes_durable_trash_record() {
+        let harness = Harness::new();
+        let path = "2026-08-14.md";
+        let identity = "2026-08-14_10:00:00_0";
+        let original = b"- 10:00:00\nrecoverable body #trash\n";
+        let expected_fingerprint = fingerprint_of(original);
+        harness.write_file(path, original);
+
+        let trash_job = trash_memo(&harness, path, identity, &expected_fingerprint);
+        let trashed = harness
+            .engine
+            .read_workspace_trash_command_result(trash_job)
+            .test_ok("trash result");
+        assert_eq!(trashed.result_fingerprint, expected_fingerprint);
+        assert!(trashed.trashed_at_ms.is_some());
+        assert_eq!(
+            fs::read(harness.workspace_root.join(path)).test_ok("source"),
+            original
+        );
+
+        let scan_job = harness
+            .engine
+            .start_workspace_trash_scan(
+                WorkspaceTrashScanRequest {
+                    page_size: 16,
+                    cursor: None,
+                },
+                30_000,
+            )
+            .test_ok("start trash scan");
+        assert!(matches!(
+            harness.drive_until_terminal(&scan_job),
+            JobStep::Completed
+        ));
+        let trash_page = harness
+            .engine
+            .read_workspace_trash_scan_page(scan_job)
+            .test_ok("trash page");
+        assert_eq!(trash_page.items.len(), 1);
+        let trash_item = trash_page.items.first().test_ok("trash item");
+        assert_eq!(trash_item.memo_id, identity);
+        assert_eq!(trash_item.source_fingerprint, expected_fingerprint);
+        let body_reference = &trash_item.content;
+        assert_eq!(
+            fs::read(harness.exchange_root.join(&body_reference.exchange_token))
+                .test_ok("trash body"),
+            b"recoverable body #trash"
+        );
+    }
+
+    #[test]
+    fn ffi_restore_removes_durable_record_without_rewriting_source() {
+        let harness = Harness::new();
+        let path = "2026-08-14.md";
+        let identity = "2026-08-14_10:00:00_0";
+        let original = b"- 10:00:00\nrecoverable body #trash\n";
+        let expected_fingerprint = fingerprint_of(original);
+        harness.write_file(path, original);
+        trash_memo(&harness, path, identity, &expected_fingerprint);
+
+        let restore_job = harness
+            .engine
+            .start_workspace_trash_command(
+                WorkspaceTrashCommand {
+                    path: path.to_owned(),
+                    expected_fingerprint,
+                    command: WorkspaceTrashCommandKind::Restore {
+                        identity: identity.to_owned(),
+                    },
+                },
+                30_000,
+            )
+            .test_ok("start restore");
+        assert!(matches!(
+            harness.drive_until_terminal(&restore_job),
+            JobStep::Completed
+        ));
+        let restored = harness
+            .engine
+            .read_workspace_trash_command_result(restore_job)
+            .test_ok("restore result");
+        assert!(restored.trashed_at_ms.is_none());
+        assert_eq!(
+            fs::read(harness.workspace_root.join(path)).test_ok("source"),
+            original
+        );
+        assert_eq!(
+            fs::read_dir(harness.workspace_root.join(".lomo/trash/v1"))
+                .test_ok("trash directory")
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn ffi_permanent_delete_removes_source_before_durable_record() {
+        let harness = Harness::new();
+        let path = "2026-08-14.md";
+        let identity = "2026-08-14_10:00:00_0";
+        let original = b"- 10:00:00\nrecoverable body #trash\n";
+        let expected_fingerprint = fingerprint_of(original);
+        harness.write_file(path, original);
+
+        let trash_job = trash_memo(&harness, path, identity, &expected_fingerprint);
+        let trashed = harness
+            .engine
+            .read_workspace_trash_command_result(trash_job)
+            .test_ok("trash result");
+        let permanent_job = harness
+            .engine
+            .start_workspace_trash_command(
+                WorkspaceTrashCommand {
+                    path: path.to_owned(),
+                    expected_fingerprint,
+                    command: WorkspaceTrashCommandKind::PermanentDelete {
+                        identity: identity.to_owned(),
+                    },
+                },
+                30_000,
+            )
+            .test_ok("start permanent delete");
+        assert!(matches!(
+            harness.drive_until_terminal(&permanent_job),
+            JobStep::Completed
+        ));
+        let permanently_deleted = harness
+            .engine
+            .read_workspace_trash_command_result(permanent_job)
+            .test_ok("permanent delete result");
+        assert_ne!(
+            permanently_deleted.result_fingerprint,
+            trashed.result_fingerprint
+        );
+        let after = fs::read(harness.workspace_root.join(path)).test_ok("source after delete");
+        assert!(
+            !after
+                .windows(identity.len())
+                .any(|window| window == identity.as_bytes())
+        );
+        assert!(!after.windows(11).any(|window| window == b"recoverable"));
+        assert_eq!(
+            fs::read_dir(harness.workspace_root.join(".lomo/trash/v1"))
+                .test_ok("trash directory")
+                .count(),
+            0
         );
     }
 }

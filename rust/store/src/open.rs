@@ -6,8 +6,8 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
-    BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, STORE_SCHEMA_VERSION,
-    schema_v1_ddl,
+    BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL,
+    MIGRATE_V4_TO_V5_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
@@ -81,12 +81,24 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
     } else if user_version == 1 {
         connection
             .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}COMMIT;"
+                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
             ))
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version == 2 {
         connection
-            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}COMMIT;"))
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+    } else if user_version == 3 {
+        connection
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+    } else if user_version == 4 {
+        connection
+            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V4_TO_V5_DDL}COMMIT;"))
             .map_err(|err| from_sqlite(&err))?;
     }
 

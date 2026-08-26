@@ -24,6 +24,7 @@ mod reminder;
 mod render;
 mod source;
 mod tags;
+mod trash;
 mod types;
 
 pub use attachment_remap::remap_attachment_destinations;
@@ -49,8 +50,8 @@ pub use limits::{
     ResourceBudget,
 };
 pub use lomo_record::{
-    LOMO_CODEC_SCHEMA, LOMO_MAGIC, LOMO_MAX_PAYLOAD_BYTES, LomoLayoutVersion, LomoPaths,
-    LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, hex_encode,
+    HistorySnapshotV1, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LOMO_MAX_PAYLOAD_BYTES, LomoLayoutVersion,
+    LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, hex_encode,
     isolate_corrupt_record, read_record, write_layout_head_v2, write_record_atomic,
 };
 pub use migration_v2::{
@@ -71,11 +72,19 @@ pub use source::{
     BomKind, ByteSpan, DominantNewline, NewlineKind, SourceBytes, SourceFingerprint,
     SourceTextState, TrailingState,
 };
+pub use trash::{
+    TRASH_RECORD_DIRECTORY, TRASH_RECORD_SCHEMA_VERSION, TrashRecordCreate, TrashRecordV1,
+    decode_trash_record, encode_trash_record, trash_record_relative_path,
+};
 pub use types::{MemoIdentity, WorkspaceRelativePath};
 
 pub use jobs::{
     DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandDriver, DocumentCommandKind,
-    DocumentCommandRequest, DocumentCommandResult, DocumentExpectedState, SCAN_DRIVER_KIND,
-    ScanDriver, WorkspaceMemoContentReference, WorkspaceMemoSummary, WorkspaceScanPage,
-    WorkspaceScanRequest, workspace_driver_registry,
+    DocumentCommandRequest, DocumentCommandResult, DocumentExpectedState, DocumentHistoryWrite,
+    DocumentMemoFacts, HISTORY_SCAN_DRIVER_KIND, HistoryRevisionSummary, HistoryScanDriver,
+    HistoryScanPage, HistoryScanRequest, SCAN_DRIVER_KIND, ScanDriver, TRASH_COMMAND_DRIVER_KIND,
+    TRASH_SCAN_DRIVER_KIND, TrashCommandDriver, TrashCommandKind, TrashCommandRequest,
+    TrashCommandResult, TrashMemoSummary, TrashScanDriver, TrashScanPage, TrashScanRequest,
+    WorkspaceMemoContentReference, WorkspaceMemoSummary, WorkspaceScanPage, WorkspaceScanRequest,
+    workspace_driver_registry,
 };
