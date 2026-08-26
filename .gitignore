@@ -87,6 +87,8 @@ replay_pid*
 .kotlin/
 
 # Rust workspace build output (Cargo.lock under rust/ is versioned for reproducible gates)
+.cargo/
+/rust/.cargo/
 /rust/target/
 /rust/**/target/
 /rust/.cargo-home/
