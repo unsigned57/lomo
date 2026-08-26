@@ -65,6 +65,7 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                             toolbarOrder = persistentListOf(InputToolbarActionId("primary")),
                             capabilities = InputEditorCapabilities(toolbarTools = persistentListOf(contractTool("primary"))),
                         ),
+                    ownerSubmission = InputSheetOwnerSubmission.Pending,
                 )
 
             state.surface.inputValue.text shouldBe "hello"
@@ -85,7 +86,7 @@ class InputSheetSurfaceContractTest : UiComponentsFunSpec() {
                     onDisplayModeChange = {},
                     onConsumeBackPress = { false },
                     commands = InputEditorCommandHandler { command -> commands += command },
-                    onSubmit = {},
+                    onSubmit = { true },
                     onToolbarOrderChanged = {},
                 )
 

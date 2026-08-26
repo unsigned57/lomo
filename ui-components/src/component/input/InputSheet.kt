@@ -53,7 +53,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,7 +81,37 @@ private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 
 data class InputSheetState(
     val surface: InputEditorSurfaceState,
+    val ownerSubmission: InputSheetOwnerSubmission,
 )
+
+/**
+ * The fate of this sheet's in-flight submission, as reported by whoever owns the durable mutation.
+ *
+ * The sheet's submission lock is a projection of this value. The owner outlives the sheet's
+ * composition, so a torn-down acknowledgement path must still release the editor.
+ */
+enum class InputSheetOwnerSubmission {
+    Pending,
+    Resolved,
+    Rejected,
+}
+
+/** Projects [owner] onto the sheet's local submission lock. Never revives an unlocked sheet. */
+internal fun applyInputSheetOwnerSubmission(
+    sessionState: InputSheetSessionState,
+    owner: InputSheetOwnerSubmission,
+) {
+    if (!sessionState.isSubmitting) return
+    when (owner) {
+        InputSheetOwnerSubmission.Pending -> Unit
+        InputSheetOwnerSubmission.Resolved -> sessionState.clearSubmissionLock()
+        InputSheetOwnerSubmission.Rejected -> {
+            sessionState.clearSubmissionLock()
+            sessionState.isDismissing = false
+            sessionState.isSheetVisible = true
+        }
+    }
+}
 
 sealed interface InputInterceptionResult {
     data class UpdateValue(
@@ -117,7 +146,7 @@ data class InputSheetCallbacks(
     val onCollapse: () -> Unit,
     val onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
     val onConsumeBackPress: () -> Boolean,
-    val onSubmit: (String) -> Unit,
+    val onSubmit: suspend (String) -> Boolean,
     val commands: InputEditorCommandHandler,
     val onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
     val inputInterceptor: InputInterceptor = passThroughInputInterceptor(),
@@ -160,7 +189,9 @@ fun InputSheet(
             targetDisplayMode = resolvedDisplayMode,
         )
     val currentInputValue by rememberUpdatedState(inputValue)
-    val sessionState = rememberInputSheetSessionState(inputValue.text)
+    // The controller's focus token is the editor-session identity. Keeping this as the remember
+    // key prevents a failed/submitting lock from surviving after a committed editor is reopened.
+    val sessionState = rememberInputSheetSessionState(surface.focusRequestToken, inputValue.text)
     val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val focusParkingRequester = remember { FocusRequester() }
@@ -240,8 +271,11 @@ fun InputSheet(
 }
 
 @Composable
-private fun rememberInputSheetSessionState(initialInputText: String): InputSheetSessionState =
-    remember { InputSheetSessionState(initialInputText) }
+private fun rememberInputSheetSessionState(
+    sessionToken: Long,
+    initialInputText: String,
+): InputSheetSessionState =
+    remember(sessionToken) { InputSheetSessionState(initialInputText) }
 
 internal class InputSheetSessionState(
     val initialInputText: String,
@@ -265,30 +299,61 @@ internal class InputSheetSessionState(
 @Composable
 private fun rememberSubmitWithLock(
     sessionState: InputSheetSessionState,
-    onSubmit: (String) -> Unit,
+    onSubmit: suspend (String) -> Boolean,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     focusParkingRequester: FocusRequester,
     scope: kotlinx.coroutines.CoroutineScope,
 ): (String, String, String) -> Unit =
     remember(sessionState, onSubmit, keyboardController, focusParkingRequester, scope) {
-        submit@{ content, triggerText, sourceText ->
-            if (sessionState.isSubmitting && sessionState.pendingSubmissionTriggerText == triggerText) {
-                return@submit
-            }
-            sessionState.isSubmitting = true
-            sessionState.pendingSubmissionTriggerText = triggerText
-            sessionState.submissionLockSourceText = sourceText
-            releaseEditorFocusAndKeyboardImmediately(
-                keyboardController = keyboardController,
-                focusParkingRequester = focusParkingRequester,
+        { content, triggerText, sourceText ->
+            submitInputSheetContent(
+                sessionState = sessionState,
+                content = content,
+                triggerText = triggerText,
+                sourceText = sourceText,
+                scope = scope,
+                releaseFocus = {
+                    releaseEditorFocusAndKeyboardImmediately(
+                        keyboardController = keyboardController,
+                        focusParkingRequester = focusParkingRequester,
+                    )
+                },
+                onSubmit = onSubmit,
             )
-            scope.launch {
-                delay(INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS)
-                withFrameNanos { }
-                onSubmit(content)
+        }
+    }
+
+/** Accepts one send intent and starts its state transition before presentation cleanup can recompose. */
+internal fun submitInputSheetContent(
+    sessionState: InputSheetSessionState,
+    content: String,
+    triggerText: String,
+    sourceText: String,
+    scope: kotlinx.coroutines.CoroutineScope,
+    releaseFocus: () -> Unit,
+    onSubmit: suspend (String) -> Boolean,
+): Boolean {
+    if (sessionState.isSubmitting) return false
+    sessionState.isSubmitting = true
+    sessionState.pendingSubmissionTriggerText = triggerText
+    sessionState.submissionLockSourceText = sourceText
+    sessionState.isDismissing = true
+    sessionState.isSheetVisible = false
+    releaseFocus()
+    scope.launch {
+        var committed = false
+        try {
+            committed = onSubmit(content)
+        } finally {
+            if (!committed) {
+                sessionState.clearSubmissionLock()
+                sessionState.isDismissing = false
+                sessionState.isSheetVisible = true
             }
         }
     }
+    return true
+}
 
 @Composable
 private fun rememberRequestDismiss(
@@ -307,7 +372,8 @@ private fun rememberRequestDismiss(
         dismissSheet,
         submitWithLock,
     ) {
-        {
+        requestDismiss@{
+            if (sessionState.isSubmitting) return@requestDismiss
             val hasUnsavedChanges = currentInputText != sessionState.initialInputText
             when {
                 autoSubmitOnDismiss && currentInputText.isNotBlank() -> {
@@ -422,4 +488,9 @@ private fun InputSheetLifecycle(
         submissionLockSourceText = sessionState.submissionLockSourceText,
         onClearSubmissionLock = sessionState::clearSubmissionLock,
     )
+    // The lock is a projection of the owner: an acknowledgement path that died with its scope
+    // must never be the only way out of the submitting state.
+    LaunchedEffect(state.ownerSubmission, sessionState.isSubmitting) {
+        applyInputSheetOwnerSubmission(sessionState, state.ownerSubmission)
+    }
 }
