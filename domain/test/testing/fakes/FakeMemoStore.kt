@@ -6,6 +6,7 @@ import com.lomo.domain.model.DailyReviewCandidateBoundary
 import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoContentAnalysis
 import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.MemoSortOption
@@ -220,9 +221,9 @@ class FakeMemoStore(
 
     internal suspend fun restoreMemoRevision(
         currentMemo: Memo,
-        revisionId: String,
+        revision: MemoRevision,
     ) {
-        restoredRevisionRequests += RestoredRevisionRequest(currentMemo = currentMemo, revisionId = revisionId)
+        restoredRevisionRequests += RestoredRevisionRequest(currentMemo = currentMemo, revision = revision)
     }
 
     internal suspend fun updateMemoPinned(
@@ -346,7 +347,7 @@ private data class DailyReviewCandidateSnapshotRow(
 
 data class RestoredRevisionRequest(
     val currentMemo: Memo,
-    val revisionId: String,
+    val revision: MemoRevision,
 )
 
     private fun List<DailyReviewCandidateSnapshotRow>.stableDailyReviewCandidateToken(): String {

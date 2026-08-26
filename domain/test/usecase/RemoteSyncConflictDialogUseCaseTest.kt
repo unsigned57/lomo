@@ -1,5 +1,3 @@
-package com.lomo.domain.usecase
-
 /*
  * Behavior Contract:
  * - Unit under test: RemoteSyncConflictDialogUseCase
@@ -20,10 +18,19 @@ package com.lomo.domain.usecase
  * - Given MERGE_TEXT on mergeable markdown, when resolve, then merged_body kind carries body.
  * - Given blank workspace root, when loadOpenSession, then null.
  *
- * Observable outcomes: OpenSession fields, resolve result, fake repository request log,
- * memo refresh count.
+ * Observable outcomes: OpenSession fields, resolve result, fake repository request log, memo refresh count.
+ * TDD proof: verified by fake repository request log and resolve assertions.
  * Excludes: Compose dialog, BoltFFI/JNI, Sync Inbox review path, deleted Kotlin engines.
+ *
+ * Test Change Justification:
+ * - Reason category: MemoMutationRepository interface update.
+ * - Old behavior/assertion being replaced: unused fake method signature in test double.
+ * - Why old assertion is no longer correct: restoreMemoRevision now accepts typed MemoRevision model.
+ * - Coverage preserved by: all sync conflict dialog scenarios remain unchanged.
+ * - Why this is not fitting the test to the implementation: aligns unused test fake method signature.
  */
+
+package com.lomo.domain.usecase
 
 import com.lomo.domain.model.RemoteSyncBackendLabel
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
@@ -315,7 +322,7 @@ private class RecordingMemoMutationRepository : MemoMutationRepository {
 
     override suspend fun restoreMemoRevision(
         currentMemo: com.lomo.domain.model.Memo,
-        revisionId: String,
+        revision: com.lomo.domain.model.MemoRevision,
     ) = error("unused")
 
     override suspend fun setMemoPinned(

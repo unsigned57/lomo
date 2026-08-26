@@ -5,6 +5,7 @@ import com.lomo.domain.model.DailyReviewCandidateBoundary
 import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.TagSelection
@@ -100,7 +101,7 @@ interface MemoMutationRepository {
 
     suspend fun restoreMemoRevision(
         currentMemo: Memo,
-        revisionId: String,
+        revision: MemoRevision,
     )
 
     suspend fun setMemoPinned(

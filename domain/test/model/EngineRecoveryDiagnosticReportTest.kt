@@ -16,6 +16,13 @@
  * Observable outcomes: report bytes and validation failure.
  * TDD proof: RED on 2026-08-01 because no bounded recovery diagnostic report boundary existed.
  * Excludes: Android document picker and native journal parsing.
+ *
+ * Test Change Justification:
+ * - Reason category: domain failure model unification.
+ * - Old behavior/assertion being replaced: FailureCategory and RetryDisposition nested enum types.
+ * - Why old assertion is no longer correct: failure enums moved to top-level domain model EngineFailure.kt.
+ * - Coverage preserved by: diagnostic report sanitization and error code validation remain fully tested.
+ * - Why this is not fitting the test to the implementation: preserves contract requiring no leak of sensitive tokens.
  */
 
 package com.lomo.domain.model
@@ -32,9 +39,9 @@ class EngineRecoveryDiagnosticReportTest : DomainFunSpec() {
         test("given sensitive native diagnostic when report is built then only typed facts are exported") {
             val recovery =
                 EngineReadiness.ReadOnlyRecovery(
-                    category = EngineReadiness.FailureCategory.CORRUPTION,
+                    category = EngineFailureCategory.CORRUPTION,
                     code = "journal_checksum_mismatch",
-                    retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                     diagnostic =
                         "secret=remote-password body=private memo token=capability-123 " +
                             "path=/storage/emulated/0/Notes",
@@ -58,9 +65,9 @@ class EngineRecoveryDiagnosticReportTest : DomainFunSpec() {
         test("given an ambiguous error code when report is built then export fails closed") {
             val recovery =
                 EngineReadiness.ReadOnlyRecovery(
-                    category = EngineReadiness.FailureCategory.INTERNAL,
+                    category = EngineFailureCategory.INTERNAL,
                     code = "bad\nworkspace_path=/secret",
-                    retryDisposition = EngineReadiness.RetryDisposition.NEVER,
+                    retryDisposition = EngineRetryDisposition.NEVER,
                     diagnostic = "not exported",
                 )
 

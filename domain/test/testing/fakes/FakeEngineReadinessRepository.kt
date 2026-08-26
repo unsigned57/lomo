@@ -65,6 +65,12 @@ class FakeEngineReadinessRepository(
         return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
     }
 
+    override suspend fun retryProjectionBuild() {
+        val failed = _projectionFreshness.value as? ProjectionFreshness.Failed
+            ?: error("fake projection is not failed")
+        _projectionFreshness.value = ProjectionFreshness.Building(failed.baseRevision)
+    }
+
     private fun workspaceKind(): RecoveryWorkspaceKind =
         when (val location = activeWorkspaceLocation.value?.raw) {
             null -> RecoveryWorkspaceKind.NONE

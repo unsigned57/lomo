@@ -201,5 +201,28 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 eventLog shouldBe listOf("workspace.rebuildFromCurrentWorkspace")
             }
         }
+
+        test("updateRootLocation clears stale pending transition before starting a new transition") {
+            runTest {
+                // Simulate a leftover transition in datastore from a prior crash
+                directorySettingsRepository.prepareRootTransition(StorageLocation("/tmp/stale"))
+                eventLog.clear()
+
+                val location = StorageLocation("/tmp/fresh")
+                useCase.updateRootLocation(location)
+
+                engineReadinessRepository.activateCount shouldBe 1
+                engineReadinessRepository.lastActivated shouldBe location
+                directorySettingsRepository.pendingRootTransition() shouldBe null
+                eventLog shouldBe
+                    listOf(
+                        "workspace.validateCandidate",
+                        "directory.rollbackRootTransition",
+                        "directory.prepareRootTransition",
+                        "directory.markRootTransitionActivated",
+                        "directory.commitRootTransition",
+                    )
+            }
+        }
     }
 }

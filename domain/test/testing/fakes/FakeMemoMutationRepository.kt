@@ -1,6 +1,7 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.repository.MemoMutationRepository
 
 class FakeMemoMutationRepository(
@@ -10,7 +11,7 @@ class FakeMemoMutationRepository(
         private set
     var lastRestoredMemo: Memo? = null
         private set
-    var lastRestoredRevisionId: String? = null
+    var lastRestoredRevision: MemoRevision? = null
         private set
 
     override suspend fun refreshMemos() = store.recordMemoRefresh()
@@ -30,12 +31,12 @@ class FakeMemoMutationRepository(
 
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
-        revisionId: String,
+        revision: MemoRevision,
     ) {
         restoreMemoRevisionCallCount += 1
         lastRestoredMemo = currentMemo
-        lastRestoredRevisionId = revisionId
-        store.restoreMemoRevision(currentMemo, revisionId)
+        lastRestoredRevision = revision
+        store.restoreMemoRevision(currentMemo, revision)
     }
 
     override suspend fun setMemoPinned(

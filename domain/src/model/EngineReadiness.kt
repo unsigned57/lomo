@@ -18,34 +18,13 @@ sealed interface EngineReadiness {
     ) : EngineReadiness
 
     data class ReadOnlyRecovery(
-        val category: FailureCategory,
+        val category: EngineFailureCategory,
         val code: String,
-        val retryDisposition: RetryDisposition,
+        val retryDisposition: EngineRetryDisposition,
         val diagnostic: String,
     ) : EngineReadiness
 
     data object ShuttingDown : EngineReadiness
-
-    enum class FailureCategory {
-        VALIDATION,
-        PERMISSION,
-        CORRUPTION,
-        STORAGE,
-        NETWORK,
-        AUTHENTICATION,
-        CONFLICT,
-        CANCELLED,
-        TIMEOUT,
-        BUSY,
-        RESOURCE_LIMIT,
-        INTERNAL,
-    }
-
-    enum class RetryDisposition {
-        NEVER,
-        AFTER_USER_ACTION,
-        TRANSIENT,
-    }
 }
 
 /** Coarse workspace fact safe for a user-shareable recovery report. */
@@ -102,27 +81,6 @@ fun EngineReadiness.ReadOnlyRecovery.toDiagnosticReport(
     require(code.matches(Regex("[a-z][a-z0-9_.-]{0,127}"))) {
         "Recovery error code must be a bounded canonical identifier"
     }
-    val category =
-        when (category) {
-            EngineReadiness.FailureCategory.VALIDATION -> "validation"
-            EngineReadiness.FailureCategory.PERMISSION -> "permission"
-            EngineReadiness.FailureCategory.CORRUPTION -> "corruption"
-            EngineReadiness.FailureCategory.STORAGE -> "storage"
-            EngineReadiness.FailureCategory.NETWORK -> "network"
-            EngineReadiness.FailureCategory.AUTHENTICATION -> "authentication"
-            EngineReadiness.FailureCategory.CONFLICT -> "conflict"
-            EngineReadiness.FailureCategory.CANCELLED -> "cancelled"
-            EngineReadiness.FailureCategory.TIMEOUT -> "timeout"
-            EngineReadiness.FailureCategory.BUSY -> "busy"
-            EngineReadiness.FailureCategory.RESOURCE_LIMIT -> "resource_limit"
-            EngineReadiness.FailureCategory.INTERNAL -> "internal"
-        }
-    val retry =
-        when (retryDisposition) {
-            EngineReadiness.RetryDisposition.NEVER -> "never"
-            EngineReadiness.RetryDisposition.AFTER_USER_ACTION -> "after_user_action"
-            EngineReadiness.RetryDisposition.TRANSIENT -> "transient"
-        }
     val workspace =
         when (workspaceKind) {
             RecoveryWorkspaceKind.NONE -> "none"
@@ -135,9 +93,9 @@ fun EngineReadiness.ReadOnlyRecovery.toDiagnosticReport(
         content =
             buildString {
                 appendLine("lomo_recovery_diagnostic_v1")
-                appendLine("category=$category")
+                appendLine("category=${category.wireValue}")
                 appendLine("code=$code")
-                appendLine("retry=$retry")
+                appendLine("retry=${retryDisposition.wireValue}")
                 appendLine("workspace_kind=$workspace")
             },
     )

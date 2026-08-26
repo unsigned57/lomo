@@ -13,7 +13,7 @@ class RestoreMemoRevisionUseCase(
     ) {
         repository.restoreMemoRevision(
             currentMemo = memo,
-            revisionId = revision.revisionId,
+            revision = revision,
         )
     }
 }

@@ -13,11 +13,12 @@ import com.lomo.domain.repository.WorkspaceStateResolver
  * Candidate validation runs before any durable selection change. The whole critical section runs
  * under an exclusive mutation transition: new writers are refused and every writer already admitted
  * is drained before the workspace changes, so no mutation can straddle the switch. The engine is
- * activated while the committed selection remains unchanged. Activation owns candidate projection
- * rebuild and promotion as one transaction; only after it succeeds is the candidate marked activated
- * and atomically published as the committed root. A crash before commit therefore restores the
- * previous root. Soft Recovery and hard open failure restore previous engine authority and roll back
- * the durable journal; this use case never starts a second rebuild.
+ * activated while the committed selection remains unchanged. Activation opens and promotes the
+ * candidate authority; only after it succeeds is the candidate marked activated and atomically
+ * published as the committed root. SAF projection indexing then advances independently from
+ * Building to Verified, and the mutation lease rejects writes until that first verified projection
+ * exists. A crash before commit therefore restores the previous root. Soft Recovery and hard open
+ * failure restore previous engine authority and roll back the durable journal.
  */
 open class SwitchRootStorageUseCase(
     private val directorySettingsRepository: DirectorySettingsRepository,
@@ -35,34 +36,54 @@ open class SwitchRootStorageUseCase(
         val previousSelection = directorySettingsRepository.currentRootLocation()
         if (previousSelection == location) return
         workspaceMutationLease.withExclusiveTransition {
+            val pending = directorySettingsRepository.pendingRootTransition()
+            if (pending != null) {
+                directorySettingsRepository.rollbackRootTransition(pending.id)
+            }
             val transition = directorySettingsRepository.prepareRootTransition(location)
             try {
                 engineReadinessRepository.activateWorkspace(location)
                 directorySettingsRepository.markRootTransitionActivated(transition.id)
                 directorySettingsRepository.commitRootTransition(transition.id)
             } catch (originalFailure: Exception) {
-                try {
-                    restorePreviousAuthority(previousSelection)
-                    directorySettingsRepository.rollbackRootTransition(transition.id)
-                } catch (restoreFailure: Exception) {
-                    val structured =
-                        restoreFailure as? WorkspaceAuthorityRestoreException
-                            ?: WorkspaceAuthorityRestoreException(
-                                message =
-                                    "Failed to restore previous workspace authority after switch failure: " +
-                                        (restoreFailure.message ?: restoreFailure.javaClass.simpleName),
-                                cause = restoreFailure,
-                            )
-                    structured.addSuppressed(originalFailure)
-                    throw structured
-                }
-                throw originalFailure
+                throw resolveSwitchFailure(
+                    transitionId = transition.id,
+                    previousSelection = previousSelection,
+                    originalFailure = originalFailure,
+                )
             }
         }
     }
 
     open suspend fun rebuildCurrentWorkspace() {
         workspaceStateResolver.rebuildFromCurrentWorkspace()
+    }
+
+    private suspend fun resolveSwitchFailure(
+        transitionId: String,
+        previousSelection: StorageLocation?,
+        originalFailure: Exception,
+    ): Throwable {
+        val rollbackFailure =
+            runCatching { directorySettingsRepository.rollbackRootTransition(transitionId) }
+                .exceptionOrNull()
+        val restoreFailure =
+            runCatching { restorePreviousAuthority(previousSelection) }
+                .exceptionOrNull()
+        return when {
+            restoreFailure != null ->
+                restoreFailure.toAuthorityRestoreFailure(
+                    message = "Failed to restore previous workspace authority after switch failure",
+                    originalFailure = originalFailure,
+                    secondaryFailure = rollbackFailure,
+                )
+            rollbackFailure != null ->
+                rollbackFailure.toAuthorityRestoreFailure(
+                    message = "Failed to rollback root transition journal after switch failure",
+                    originalFailure = originalFailure,
+                )
+            else -> originalFailure
+        }
     }
 
     private suspend fun restorePreviousAuthority(previousSelection: StorageLocation?) {
@@ -93,6 +114,22 @@ open class SwitchRootStorageUseCase(
             )
         }
     }
+}
+
+private fun Throwable.toAuthorityRestoreFailure(
+    message: String,
+    originalFailure: Exception,
+    secondaryFailure: Throwable? = null,
+): WorkspaceAuthorityRestoreException {
+    val structured =
+        this as? WorkspaceAuthorityRestoreException
+            ?: WorkspaceAuthorityRestoreException(
+                message = "$message: ${this.message ?: javaClass.simpleName}",
+                cause = this,
+            )
+    secondaryFailure?.let(structured::addSuppressed)
+    structured.addSuppressed(originalFailure)
+    return structured
 }
 
 /**

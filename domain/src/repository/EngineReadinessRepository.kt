@@ -27,7 +27,7 @@ interface EngineReadinessRepository {
     val activeWorkspaceLocation: StateFlow<StorageLocation?>
 
     /**
-     * Stable identity, activation generation, and verified store projection revision of the engine
+     * Stable identity, activation generation, and installed store projection revision of the engine
      * currently installed at Ready, or null when no workspace engine is active.
      *
      * Generation increments on every committed activation so a mutation admitted over one workspace
@@ -36,8 +36,8 @@ interface EngineReadinessRepository {
     val workspaceAuthority: StateFlow<WorkspaceAuthority?>
 
     /**
-     * Freshness of the active disposable query projection, independent from engine/write
-     * readiness. A verified projection remains usable while reconciliation is refreshing or stale.
+     * Freshness of the active disposable query projection. A verified projection remains usable
+     * while reconciliation is refreshing or stale; a first build is read-only until verified.
      */
     val projectionFreshness: StateFlow<ProjectionFreshness>
 
@@ -58,12 +58,21 @@ interface EngineReadinessRepository {
     suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary
 
     /**
+     * Restarts the first SAF projection build for the currently committed authority.
+     *
+     * The request is generation-bound by the implementation and returns after the background
+     * build is scheduled. It never reopens or changes the durable workspace selection.
+     */
+    suspend fun retryProjectionBuild()
+
+    /**
      * Opens or reopens the engine for [location].
      *
      * The previous engine remains authoritative until the candidate reaches Ready. On Ready success
-     * the new engine becomes the sole readiness publisher and the previous engine is closed. On hard
-     * open failure or soft non-Ready open the previous engine (if any) stays active and the error is
-     * rethrown.
+     * the new engine becomes the sole readiness publisher and the previous engine is closed. SAF
+     * projection reconciliation proceeds independently after promotion; an empty first projection
+     * is explicitly Building and read-only. On hard open failure or soft non-Ready open the previous
+     * engine (if any) stays active and the error is rethrown.
      */
     suspend fun activateWorkspace(location: StorageLocation)
 

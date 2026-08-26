@@ -30,7 +30,9 @@
 
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.testing.DomainFunSpec
@@ -71,9 +73,9 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             runTest {
                 engineReadinessRepository.publish(
                     EngineReadiness.ReadOnlyRecovery(
-                        category = EngineReadiness.FailureCategory.PERMISSION,
+                        category = EngineFailureCategory.PERMISSION,
                         code = "saf_grant_revoked",
-                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic = "Workspace permission is no longer available",
                     ),
                 )

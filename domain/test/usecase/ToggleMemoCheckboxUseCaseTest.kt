@@ -34,7 +34,10 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
-import com.lomo.domain.model.MarkdownWorkspaceCommandException
+import com.lomo.domain.model.EngineCommandFailure
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeMemoMutationRepository
@@ -71,9 +74,15 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                 val workspace =
                     FakeMarkdownWorkspaceRepository(
                         failure =
-                            MarkdownWorkspaceCommandException(
-                                code = "stale_snapshot",
-                                message = "document changed",
+                            EngineCommandFailureException(
+                                EngineCommandFailure(
+                                    category = EngineFailureCategory.CONFLICT,
+                                    code = "stale_snapshot",
+                                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                    operationId = null,
+                                    jobId = null,
+                                    diagnostic = "document changed",
+                                ),
                             ),
                     )
                 val useCase =
@@ -83,14 +92,14 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
                     )
 
                 val error =
-                    shouldThrow<MarkdownWorkspaceCommandException> {
+                    shouldThrow<EngineCommandFailureException> {
                         useCase(
                             memo = memo(),
                             actionSpan = MarkdownSourceSpan(startByte = 2uL, endByte = 5uL),
                         )
                     }
 
-                error.code shouldBe "stale_snapshot"
+                error.failure.code shouldBe "stale_snapshot"
                 store.refreshMemosCallCount shouldBe 0
             }
         }
@@ -108,7 +117,7 @@ class ToggleMemoCheckboxUseCaseTest : DomainFunSpec() {
 
 private class FakeMarkdownWorkspaceRepository(
     private val updatedContent: String = "",
-    private val failure: MarkdownWorkspaceCommandException? = null,
+    private val failure: EngineCommandFailureException? = null,
 ) : MarkdownWorkspaceRepository {
     var lastIdentity: String? = null
     var lastSpan: MarkdownSourceSpan? = null
