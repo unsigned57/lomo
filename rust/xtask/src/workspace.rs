@@ -142,7 +142,23 @@ impl Workspace {
     }
 
     pub fn ndk_root(&self) -> PathBuf {
-        self.android_sdk.join("ndk").join(NDK_VERSION)
+        if let Some(ndk) = env_path("ANDROID_NDK_HOME").or_else(|| env_path("ANDROID_NDK_ROOT")) {
+            let ndk = absolute_path(&self.root, ndk);
+            if ndk.is_dir() {
+                return ndk;
+            }
+        }
+        let sdk_ndk = self.android_sdk.join("ndk").join(NDK_VERSION);
+        if sdk_ndk.is_dir() {
+            return sdk_ndk;
+        }
+        for candidate in ["/opt/android-sdk/ndk/29.0.14206865", "/opt/android-ndk"] {
+            let path = PathBuf::from(candidate);
+            if path.is_dir() {
+                return path;
+            }
+        }
+        sdk_ndk
     }
 
     pub fn rust_target(&self) -> PathBuf {

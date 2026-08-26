@@ -46,11 +46,11 @@ check:
     {{xtask}} check
 
 # Generate release native libraries and canonical Kotlin bindings.
-native abi="all":
+native abi="arm64":
     {{xtask}} native {{abi}}
 
 # Build and validate an Android debug or signed release APK.
-android variant="debug" abi="all":
+android variant="debug" abi="arm64":
     {{xtask}} android {{variant}} {{abi}}
 
 # Run the complete local/CI quality gate (coverage + fat-LTO release native).

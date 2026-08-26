@@ -210,8 +210,8 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     let production_jni = workspace.jni_libs();
     let smoke_jni = workspace.root.join("native-smoke/jniLibs");
     publish_selected_abis(&jni_source, &production_jni, abis)?;
-    // Formal engine surface is shared: production and smoke use the same library.
-    publish_selected_abis(&jni_source, &smoke_jni, abis)?;
+    // Formal engine surface is shared: production and smoke use the same library (hardlinked).
+    publish_selected_abis(&production_jni, &smoke_jni, abis)?;
     verify_native_tree(workspace, abis, profile)?;
     verify_smoke_native_tree(workspace, abis)?;
     crate::util::emit_stderr(format_args!(
@@ -484,13 +484,15 @@ fn publish_selected_abis(source_root: &Path, destination_root: &Path, abis: &[Ab
         remove_if_exists(&destination_dir)?;
         fs::create_dir_all(&destination_dir)?;
         let destination_lib = destination_dir.join(NATIVE_LIBRARY);
-        fs::copy(&source_lib, &destination_lib).with_context(|| {
-            format!(
-                "failed to publish {} -> {}",
-                source_lib.display(),
-                destination_lib.display()
-            )
-        })?;
+        if fs::hard_link(&source_lib, &destination_lib).is_err() {
+            fs::copy(&source_lib, &destination_lib).with_context(|| {
+                format!(
+                    "failed to publish {} -> {}",
+                    source_lib.display(),
+                    destination_lib.display()
+                )
+            })?;
+        }
         // Reject any residual dispatcher libraries if BoltFFI or older trees left them behind.
         for forbidden in ["libjnidispatch.so", "liblomo_native.so"] {
             let leftover = destination_dir.join(forbidden);

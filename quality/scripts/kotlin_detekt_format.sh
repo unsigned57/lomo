@@ -84,18 +84,33 @@ wrapper_jar="$(
     "*/dev.detekt/detekt-rules-ktlint-wrapper/${DETEKT_VERSION}/*" \
     "detekt-rules-ktlint-wrapper-${DETEKT_VERSION}.jar"
 )"
-ktlint_jar="$(
-  find_detekt_jar \
-    "*/dev.detekt/ktlint-repackage/${DETEKT_VERSION}/*" \
-    "ktlint-repackage-${DETEKT_VERSION}-all.jar"
-)"
-if [ -z "$wrapper_jar" ] || [ -z "$ktlint_jar" ]; then
-  echo "kotlin-detekt-format: ktlint plugin jars not cached under GRADLE_USER_HOME/.gradle; run a Toolchain build once or download detekt ktlint artifacts" >&2
+if [ -z "$wrapper_jar" ]; then
+  echo "kotlin-detekt-format: ktlint wrapper is not cached under Gradle roots; run a Toolchain build once" >&2
   exit 1
 fi
 
+wrapper_bundles_ktlint() {
+  jar tf "$1" 2>/dev/null |
+    awk '$0 == "com/pinterest/ktlint/rule/engine/core/api/Rule.class" { found = 1 } END { exit !found }'
+}
+
+format_plugins=("$wrapper_jar")
+if ! wrapper_bundles_ktlint "$wrapper_jar"; then
+  ktlint_jar="$(
+    find_detekt_jar \
+      "*/dev.detekt/ktlint-repackage/${DETEKT_VERSION}/*" \
+      "ktlint-repackage-${DETEKT_VERSION}-all.jar"
+  )"
+  if [ -z "$ktlint_jar" ]; then
+    echo "kotlin-detekt-format: ktlint wrapper has no bundled engine and no matching ktlint-repackage is cached" >&2
+    exit 1
+  fi
+  format_plugins+=("$ktlint_jar")
+fi
+
 export LOMO_DETEKT_INCLUDE_CUSTOM_RULES=0
-export LOMO_DETEKT_EXTRA_PLUGINS="${wrapper_jar}:${ktlint_jar}"
+LOMO_DETEKT_EXTRA_PLUGINS="$(IFS=:; printf '%s' "${format_plugins[*]}")"
+export LOMO_DETEKT_EXTRA_PLUGINS
 
 # Detekt CLI separates multiple --input paths with ':' on Unix. Batch to avoid ARG_MAX.
 batch_size=80

@@ -17,7 +17,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.98"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
@@ -52,11 +52,11 @@ git2 = { version = "=0.21.0", default-features = false, features = ["vendored-li
 # Production depends on the repository-owned `boltffi` facade (macros expand to
 # `::boltffi::__private`). The facade pins official `boltffi_core` with default
 # features disabled so unused url/uuid codecs stay out of the Android .so.
-# Formal tag v0.29.3 includes the JVM use-after-close guard (PR #663 /
+# Formal tag v0.30.1 includes the JVM use-after-close guard (PR #663 /
 # 2de4597034e0e66dcdfd34191abbe9ae7de7b31e). Pin the tag tip SHA so CLI and
 # cargo share one exact revision (xtask tools.toml only accepts `rev=`).
 boltffi = { path = "boltffi-facade" }
-boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "b33f1ae1b1e6a9ec5508143f5846afad10756ef4", default-features = false }
+boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2e6320a6d92cb591d22b908477f3a47da7ebc9bc", default-features = false }
 tempfile = "=3.27.0"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
@@ -125,6 +125,15 @@ unwrap_used = "deny"
 verbose_file_reads = "deny"
 wildcard_enum_match_arm = "deny"
 wildcard_imports = "deny"
+[profile.dev]
+opt-level = 0
+debug = 1
+split-debuginfo = "packed"
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
 
 [profile.release]
 opt-level = 3

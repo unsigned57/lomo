@@ -103,16 +103,16 @@ dependencies = [
 
 [[package]]
 name = "boltffi_ast"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
+version = "0.30.1"
+source = "git+https://github.com/boltffi/boltffi?rev=2e6320a6d92cb591d22b908477f3a47da7ebc9bc#2e6320a6d92cb591d22b908477f3a47da7ebc9bc"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "boltffi_binding"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
+version = "0.30.1"
+source = "git+https://github.com/boltffi/boltffi?rev=2e6320a6d92cb591d22b908477f3a47da7ebc9bc#2e6320a6d92cb591d22b908477f3a47da7ebc9bc"
 dependencies = [
  "boltffi_ast",
  "serde",
@@ -121,42 +121,33 @@ dependencies = [
 
 [[package]]
 name = "boltffi_core"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
+version = "0.30.1"
+source = "git+https://github.com/boltffi/boltffi?rev=2e6320a6d92cb591d22b908477f3a47da7ebc9bc#2e6320a6d92cb591d22b908477f3a47da7ebc9bc"
 dependencies = [
  "boltffi_macros",
 ]
 
 [[package]]
-name = "boltffi_ffi_rules"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
-dependencies = [
- "serde",
- "serde_json",
- "syn",
- "walkdir",
-]
-
-[[package]]
 name = "boltffi_macros"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
+version = "0.30.1"
+source = "git+https://github.com/boltffi/boltffi?rev=2e6320a6d92cb591d22b908477f3a47da7ebc9bc#2e6320a6d92cb591d22b908477f3a47da7ebc9bc"
 dependencies = [
  "boltffi_ast",
  "boltffi_binding",
- "boltffi_ffi_rules",
  "boltffi_scan",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
+ "rustc_lexer",
+ "serde",
  "syn",
+ "toml",
 ]
 
 [[package]]
 name = "boltffi_scan"
-version = "0.29.3"
-source = "git+https://github.com/boltffi/boltffi?rev=b33f1ae1b1e6a9ec5508143f5846afad10756ef4#b33f1ae1b1e6a9ec5508143f5846afad10756ef4"
+version = "0.30.1"
+source = "git+https://github.com/boltffi/boltffi?rev=2e6320a6d92cb591d22b908477f3a47da7ebc9bc#2e6320a6d92cb591d22b908477f3a47da7ebc9bc"
 dependencies = [
  "boltffi_ast",
  "proc-macro2",
@@ -376,7 +367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1296,7 +1287,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1424,6 +1415,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
+name = "rustc_lexer"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c86aae0c77166108c01305ee1a36a1e77289d7dc6ca0a3cd91ff4992de2d16a5"
+dependencies = [
+ "unicode-xid",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1442,7 +1442,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1499,7 +1499,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1637,6 +1637,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1750,7 +1759,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1842,6 +1851,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "1.1.4+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
 name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1864,12 +1888,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.2+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tower"
@@ -1958,6 +1988,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "universal-hash"
@@ -2120,7 +2156,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

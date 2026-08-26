@@ -7,6 +7,8 @@ multiple-versions = "deny"
 # platform-specific crates pulled by TLS stacks. Prefer skip over graph forks.
 skip = [
     { name = "openssl-probe", version = "0.1" },
+    # Windows-only transitive split: errno/winapi-util require 0.52 while tokio requires 0.61.
+    { name = "windows-sys", version = "0.52" },
 ]
 
 [licenses]

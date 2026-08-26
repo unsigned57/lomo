@@ -98,7 +98,7 @@ Current production native transport is BoltFFI/JNI. ABI, ELF, DT_NEEDED, legacy-
 and packaging completeness are checked directly from generated outputs; no historical size ceiling
 is a quality input.
 
-- Rust: channel from `rust/rust-toolchain.toml` (currently `1.97`), matching
+- Rust: channel from `rust/rust-toolchain.toml` (currently `1.98`), matching
   `workspace.package.rust-version`, Edition 2024, components `rustfmt`, `clippy`,
   `llvm-tools-preview`, `rust-src`. Bump with `just rust-toolchain-bump <x.y|x.y.z>`
   then `just bootstrap` and quality gates (the bump recipe rewrites pin sites only).

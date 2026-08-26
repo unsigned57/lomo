@@ -40,13 +40,15 @@ hotfix must be labeled temporary and name the first-principles replacement.
 
 ## 2. Architecture Gate
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the sole source of truth for module responsibilities,
-dependency direction, and change routing. Read it before architecture-sensitive work, apply the fix
-at the owning layer, and never use an existing violation as precedent.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the sole source of truth for immutable architecture,
+module authority, and dependency direction. It is an invariant architectural standard, not a
+reconciliation ledger ("对账文件"), status tracker, or migration log: do not edit it for routine
+features, incremental refactorings, or temporary transitions. It may be updated only when an
+irreducible architectural boundary or module ownership fundamentally shifts.
 
-If ownership or dependency direction changes, update the architecture document in the same change.
-Every architecture-sensitive handoff must include an `Architecture Impact` note naming the owner,
-boundary effect, and any exception.
+Read it before architecture-sensitive work, apply the fix at the owning layer, and never use an
+existing violation as precedent. Every architecture-sensitive handoff must include an
+`Architecture Impact` note naming the owner, boundary effect, and any exception.
 
 ## 3. Task Routing
 
@@ -128,9 +130,20 @@ Do **not**:
   PR surface). Use `just preflight` while iterating when you want a path-aware subset without a
   full check.
 
+### 5.3 Permission failures
+
+When a repository-owned build, test, or quality command fails because a user-level toolchain,
+distribution, daemon, telemetry path, or cache is not writable in the sandbox, immediately request
+permission to rerun the original command with elevated access.
+
+Do not redirect `XDG_CACHE_HOME`, `GRADLE_USER_HOME`, `CARGO_HOME`, Kotlin toolchain build paths, or
+similar state into the repository. Do not create repository-local isolation, cache, toolchain, or
+distribution directories as a workaround for a permission failure. If such a directory was created,
+stop the process using it and remove that exact directory before continuing.
+
 ## 6. Repository Facts
 
-- `minSdk` and native Android API are `26`; Rust is `1.97`; Android NDK is `29.0.14206865`.
+- `minSdk` and native Android API are `26`; Rust is `1.98`; Android NDK is `29.0.14206865`.
 - i18n changes update both `values` and `values-zh-rCN`.
 - Version-controlled Kotlin modules use Amper roots such as `src/`, `test/`, `resources/`, and
   Android/Compose resource roots. Never add Maven/Java source hierarchies or common package-root

@@ -9,9 +9,13 @@ set -euo pipefail
 #   (rust-toolchain.toml + matching rust-version), NDK 29, BoltFFI JNI library identity,
 #   four Android ABIs, and ignored generated outputs are fixed at the owning boundary.
 # - Given old workflow tails, when the repository is inspected, then none remain.
-# Observable outcomes: missing canonical wiring or retained legacy orchestration fails this script.
-# TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained.
-# Excludes: executing external tools, compiling product code, and device runtime behavior.
+# - Given detekt ships a fat ktlint wrapper, when formatting resolves plugins, then the wrapper is
+#   sufficient without an obsolete separately packaged ktlint artifact.
+# Observable outcomes: missing canonical wiring, retained legacy orchestration, or rejected current
+# detekt packaging fails this script.
+# TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained; RED on
+# 2026-08-09 because formatting required ktlint-repackage 2.0.0-alpha.6, which was never published.
+# Excludes: compiling product code and device runtime behavior.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -133,5 +137,38 @@ done
 if command -v just >/dev/null 2>&1; then
   just --list >/dev/null
 fi
+
+(
+  format_contract_dir="$(mktemp -d /tmp/lomo-format-contract.XXXXXX)"
+  trap 'rm -rf -- "$format_contract_dir"' EXIT
+  wrapper_dir="$format_contract_dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat"
+  wrapper_classes="$format_contract_dir/wrapper-classes"
+  build_dir="$format_contract_dir/build"
+  cache_dir="$format_contract_dir/cache"
+  mkdir -p \
+    "$wrapper_dir" \
+    "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api" \
+    "$build_dir/tasks/_detekt-rules_jarJvm" \
+    "$cache_dir/lomo/detekt" \
+    "$format_contract_dir/bin" \
+    "$format_contract_dir/home"
+  : > "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api/Rule.class"
+  jar cf \
+    "$wrapper_dir/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar" \
+    -C "$wrapper_classes" .
+  : > "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
+  : > "$cache_dir/lomo/detekt/detekt-cli-2.0.0-alpha.6-all.jar"
+  printf 'package contract\n' > "$format_contract_dir/Sample.kt"
+  ln -s "$(type -P true)" "$format_contract_dir/bin/java"
+
+  PATH="$format_contract_dir/bin:$PATH" \
+    HOME="$format_contract_dir/home" \
+    USER=lomo-format-contract-no-host \
+    GRADLE_USER_HOME="$format_contract_dir/gradle" \
+    XDG_CACHE_HOME="$cache_dir" \
+    LOMO_KOTLIN_BUILD_DIR="$build_dir" \
+    LOMO_KOTLIN_WRAPPER=/bin/false \
+    quality/scripts/kotlin_detekt_format.sh files "$format_contract_dir/Sample.kt" >/dev/null
+) || fail "detekt formatting must accept a fat ktlint wrapper without ktlint-repackage"
 
 echo "xtask-contract: ok"

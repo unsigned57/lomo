@@ -6,11 +6,23 @@
 
 pub use boltffi_core::{
     ArcFromCallbackHandle, BoxFromCallbackHandle, CallbackForeignType, CallbackHandle,
-    CustomFfiConvertible, CustomTypeConversionError, Data, EventSubscription, FfiType,
-    InternedString, InternedStringPool, InternedStringRepr, StreamProducer,
-    UnexpectedFfiCallbackError, custom_ffi, custom_type, data, default, error, export, ffi_stream,
-    interned_string_pool, name, skip,
+    CustomFfiConvertible, CustomTypeConversionError, EventSubscription, FfiType, InternedString,
+    InternedStringPool, InternedStringRepr, StreamProducer, UnexpectedFfiCallbackError, custom_ffi,
+    custom_type, data, default, error, export, ffi_stream, interned_string_pool, name, skip,
 };
+
+#[doc(hidden)]
+pub mod __dart_sync_ffi {
+    pub struct SyncFfiScope;
+
+    impl SyncFfiScope {
+        #[inline]
+        #[must_use]
+        pub const fn enter() -> Self {
+            Self
+        }
+    }
+}
 
 #[doc(hidden)]
 pub mod __private {
