@@ -9,8 +9,8 @@ settings:
     minSdk: 26
     compileSdk: 37
     targetSdk: 37
-    versionCode: 46
-    versionName: 1.6.2
+    versionCode: 47
+    versionName: 2.0.0
   jvm:
     release: 25
     jdk:

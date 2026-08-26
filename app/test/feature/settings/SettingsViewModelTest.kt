@@ -23,6 +23,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCredentialRepository
 import com.lomo.app.testing.fakes.FakeLanShareService
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
@@ -322,6 +323,14 @@ class SettingsViewModelTest : AppFunSpec() {
                     StoredCredentialStatus.Present
             }
         }
+
+        test("clearOperationError clears active operationError from ui state") {
+            runTest {
+                val viewModel = createViewModel()
+                viewModel.clearOperationError()
+                viewModel.uiState.value.operationError shouldBe null
+            }
+        }
     }
 
     private fun createViewModel(): SettingsViewModel =
@@ -337,6 +346,7 @@ class SettingsViewModelTest : AppFunSpec() {
                 memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                 memoVersionRepository = memoVersionRepository,
                 customFontStore = FakeCustomFontStore(),
+                engineReadinessRepository = FakeEngineReadinessRepository(),
             ),
             exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
             importAllNotesArchiveUseCase =
