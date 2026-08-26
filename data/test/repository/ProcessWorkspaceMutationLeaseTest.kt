@@ -15,6 +15,8 @@ package com.lomo.data.repository
  * - Given an active transition, when a new writer asks for admission, then withWrite fails closed
  *   and withWriteOrNull reports the refusal without running its block.
  * - Given a non-Ready engine, when withWrite runs, then it fails closed before the block runs.
+ * - Given a newly promoted workspace whose first projection is still building, when a writer asks
+ *   for admission, then it fails closed until the projection is verified.
  * - Given a transition body that throws, when it fails, then admissions reopen.
  * - Given a writer that nests another withWrite, when the inner admission is requested, then it
  *   reuses the outer one instead of taking a second registration.
@@ -41,6 +43,7 @@ package com.lomo.data.repository
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.WorkspaceAuthority
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
@@ -154,6 +157,27 @@ class ProcessWorkspaceMutationLeaseTest : DataFunSpec() {
                 blockRan shouldBe false
                 lease.withWriteOrNull { blockRan = true } shouldBe null
                 blockRan shouldBe false
+            }
+        }
+
+        test("given initial projection building when withWrite runs then it fails closed until verified") {
+            runTest {
+                val readiness = FakeEngineReadinessRepository()
+                val lease = ProcessWorkspaceMutationLease(readiness)
+                var blockRan = false
+                readiness.publishProjectionFreshness(ProjectionFreshness.Building(baseRevision = 0uL))
+
+                val error =
+                    shouldThrow<IllegalStateException> {
+                        lease.withWrite { blockRan = true }
+                    }
+
+                error.message.shouldContain("projection is not verified")
+                blockRan shouldBe false
+                lease.isWritable() shouldBe false
+                readiness.publishProjectionFreshness(ProjectionFreshness.Verified(revision = 1uL))
+                lease.withWrite { blockRan = true }
+                blockRan shouldBe true
             }
         }
 

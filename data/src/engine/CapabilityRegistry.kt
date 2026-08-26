@@ -105,12 +105,18 @@ internal object SafWorkspaceIdentity {
         val rawPath = requireNotNull(uri.rawPath) { "SAF tree URI must contain a tree path" }
         require(rawPath.startsWith(TREE_PATH_PREFIX)) { "SAF tree URI must identify a tree root" }
         val rawDocumentId = rawPath.removePrefix(TREE_PATH_PREFIX)
-        require(rawDocumentId.isNotBlank() && '/' !in rawDocumentId) {
-            "SAF tree URI must contain exactly one encoded tree document ID"
+        require(rawDocumentId.isNotBlank()) {
+            "SAF tree URI must contain a non-blank tree document ID"
         }
+        val treeRootSegment =
+            if (rawDocumentId.contains("/document/")) {
+                rawDocumentId.substringBefore("/document/")
+            } else {
+                rawDocumentId
+            }
         val documentId =
             URLDecoder.decode(
-                rawDocumentId.replace("+", "%2B"),
+                treeRootSegment.replace("+", "%2B"),
                 StandardCharsets.UTF_8.name(),
             )
         require(documentId.isNotBlank()) { "SAF tree document ID must be non-blank" }

@@ -17,6 +17,10 @@
  *   exact memo content is resolved and no preview/source fallback exists.
  * - Given typed reminder facts and identity in a scan summary, when converted, then every field is
  *   preserved for the session-owned query/rewrite boundary.
+ * - Given Rust-parsed affected memo facts in a document command result, when converted, then the
+ *   projection identity, source fingerprint, tags, attachments, and semantic flags are preserved.
+ * - Given a trash command result and trash scan page, when converted, then the durable timestamp,
+ *   recoverable body reference, and Rust-parsed memo facts cross without Kotlin reconstruction.
  *
  * Observable outcomes:
  * - Domain MarkdownRenderBlock/Inline fields, complete scan content, and structured boundary errors.
@@ -24,9 +28,17 @@
  * TDD proof:
  * - RED before the fix: generated RenderDocument exposes typed nodes, while the adapter still expects
  *   blocksJson and has no validated typed-node snapshot surface.
+ * - RED on 2026-08-09: generated trash DTOs had no data-owned snapshot mapping.
  *
  * Excludes:
  * - Markdown recognition, Compose layout, generated binding internals, engine lifecycle.
+ *
+ * Test Change Justification:
+ * - Reason category: workspace FFI adapter trash and history scanning mapping.
+ * - Old behavior/assertion being replaced: document command without trash facts mapping.
+ * - Why old assertion is no longer correct: added trash scan and command DTO adapters across BoltFFI boundary.
+ * - Coverage preserved by: render node conversion and trash scan/command mappings remain fully verified.
+ * - Why this is not fitting the test to the implementation: verifies cross-language DTO data loss prevention.
  */
 package com.lomo.data.engine
 
@@ -40,6 +52,11 @@ import com.lomo.nativebridge.WorkspaceMemoContentReference
 import com.lomo.nativebridge.WorkspaceMemoSummary
 import com.lomo.nativebridge.WorkspaceScanPage
 import com.lomo.nativebridge.WorkspaceReminderReference
+import com.lomo.nativebridge.WorkspaceDocumentCommandResult
+import com.lomo.nativebridge.WorkspaceDocumentMemoFacts
+import com.lomo.nativebridge.WorkspaceTrashCommandResult
+import com.lomo.nativebridge.WorkspaceTrashMemoSummary
+import com.lomo.nativebridge.WorkspaceTrashScanPage
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -250,6 +267,100 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    test("given affected memo facts when command result converts then projection facts are preserved") {
+        val result =
+            WorkspaceDocumentCommandResult(
+                path = "2026_08_09.md",
+                resultFingerprint = "a".repeat(64),
+                bytesWritten = 42uL,
+                affectedMemo =
+                    WorkspaceDocumentMemoFacts(
+                        path = "2026_08_09.md",
+                        identity = "2026_08_09_20:44:00_0",
+                        timePart = "20:44:00",
+                        fingerprint = "a".repeat(64),
+                        tags = listOf("rust"),
+                        attachments = listOf("images/probe.png"),
+                        reminders = emptyList(),
+                        hasTodo = true,
+                        hasUrl = true,
+                    ),
+            )
+
+        val snapshot = result.toSnapshot()
+
+        snapshot.affectedMemo shouldBe
+            WorkspaceDocumentMemoFactsSnapshot(
+                path = "2026_08_09.md",
+                identity = "2026_08_09_20:44:00_0",
+                timePart = "20:44:00",
+                fingerprint = "a".repeat(64),
+                tags = listOf("rust"),
+                attachments = listOf("images/probe.png"),
+                reminders = emptyList(),
+                hasTodo = true,
+                hasUrl = true,
+            )
+    }
+
+    test("given durable trash DTOs when converted then timestamp body reference and facts are preserved") {
+        val facts =
+            WorkspaceDocumentMemoFacts(
+                path = "2026_08_10.md",
+                identity = "2026_08_10_09:30:00_0",
+                timePart = "09:30:00",
+                fingerprint = "a".repeat(64),
+                tags = listOf("trash"),
+                attachments = listOf("images/recover.png"),
+                reminders = emptyList(),
+                hasTodo = true,
+                hasUrl = false,
+            )
+        val command =
+            WorkspaceTrashCommandResult(
+                path = facts.path,
+                resultFingerprint = facts.fingerprint,
+                affectedMemo = facts,
+                trashedAtMs = 1_754_812_600_000L,
+            )
+        val page =
+            WorkspaceTrashScanPage(
+                items =
+                    listOf(
+                        WorkspaceTrashMemoSummary(
+                            memoId = facts.identity,
+                            sourcePath = facts.path,
+                            timePart = facts.timePart,
+                            sourceFingerprint = facts.fingerprint,
+                            chronologyEpochMs = 1_754_812_200_000L,
+                            trashedAtMs = 1_754_812_600_000L,
+                            tags = facts.tags,
+                            attachments = facts.attachments,
+                            reminders = emptyList(),
+                            hasTodo = facts.hasTodo,
+                            hasUrl = facts.hasUrl,
+                            content =
+                                WorkspaceMemoContentReference(
+                                    exchangeToken = "ex.${"b".repeat(64)}.trash",
+                                    length = 12uL,
+                                    digest = "b".repeat(64),
+                                ),
+                        ),
+                    ),
+                nextCursor = "next-trash",
+            )
+
+        val commandSnapshot = command.toSnapshot()
+        val pageSnapshot = page.toProjectionSnapshot()
+
+        commandSnapshot.trashedAtMs shouldBe 1_754_812_600_000L
+        commandSnapshot.affectedMemo.identity shouldBe facts.identity
+        pageSnapshot.nextCursor shouldBe "next-trash"
+        pageSnapshot.items.single().trashedAtMs shouldBe 1_754_812_600_000L
+        pageSnapshot.items.single().content.token shouldBe "ex.${"b".repeat(64)}.trash"
+        pageSnapshot.items.single().attachmentPaths shouldBe listOf("images/recover.png")
     }
 })
 

@@ -66,11 +66,17 @@ val engineModule =
             val registry = get<CapabilityRegistry>()
             val executor = get<AndroidPlatformActionExecutor>()
             val exchangeResolver = get<ExchangeResolver>()
+            val documents = get<com.lomo.data.engine.PlatformDocumentsGateway>()
             ManagedEngineSession(
                 filesDir = filesDir,
                 capabilityRegistry = registry,
                 openAdapter = { request ->
-                    BoltFfiNativeEngineFactory.openAdapter(request, exchangeResolver, executor)
+                    BoltFfiNativeEngineFactory.openAdapter(
+                        request,
+                        exchangeResolver,
+                        executor,
+                        documents,
+                    )
                 },
                 directorySettingsRepository = get<DirectorySettingsRepository>(),
                 appScope = get(named("ApplicationScope")),

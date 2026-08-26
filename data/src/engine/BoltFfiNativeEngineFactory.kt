@@ -1,8 +1,10 @@
 package com.lomo.data.engine
 
 import com.lomo.nativebridge.EngineConfig
+import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.WorkspaceDescriptor
+import com.lomo.nativebridge.WorkspaceTarget
 import java.io.File
 
 /**
@@ -23,11 +25,29 @@ internal object BoltFfiNativeEngineFactory {
         request: NativeEngineOpenRequest,
         exchangeResolver: ExchangeResolver,
         executor: AndroidPlatformActionExecutor,
+        documents: PlatformDocumentsGateway,
     ): RustEngineAdapter {
         val port = openPort(request, exchangeResolver)
+        val safGrant = (request.workspace as? NativeWorkspaceSelection.Saf)?.grant
         return RustEngineAdapter.acquire(
             native = port,
             platformBatchRunner = PlatformBatchRunner(native = port, executor = executor),
+            sourceDocumentFingerprintProbe =
+                safGrant?.let { grant ->
+                    { path ->
+                        val snapshot =
+                            documents.stat(
+                                grant.treeUri,
+                                WorkspaceTarget.Relative(path),
+                            )
+                        when {
+                            snapshot == null -> null
+                            snapshot.kind != DocumentKind.FILE ->
+                                error("Workspace document path is not a file: $path")
+                            else -> snapshot.digest
+                        }
+                    }
+                },
         )
     }
 

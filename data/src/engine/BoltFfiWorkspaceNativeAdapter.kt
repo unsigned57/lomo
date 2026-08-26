@@ -10,6 +10,7 @@ import com.lomo.nativebridge.RenderDocument
 import com.lomo.nativebridge.RenderNode
 import com.lomo.nativebridge.RenderNodeKind
 import com.lomo.nativebridge.WorkspaceDocumentCommandKind
+import com.lomo.nativebridge.WorkspaceDocumentHistoryWrite
 import com.lomo.nativebridge.WorkspaceReminderReference
 
 internal fun WorkspaceNativeCommandSpec.toBridge(): WorkspaceDocumentCommandKind =
@@ -43,12 +44,39 @@ internal fun WorkspaceNativeCommandSpec.toBridge(): WorkspaceDocumentCommandKind
             )
     }
 
+internal fun WorkspaceNativeHistoryWrite.toBridge(): WorkspaceDocumentHistoryWrite =
+    WorkspaceDocumentHistoryWrite(revision = revision, createdAtMs = createdAtMs)
+
+internal fun WorkspaceNativeCommandSpec.historyWrite(): WorkspaceNativeHistoryWrite? =
+    when (this) {
+        is WorkspaceNativeCommandSpec.Create -> history
+        is WorkspaceNativeCommandSpec.Append -> history
+        is WorkspaceNativeCommandSpec.Replace -> history
+        is WorkspaceNativeCommandSpec.Remove,
+        is WorkspaceNativeCommandSpec.ToggleTask,
+        is WorkspaceNativeCommandSpec.RewriteReminder,
+        -> null
+    }
+
 internal fun WorkspaceNativeExpectedState.toBridge(): com.lomo.nativebridge.WorkspaceDocumentExpectedState =
     when (this) {
         WorkspaceNativeExpectedState.Absent ->
             com.lomo.nativebridge.WorkspaceDocumentExpectedState.Absent
         is WorkspaceNativeExpectedState.Match ->
             com.lomo.nativebridge.WorkspaceDocumentExpectedState.Match(fingerprint)
+    }
+
+internal fun WorkspaceNativeTrashCommandSpec.toBridge(): com.lomo.nativebridge.WorkspaceTrashCommandKind =
+    when (this) {
+        is WorkspaceNativeTrashCommandSpec.Trash ->
+            com.lomo.nativebridge.WorkspaceTrashCommandKind.Trash(
+                identity = identity,
+                chronologyEpochMs = chronologyEpochMs,
+            )
+        is WorkspaceNativeTrashCommandSpec.Restore ->
+            com.lomo.nativebridge.WorkspaceTrashCommandKind.Restore(identity = identity)
+        is WorkspaceNativeTrashCommandSpec.PermanentDelete ->
+            com.lomo.nativebridge.WorkspaceTrashCommandKind.PermanentDelete(identity = identity)
     }
 
 private fun WorkspaceReminderReferenceSnapshot.toBridge(): WorkspaceReminderReference =
@@ -454,9 +482,81 @@ internal fun com.lomo.nativebridge.WorkspaceScanPage.toProjectionSnapshot(): Wor
         nextCursor = nextCursor,
     )
 
+internal fun com.lomo.nativebridge.WorkspaceTrashScanPage.toProjectionSnapshot():
+    WorkspaceTrashProjectionScanPageSnapshot =
+    WorkspaceTrashProjectionScanPageSnapshot(
+        items =
+            items.map { item ->
+                SafTrashProjectionReferenceSnapshot(
+                    memoId = item.memoId,
+                    sourcePath = item.sourcePath,
+                    fileFingerprint = item.sourceFingerprint,
+                    chronologyEpochMs = item.chronologyEpochMs,
+                    trashedAtMs = item.trashedAtMs,
+                    content =
+                        ExchangeArtifactReference(
+                            token = item.content.exchangeToken,
+                            length = item.content.length,
+                            digest = item.content.digest,
+                        ),
+                    tags = item.tags,
+                    attachmentPaths = item.attachments,
+                    hasTodo = item.hasTodo,
+                    hasUrl = item.hasUrl,
+                    reminders = item.reminders.map(WorkspaceReminderReference::toSnapshot),
+                )
+            },
+        nextCursor = nextCursor,
+    )
+
+internal fun com.lomo.nativebridge.WorkspaceHistoryScanPage.toProjectionSnapshot():
+    WorkspaceHistoryProjectionScanPageSnapshot =
+    WorkspaceHistoryProjectionScanPageSnapshot(
+        items =
+            items.map { item ->
+                SafHistoryProjectionReferenceSnapshot(
+                    memoId = item.memoId,
+                    revision = item.revision,
+                    createdAtMs = item.createdAtMs,
+                    fileFingerprint = item.fileFingerprint,
+                    content =
+                        ExchangeArtifactReference(
+                            token = item.content.exchangeToken,
+                            length = item.content.length,
+                            digest = item.content.digest,
+                        ),
+                )
+            },
+        nextCursor = nextCursor,
+    )
+
 internal fun com.lomo.nativebridge.WorkspaceDocumentCommandResult.toSnapshot(): WorkspaceNativeCommandResultSnapshot =
     WorkspaceNativeCommandResultSnapshot(
         path = path,
         resultFingerprint = resultFingerprint,
         bytesWritten = bytesWritten,
+        affectedMemo = affectedMemo?.toSnapshot(),
+    )
+
+internal fun com.lomo.nativebridge.WorkspaceTrashCommandResult.toSnapshot():
+    WorkspaceNativeTrashCommandResultSnapshot =
+    WorkspaceNativeTrashCommandResultSnapshot(
+        path = path,
+        resultFingerprint = resultFingerprint,
+        affectedMemo = affectedMemo.toSnapshot(),
+        trashedAtMs = trashedAtMs,
+    )
+
+private fun com.lomo.nativebridge.WorkspaceDocumentMemoFacts.toSnapshot():
+    WorkspaceDocumentMemoFactsSnapshot =
+    WorkspaceDocumentMemoFactsSnapshot(
+        path = path,
+        identity = identity,
+        timePart = timePart,
+        fingerprint = fingerprint,
+        tags = tags,
+        attachments = attachments,
+        reminders = reminders.map(WorkspaceReminderReference::toSnapshot),
+        hasTodo = hasTodo,
+        hasUrl = hasUrl,
     )

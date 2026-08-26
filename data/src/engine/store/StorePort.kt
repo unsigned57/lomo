@@ -9,8 +9,8 @@ package com.lomo.data.engine.store
 data class StoreMemoFilters(
     val tag: String? = null,
     val tagSubtree: Boolean = false,
-    val dateFromMs: Long? = null,
-    val dateToMs: Long? = null,
+    val dateFromInclusiveMs: Long? = null,
+    val dateUntilExclusiveMs: Long? = null,
     val hasTodo: Boolean? = null,
     val hasAttachment: Boolean? = null,
     val hasUrl: Boolean? = null,
@@ -19,9 +19,25 @@ data class StoreMemoFilters(
     val trashOnly: Boolean = false,
 )
 
+enum class StoreMemoSortField {
+    CreatedAt,
+    UpdatedAt,
+}
+
+enum class StoreSortDirection {
+    Ascending,
+    Descending,
+}
+
+data class StoreMemoSort(
+    val field: StoreMemoSortField = StoreMemoSortField.CreatedAt,
+    val direction: StoreSortDirection = StoreSortDirection.Descending,
+)
+
 data class StoreMemoQuery(
     val searchText: String? = null,
     val filters: StoreMemoFilters = StoreMemoFilters(),
+    val sort: StoreMemoSort = StoreMemoSort(),
 )
 
 data class StorePageCursor(
@@ -59,6 +75,18 @@ data class StoreMemoSnapshot(
     val body: String,
 )
 
+/** Rust-owned projection domains attached to each committed store mutation. */
+enum class StoreInvalidationScope {
+    MemoList,
+    Search,
+    Trash,
+    Pin,
+    Tags,
+    Stats,
+    Reminder,
+    Full,
+}
+
 data class StoreSidebarDateCount(
     val date: String,
     val count: Int,
@@ -83,7 +111,7 @@ data class StoreMemoCommit(
     val eventSequence: Long,
     val contentRevision: Long,
     val fileFingerprint: String,
-    val scopes: List<String>,
+    val scopes: List<StoreInvalidationScope>,
     val idempotentReplay: Boolean,
 )
 
@@ -109,7 +137,7 @@ data class StoreMemoCommand(
     val pin: Boolean? = null,
     /** Committed promote plans only; empty means no media promote in this operation. */
     val pendingPromotes: List<com.lomo.data.engine.media.MediaPromotePlan> = emptyList(),
-    /** Required for SAF create; absent for update/delete/pin and ignored by Direct writes. */
+    /** Commit time required for SAF create/update/history restore; ignored by Direct writes. */
     val chronologyEpochMs: Long? = null,
 )
 

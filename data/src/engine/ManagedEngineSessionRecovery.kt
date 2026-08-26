@@ -1,6 +1,8 @@
 package com.lomo.data.engine
 
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 
 internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery =
     when (error) {
@@ -14,25 +16,21 @@ internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRe
             )
         else ->
             EngineReadiness.ReadOnlyRecovery(
-                category = EngineReadiness.FailureCategory.INTERNAL,
+                category = EngineFailureCategory.INTERNAL,
                 code = "workspace_open_failed",
-                retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                 diagnostic = error.message ?: "Workspace open failed",
             )
     }
 
-private fun String.toRecoveryRetryDisposition(): EngineReadiness.RetryDisposition =
-    when (this) {
-        "never" -> EngineReadiness.RetryDisposition.NEVER
-        "after_user_action" -> EngineReadiness.RetryDisposition.AFTER_USER_ACTION
-        "transient" -> EngineReadiness.RetryDisposition.TRANSIENT
-        else -> error("Unknown Rust engine retry disposition: $this")
-    }
+private fun String.toRecoveryRetryDisposition(): EngineRetryDisposition =
+    EngineRetryDisposition.fromWireOrNull(this)
+        ?: error("Unknown Rust engine retry disposition: $this")
 
 internal fun workspaceOpenNotReady(readiness: EngineReadiness): EngineReadiness.ReadOnlyRecovery =
     EngineReadiness.ReadOnlyRecovery(
-        category = EngineReadiness.FailureCategory.INTERNAL,
+        category = EngineFailureCategory.INTERNAL,
         code = "workspace_open_not_ready",
-        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
         diagnostic = "Workspace open did not reach Ready (${readiness::class.simpleName})",
     )

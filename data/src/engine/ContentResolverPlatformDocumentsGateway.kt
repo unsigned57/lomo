@@ -64,61 +64,23 @@ internal class ContentResolverPlatformDocumentsGateway(
         contentResolver
             .query(childUri, DOCUMENT_PROJECTION, null, null, null)
             ?.use { queryCursor ->
-                val idIndex = queryCursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameIndex = queryCursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                val mimeIndex = queryCursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                val sizeIndex = queryCursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
-                val modifiedIndex =
-                    queryCursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-                var skipped = 0
+                val indices = DocumentColumnIndices.from(queryCursor)
                 val skip = cursor?.toIntOrNull() ?: 0
-                while (queryCursor.moveToNext() && items.size < pageSize.toInt()) {
-                    if (skipped < skip) {
-                        skipped += 1
-                    } else {
-                        val name = queryCursor.getString(nameIndex)
-                        val documentId = queryCursor.getString(idIndex)
-                        if (name != null && documentId != null) {
-                        val childPath =
-                            when (target) {
-                                is WorkspaceTarget.Root -> name
-                                is WorkspaceTarget.Relative -> "${target.path}/$name"
-                            }
-                        val mime = queryCursor.getString(mimeIndex)
-                        val kind =
-                            if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                                DocumentKind.DIRECTORY
-                            } else {
-                                DocumentKind.FILE
-                            }
-                        val length =
-                            if (kind == DocumentKind.DIRECTORY) {
-                                0uL
-                            } else {
-                                queryCursor.getLong(sizeIndex).coerceAtLeast(0L).toULong()
-                            }
-                        val lastModified = queryCursor.getLong(modifiedIndex).coerceAtLeast(0L)
-                        items +=
-                            PlatformDocumentSnapshot(
-                                target = WorkspaceTarget.Relative(childPath),
-                                kind = kind,
-                                mimeType =
-                                    mime?.takeUnless {
-                                        it == DocumentsContract.Document.MIME_TYPE_DIR
-                                    },
-                                length = length,
-                                lastModifiedEpochMillis = lastModified,
-                                documentId = documentId,
-                                // Enumeration proves metadata only. Content digest is established
-                                // by Stat/ReadToExchange when an operation actually needs bytes.
-                                digest = EMPTY_SHA256,
-                            )
+                var rowsConsumed = 0
+                var hasMoreRows = false
+                if (queryCursor.seekToPosition(skip)) {
+                    do {
+                        rowsConsumed += 1
+                        indices.extractChildSnapshot(queryCursor, target)?.let { items += it }
+                        if (items.size >= pageSize.toInt()) {
+                            hasMoreRows = queryCursor.moveToNext()
+                            break
                         }
-                    }
+                    } while (queryCursor.moveToNext())
                 }
                 val nextCursor =
-                    if (items.size >= pageSize.toInt() && queryCursor.moveToNext()) {
-                        (skip + items.size).toString()
+                    if (hasMoreRows) {
+                        (skip + rowsConsumed).toString()
                     } else {
                         null
                     }
@@ -216,34 +178,62 @@ internal class ContentResolverPlatformDocumentsGateway(
     ): PlatformDocumentSnapshot {
         val root = treeUri.toAndroidUri()
         val existing = resolvePath(root, path)
-        val targetUri = resolveWriteTargetUri(root, treeUri, path, mode, existing, mimeType)
-        contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
-            output.write(bytes)
-        } ?: errorIo("openOutputStream returned null for $path")
-        val documentId = DocumentsContract.getDocumentId(targetUri)
-        return querySnapshot(
-            documentUri = targetUri,
-            target = WorkspaceTarget.Relative(path),
-            documentId = documentId,
-            digestMode = SnapshotDigestMode.METADATA_ONLY,
-        )
-            ?.copy(digest = bytes.sha256Hex(), length = bytes.size.toULong())
-            ?: errorIo("Written document is not observable: $path")
+        val target = resolveWriteTarget(root, treeUri, path, mode, existing, mimeType)
+        try {
+            contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
+                output.write(bytes)
+            } ?: errorIo("openOutputStream returned null for $path")
+            val persistedBytes =
+                contentResolver.openInputStream(target.uri)?.use { input -> input.readBytes() }
+                    ?: errorIo("Written document cannot be reopened for verification: $path")
+            if (!persistedBytes.contentEquals(bytes)) {
+                errorIo("Written document readback does not match requested bytes: $path")
+            }
+            val documentId = DocumentsContract.getDocumentId(target.uri)
+            return querySnapshot(
+                documentUri = target.uri,
+                target = WorkspaceTarget.Relative(path),
+                documentId = documentId,
+                digestMode = SnapshotDigestMode.METADATA_ONLY,
+            )
+                ?.copy(
+                    digest = persistedBytes.sha256Hex(),
+                    length = persistedBytes.size.toULong(),
+                )
+                ?: errorIo("Written document is not observable: $path")
+        } catch (failure: Exception) {
+            if (target.createdByThisWrite) {
+                try {
+                    if (!DocumentsContract.deleteDocument(contentResolver, target.uri)) {
+                        failure.addSuppressed(
+                            IOException("Incomplete created document could not be deleted: $path"),
+                        )
+                    }
+                } catch (rollbackFailure: Exception) {
+                    failure.addSuppressed(rollbackFailure)
+                }
+            }
+            throw failure
+        }
     }
 
-    private fun resolveWriteTargetUri(
+    private fun resolveWriteTarget(
         root: Uri,
         treeUri: String,
         path: String,
         mode: WriteMode,
         existing: ResolvedDocument?,
         mimeType: String?,
-    ): Uri =
+    ): WriteTarget =
         when {
             existing != null && mode == WriteMode.CREATE ->
                 errorIo("Create refused over existing path: $path")
-            existing != null -> existing.uri
-            else -> createFile(root, treeUri, path, mimeType ?: "application/octet-stream")
+            existing != null -> WriteTarget(existing.uri, createdByThisWrite = false)
+            else ->
+                WriteTarget(
+                    uri = createFile(root, treeUri, path, mimeType ?: "application/octet-stream"),
+                    createdByThisWrite = true,
+                )
         }
 
     override fun move(
@@ -461,12 +451,17 @@ internal class ContentResolverPlatformDocumentsGateway(
         val uri: Uri,
     )
 
+    private data class WriteTarget(
+        val uri: Uri,
+        val createdByThisWrite: Boolean,
+    )
+
     private enum class SnapshotDigestMode {
         METADATA_ONLY,
         CONTENT,
     }
 
-    private companion object {
+    internal companion object {
         val DOCUMENT_PROJECTION =
             arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -478,3 +473,62 @@ internal class ContentResolverPlatformDocumentsGateway(
         val EMPTY_SHA256 = ByteArray(0).sha256Hex()
     }
 }
+
+private data class DocumentColumnIndices(
+    val idIndex: Int,
+    val nameIndex: Int,
+    val mimeIndex: Int,
+    val sizeIndex: Int,
+    val modifiedIndex: Int,
+) {
+    fun extractChildSnapshot(cursor: Cursor, target: WorkspaceTarget): PlatformDocumentSnapshot? {
+        val name = cursor.getString(nameIndex) ?: return null
+        val documentId = cursor.getString(idIndex) ?: return null
+        val childPath =
+            when (target) {
+                is WorkspaceTarget.Root -> name
+                is WorkspaceTarget.Relative -> "${target.path}/$name"
+            }
+        val mime = cursor.getString(mimeIndex)
+        val isDir = mime == DocumentsContract.Document.MIME_TYPE_DIR
+        val kind = if (isDir) DocumentKind.DIRECTORY else DocumentKind.FILE
+        val length = if (isDir) 0uL else cursor.getLong(sizeIndex).coerceAtLeast(0L).toULong()
+        val lastModified = cursor.getLong(modifiedIndex).coerceAtLeast(0L)
+        return PlatformDocumentSnapshot(
+            target = WorkspaceTarget.Relative(childPath),
+            kind = kind,
+            mimeType = mime?.takeUnless { isDir },
+            length = length,
+            lastModifiedEpochMillis = lastModified,
+            documentId = documentId,
+            digest = ContentResolverPlatformDocumentsGateway.EMPTY_SHA256,
+        )
+    }
+
+    companion object {
+        fun from(cursor: Cursor): DocumentColumnIndices =
+            DocumentColumnIndices(
+                idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE),
+                sizeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE),
+                modifiedIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+            )
+    }
+}
+
+private fun Cursor.seekToPosition(skip: Int): Boolean =
+    try {
+        moveToPosition(skip)
+    } catch (_: Exception) {
+        var advanced = 0
+        var hasMore = false
+        while (advanced <= skip && moveToNext()) {
+            advanced += 1
+            if (advanced > skip) {
+                hasMore = true
+                break
+            }
+        }
+        hasMore
+    }

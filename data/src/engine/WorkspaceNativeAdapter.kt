@@ -13,7 +13,8 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
 internal class WorkspaceRenderBoundaryException(
     val code: String,
     message: String,
-) : IllegalArgumentException(message)
+    cause: Throwable? = null,
+) : IllegalArgumentException(message, cause)
 
 internal data class WorkspaceMemoSummarySnapshot(
     val path: String,
@@ -79,6 +80,21 @@ internal data class SafMemoProjectionSnapshot(
     val hasTodo: Boolean,
     val hasUrl: Boolean,
     val reminders: List<WorkspaceReminderReferenceSnapshot>,
+    val trashedAtMs: Long? = null,
+)
+
+internal data class SafTrashProjectionReferenceSnapshot(
+    val memoId: String,
+    val sourcePath: String,
+    val fileFingerprint: String,
+    val chronologyEpochMs: Long,
+    val trashedAtMs: Long,
+    val content: ExchangeArtifactReference,
+    val tags: List<String>,
+    val attachmentPaths: List<String>,
+    val hasTodo: Boolean,
+    val hasUrl: Boolean,
+    val reminders: List<WorkspaceReminderReferenceSnapshot>,
 )
 
 internal data class WorkspaceProjectionScanPageSnapshot(
@@ -86,10 +102,50 @@ internal data class WorkspaceProjectionScanPageSnapshot(
     val nextCursor: String?,
 )
 
+internal data class WorkspaceTrashProjectionScanPageSnapshot(
+    val items: List<SafTrashProjectionReferenceSnapshot>,
+    val nextCursor: String?,
+)
+
+internal data class SafHistoryProjectionReferenceSnapshot(
+    val memoId: String,
+    val revision: ULong,
+    val createdAtMs: Long,
+    val fileFingerprint: String,
+    val content: ExchangeArtifactReference,
+)
+
+internal data class WorkspaceHistoryProjectionScanPageSnapshot(
+    val items: List<SafHistoryProjectionReferenceSnapshot>,
+    val nextCursor: String?,
+)
+
 internal data class WorkspaceNativeCommandResultSnapshot(
     val path: String,
     val resultFingerprint: String,
     val bytesWritten: ULong,
+    val affectedMemo: WorkspaceDocumentMemoFactsSnapshot?,
+)
+
+internal data class WorkspaceNativeTrashCommandResultSnapshot(
+    val path: String,
+    /** Fingerprint of the document after the verified command completed. */
+    val resultFingerprint: String,
+    /** Verified memo pre-image; its fingerprint may differ after permanent delete rewrites the document. */
+    val affectedMemo: WorkspaceDocumentMemoFactsSnapshot,
+    val trashedAtMs: Long?,
+)
+
+internal data class WorkspaceDocumentMemoFactsSnapshot(
+    val path: String,
+    val identity: String,
+    val timePart: String,
+    val fingerprint: String,
+    val tags: List<String>,
+    val attachments: List<String>,
+    val reminders: List<WorkspaceReminderReferenceSnapshot>,
+    val hasTodo: Boolean,
+    val hasUrl: Boolean,
 )
 
 internal interface WorkspaceMarkdownOwner {
@@ -113,16 +169,19 @@ internal sealed interface WorkspaceNativeCommandSpec {
     data class Create(
         val timePart: String,
         val content: String,
+        val history: WorkspaceNativeHistoryWrite? = null,
     ) : WorkspaceNativeCommandSpec
 
     data class Append(
         val timePart: String,
         val content: String,
+        val history: WorkspaceNativeHistoryWrite? = null,
     ) : WorkspaceNativeCommandSpec
 
     data class Replace(
         val identity: String,
         val content: String,
+        val history: WorkspaceNativeHistoryWrite? = null,
     ) : WorkspaceNativeCommandSpec
 
     data class Remove(
@@ -140,6 +199,26 @@ internal sealed interface WorkspaceNativeCommandSpec {
     ) : WorkspaceNativeCommandSpec
 }
 
+internal data class WorkspaceNativeHistoryWrite(
+    val revision: ULong,
+    val createdAtMs: Long,
+)
+
+internal sealed interface WorkspaceNativeTrashCommandSpec {
+    data class Trash(
+        val identity: String,
+        val chronologyEpochMs: Long,
+    ) : WorkspaceNativeTrashCommandSpec
+
+    data class Restore(
+        val identity: String,
+    ) : WorkspaceNativeTrashCommandSpec
+
+    data class PermanentDelete(
+        val identity: String,
+    ) : WorkspaceNativeTrashCommandSpec
+}
+
 internal sealed interface WorkspaceNativeExpectedState {
     data object Absent : WorkspaceNativeExpectedState
 
@@ -152,6 +231,7 @@ internal sealed interface WorkspaceNativeExpectedState {
  * Implementations hold the generated engine handle only through [NativeEnginePort] + lease rules.
  */
 internal interface WorkspaceNativeAdapter :
+    WorkspaceDurableRecordScanPort,
     com.lomo.data.engine.lan.LanNativeBridge,
     com.lomo.data.engine.store.StoreNativeBridge,
     com.lomo.data.engine.media.MediaNativeBridge,
@@ -181,19 +261,68 @@ internal interface WorkspaceNativeAdapter :
 
     fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot
 
+    fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong = DEFAULT_JOB_DEADLINE_MILLIS,
+    ): String
+
+    fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot
+
     companion object {
         // Full-workspace import/refresh can list+read many SAF documents in one scan job.
         const val DEFAULT_JOB_DEADLINE_MILLIS: ULong = 120_000uL
     }
 }
 
-/** One native handle carrying engine lifecycle and workspace/store/media/archive capabilities. */
-internal interface WorkspaceNativeEnginePort :
-    NativeEnginePort,
-    com.lomo.data.engine.lan.LanNativeBridge,
-    com.lomo.data.engine.store.StoreNativeBridge,
-    com.lomo.data.engine.media.MediaNativeBridge,
-    com.lomo.data.engine.archive.ArchiveNativeBridge {
+/** Bounded verified scans for durable record trees under the active workspace. */
+internal interface WorkspaceDurableRecordScanPort {
+    fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String? = null,
+        deadlineMillis: ULong = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
+    ): String
+
+    fun readWorkspaceTrashProjectionScanPage(jobId: String): WorkspaceTrashProjectionScanPageSnapshot
+
+    fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String? = null,
+        deadlineMillis: ULong = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
+    ): String
+
+    fun readWorkspaceHistoryProjectionScanPage(jobId: String): WorkspaceHistoryProjectionScanPageSnapshot
+}
+
+/** Streaming sink whose finish atomically publishes one complete SAF projection. */
+internal interface SafProjectionRebuildSink {
+    fun beginSafProjectionRebuild(): String
+
+    fun appendSafProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafMemoProjectionReferenceSnapshot>,
+    )
+
+    fun appendSafTrashProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafTrashProjectionReferenceSnapshot>,
+    )
+
+    fun appendSafHistoryProjectionRebuildPage(
+        rebuildId: String,
+        revisions: List<SafHistoryProjectionReferenceSnapshot>,
+    )
+
+    fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult
+
+    fun abortSafProjectionRebuild(rebuildId: String)
+}
+
+/** Read/rebuild capability of the Rust-owned workspace projection boundary. */
+internal interface WorkspaceProjectionEnginePort :
+    WorkspaceDurableRecordScanPort,
+    SafProjectionRebuildSink {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt,
@@ -210,17 +339,10 @@ internal interface WorkspaceNativeEnginePort :
 
     fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot
 
-    fun beginSafProjectionRebuild(): String
+}
 
-    fun appendSafProjectionRebuildPage(
-        rebuildId: String,
-        memos: List<SafMemoProjectionReferenceSnapshot>,
-    )
-
-    fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult
-
-    fun abortSafProjectionRebuild(rebuildId: String)
-
+/** Durable workspace mutation capability; every result is parsed and verified by Rust. */
+internal interface WorkspaceCommandEnginePort {
     fun startWorkspaceDocumentCommand(
         path: String,
         expectedState: WorkspaceNativeExpectedState,
@@ -229,4 +351,23 @@ internal interface WorkspaceNativeEnginePort :
     ): String
 
     fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot
+
+    fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String
+
+    fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot
 }
+
+/** One native handle carrying engine lifecycle and workspace/store/media/archive capabilities. */
+internal interface WorkspaceNativeEnginePort :
+    NativeEnginePort,
+    WorkspaceProjectionEnginePort,
+    WorkspaceCommandEnginePort,
+    com.lomo.data.engine.lan.LanNativeBridge,
+    com.lomo.data.engine.store.StoreNativeBridge,
+    com.lomo.data.engine.media.MediaNativeBridge,
+    com.lomo.data.engine.archive.ArchiveNativeBridge

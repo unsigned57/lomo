@@ -14,7 +14,9 @@ import com.lomo.data.engine.lan.LanSendItemPlan
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +36,7 @@ internal class RustEngineAdapter private constructor(
     private val native: WorkspaceNativeEnginePort,
     private val platformBatchRunner: PlatformBatchRunner,
     private val projectionScanNowMillis: () -> Long,
+    private val sourceDocumentFingerprintProbe: ((String) -> String?)?,
 ) : WorkspaceNativeAdapter,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
@@ -221,6 +224,28 @@ internal class RustEngineAdapter private constructor(
     override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
         native.readWorkspaceScanPage(jobId)
 
+    override fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String = native.startWorkspaceTrashScan(pageSize, cursor, deadlineMillis)
+
+    override fun readWorkspaceTrashProjectionScanPage(
+        jobId: String,
+    ): WorkspaceTrashProjectionScanPageSnapshot =
+        native.readWorkspaceTrashProjectionScanPage(jobId)
+
+    override fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String = native.startWorkspaceHistoryScan(pageSize, cursor, deadlineMillis)
+
+    override fun readWorkspaceHistoryProjectionScanPage(
+        jobId: String,
+    ): WorkspaceHistoryProjectionScanPageSnapshot =
+        native.readWorkspaceHistoryProjectionScanPage(jobId)
+
     fun rebuildSafProjectionFromWorkspaceScan(): com.lomo.nativebridge.StoreRebuildResult {
         return projectionRebuildCoordinator.run {
             rebuildSafProjection(
@@ -240,14 +265,19 @@ internal class RustEngineAdapter private constructor(
                         com.lomo.nativebridge.StoreMemoFilters(
                             tag = null,
                             tagSubtree = false,
-                            dateFromMs = null,
-                            dateToMs = null,
+                            dateFromInclusiveMs = null,
+                            dateUntilExclusiveMs = null,
                             hasTodo = null,
                             hasAttachment = null,
                             hasUrl = null,
                             pinnedOnly = false,
                             includeTrash = false,
                             trashOnly = false,
+                        ),
+                    sort =
+                        com.lomo.nativebridge.StoreMemoSort(
+                            field = com.lomo.nativebridge.StoreMemoSortField.CREATED_AT,
+                            direction = com.lomo.nativebridge.StoreSortDirection.DESCENDING,
                         ),
                 ),
             cursor = null,
@@ -270,6 +300,22 @@ internal class RustEngineAdapter private constructor(
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         native.readWorkspaceDocumentCommandResult(jobId)
 
+    override fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String =
+        native.startWorkspaceTrashCommand(
+            path = path,
+            expectedFingerprint = expectedFingerprint,
+            command = command,
+            deadlineMillis = deadlineMillis,
+        )
+
+    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
+        native.readWorkspaceTrashCommandResult(jobId)
+
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
@@ -277,6 +323,15 @@ internal class RustEngineAdapter private constructor(
     ): com.lomo.nativebridge.StoreMemoPage = native.queryMemos(query, cursor, pageSize)
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? {
+        val probe = sourceDocumentFingerprintProbe
+        return if (probe == null) {
+            native.sourceDocumentFingerprint(sourcePath)
+        } else {
+            probe(sourcePath)
+        }
+    }
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         native.sidebarProjection()
@@ -414,9 +469,9 @@ internal class RustEngineAdapter private constructor(
 
     private fun boundaryRecovery(error: Throwable): EngineReadiness.ReadOnlyRecovery =
         EngineReadiness.ReadOnlyRecovery(
-            category = EngineReadiness.FailureCategory.INTERNAL,
+            category = EngineFailureCategory.INTERNAL,
             code = "engine_state_unavailable",
-            retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
             diagnostic =
                 "Rust engine state could not be read at the adapter boundary: " +
                     (error.message ?: error::class.qualifiedName ?: "unknown failure"),
@@ -480,8 +535,15 @@ internal class RustEngineAdapter private constructor(
             native: WorkspaceNativeEnginePort,
             platformBatchRunner: PlatformBatchRunner,
             projectionScanNowMillis: () -> Long = { System.nanoTime() / NANOS_PER_MILLISECOND },
+            sourceDocumentFingerprintProbe: ((String) -> String?)? = null,
         ): RustEngineAdapter {
-            val adapter = RustEngineAdapter(native, platformBatchRunner, projectionScanNowMillis)
+            val adapter =
+                RustEngineAdapter(
+                    native,
+                    platformBatchRunner,
+                    projectionScanNowMillis,
+                    sourceDocumentFingerprintProbe,
+                )
             runCatching { adapter.completeAcquisition() }
                 .onFailure { failure ->
                     adapter.closed.set(true)
@@ -526,6 +588,46 @@ private fun rebuildSafProjection(
             )
             val page = native.readWorkspaceProjectionScanPage(jobId)
             native.appendSafProjectionRebuildPage(rebuildId, page.items)
+            cursor = page.nextCursor
+        } while (cursor != null)
+        cursor = null
+        do {
+            val deadlineMillis =
+                nowMillis() + WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS.toLong()
+            val jobId =
+                native.startWorkspaceTrashScan(
+                    pageSize = MAX_SAF_PROJECTION_PAGE_SIZE,
+                    cursor = cursor,
+                    deadlineMillis = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
+                )
+            driveProjectionScanToTerminal(
+                driveJob = driveJob,
+                jobId = jobId,
+                deadlineMillis = deadlineMillis,
+                nowMillis = nowMillis,
+            )
+            val page = native.readWorkspaceTrashProjectionScanPage(jobId)
+            native.appendSafTrashProjectionRebuildPage(rebuildId, page.items)
+            cursor = page.nextCursor
+        } while (cursor != null)
+        cursor = null
+        do {
+            val deadlineMillis =
+                nowMillis() + WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS.toLong()
+            val jobId =
+                native.startWorkspaceHistoryScan(
+                    pageSize = MAX_SAF_PROJECTION_PAGE_SIZE,
+                    cursor = cursor,
+                    deadlineMillis = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
+                )
+            driveProjectionScanToTerminal(
+                driveJob = driveJob,
+                jobId = jobId,
+                deadlineMillis = deadlineMillis,
+                nowMillis = nowMillis,
+            )
+            val page = native.readWorkspaceHistoryProjectionScanPage(jobId)
+            native.appendSafHistoryProjectionRebuildPage(rebuildId, page.items)
             cursor = page.nextCursor
         } while (cursor != null)
         return native.finishSafProjectionRebuild(rebuildId)
@@ -584,8 +686,8 @@ internal class ProjectionScanDeadlineExceededException :
         "Workspace projection scan exceeded its ${WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS}ms deadline",
     )
 
-// A projection scan job is driven by the same bounded platform-batch budget as memo scans:
-// one list batch plus at most 63 file reads must stay within the driver's 64-batch limit.
+// Rust enumerates at the protocol limit and repartitions independent reads into 63-action batches.
+// One full page therefore needs at most five read batches inside the driver's 64-batch window.
 private const val MAX_SAF_PROJECTION_PAGE_SIZE: UInt = 256u
 private const val NANOS_PER_MILLISECOND = 1_000_000L
 
@@ -604,27 +706,10 @@ private fun NativeEngineSnapshot.toDomain(): EngineReadiness =
         NativeEngineSnapshot.ShuttingDown -> EngineReadiness.ShuttingDown
     }
 
-internal fun String.toFailureCategory(): EngineReadiness.FailureCategory =
-    when (this) {
-        "validation" -> EngineReadiness.FailureCategory.VALIDATION
-        "permission" -> EngineReadiness.FailureCategory.PERMISSION
-        "corruption" -> EngineReadiness.FailureCategory.CORRUPTION
-        "storage" -> EngineReadiness.FailureCategory.STORAGE
-        "network" -> EngineReadiness.FailureCategory.NETWORK
-        "authentication" -> EngineReadiness.FailureCategory.AUTHENTICATION
-        "conflict" -> EngineReadiness.FailureCategory.CONFLICT
-        "cancelled" -> EngineReadiness.FailureCategory.CANCELLED
-        "timeout" -> EngineReadiness.FailureCategory.TIMEOUT
-        "busy" -> EngineReadiness.FailureCategory.BUSY
-        "resource_limit" -> EngineReadiness.FailureCategory.RESOURCE_LIMIT
-        "internal" -> EngineReadiness.FailureCategory.INTERNAL
-        else -> error("Unknown Rust engine failure category: $this")
-    }
+internal fun String.toFailureCategory(): EngineFailureCategory =
+    EngineFailureCategory.fromWireOrNull(this)
+        ?: error("Unknown Rust engine failure category: $this")
 
-private fun String.toRetryDisposition(): EngineReadiness.RetryDisposition =
-    when (this) {
-        "never" -> EngineReadiness.RetryDisposition.NEVER
-        "after_user_action" -> EngineReadiness.RetryDisposition.AFTER_USER_ACTION
-        "transient" -> EngineReadiness.RetryDisposition.TRANSIENT
-        else -> error("Unknown Rust engine retry disposition: $this")
-    }
+private fun String.toRetryDisposition(): EngineRetryDisposition =
+    EngineRetryDisposition.fromWireOrNull(this)
+        ?: error("Unknown Rust engine retry disposition: $this")

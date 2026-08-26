@@ -6,6 +6,9 @@ import com.lomo.nativebridge.EngineFailure
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformBatchResult
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 
 internal fun interface PlatformActionAccess {
     /** Executes and independently verifies one Rust-authored Android capability action. */
@@ -34,7 +37,7 @@ internal class AndroidPlatformActionExecutor(
                     ),
                 )
             } else {
-                executePrefix(batch.actions)
+                executeVerifiedPrefix(batch.actions)
             }
         return PlatformBatchResult(
             schemaVersion = batch.schemaVersion,
@@ -45,7 +48,14 @@ internal class AndroidPlatformActionExecutor(
         )
     }
 
-    private fun executePrefix(actions: List<PlatformAction>): List<ActionResult> {
+    private fun executeVerifiedPrefix(actions: List<PlatformAction>): List<ActionResult> =
+        if (actions.size > 1 && actions.all { action -> action is PlatformAction.ReadToExchange }) {
+            executeIndependentReads(actions)
+        } else {
+            executeSequentialPrefix(actions)
+        }
+
+    private fun executeSequentialPrefix(actions: List<PlatformAction>): List<ActionResult> {
         val results = ArrayList<ActionResult>(actions.size)
         for (action in actions) {
             val outcome = access.execute(action)
@@ -54,6 +64,39 @@ internal class AndroidPlatformActionExecutor(
         }
         return results
     }
+
+    private fun executeIndependentReads(actions: List<PlatformAction>): List<ActionResult> {
+        val executor = Executors.newFixedThreadPool(minOf(actions.size, MAX_PARALLEL_READS))
+        return try {
+            val futures =
+                executor.invokeAll(
+                    actions.map { action ->
+                        Callable {
+                            ActionResult(
+                                actionId = action.actionId(),
+                                outcome = access.execute(action),
+                            )
+                        }
+                    },
+                )
+            val ordered =
+                futures.map { future ->
+                    try {
+                        future.get()
+                    } catch (failure: ExecutionException) {
+                        throw failure.cause ?: failure
+                    }
+                }
+            ordered.takeThroughFirstFailure()
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+}
+
+private fun List<ActionResult>.takeThroughFirstFailure(): List<ActionResult> {
+    val failureIndex = indexOfFirst { result -> result.outcome is ActionOutcome.Failed }
+    return if (failureIndex < 0) this else subList(0, failureIndex + 1)
 }
 
 private fun batchDeadlineFailure(jobId: String): EngineFailure =
@@ -79,3 +122,4 @@ private fun PlatformAction.actionId(): String =
 
 private const val PLATFORM_SCHEMA_VERSION = 1u
 private const val MAX_PLATFORM_ACTIONS = 64
+private const val MAX_PARALLEL_READS = 8

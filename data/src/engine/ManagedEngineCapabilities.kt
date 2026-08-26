@@ -16,11 +16,25 @@ import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
+import com.lomo.domain.model.Recurrence
+import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.model.ReminderReference
+import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.domain.repository.MarkdownReminderRepository
+import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 /** Routes capability calls through the lifecycle owner's read leases. */
-internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
+internal abstract class ManagedEngineCapabilities :
+    WorkspaceNativeAdapter,
+    MarkdownWorkspaceRepository,
+    MarkdownReminderRepository,
+    WorkspaceMarkdownOwner {
     protected abstract fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T
 
     protected abstract fun <T> withActiveEngineAdapter(block: (RustEngineAdapter) -> T): T
@@ -28,6 +42,108 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
     protected abstract fun rebuildActiveStore(
         batchSize: UInt,
     ): com.lomo.nativebridge.StoreRebuildResult
+
+    override fun renderMarkdown(content: String) =
+        renderMarkdown(content = content, schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION)
+
+    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.findMemoSnapshot(memoIdentity).reminders.map(WorkspaceReminderReferenceSnapshot::toDomainMarker)
+        }
+
+    override suspend fun rewriteReminder(
+        reference: ReminderReference,
+        replacement: String,
+    ): String =
+        withActiveWorkspaceAdapter { adapter ->
+            val before = adapter.findMemoSnapshot(reference.memoIdentity)
+            val reminder =
+                before.reminders.singleOrNull { candidate -> candidate.matches(reference) }
+                    ?: throw engineCommandFailure(
+                        category = EngineFailureCategory.CONFLICT,
+                        code = "stale_snapshot",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "Reminder reference is not present in the current memo revision",
+                    )
+            val jobId =
+                adapter.startWorkspaceDocumentCommand(
+                    path = before.path,
+                    expectedState = WorkspaceNativeExpectedState.Match(reference.revision),
+                    command = WorkspaceNativeCommandSpec.RewriteReminder(reminder, replacement),
+                )
+            adapter.driveToCompletion(jobId)
+            adapter.readWorkspaceDocumentCommandResult(jobId)
+            adapter.findMemoSnapshot(reference.memoIdentity).content
+        }
+
+    override fun scanWorkspace(rootPath: String?): Sequence<WorkspaceMemoSummarySnapshot> =
+        withActiveWorkspaceAdapter { adapter -> adapter.scanAllMemoSnapshots(rootPath) }
+
+    override fun replaceMemo(
+        rootPath: String?,
+        filename: String,
+        identity: String,
+        content: String,
+    ): Boolean =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.executeMemoCommand(
+                rootPath,
+                filename,
+                identity,
+                WorkspaceNativeCommandSpec.Replace(identity, content),
+            )
+        }
+
+    override fun removeMemo(
+        rootPath: String?,
+        filename: String,
+        identity: String,
+    ): Boolean =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.executeMemoCommand(rootPath, filename, identity, WorkspaceNativeCommandSpec.Remove(identity))
+        }
+
+    override suspend fun toggleTask(
+        memoIdentity: String,
+        actionSpan: MarkdownSourceSpan,
+    ): String =
+        withActiveWorkspaceAdapter { adapter ->
+            val before = adapter.findMemoSnapshot(memoIdentity)
+            val relativeStart = actionSpan.startByte
+            val relativeEnd = actionSpan.endByte
+            val contentLength = before.content.encodeToByteArray().size.toULong()
+            if (relativeStart >= relativeEnd || relativeEnd > contentLength) {
+                throw engineCommandFailure(
+                    category = EngineFailureCategory.VALIDATION,
+                    code = "task_action_span_out_of_bounds",
+                    retryDisposition = EngineRetryDisposition.NEVER,
+                    diagnostic = "Task action span is outside the rendered memo body",
+                )
+            }
+            val absoluteStart = before.bodyStart.checkedAdd(relativeStart)
+            val absoluteEnd = before.bodyStart.checkedAdd(relativeEnd)
+            if (absoluteEnd > before.bodyEnd) {
+                throw engineCommandFailure(
+                    category = EngineFailureCategory.VALIDATION,
+                    code = "task_action_span_out_of_bounds",
+                    retryDisposition = EngineRetryDisposition.NEVER,
+                    diagnostic = "Task action span exceeds the scanned memo body",
+                )
+            }
+            val jobId =
+                adapter.startWorkspaceDocumentCommand(
+                    path = before.path,
+                    expectedState = WorkspaceNativeExpectedState.Match(before.fingerprint),
+                    command =
+                        WorkspaceNativeCommandSpec.ToggleTask(
+                            sourceStart = absoluteStart,
+                            sourceEnd = absoluteEnd,
+                        ),
+                )
+            adapter.driveToCompletion(jobId)
+            adapter.readWorkspaceDocumentCommandResult(jobId)
+            adapter.findMemoSnapshot(memoIdentity).content
+        }
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) =
         withActiveEngineAdapter { adapter -> adapter.updateLanNetworkSnapshot(snapshot) }
@@ -146,6 +262,34 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
     override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
         withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceScanPage(jobId) }
 
+    override fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.startWorkspaceTrashScan(pageSize, cursor, deadlineMillis)
+        }
+
+    override fun readWorkspaceTrashProjectionScanPage(
+        jobId: String,
+    ): WorkspaceTrashProjectionScanPageSnapshot =
+        withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceTrashProjectionScanPage(jobId) }
+
+    override fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.startWorkspaceHistoryScan(pageSize, cursor, deadlineMillis)
+        }
+
+    override fun readWorkspaceHistoryProjectionScanPage(
+        jobId: String,
+    ): WorkspaceHistoryProjectionScanPageSnapshot =
+        withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceHistoryProjectionScanPage(jobId) }
+
     override fun startWorkspaceDocumentCommand(
         path: String,
         expectedState: WorkspaceNativeExpectedState,
@@ -159,6 +303,19 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceDocumentCommandResult(jobId) }
 
+    override fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.startWorkspaceTrashCommand(path, expectedFingerprint, command, deadlineMillis)
+        }
+
+    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
+        withActiveWorkspaceAdapter { adapter -> adapter.readWorkspaceTrashCommandResult(jobId) }
+
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
@@ -168,6 +325,9 @@ internal abstract class ManagedEngineCapabilities : WorkspaceNativeAdapter {
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? =
+        withActiveWorkspaceAdapter { adapter -> adapter.sourceDocumentFingerprint(sourcePath) }
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         withActiveWorkspaceAdapter { adapter -> adapter.sidebarProjection() }
@@ -316,3 +476,101 @@ internal fun WorkspaceMemoSummarySnapshot.toSafProjectionSnapshot(): SafMemoProj
         hasUrl = hasUrl,
         reminders = reminders,
     )
+
+internal fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
+    val failure = when (val terminal = driveJob(jobId)) {
+        NativeJobStep.Completed -> null
+        is NativeJobStep.Failed -> terminal.failure.toWorkspaceCommandException()
+        is NativeJobStep.BlockedByConflict -> terminal.failure.toWorkspaceCommandException()
+        else -> engineCommandFailure(
+            category = EngineFailureCategory.INTERNAL,
+            code = "workspace_job_not_terminal",
+            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+            diagnostic = "Workspace job did not reach a terminal state",
+            jobId = jobId,
+        )
+    }
+    failure?.let { throw it }
+}
+
+private fun EngineFailureSnapshot.toWorkspaceCommandException(): EngineCommandFailureException =
+    EngineCommandFailureException(toEngineCommandFailure())
+
+private fun WorkspaceNativeAdapter.executeMemoCommand(
+    rootPath: String?,
+    filename: String,
+    identity: String,
+    command: WorkspaceNativeCommandSpec,
+): Boolean {
+    val snapshot =
+        scanAllMemoSnapshots(rootPath)
+            .firstOrNull { item -> item.identity == identity && item.path.substringAfterLast('/') == filename }
+            ?: return false
+    val jobId =
+        startWorkspaceDocumentCommand(
+            path = snapshot.path,
+            expectedState = WorkspaceNativeExpectedState.Match(snapshot.fingerprint),
+            command = command,
+        )
+    driveToCompletion(jobId)
+    readWorkspaceDocumentCommandResult(jobId)
+    return true
+}
+
+private fun ULong.checkedAdd(other: ULong): ULong {
+    if (this > ULong.MAX_VALUE - other) {
+        throw engineCommandFailure(
+            category = EngineFailureCategory.VALIDATION,
+            code = "task_action_span_overflow",
+            retryDisposition = EngineRetryDisposition.NEVER,
+            diagnostic = "Task action span cannot be represented",
+        )
+    }
+    return this + other
+}
+
+private fun WorkspaceReminderReferenceSnapshot.matches(reference: ReminderReference): Boolean =
+    opaqueId == reference.opaqueId &&
+        revision == reference.revision &&
+        memoIdentity == reference.memoIdentity &&
+        sourceStart == reference.sourceSpan.startByte &&
+        sourceEnd == reference.sourceSpan.endByte &&
+        tokenFingerprint == reference.tokenFingerprint
+
+private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker =
+    ReminderMarker(
+        dueAt =
+            try {
+                LocalDateTime.parse(dueAtLocal, ReminderMarker.TIMESTAMP_FORMAT)
+            } catch (error: java.time.format.DateTimeParseException) {
+                throw WorkspaceRenderBoundaryException(
+                    code = "invalid_reminder_due_at",
+                    message = "Rust reminder due-at fact is invalid: ${error.message}",
+                    cause = error,
+                )
+            },
+        repeatCount = repeatCount.toIntExact("repeat_count"),
+        firedCount = firedCount.toIntExact("fired_count"),
+        done = done,
+        intervalMinutes = intervalMinutes.toIntExact("interval_minutes"),
+        recurrence = Recurrence.fromCode(recurrenceCode),
+        reference =
+            ReminderReference(
+                opaqueId = opaqueId,
+                revision = revision,
+                memoIdentity = memoIdentity,
+                sourceSpan = MarkdownSourceSpan(startByte = sourceStart, endByte = sourceEnd),
+                tokenFingerprint = tokenFingerprint,
+            ),
+        token = token,
+    )
+
+private fun UInt.toIntExact(field: String): Int {
+    if (this > Int.MAX_VALUE.toUInt()) {
+        throw WorkspaceRenderBoundaryException(
+            code = "invalid_reminder_$field",
+            message = "Rust reminder $field exceeds Kotlin Int",
+        )
+    }
+    return toInt()
+}

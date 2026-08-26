@@ -27,29 +27,34 @@ internal fun applySafMemoCommandOnSafAdapter(
     require(command.pendingPromotes.isEmpty()) {
         "SAF memo mutation with pending media requires the platform media transaction"
     }
-    val before = adapter.scanAllMemoSnapshots(rootPath = null)
-    val existing = if (command.kind == com.lomo.nativebridge.StoreMemoCommandKind.CREATE) {
-        null
-    } else {
-        before.firstOrNull { it.identity == command.memoId }
-    }
     return when (command.kind) {
-        com.lomo.nativebridge.StoreMemoCommandKind.CREATE -> createSafMemo(adapter, command, before)
-        com.lomo.nativebridge.StoreMemoCommandKind.UPDATE -> updateSafMemo(adapter, command, existing)
-        com.lomo.nativebridge.StoreMemoCommandKind.DELETE -> deleteSafMemo(adapter, command, existing)
+        com.lomo.nativebridge.StoreMemoCommandKind.CREATE -> createSafMemo(adapter, command)
+        com.lomo.nativebridge.StoreMemoCommandKind.UPDATE,
+        com.lomo.nativebridge.StoreMemoCommandKind.HISTORY_RESTORE ->
+            replaceSafMemo(adapter, command, requireCurrentMemo(adapter, command, mustBeTrashed = false))
+        com.lomo.nativebridge.StoreMemoCommandKind.DELETE ->
+            deleteSafMemo(adapter, command, requireCurrentMemo(adapter, command, mustBeTrashed = false))
+        com.lomo.nativebridge.StoreMemoCommandKind.RESTORE ->
+            restoreSafMemo(adapter, command, requireCurrentMemo(adapter, command, mustBeTrashed = true))
+        com.lomo.nativebridge.StoreMemoCommandKind.PERMANENT_DELETE ->
+            permanentlyDeleteSafMemo(
+                adapter,
+                command,
+                requireCurrentMemo(adapter, command, mustBeTrashed = true),
+            )
         com.lomo.nativebridge.StoreMemoCommandKind.PIN,
         com.lomo.nativebridge.StoreMemoCommandKind.UNPIN -> adapter.commitSafProjectionMutation(command, null)
-        else -> error("SAF restore requires a dedicated platform mutation plan")
     }
 }
 
 private fun createSafMemo(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
-    before: Sequence<WorkspaceMemoSummarySnapshot>,
 ): com.lomo.nativebridge.StoreMemoCommit {
     val chronology = requireNotNull(command.chronologyEpochMs) { "SAF create requires chronologyEpochMs" }
     require(chronology > 0) { "SAF create chronologyEpochMs must be positive" }
+    require(command.expectedRevision == 0uL) { "SAF create expectedRevision must be zero" }
+    val content = requireNotNull(command.content) { "SAF create requires content" }
     val local = Instant.ofEpochMilli(chronology).atZone(ZoneId.systemDefault())
     val dateKey = local.toLocalDate().format(
         StorageFilenameFormats.formatter(StorageFilenameFormats.DEFAULT_PATTERN),
@@ -58,58 +63,172 @@ private fun createSafMemo(
         StorageTimestampFormats.formatter(StorageTimestampFormats.DEFAULT_PATTERN),
     )
     val path = "$dateKey.md"
-    val document = before.firstOrNull { it.path == path }
-    val specification = if (document == null) {
-        WorkspaceNativeCommandSpec.Create(timePart, requireNotNull(command.content))
-    } else {
-        WorkspaceNativeCommandSpec.Append(timePart, requireNotNull(command.content))
-    }
-    val jobId = adapter.startWorkspaceDocumentCommand(
-        path,
-        document?.let { WorkspaceNativeExpectedState.Match(it.fingerprint) }
-            ?: WorkspaceNativeExpectedState.Absent,
-        specification,
-    )
-    adapter.driveToCompletion(jobId)
-    adapter.readWorkspaceDocumentCommandResult(jobId)
-    val created = adapter.scanAllMemoSnapshots(null).firstOrNull {
-        it.path == path && it.identity.startsWith("${dateKey}_${timePart}_")
-    } ?: error("SAF create completed without one new scanned memo")
+    val sourceFingerprint = adapter.sourceDocumentFingerprint(path)
+    val specification =
+        sourceFingerprint?.let {
+            WorkspaceNativeCommandSpec.Append(
+                timePart = timePart,
+                content = content,
+                history = WorkspaceNativeHistoryWrite(revision = 1uL, createdAtMs = chronology),
+            )
+        } ?: WorkspaceNativeCommandSpec.Create(
+            timePart = timePart,
+            content = content,
+            history = WorkspaceNativeHistoryWrite(revision = 1uL, createdAtMs = chronology),
+        )
+    val expectedState =
+        sourceFingerprint?.let(WorkspaceNativeExpectedState::Match)
+            ?: WorkspaceNativeExpectedState.Absent
+    val result = adapter.executeDocumentCommand(path, expectedState, specification)
+    val affected = result.requireAffectedMemo(path = path)
+    val projection =
+        affected.toSafProjection(
+            documentFingerprint = result.resultFingerprint,
+            chronologyEpochMs = chronology,
+            body = content,
+        )
     return adapter.commitSafProjectionMutation(
-        command.copy(memoId = created.identity),
-        created.toSafProjectionSnapshot().toBridge(),
+        command.copy(memoId = affected.identity),
+        projection.toBridge(),
     )
 }
 
-private fun updateSafMemo(
+private fun replaceSafMemo(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
-    existing: WorkspaceMemoSummarySnapshot?,
+    existing: com.lomo.nativebridge.StoreMemoSnapshot,
 ): com.lomo.nativebridge.StoreMemoCommit {
-    val snapshot = requireNotNull(existing) { "SAF update memo not found: ${command.memoId}" }
-    val jobId = adapter.startWorkspaceDocumentCommand(
-        snapshot.path,
-        WorkspaceNativeExpectedState.Match(snapshot.fingerprint),
-        WorkspaceNativeCommandSpec.Replace(snapshot.identity, requireNotNull(command.content)),
+    val content = requireNotNull(command.content) { "SAF document replacement requires content" }
+    val committedAtMs = requireNotNull(command.chronologyEpochMs) {
+        "SAF document replacement requires chronologyEpochMs"
+    }
+    require(committedAtMs > 0) { "SAF document replacement chronologyEpochMs must be positive" }
+    val summary = existing.summary
+    val result =
+        adapter.executeDocumentCommand(
+            path = summary.sourcePath,
+            expectedState = WorkspaceNativeExpectedState.Match(summary.fileFingerprint),
+            command =
+                WorkspaceNativeCommandSpec.Replace(
+                    identity = summary.memoId,
+                    content = content,
+                    history =
+                        WorkspaceNativeHistoryWrite(
+                            revision = (summary.contentRevision + 1uL),
+                            createdAtMs = committedAtMs,
+                        ),
+                ),
+        )
+    val affected = result.requireAffectedMemo(path = summary.sourcePath, identity = summary.memoId)
+    return adapter.commitSafProjectionMutation(
+        command,
+        affected
+            .toSafProjection(
+                documentFingerprint = result.resultFingerprint,
+                chronologyEpochMs = summary.createdAtMs,
+                body = content,
+            ).toBridge(),
     )
-    adapter.driveToCompletion(jobId)
-    adapter.readWorkspaceDocumentCommandResult(jobId)
-    val updated = adapter.findMemoSnapshot(command.memoId)
-    return adapter.commitSafProjectionMutation(command, updated.toSafProjectionSnapshot().toBridge())
 }
 
 private fun deleteSafMemo(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
-    existing: WorkspaceMemoSummarySnapshot?,
+    existing: com.lomo.nativebridge.StoreMemoSnapshot,
 ): com.lomo.nativebridge.StoreMemoCommit {
-    val snapshot = requireNotNull(existing) { "SAF delete memo not found: ${command.memoId}" }
-    val jobId = adapter.startWorkspaceDocumentCommand(
-        snapshot.path,
-        WorkspaceNativeExpectedState.Match(snapshot.fingerprint),
-        WorkspaceNativeCommandSpec.Remove(snapshot.identity),
+    val summary = existing.summary
+    val result =
+        adapter.executeTrashCommand(
+            path = summary.sourcePath,
+            expectedFingerprint = summary.fileFingerprint,
+            command =
+                WorkspaceNativeTrashCommandSpec.Trash(
+                    identity = summary.memoId,
+                    chronologyEpochMs = summary.createdAtMs,
+                ),
+        )
+    val affected =
+        result.requireAffectedMemo(
+            path = summary.sourcePath,
+            identity = summary.memoId,
+            expectedSourceFingerprint = summary.fileFingerprint,
+        )
+    require(result.resultFingerprint == summary.fileFingerprint) {
+        "Soft delete must not rewrite the active source document"
+    }
+    val trashedAtMs = requireNotNull(result.trashedAtMs) {
+        "Completed soft delete did not publish its durable trash timestamp"
+    }
+    return adapter.commitSafProjectionMutation(
+        command,
+        affected.toSafProjection(
+            documentFingerprint = result.resultFingerprint,
+            chronologyEpochMs = summary.createdAtMs,
+            body = existing.body,
+            trashedAtMs = trashedAtMs,
+        ).toBridge(),
     )
-    adapter.driveToCompletion(jobId)
-    adapter.readWorkspaceDocumentCommandResult(jobId)
-    return adapter.commitSafProjectionMutation(command, null)
+}
+
+private fun restoreSafMemo(
+    adapter: RustEngineAdapter,
+    command: com.lomo.nativebridge.StoreMemoCommand,
+    existing: com.lomo.nativebridge.StoreMemoSnapshot,
+): com.lomo.nativebridge.StoreMemoCommit {
+    val summary = existing.summary
+    val result =
+        adapter.executeTrashCommand(
+            path = summary.sourcePath,
+            expectedFingerprint = summary.fileFingerprint,
+            command = WorkspaceNativeTrashCommandSpec.Restore(identity = summary.memoId),
+        )
+    val affected =
+        result.requireAffectedMemo(
+            path = summary.sourcePath,
+            identity = summary.memoId,
+            expectedSourceFingerprint = summary.fileFingerprint,
+        )
+    require(result.resultFingerprint == summary.fileFingerprint) {
+        "Restore must not rewrite the active source document"
+    }
+    require(result.trashedAtMs == null) { "Restore result must not retain a trash timestamp" }
+    return adapter.commitSafProjectionMutation(
+        command,
+        affected
+            .toSafProjection(
+                documentFingerprint = result.resultFingerprint,
+                chronologyEpochMs = summary.createdAtMs,
+                body = existing.body,
+            ).toBridge(),
+    )
+}
+
+private fun permanentlyDeleteSafMemo(
+    adapter: RustEngineAdapter,
+    command: com.lomo.nativebridge.StoreMemoCommand,
+    existing: com.lomo.nativebridge.StoreMemoSnapshot,
+): com.lomo.nativebridge.StoreMemoCommit {
+    val summary = existing.summary
+    val result =
+        adapter.executeTrashCommand(
+            path = summary.sourcePath,
+            expectedFingerprint = summary.fileFingerprint,
+            command = WorkspaceNativeTrashCommandSpec.PermanentDelete(identity = summary.memoId),
+        )
+    val affected =
+        result.requireAffectedMemo(
+            path = summary.sourcePath,
+            identity = summary.memoId,
+            expectedSourceFingerprint = summary.fileFingerprint,
+        )
+    require(result.trashedAtMs == null) { "Permanent delete result must not retain a trash timestamp" }
+    return adapter.commitSafProjectionMutation(
+        command,
+        affected
+            .toSafProjection(
+                documentFingerprint = result.resultFingerprint,
+                chronologyEpochMs = summary.createdAtMs,
+                body = existing.body,
+            ).toBridge(),
+    )
 }

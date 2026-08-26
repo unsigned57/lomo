@@ -96,10 +96,10 @@ internal class PlatformBatchRunner(
         while (true) {
             when (step) {
                 is NativeJobStep.NeedsPlatformBatch -> {
-                    batches += 1
-                    check(batches <= MAX_PLATFORM_BATCHES) {
-                        "Platform batch driver exceeded $MAX_PLATFORM_BATCHES batches for job=$jobId"
+                    if (batches >= MAX_PLATFORM_BATCHES) {
+                        return step
                     }
+                    batches += 1
                     val result: PlatformBatchResult = executor.execute(step.batch)
                     step = native.submitPlatformResult(jobId, result)
                     waitMillis = INITIAL_POLL_INTERVAL_MILLIS

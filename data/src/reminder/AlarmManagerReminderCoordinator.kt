@@ -58,7 +58,6 @@ interface MemoMutationReminderScheduler {
 class AlarmManagerReminderScheduler(
     private val context: Context,
     private val memoQueryRepository: MemoQueryRepository,
-    private val markdownReminderRepository: MarkdownReminderRepository,
     private val schedulePort: AlarmSchedulePort = AndroidAlarmSchedulePort(context),
     private val rollingWindow: ReminderRollingWindowScheduler =
         ReminderRollingWindowScheduler(schedulePort),
@@ -85,7 +84,8 @@ class AlarmManagerReminderScheduler(
     }
 
     override suspend fun syncForMemo(memoId: String) {
-        val markers = markdownReminderRepository.remindersForMemo(memoId)
+        val memo = memoQueryRepository.getMemoById(memoId)
+        val markers = if (memo == null) emptyList() else memo.reminders
         val nowMillis = System.currentTimeMillis()
         val alarms =
             markers.mapNotNull { marker ->

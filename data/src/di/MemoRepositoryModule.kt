@@ -1,5 +1,6 @@
 package com.lomo.data.di
 
+import com.lomo.data.diagnostics.RingBufferEngineDiagnosticsRecorder
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.store.BoltFfiStorePort
 import com.lomo.data.engine.store.StorePort
@@ -12,6 +13,7 @@ import com.lomo.data.repository.StoreMemoTrashRepository
 import com.lomo.data.repository.StoreMemoVersionRepository
 import com.lomo.data.repository.StoreWorkspaceStateResolver
 import com.lomo.data.util.MarkdownWorkspaceContentProjector
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.repository.MainListQueryRepository
 import com.lomo.domain.repository.MemoListQueryRepository
 import com.lomo.domain.repository.MemoMutationRepository
@@ -33,9 +35,10 @@ val memoRepositoryModule =
     module {
         singleOf(::MarkdownWorkspaceContentProjector)
         single { StoreInvalidationBus() }
+        single<EngineDiagnosticsRecorder> { RingBufferEngineDiagnosticsRecorder() }
         single<StorePort> {
             // ManagedEngineSession implements StoreNativeBridge via WorkspaceNativeAdapter.
-            BoltFfiStorePort(bridge = get<ManagedEngineSession>())
+            BoltFfiStorePort(nativeBridge = get<ManagedEngineSession>())
         }
 
         single {
@@ -58,6 +61,7 @@ val memoRepositoryModule =
                 reminderScheduler = get(),
                 writeLease = get(),
                 invalidation = get(),
+                diagnostics = get(),
                 pendingStages = get(),
                 syncEdge = get(),
             )
@@ -74,6 +78,7 @@ val memoRepositoryModule =
                 port = get(),
                 writeLease = get(),
                 invalidation = get(),
+                readiness = get(),
             )
         } bind MemoTrashRepository::class
         singleOf(::StoreMemoVersionRepository) bind MemoVersionRepository::class

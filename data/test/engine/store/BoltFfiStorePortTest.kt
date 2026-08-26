@@ -15,12 +15,19 @@ package com.lomo.data.engine.store
  * - Given bridge getMemo returns null, when getMemo runs, then null is observed.
  * - Given bridge getMemo returns a snapshot, when getMemo runs, then body and summary map.
  * - Given each StoreMemoCommandKind, when applyMemoCommand runs, then bridge receives the matching
- *   kind and commit fields map.
+ *   kind and typed invalidation scopes map.
+ * - Given an unknown native invalidation scope, when a commit crosses the bridge, then it is
+ *   rejected rather than treated as a broad or empty refresh.
  * - Given blank operationId and empty pendingPromotes, when applyMemoCommand runs, then a non-blank
  *   operationId is minted for the memo-only command.
  * - Given blank operationId with non-empty pendingPromotes, when applyMemoCommand runs, then fail
  *   closed without calling the bridge (no UUID mint under promote).
  * - Given a rebuild result, when startRebuild runs, then counters map to domain longs.
+ * - Given the engine refuses a memo command, query, get or rebuild, when the call crosses the
+ *   boundary, then an EngineCommandFailureException carries the typed category/code/retry/ids and a
+ *   non-blank message instead of the message-less native carrier.
+ * - Given an engine vocabulary this build does not know, when a rejection crosses the boundary, then
+ *   the original code and diagnostic are preserved rather than replaced by a parse failure.
  *
  * Observable outcomes: domain StoreMemoPage / Snapshot / Commit / RebuildResult; last bridge
  * request fields.
@@ -53,6 +60,9 @@ import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
 import com.lomo.data.engine.media.MediaPromotePlan
 import com.lomo.data.engine.media.MediaStagedFacts
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
@@ -62,6 +72,8 @@ import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotBeBlank
 
 private class RecordingStoreNativeBridge : StoreNativeBridge {
+    /** When set, every bridge call refuses exactly as the generated BoltFFI carrier does. */
+    var failure: com.lomo.nativebridge.EngineError.Failure? = null
     var lastQuery: BridgeMemoQuery? = null
     var lastCursor: BridgePageCursor? = null
     var lastPageSize: UInt? = null
@@ -92,7 +104,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
             eventSequence = 2uL,
             contentRevision = 3uL,
             fileFingerprint = "ff",
-            scopes = listOf("memo:m1"),
+            scopes = listOf("memo_list"),
             idempotentReplay = false,
         )
     var rebuild: BridgeRebuildResult =
@@ -114,6 +126,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
         lastQuery = query
         lastCursor = cursor
         lastPageSize = pageSize
+        failure?.let { throw it }
         return page
     }
 
@@ -122,13 +135,17 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? {
         lastGetMemoId = memoId
+        failure?.let { throw it }
         return snapshot
     }
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? = null
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = sidebar
 
     override fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit {
         lastCommand = command
+        failure?.let { throw it }
         return commit
     }
 
@@ -139,6 +156,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
 
     override fun startRebuild(batchSize: UInt): BridgeRebuildResult {
         lastRebuildBatch = batchSize
+        failure?.let { throw it }
         return rebuild
     }
 }
@@ -188,8 +206,8 @@ class BoltFfiStorePortTest : FunSpec({
                         StoreMemoFilters(
                             tag = "work",
                             tagSubtree = true,
-                            dateFromMs = 1L,
-                            dateToMs = 2L,
+                            dateFromInclusiveMs = 1L,
+                            dateUntilExclusiveMs = 2L,
                             hasTodo = true,
                             hasAttachment = true,
                             hasUrl = false,
@@ -278,7 +296,7 @@ class BoltFfiStorePortTest : FunSpec({
                     eventSequence = 2uL,
                     contentRevision = 3uL,
                     fileFingerprint = "ff",
-                    scopes = listOf("s"),
+                    scopes = listOf("search"),
                     idempotentReplay = true,
                 )
             val commit =
@@ -301,9 +319,30 @@ class BoltFfiStorePortTest : FunSpec({
             commit.eventSequence shouldBe 2L
             commit.contentRevision shouldBe 3L
             commit.fileFingerprint shouldBe "ff"
-            commit.scopes shouldBe listOf("s")
+            commit.scopes shouldBe listOf(StoreInvalidationScope.Search)
             commit.idempotentReplay shouldBe true
         }
+    }
+
+    test("unknown native invalidation scope fails closed at the bridge edge") {
+        val bridge =
+            RecordingStoreNativeBridge().apply {
+                commit = commit.copy(scopes = listOf("memo:m1"))
+            }
+
+        val error =
+            shouldThrow<IllegalStateException> {
+                BoltFfiStorePort(bridge).applyMemoCommand(
+                    StoreMemoCommand(
+                        operationId = "op-unknown-scope",
+                        kind = StoreMemoCommandKind.Update,
+                        memoId = "m1",
+                        expectedRevision = 1L,
+                    ),
+                )
+            }
+
+        error.message shouldContain "Unknown Rust store invalidation scope"
     }
 
     test("blank operationId without promotes is replaced before bridge apply") {
@@ -392,5 +431,99 @@ class BoltFfiStorePortTest : FunSpec({
         val page = BoltFfiStorePort(bridge).queryMemos(StoreMemoQuery(), null, 10)
         page.items.single().tags shouldBe listOf("work")
         page.items.single().imageUrls shouldBe listOf("images/a.png")
+    }
+
+    test("given the engine refuses a memo command then the typed rejection survives the boundary") {
+        val bridge =
+            RecordingStoreNativeBridge().apply {
+                failure =
+                    com.lomo.nativebridge.EngineError.Failure(
+                        com.lomo.nativebridge.EngineFailure(
+                            category = "conflict",
+                            code = "stale_snapshot",
+                            retryDisposition = "after_user_action",
+                            operationId = "op-9",
+                            jobId = null,
+                            diagnostic = "memo changed before the mutation began",
+                        ),
+                    )
+            }
+
+        val error =
+            shouldThrow<EngineCommandFailureException> {
+                BoltFfiStorePort(bridge).applyMemoCommand(
+                    StoreMemoCommand(
+                        operationId = "op-9",
+                        kind = StoreMemoCommandKind.Delete,
+                        memoId = "m1",
+                        expectedRevision = 3L,
+                        expectedFingerprint = "ff",
+                    ),
+                )
+            }
+
+        error.failure.code shouldBe "stale_snapshot"
+        error.failure.category shouldBe EngineFailureCategory.CONFLICT
+        error.failure.retryDisposition shouldBe EngineRetryDisposition.AFTER_USER_ACTION
+        error.failure.operationId shouldBe "op-9"
+        error.message.orEmpty().shouldNotBeBlank()
+        error.message.orEmpty() shouldContain "stale_snapshot"
+        error.message.orEmpty() shouldContain "memo changed before the mutation began"
+    }
+
+    test("given the engine refuses a query or rebuild then the rejection is typed too") {
+        val failure =
+            com.lomo.nativebridge.EngineError.Failure(
+                com.lomo.nativebridge.EngineFailure(
+                    category = "storage",
+                    code = "sqlite_error",
+                    retryDisposition = "never",
+                    operationId = null,
+                    jobId = "job-2",
+                    diagnostic = "disk I/O error",
+                ),
+            )
+
+        shouldThrow<EngineCommandFailureException> {
+            BoltFfiStorePort(RecordingStoreNativeBridge().apply { this.failure = failure })
+                .queryMemos(StoreMemoQuery(), null, 10)
+        }.failure.code shouldBe "sqlite_error"
+
+        shouldThrow<EngineCommandFailureException> {
+            BoltFfiStorePort(RecordingStoreNativeBridge().apply { this.failure = failure })
+                .getMemo("m1")
+        }.failure.jobId shouldBe "job-2"
+
+        shouldThrow<EngineCommandFailureException> {
+            BoltFfiStorePort(RecordingStoreNativeBridge().apply { this.failure = failure })
+                .startRebuild(batchSize = 64)
+        }.failure.category shouldBe EngineFailureCategory.STORAGE
+    }
+
+    test("given an unrecognized engine vocabulary then the original rejection is still preserved") {
+        val bridge =
+            RecordingStoreNativeBridge().apply {
+                failure =
+                    com.lomo.nativebridge.EngineError.Failure(
+                        com.lomo.nativebridge.EngineFailure(
+                            category = "teapot",
+                            code = "trash_marker_missing",
+                            retryDisposition = "someday",
+                            operationId = null,
+                            jobId = null,
+                            diagnostic = "durable trash marker was absent",
+                        ),
+                    )
+            }
+
+        val error =
+            shouldThrow<EngineCommandFailureException> {
+                BoltFfiStorePort(bridge).startRebuild(batchSize = 64)
+            }
+
+        error.failure.code shouldBe "trash_marker_missing"
+        error.failure.category shouldBe EngineFailureCategory.INTERNAL
+        error.message.orEmpty() shouldContain "durable trash marker was absent"
+        error.message.orEmpty() shouldContain "teapot"
     }
 })

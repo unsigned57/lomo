@@ -1,5 +1,3 @@
-package com.lomo.data.engine
-
 /*
  * Behavior Contract:
  * - Unit under test: ContentResolverPlatformDocumentsGateway.
@@ -15,17 +13,34 @@ package com.lomo.data.engine
  *   and the returned digest is calculated from those same bytes.
  * - Given an opaque handle returned by listing, when it is opened, then the provider document URI
  *   is queried directly without enumerating the parent directory again.
+ * - Given a provider that accepts a write call but exposes different durable bytes through the
+ *   returned document handle, when the write completes, then the boundary rejects the false
+ *   success instead of publishing the requested digest as evidence.
+ * - Given a create allocates the final provider document but opening its output stream fails, when
+ *   the boundary aborts, then that newly allocated final document is deleted.
  *
  * Observable outcomes:
- * - Returned document metadata/read bytes and the number of ContentResolver input-stream opens.
+ * - Returned document metadata/read bytes, write failure, ContentResolver stream opens, and
+ *   rollback deletion of an incomplete create target.
  *
  * TDD proof:
  * - RED on 2026-08-06 because listChildren opened every file to hash it and openRead opened the
  *   selected file once for querySnapshot digest plus a second time for the returned bytes.
+ * - RED on 2026-08-25 because a failed create left the provider-allocated final path as a zero-byte
+ *   document, causing every durable retry to fail with target-exists conflict.
  *
  * Excludes:
- * - Provider-specific paging order, writes, moves, deletes, and Rust scan orchestration.
+ * - Provider-specific paging order, moves, deletes, and Rust scan orchestration.
+ *
+ * Test Change Justification:
+ * - Reason category: SAF document creation failure rollback.
+ * - Old behavior/assertion being replaced: failed create without provider-allocated document cleanup.
+ * - Why old assertion is no longer correct: failed stream creation must clean up zero-byte allocated documents.
+ * - Coverage preserved by: all document streaming, digest hashing, and error rollbacks remain fully verified.
+ * - Why this is not fitting the test to the implementation: verifies safe rollback of dangling SAF document handles.
  */
+
+package com.lomo.data.engine
 
 import android.content.ContentResolver
 import android.database.Cursor
@@ -33,12 +48,16 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.nativebridge.WorkspaceTarget
+import com.lomo.nativebridge.WriteMode
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 
 class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
@@ -86,6 +105,72 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
             fixture.parentQueryCount shouldBe 0
             fixture.inputStreamOpenCount shouldBe 1
         }
+
+        test("given provider write acknowledgement without matching readback then write fails closed") {
+            val staleBytes = "old provider bytes".encodeToByteArray()
+            val requestedBytes = "new durable bytes".encodeToByteArray()
+            val fixture = ResolverFixture(staleBytes)
+            fixture.stubSingleFileWrite()
+
+            shouldThrow<IOException> {
+                fixture.gateway.writeFromExchange(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    bytes = requestedBytes,
+                    mode = WriteMode.REPLACE,
+                    mimeType = "text/markdown",
+                )
+            }
+
+            fixture.inputStreamOpenCount shouldBe 1
+        }
+
+        test("given create output cannot open then the incomplete final document is rolled back") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubFailedCreateWrite()
+
+            shouldThrow<IOException> {
+                fixture.gateway.writeFromExchange(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    bytes = FILE_BYTES,
+                    mode = WriteMode.CREATE,
+                    mimeType = "text/markdown",
+                )
+            }
+
+            fixture.createdDocumentDeleteCount shouldBe 1
+        }
+
+        test("given listing cursor when children are listed then page respects cursor offset") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            val cursor = mockk<Cursor>()
+            every { cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID) } returns 0
+            every { cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME) } returns 1
+            every { cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE) } returns 2
+            every { cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE) } returns 3
+            every { cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED) } returns 4
+            every { cursor.moveToPosition(1) } returns true
+            every { cursor.getString(0) } returns "primary:Lomo/2026_08_07.md"
+            every { cursor.getString(1) } returns "2026_08_07.md"
+            every { cursor.getString(2) } returns "text/markdown"
+            every { cursor.getLong(3) } returns 100L
+            every { cursor.getLong(4) } returns 1_754_300_000_000L
+            every { cursor.moveToNext() } returns false
+            every { cursor.close() } returns Unit
+            fixture.stubListing(cursor)
+
+            val page =
+                fixture.gateway.listChildren(
+                    treeUri = TREE_URI,
+                    target = WorkspaceTarget.Root,
+                    cursor = "1",
+                    pageSize = 16u,
+                )
+
+            page.items.single().documentId shouldBe "primary:Lomo/2026_08_07.md"
+            page.nextCursor shouldBe null
+        }
     }
 }
 
@@ -101,6 +186,8 @@ private class ResolverFixture(
         private set
     var parentQueryCount: Int = 0
         private set
+    var createdDocumentDeleteCount: Int = 0
+        private set
 
     init {
         mockkStatic(Uri::class)
@@ -113,6 +200,7 @@ private class ResolverFixture(
         every {
             DocumentsContract.buildDocumentUriUsingTree(rootUri, DOCUMENT_ID)
         } returns documentUri
+        every { DocumentsContract.getDocumentId(documentUri) } returns DOCUMENT_ID
         every { resolver.openInputStream(documentUri) } answers {
             inputStreamOpenCount += 1
             ByteArrayInputStream(fileBytes)
@@ -121,6 +209,10 @@ private class ResolverFixture(
 
     fun stubSingleFileListing() {
         val cursor = documentCursor(includeDisplayName = true)
+        stubListing(cursor)
+    }
+
+    fun stubListing(cursor: Cursor) {
         every {
             resolver.query(
                 childrenUri,
@@ -181,6 +273,70 @@ private class ResolverFixture(
                 null,
             )
         } returns metadata
+    }
+
+    fun stubSingleFileWrite() {
+        val lookup = lookupCursor()
+        val metadata = documentCursor(includeDisplayName = false)
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } answers {
+            parentQueryCount += 1
+            lookup
+        }
+        every {
+            resolver.query(
+                documentUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } returns metadata
+        every { resolver.openOutputStream(documentUri, "wt") } returns ByteArrayOutputStream()
+    }
+
+    fun stubFailedCreateWrite() {
+        val absentLookup = mockk<Cursor>()
+        every {
+            absentLookup.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        } returns 0
+        every {
+            absentLookup.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        } returns 1
+        every { absentLookup.moveToNext() } returns false
+        every { absentLookup.close() } returns Unit
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } returns absentLookup
+        every {
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, ROOT_DOCUMENT_ID)
+        } returns documentUri
+        every {
+            DocumentsContract.createDocument(
+                resolver,
+                documentUri,
+                "text/markdown",
+                FILE_NAME,
+            )
+        } returns documentUri
+        every { resolver.openOutputStream(documentUri, "wt") } returns null
+        every { DocumentsContract.deleteDocument(resolver, documentUri) } answers {
+            createdDocumentDeleteCount += 1
+            true
+        }
     }
 
     private fun lookupCursor(): Cursor =

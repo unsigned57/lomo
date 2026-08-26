@@ -44,10 +44,9 @@ internal suspend fun LomoDataStore.updateStorageRoot(
 }
 
 internal fun isContentStorageUri(value: String): Boolean =
-    // behavior-contract: silent-result-ok: malformed URI → false (not a content URI)
-    runCatching {
-        java.net.URI(value).scheme.equals("content", ignoreCase = true)
-    }.getOrDefault(false)
+    value.trim().startsWith(CONTENT_URI_SCHEME, ignoreCase = true)
+
+private const val CONTENT_URI_SCHEME = "content://"
 
 private data class StorageRootAccess(
     val uriFlow: Flow<String?>,

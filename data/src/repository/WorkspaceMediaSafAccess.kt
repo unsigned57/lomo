@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.source.isContentStorageUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -64,11 +65,7 @@ internal suspend fun readWorkspaceSafFileToStream(
         true
     }
 
-internal fun isContentUriRoot(value: String): Boolean =
-    // behavior-contract: silent-result-ok: malformed URI → false (not a content URI)
-    runCatching {
-        java.net.URI(value).scheme.equals("content", ignoreCase = true)
-    }.getOrDefault(false)
+internal fun isContentUriRoot(value: String): Boolean = isContentStorageUri(value)
 
 internal fun resolveWorkspaceSafRoot(
     context: Context,

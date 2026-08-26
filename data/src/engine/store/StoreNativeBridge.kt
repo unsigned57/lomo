@@ -28,6 +28,8 @@ internal interface StoreNativeBridge {
 
     fun getMemo(memoId: String): BridgeMemoSnapshot?
 
+    fun sourceDocumentFingerprint(sourcePath: String): String?
+
     fun sidebarProjection(): BridgeSidebarProjection
 
     fun listHistoryAttachmentRefs(): List<BridgeHistoryAttachmentRef>

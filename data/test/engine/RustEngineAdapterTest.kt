@@ -30,10 +30,16 @@ package com.lomo.data.engine
  *   fails closed and keeps the unknown value in the diagnostic.
  * - Given a SAF projection scan outlives one driver window, when the same Rust job later completes,
  *   then the rebuild resumes without starting a duplicate scan; a job past its total deadline aborts.
+ * - Given active document pages and durable trash-record pages, when SAF projection rebuild runs,
+ *   then active facts are appended first, trash facts second, and only then is the projection published.
+ * - Given a large local SAF workspace, when projection scan pages are requested, then the adapter
+ *   uses the protocol maximum page so the batched-read driver does not split one refresh into legacy jobs.
  * - Given two callers receive the same deduplicated job id, when both drive it concurrently, then
  *   only one caller enters the platform driver at a time.
  * - Given two refresh callers rebuild the SAF projection concurrently, when the first is active,
  *   then the second shares its result instead of opening another native rebuild.
+ * - Given SAF provider facts disagree with an empty memo projection, when a source document
+ *   fingerprint is requested, then the provider probe is authoritative, including verified absence.
  *
  * Observable outcomes:
  * - StateFlow readiness, native state-read count, subscription closure, and port closure.
@@ -49,6 +55,12 @@ package com.lomo.data.engine
  *   of resuming the same durable Rust job.
  * - RED on 2026-08-06: two callers entered the platform driver concurrently for one deduplicated
  *   job id, allowing both to submit a result for the same durable batch.
+ * - RED on 2026-08-09: SAF rebuild scanned active Markdown only, so a process restart discarded the
+ *   durable-trash projection and made soft-deleted memos active again.
+ * - RED on 2026-08-25: an empty SAF document had no memo row, so create inferred path absence from
+ *   the projection and repeatedly conflicted with the provider's existing final document.
+ * - RED on 2026-08-25: projection refresh still requested 63-item pages after reads became batched,
+ *   splitting a 217-file local refresh into four durable scan jobs without a resource-budget need.
  *
  * Excludes:
  * - SAF action execution internals, workspace selection persistence, Compose rendering, and Rust.
@@ -81,7 +93,9 @@ import com.lomo.data.engine.lan.LanSendItemPlan
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.nativebridge.PlatformBatchResult
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -99,6 +113,22 @@ class RustEngineAdapterTest : DataFunSpec() {
 
             adapter.readiness.value shouldBe EngineReadiness.Ready(coreRevision = 4uL, eventSequence = 9uL)
             native.stateReads shouldBe 1
+            adapter.close()
+        }
+
+        test("given SAF provider fingerprint when memo projection is empty then provider fact wins") {
+            val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 4uL, eventSequence = 9uL))
+            val emptyDocumentFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            val adapter =
+                testRustEngineAdapter(
+                    native = native,
+                    sourceDocumentFingerprintProbe = { path ->
+                        path shouldBe "2026_08_25.md"
+                        emptyDocumentFingerprint
+                    },
+                )
+
+            adapter.sourceDocumentFingerprint("2026_08_25.md") shouldBe emptyDocumentFingerprint
             adapter.close()
         }
 
@@ -131,9 +161,9 @@ class RustEngineAdapterTest : DataFunSpec() {
 
             adapter.readiness.value shouldBe
                 EngineReadiness.ReadOnlyRecovery(
-                    category = EngineReadiness.FailureCategory.PERMISSION,
+                    category = EngineFailureCategory.PERMISSION,
                     code = "saf_grant_revoked",
-                    retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                     diagnostic = "Workspace permission is no longer available",
                 )
             native.stateReads shouldBe 2
@@ -288,7 +318,7 @@ class RustEngineAdapterTest : DataFunSpec() {
             native.portCloseCount shouldBe 1
         }
 
-        test("given bounded projection pages when SAF rebuild runs then pages are committed and finished") {
+        test("given active trash and history pages when SAF rebuild runs then all sources publish atomically") {
             val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL)).apply {
                 projectionPages += WorkspaceProjectionScanPageSnapshot(listOf(projectionReference("first")), "next")
                 projectionPages +=
@@ -296,15 +326,28 @@ class RustEngineAdapterTest : DataFunSpec() {
                         listOf(projectionReference("second"), projectionReference("third")),
                         null,
                     )
+                trashProjectionPages +=
+                    WorkspaceTrashProjectionScanPageSnapshot(
+                        listOf(trashProjectionReference("deleted")),
+                        null,
+                    )
+                historyProjectionPages +=
+                    WorkspaceHistoryProjectionScanPageSnapshot(
+                        listOf(historyProjectionReference("first")),
+                        null,
+                    )
                 pollResults["projection-scan"] =
                     ArrayDeque(listOf(NativeJobStep.Completed, NativeJobStep.Completed))
+                pollResults["trash-projection-scan"] = ArrayDeque(listOf(NativeJobStep.Completed))
             }
             val adapter = testRustEngineAdapter(native)
 
             adapter.rebuildSafProjectionFromWorkspaceScan()
 
-            native.projectionEvents shouldBe listOf("begin", "append:1", "append:2", "finish")
+            native.projectionEvents shouldBe
+                listOf("begin", "append:1", "append:2", "append-trash:1", "append-history:1", "finish")
             native.projectionScanRequests shouldBe listOf(256u to null, 256u to "next")
+            native.trashProjectionScanRequests shouldBe listOf(256u to null)
             adapter.close()
         }
 
@@ -371,7 +414,8 @@ class RustEngineAdapterTest : DataFunSpec() {
             native.projectionEvents shouldBe listOf("begin")
             releaseFirstPoll.countDown()
             second.get(5, TimeUnit.SECONDS) shouldBe first.get(5, TimeUnit.SECONDS)
-            native.projectionEvents shouldBe listOf("begin", "append:0", "finish")
+            native.projectionEvents shouldBe
+                listOf("begin", "append:0", "append-trash:0", "append-history:0", "finish")
             executor.shutdownNow()
             adapter.close()
         }
@@ -399,8 +443,15 @@ class RustEngineAdapterTest : DataFunSpec() {
 
             adapter.rebuildSafProjectionFromWorkspaceScan()
 
-            native.projectionEvents shouldBe listOf("begin", "append:1", "finish")
-            native.polledJobIds shouldBe listOf("projection-scan", "projection-scan")
+            native.projectionEvents shouldBe
+                listOf("begin", "append:1", "append-trash:0", "append-history:0", "finish")
+            native.polledJobIds shouldBe
+                listOf(
+                    "projection-scan",
+                    "projection-scan",
+                    "trash-projection-scan",
+                    "history-projection-scan",
+                )
             native.projectionScanRequests shouldBe listOf(256u to null)
             adapter.close()
         }
@@ -500,12 +551,49 @@ private fun projectionReference(id: String): SafMemoProjectionReferenceSnapshot 
         reminders = emptyList(),
     )
 
+private fun trashProjectionReference(id: String): SafTrashProjectionReferenceSnapshot =
+    SafTrashProjectionReferenceSnapshot(
+        memoId = id,
+        sourcePath = "$id.md",
+        fileFingerprint = "c".repeat(64),
+        chronologyEpochMs = 1L,
+        trashedAtMs = 2L,
+        content =
+            ExchangeArtifactReference(
+                token = "ex.${"d".repeat(64)}.trash",
+                length = 1uL,
+                digest = "d".repeat(64),
+            ),
+        tags = emptyList(),
+        attachmentPaths = emptyList(),
+        hasTodo = false,
+        hasUrl = false,
+        reminders = emptyList(),
+    )
+
+private fun historyProjectionReference(id: String): SafHistoryProjectionReferenceSnapshot =
+    SafHistoryProjectionReferenceSnapshot(
+        memoId = id,
+        revision = 1uL,
+        createdAtMs = 2L,
+        fileFingerprint = "e".repeat(64),
+        content =
+            ExchangeArtifactReference(
+                token = "ex.${"e".repeat(64)}.history",
+                length = 1uL,
+                digest = "e".repeat(64),
+            ),
+    )
+
 private class FakeNativeEnginePort(
     initialSnapshot: NativeEngineSnapshot,
 ) : WorkspaceNativeEnginePort {
     val projectionPages = ArrayDeque<WorkspaceProjectionScanPageSnapshot>()
+    val trashProjectionPages = ArrayDeque<WorkspaceTrashProjectionScanPageSnapshot>()
+    val historyProjectionPages = ArrayDeque<WorkspaceHistoryProjectionScanPageSnapshot>()
     val projectionEvents = mutableListOf<String>()
     val projectionScanRequests = mutableListOf<Pair<UInt, String?>>()
+    val trashProjectionScanRequests = mutableListOf<Pair<UInt, String?>>()
     val polledJobIds = mutableListOf<String>()
     var projectionAppendFailure: Throwable? = null
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) = error("LAN not expected")
@@ -781,6 +869,42 @@ private class FakeNativeEnginePort(
     override fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot =
         projectionPages.removeFirstOrNull() ?: WorkspaceProjectionScanPageSnapshot(emptyList(), null)
 
+    override fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String {
+        trashProjectionScanRequests += pageSize to cursor
+        pollResults.putIfAbsent(
+            "trash-projection-scan",
+            ArrayDeque(listOf(NativeJobStep.Completed)),
+        )
+        return "trash-projection-scan"
+    }
+
+    override fun readWorkspaceTrashProjectionScanPage(
+        jobId: String,
+    ): WorkspaceTrashProjectionScanPageSnapshot =
+        trashProjectionPages.removeFirstOrNull() ?: WorkspaceTrashProjectionScanPageSnapshot(emptyList(), null)
+
+    override fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String {
+        pollResults.putIfAbsent(
+            "history-projection-scan",
+            ArrayDeque(listOf(NativeJobStep.Completed)),
+        )
+        return "history-projection-scan"
+    }
+
+    override fun readWorkspaceHistoryProjectionScanPage(
+        jobId: String,
+    ): WorkspaceHistoryProjectionScanPageSnapshot =
+        historyProjectionPages.removeFirstOrNull()
+            ?: WorkspaceHistoryProjectionScanPageSnapshot(emptyList(), null)
+
     override fun beginSafProjectionRebuild(): String {
         projectionEvents += "begin"
         return "projection-rebuild"
@@ -792,6 +916,20 @@ private class FakeNativeEnginePort(
     ) {
         projectionEvents += "append:${memos.size}"
         projectionAppendFailure?.let { throw it }
+    }
+
+    override fun appendSafTrashProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafTrashProjectionReferenceSnapshot>,
+    ) {
+        projectionEvents += "append-trash:${memos.size}"
+    }
+
+    override fun appendSafHistoryProjectionRebuildPage(
+        rebuildId: String,
+        revisions: List<SafHistoryProjectionReferenceSnapshot>,
+    ) {
+        projectionEvents += "append-history:${revisions.size}"
     }
 
     override fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult {
@@ -821,6 +959,16 @@ private class FakeNativeEnginePort(
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         error("document result not expected")
 
+    override fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String = error("trash command not expected")
+
+    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
+        error("trash result not expected")
+
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
@@ -832,6 +980,9 @@ private class FakeNativeEnginePort(
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         error("store get not expected")
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? =
+        error("source document fingerprint not expected")
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         error("sidebar projection not expected")
@@ -862,6 +1013,7 @@ private fun testRustEngineAdapter(
     native: FakeNativeEnginePort,
     platformBatchRunner: PlatformBatchRunner? = null,
     projectionScanNowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    sourceDocumentFingerprintProbe: ((String) -> String?)? = null,
 ): RustEngineAdapter =
     RustEngineAdapter.acquire(
         native = native,
@@ -874,4 +1026,5 @@ private fun testRustEngineAdapter(
                     ),
             ),
         projectionScanNowMillis = projectionScanNowMillis,
+        sourceDocumentFingerprintProbe = sourceDocumentFingerprintProbe,
     )

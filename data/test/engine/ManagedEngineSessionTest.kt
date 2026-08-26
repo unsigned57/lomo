@@ -35,8 +35,11 @@ import com.lomo.domain.model.ProjectionFreshness
  * - Given repeated SAF selection, when activation rotates the capability token, then the stable
  *   workspace ID supplied to native remains unchanged while activation and projection revisions
  *   advance together.
- * - Given SAF scan projection rebuild fails, when activation runs, then the candidate is rejected
- *   and the previous Ready workspace remains authoritative.
+ * - Given a new SAF projection is empty, when activation runs, then candidate authority commits
+ *   before its background scan and writes stay blocked until the projection verifies.
+ * - Given that first SAF projection build fails after activation, then the new authority remains
+ *   explicit and read-only in Failed freshness; retry rebuilds the same generation without
+ *   reopening the workspace.
  * - Given candidate opens as ReadOnlyRecovery, when activate runs, then previous engine stays and
  *   the soft failure is thrown without installing Recovery as success.
  * - Given a soft-failed candidate whose close also throws, when activate runs, then the structured
@@ -57,6 +60,9 @@ import com.lomo.domain.model.ProjectionFreshness
  *   adapter and native port serve the request without constructing another engine.
  * - Given a Rust-scanned reminder reference, when queried and rewritten, then typed facts are
  *   mapped without raw parsing and the complete reference is sent through the same session port.
+ * - Given SAF create/update/delete/restore/permanent-delete, when the verified Rust workspace job
+ *   completes, then the projection commit uses its affected memo facts and no mutation performs a
+ *   workspace scan; delete never removes the memo through the generic document-command path.
  * - Given no workspace, when a trusted LAN session begins, then it uses the bootstrap engine
  *   handle and remains independent of workspace readiness.
  * - Given a Ready workspace, when an authenticated LAN batch is prepared and queried, then the
@@ -84,6 +90,12 @@ import com.lomo.domain.model.ProjectionFreshness
  * inspection; a Rust recovery published during that inspection was still committed as authority.
  * TDD proof: RED on 2026-08-06 because direct BoltFFI EngineError failures were collapsed into the
  * generic workspace_open_failed code at the session boundary.
+ * TDD proof: RED on 2026-08-09 because every SAF mutation enumerated the whole workspace before
+ * and/or after the write, so an eventually consistent DocumentsProvider produced false absence.
+ * TDD proof: RED on 2026-08-09 because SAF delete removed active Markdown and stored trash only in
+ * app-private projection state, so restart lost the deletion or resurrected the memo.
+ * TDD proof: RED on 2026-08-16 because explicit SAF activation synchronously rebuilt the full
+ * projection before authority commit, so a blocked provider scan prevented the root from switching.
  * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
  *
  * Test Change Justification:
@@ -132,7 +144,9 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
-import com.lomo.domain.model.MarkdownWorkspaceCommandException
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -143,10 +157,13 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.time.LocalDateTime
@@ -219,23 +236,26 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     port.documentTerminal =
                         NativeJobStep.Failed(
                             EngineFailureSnapshot(
-                                category = "VALIDATION",
+                                category = "validation",
                                 code = "stale_snapshot",
-                                retryDisposition = "NEVER",
+                                retryDisposition = "never",
                                 diagnostic = "document changed",
                             ),
                         )
                     val session = readySession(filesDir, port, testScheduler)
 
                     val error =
-                        shouldThrow<MarkdownWorkspaceCommandException> {
+                        shouldThrow<EngineCommandFailureException> {
                             session.toggleTask(
                                 memoIdentity = "2026-07-20_10:00:00_0",
                                 actionSpan = MarkdownSourceSpan(startByte = 2uL, endByte = 5uL),
                             )
                         }
 
-                    error.code shouldBe "stale_snapshot"
+                    error.failure.code shouldBe "stale_snapshot"
+                    error.failure.category shouldBe EngineFailureCategory.VALIDATION
+                    error.failure.retryDisposition shouldBe EngineRetryDisposition.NEVER
+                    error.message.orEmpty() shouldContain "document changed"
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -481,9 +501,9 @@ class ManagedEngineSessionTest : DataFunSpec() {
 
                     val recovery =
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
-                    recovery.category shouldBe EngineReadiness.FailureCategory.PERMISSION
+                    recovery.category shouldBe EngineFailureCategory.PERMISSION
                     recovery.code shouldBe "saf_grant_revoked"
-                    recovery.retryDisposition shouldBe EngineReadiness.RetryDisposition.AFTER_USER_ACTION
+                    recovery.retryDisposition shouldBe EngineRetryDisposition.AFTER_USER_ACTION
                     recovery.diagnostic shouldBe "Persisted tree grant is no longer writable"
                     session.close()
                 } finally {
@@ -725,12 +745,121 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
+        test("given an empty SAF projection when scan is slow then workspace authority commits before indexing") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-slow-switch").toFile()
+                val scanEntered = CountDownLatch(1)
+                val scanRelease = CountDownLatch(1)
+                val scanRebuilt = CountDownLatch(1)
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ASlow")
+                val settings = InMemoryDirectorySettingsRepository()
+                val candidate =
+                    SessionFakeNativeEnginePort(
+                        NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL),
+                    ).apply {
+                        scanGate = ScanGate(scanEntered, scanRelease)
+                        onSafProjectionRebuild = scanRebuilt::countDown
+                        projectionHighWaterRevision = 0uL
+                    }
+                val session =
+                    ManagedEngineSession(
+                        filesDir = filesDir,
+                        capabilityRegistry = CapabilityRegistry(),
+                        openAdapter = { request ->
+                            testRustEngineAdapter(
+                                if (request.workspace == null) {
+                                    SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                                } else {
+                                    candidate
+                                },
+                            )
+                        },
+                        directorySettingsRepository = settings,
+                        appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                        isContentUri = { it.startsWith("content://") },
+                    )
+                try {
+                    withContext(Dispatchers.Default) { session.activateWorkspace(tree) }
+
+                    session.activeWorkspaceLocation.value shouldBe tree
+                    session.workspaceAuthority.value?.workspaceId shouldBe SafWorkspaceIdentity.fromTreeUri(tree.raw).value
+                    session.projectionFreshness.value.shouldBeInstanceOf<ProjectionFreshness.Building>()
+                    scanEntered.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    scanRelease.countDown()
+                    scanRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+                    session.projectionFreshness.first { it == ProjectionFreshness.Verified(1uL) }
+                } finally {
+                    scanRelease.countDown()
+                    session.close()
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given a blocked background scan when another workspace activates then the next generation is not blocked") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-next-switch").toFile()
+                val nextRoot = kotlin.io.path.createTempDirectory("managed-engine-next-root").toFile()
+                val scanEntered = CountDownLatch(1)
+                val scanRelease = CountDownLatch(1)
+                val switchCompleted = CountDownLatch(1)
+                val firstCandidate =
+                    SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(1uL, 1uL)).apply {
+                        scanGate = ScanGate(scanEntered, scanRelease)
+                    }
+                var openCount = 0
+                val session =
+                    ManagedEngineSession(
+                        filesDir = filesDir,
+                        capabilityRegistry = CapabilityRegistry(),
+                        openAdapter = { _ ->
+                            openCount += 1
+                            testRustEngineAdapter(
+                                when (openCount) {
+                                    1 -> SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection)
+                                    2 -> firstCandidate
+                                    else -> SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(2uL, 2uL))
+                                },
+                            )
+                        },
+                        directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                        appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                        isContentUri = { it.startsWith("content://") },
+                    )
+                try {
+                    session.activateWorkspace(
+                        StorageLocation("content://com.lomo.documents/tree/primary%3ABlocked"),
+                    )
+                    scanEntered.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    val switching =
+                        async(Dispatchers.Default) {
+                            session.activateWorkspace(StorageLocation(nextRoot.absolutePath))
+                            switchCompleted.countDown()
+                        }
+
+                    switchCompleted.await(1, TimeUnit.SECONDS) shouldBe true
+                    switching.await()
+                    session.activeWorkspaceLocation.value shouldBe StorageLocation(nextRoot.absolutePath)
+                    firstCandidate.portCloseCount shouldBe 1
+                } finally {
+                    scanRelease.countDown()
+                    session.close()
+                    filesDir.deleteRecursively()
+                    nextRoot.deleteRecursively()
+                }
+            }
+        }
+
         test("given the same SAF tree when activation rotates tokens then native identity is stable") {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-identity").toFile()
                 try {
                     val observed = mutableListOf<NativeWorkspaceSelection.Saf>()
                     var projectionRevision = 0uL
+                    val firstRebuilt = CountDownLatch(1)
+                    val secondRebuilt = CountDownLatch(1)
                     val session =
                         ManagedEngineSession(
                             filesDir = filesDir,
@@ -747,7 +876,14 @@ class ManagedEngineSessionTest : DataFunSpec() {
                                     }
                                 SessionFakeNativeEnginePort(snapshot).apply {
                                     this.projectionHighWaterRevision = projectionRevision
-                                    onSafProjectionRebuild = { projectionRevision += 1uL }
+                                    onSafProjectionRebuild = {
+                                        projectionRevision += 1uL
+                                        if (projectionRevision == 1uL) {
+                                            firstRebuilt.countDown()
+                                        } else if (projectionRevision == 2uL) {
+                                            secondRebuilt.countDown()
+                                        }
+                                    }
                                 }.let(::testRustEngineAdapter)
                             },
                             directorySettingsRepository = InMemoryDirectorySettingsRepository(),
@@ -758,8 +894,12 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     val tree =
                         StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
                     session.activateWorkspace(tree)
+                    firstRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+                    session.projectionFreshness.first { it == ProjectionFreshness.Verified(1uL) }
                     val firstAuthority = checkNotNull(session.workspaceAuthority.value)
                     session.activateWorkspace(tree)
+                    secondRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+                    session.projectionFreshness.first { it == ProjectionFreshness.Verified(2uL) }
                     val secondAuthority = checkNotNull(session.workspaceAuthority.value)
 
                     observed.size shouldBe 2
@@ -777,13 +917,14 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
-        test("given SAF projection failure when activation runs then previous Ready authority remains") {
+        test("given SAF projection failure after activation then the new authority becomes read-only failed") {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-projection-fail").toFile()
                 val previousRoot = kotlin.io.path.createTempDirectory("ws-saf-projection-previous").toFile()
                 try {
                     val registry = CapabilityRegistry()
                     val ports = mutableListOf<SessionFakeNativeEnginePort>()
+                    val refreshFailed = CountDownLatch(1)
                     var safToken: String? = null
                     val session =
                         ManagedEngineSession(
@@ -806,6 +947,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                                                 NativeEngineSnapshot.Ready(coreRevision = 11uL, eventSequence = 13uL),
                                             ).apply {
                                                 safProjectionFailure = IllegalStateException("SAF projection refused")
+                                                onSafProjectionFailure = refreshFailed::countDown
                                             }
                                         }
                                     }
@@ -819,20 +961,43 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.activateWorkspace(StorageLocation(previousRoot.absolutePath))
                     val previousAuthority = checkNotNull(session.workspaceAuthority.value)
 
-                    val error =
-                        shouldThrow<IllegalStateException> {
-                            session.activateWorkspace(
-                                StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
-                            )
+                    session.activateWorkspace(
+                        StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
+                    )
+                    refreshFailed.await(5, TimeUnit.SECONDS) shouldBe true
+                    withContext(Dispatchers.Default) {
+                        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                        while (session.projectionFreshness.value !is ProjectionFreshness.Failed &&
+                            System.nanoTime() < deadline
+                        ) {
+                            Thread.sleep(10)
                         }
-
-                    error.message shouldBe "SAF projection refused"
+                    }
+                    val failed =
+                        session.projectionFreshness.value.shouldBeInstanceOf<ProjectionFreshness.Failed>()
                     session.readiness.value shouldBe
-                        EngineReadiness.Ready(coreRevision = 7uL, eventSequence = 9uL)
-                    session.workspaceAuthority.value shouldBe previousAuthority
-                    ports.last().portCloseCount shouldBe 1
+                        EngineReadiness.Ready(coreRevision = 11uL, eventSequence = 13uL)
+                    val failedAuthority = checkNotNull(session.workspaceAuthority.value)
+                    failedAuthority.generation shouldBe previousAuthority.generation + 1
+                    failedAuthority.workspaceId shouldBe SafWorkspaceIdentity.fromTreeUri(
+                        "content://com.lomo.documents/tree/primary%3ALomo",
+                    ).value
+                    failedAuthority.projectionRevision shouldBe 0uL
+                    failed.reasonCode shouldBe "projection_refresh_failed"
+                    ports[1].portCloseCount shouldBe 1
+                    ports.last().portCloseCount shouldBe 0
                     ports.last().safProjectionRebuildCount shouldBe 1
-                    shouldThrow<CapabilityRegistryException> { registry.resolve(checkNotNull(safToken)) }
+                    registry.resolve(checkNotNull(safToken)) shouldBe
+                        "content://com.lomo.documents/tree/primary%3ALomo"
+
+                    val retryRebuilt = CountDownLatch(1)
+                    ports.last().onSafProjectionRebuild = retryRebuilt::countDown
+                    ports.last().safProjectionFailure = null
+                    session.retryProjectionBuild()
+                    retryRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+                    session.projectionFreshness.first { it == ProjectionFreshness.Verified(1uL) }
+                    session.workspaceAuthority.value?.generation shouldBe failedAuthority.generation
+                    ports.last().safProjectionRebuildCount shouldBe 2
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -1033,7 +1198,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     val recovery =
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
                     recovery.code shouldBe "saf_grant_revoked"
-                    recovery.category shouldBe EngineReadiness.FailureCategory.PERMISSION
+                    recovery.category shouldBe EngineFailureCategory.PERMISSION
                     session.activeWorkspaceLocation.value shouldBe null
                     session.workspaceAuthority.value shouldBe null
                 } finally {
@@ -1488,13 +1653,9 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 val existing = workspaceSnapshot("2026_08_04.md", "2026_08_04_10:00:00_0", "a".repeat(64), "old")
                 val updated = workspaceSnapshot(existing.path, existing.identity, "c".repeat(64), "new")
                 val candidate = SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(1uL, 1uL))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(emptyList(), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(listOf(created), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(listOf(existing), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(listOf(updated), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(listOf(existing), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(emptyList(), null))
-                candidate.scanPages.add(WorkspaceScanPageSnapshot(listOf(existing), null))
+                val projectionRebuilt = CountDownLatch(1)
+                candidate.onSafProjectionRebuild = projectionRebuilt::countDown
+                candidate.memoSnapshots[existing.identity] = storeSnapshot(existing, contentRevision = 1uL)
                 try {
                     val session =
                         ManagedEngineSession(
@@ -1512,7 +1673,11 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { it.startsWith("content://") },
                         )
                     session.activateWorkspace(tree)
+                    projectionRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+                    session.projectionFreshness.value.shouldBeInstanceOf<ProjectionFreshness.Verified>()
+                    val scanStartsAfterActivation = candidate.workspaceCalls.count { it == "start-scan" }
 
+                    candidate.documentResult = commandResult(created)
                     session.applyMemoCommand(
                         bridgeMemoCommand(
                             operationId = "saf-create",
@@ -1527,6 +1692,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     candidate.lastExpectedState shouldBe WorkspaceNativeExpectedState.Absent
                     candidate.safProjectionCommits.last().second?.memoId shouldBe created.identity
 
+                    candidate.documentResult = commandResult(updated)
                     session.applyMemoCommand(
                         bridgeMemoCommand(
                             operationId = "saf-update",
@@ -1535,12 +1701,20 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             expectedRevision = 1uL,
                             expectedFingerprint = existing.fingerprint,
                             content = "new",
+                            chronologyEpochMs = epoch,
                         ),
                     )
                     candidate.lastDocumentCommand.shouldBeInstanceOf<WorkspaceNativeCommandSpec.Replace>()
                     candidate.lastExpectedState shouldBe WorkspaceNativeExpectedState.Match(existing.fingerprint)
                     candidate.safProjectionCommits.last().second?.fileFingerprint shouldBe updated.fingerprint
 
+                    candidate.lastDocumentCommand = null
+                    candidate.trashResult =
+                        trashCommandResult(
+                            existing,
+                            resultFingerprint = existing.fingerprint,
+                            trashedAtMs = 1_754_300_100_000L,
+                        )
                     session.applyMemoCommand(
                         bridgeMemoCommand(
                             operationId = "saf-delete",
@@ -1550,8 +1724,45 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             expectedFingerprint = existing.fingerprint,
                         ),
                     )
-                    candidate.lastDocumentCommand.shouldBeInstanceOf<WorkspaceNativeCommandSpec.Remove>()
-                    candidate.safProjectionCommits.last().second shouldBe null
+                    candidate.lastDocumentCommand shouldBe null
+                    candidate.lastTrashCommand.shouldBeInstanceOf<WorkspaceNativeTrashCommandSpec.Trash>()
+                    candidate.safProjectionCommits.last().second?.body shouldBe "old"
+                    candidate.safProjectionCommits.last().second?.fileFingerprint shouldBe existing.fingerprint
+                    candidate.safProjectionCommits.last().second?.trashedAtMs shouldBe 1_754_300_100_000L
+
+                    candidate.memoSnapshots[existing.identity] =
+                        storeSnapshot(existing, contentRevision = 1uL, isTrashed = true)
+                    candidate.trashResult = trashCommandResult(existing, trashedAtMs = null)
+                    session.applyMemoCommand(
+                        bridgeMemoCommand(
+                            operationId = "saf-restore",
+                            kind = com.lomo.nativebridge.StoreMemoCommandKind.RESTORE,
+                            memoId = existing.identity,
+                            expectedRevision = 1uL,
+                            expectedFingerprint = existing.fingerprint,
+                        ),
+                    )
+                    candidate.lastTrashCommand.shouldBeInstanceOf<WorkspaceNativeTrashCommandSpec.Restore>()
+                    candidate.safProjectionCommits.last().second?.trashedAtMs shouldBe null
+
+                    val permanentFingerprint = "d".repeat(64)
+                    candidate.trashResult =
+                        trashCommandResult(
+                            existing,
+                            resultFingerprint = permanentFingerprint,
+                            trashedAtMs = null,
+                        )
+                    session.applyMemoCommand(
+                        bridgeMemoCommand(
+                            operationId = "saf-permanent-delete",
+                            kind = com.lomo.nativebridge.StoreMemoCommandKind.PERMANENT_DELETE,
+                            memoId = existing.identity,
+                            expectedRevision = 1uL,
+                            expectedFingerprint = existing.fingerprint,
+                        ),
+                    )
+                    candidate.lastTrashCommand.shouldBeInstanceOf<WorkspaceNativeTrashCommandSpec.PermanentDelete>()
+                    candidate.safProjectionCommits.last().second?.fileFingerprint shouldBe permanentFingerprint
 
                     candidate.lastDocumentCommand = null
                     session.applyMemoCommand(
@@ -1566,7 +1777,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     )
                     candidate.lastDocumentCommand shouldBe null
                     candidate.directApplyCount shouldBe 0
-                    candidate.safProjectionCommits.size shouldBe 4
+                    candidate.safProjectionCommits.size shouldBe 6
+                    candidate.workspaceCalls.count { it == "start-scan" } shouldBe scanStartsAfterActivation
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -1953,11 +2165,40 @@ private class SessionFakeNativeEnginePort(
     var scanGate: ScanGate? = null
     var scanPages: ArrayDeque<WorkspaceScanPageSnapshot> = ArrayDeque()
     var projectionPages: ArrayDeque<WorkspaceProjectionScanPageSnapshot> = ArrayDeque()
+    var trashProjectionPages: ArrayDeque<WorkspaceTrashProjectionScanPageSnapshot> = ArrayDeque()
     val projectionEvents = mutableListOf<String>()
     var documentTerminal: NativeJobStep = NativeJobStep.Completed
     var lastDocumentCommand: WorkspaceNativeCommandSpec? = null
+    var lastTrashCommand: WorkspaceNativeTrashCommandSpec? = null
     var lastExpectedState: WorkspaceNativeExpectedState? = null
     var lastExpectedFingerprint: String? = null
+    var documentResult: WorkspaceNativeCommandResultSnapshot =
+        WorkspaceNativeCommandResultSnapshot(
+            path = "2026-07-20.md",
+            resultFingerprint = "b".repeat(64),
+            bytesWritten = 22uL,
+            affectedMemo = null,
+        )
+    var trashResult: WorkspaceNativeTrashCommandResultSnapshot =
+        WorkspaceNativeTrashCommandResultSnapshot(
+            path = "2026-07-20.md",
+            resultFingerprint = "b".repeat(64),
+            affectedMemo =
+                WorkspaceDocumentMemoFactsSnapshot(
+                    path = "2026-07-20.md",
+                    identity = "2026-07-20_10:00:00_0",
+                    timePart = "10:00:00",
+                    fingerprint = "b".repeat(64),
+                    tags = emptyList(),
+                    attachments = emptyList(),
+                    reminders = emptyList(),
+                    hasTodo = false,
+                    hasUrl = false,
+                ),
+            trashedAtMs = null,
+        )
+    val memoSnapshots = mutableMapOf<String, com.lomo.nativebridge.StoreMemoSnapshot>()
+    val sourceDocumentFingerprints = mutableMapOf<String, String>()
     var directApplyCount: Int = 0
     val safProjectionCommits =
         mutableListOf<
@@ -2041,6 +2282,28 @@ private class SessionFakeNativeEnginePort(
     override fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot =
         projectionPages.removeFirstOrNull() ?: WorkspaceProjectionScanPageSnapshot(emptyList(), null)
 
+    override fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String = "trash-projection-scan"
+
+    override fun readWorkspaceTrashProjectionScanPage(
+        jobId: String,
+    ): WorkspaceTrashProjectionScanPageSnapshot =
+        trashProjectionPages.removeFirstOrNull() ?: WorkspaceTrashProjectionScanPageSnapshot(emptyList(), null)
+
+    override fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String = "history-projection-scan"
+
+    override fun readWorkspaceHistoryProjectionScanPage(
+        jobId: String,
+    ): WorkspaceHistoryProjectionScanPageSnapshot =
+        WorkspaceHistoryProjectionScanPageSnapshot(emptyList(), null)
+
     override fun beginSafProjectionRebuild(): String {
         projectionEvents += "begin"
         return "projection-rebuild"
@@ -2051,6 +2314,20 @@ private class SessionFakeNativeEnginePort(
         memos: List<SafMemoProjectionReferenceSnapshot>,
     ) {
         projectionEvents += "append:${memos.size}"
+    }
+
+    override fun appendSafTrashProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafTrashProjectionReferenceSnapshot>,
+    ) {
+        projectionEvents += "append-trash:${memos.size}"
+    }
+
+    override fun appendSafHistoryProjectionRebuildPage(
+        rebuildId: String,
+        revisions: List<SafHistoryProjectionReferenceSnapshot>,
+    ) {
+        projectionEvents += "append-history:${revisions.size}"
     }
 
     override fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult {
@@ -2090,11 +2367,21 @@ private class SessionFakeNativeEnginePort(
     }
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
-        WorkspaceNativeCommandResultSnapshot(
-            path = "2026-07-20.md",
-            resultFingerprint = "b".repeat(64),
-            bytesWritten = 22uL,
-        )
+        documentResult
+
+    override fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String {
+        lastExpectedFingerprint = expectedFingerprint
+        lastTrashCommand = command
+        return "trash-command-job"
+    }
+
+    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
+        trashResult
 
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
@@ -2117,7 +2404,10 @@ private class SessionFakeNativeEnginePort(
         emptyList()
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
-        error("store get not expected")
+        memoSnapshots[memoId]
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? =
+        sourceDocumentFingerprints[sourcePath]
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         error("sidebar projection not expected")
@@ -2219,6 +2509,79 @@ private fun workspaceSnapshot(
         bodyEnd = content.encodeToByteArray().size.toULong(),
         startLine = 0u,
         endLine = 1u,
+    )
+
+private fun commandResult(
+    snapshot: WorkspaceMemoSummarySnapshot,
+    resultFingerprint: String = snapshot.fingerprint,
+): WorkspaceNativeCommandResultSnapshot =
+    WorkspaceNativeCommandResultSnapshot(
+        path = snapshot.path,
+        resultFingerprint = resultFingerprint,
+        bytesWritten = snapshot.content.encodeToByteArray().size.toULong(),
+        affectedMemo =
+            WorkspaceDocumentMemoFactsSnapshot(
+                path = snapshot.path,
+                identity = snapshot.identity,
+                timePart = snapshot.timePart,
+                fingerprint = resultFingerprint,
+                tags = snapshot.tags,
+                attachments = snapshot.attachments,
+                reminders = snapshot.reminders,
+                hasTodo = snapshot.hasTodo,
+                hasUrl = snapshot.hasUrl,
+            ),
+    )
+
+private fun trashCommandResult(
+    snapshot: WorkspaceMemoSummarySnapshot,
+    resultFingerprint: String = snapshot.fingerprint,
+    trashedAtMs: Long?,
+): WorkspaceNativeTrashCommandResultSnapshot =
+    WorkspaceNativeTrashCommandResultSnapshot(
+        path = snapshot.path,
+        resultFingerprint = resultFingerprint,
+        affectedMemo =
+            WorkspaceDocumentMemoFactsSnapshot(
+                path = snapshot.path,
+                identity = snapshot.identity,
+                timePart = snapshot.timePart,
+                fingerprint = snapshot.fingerprint,
+                tags = snapshot.tags,
+                attachments = snapshot.attachments,
+                reminders = snapshot.reminders,
+                hasTodo = snapshot.hasTodo,
+                hasUrl = snapshot.hasUrl,
+            ),
+        trashedAtMs = trashedAtMs,
+    )
+
+private fun storeSnapshot(
+    snapshot: WorkspaceMemoSummarySnapshot,
+    contentRevision: ULong,
+    isTrashed: Boolean = false,
+): com.lomo.nativebridge.StoreMemoSnapshot =
+    com.lomo.nativebridge.StoreMemoSnapshot(
+        summary =
+            com.lomo.nativebridge.StoreMemoSummary(
+                memoId = snapshot.identity,
+                sourcePath = snapshot.path,
+                fileFingerprint = snapshot.fingerprint,
+                updatedAtMs = requireChronologyEpochMs(snapshot.identity, snapshot.timePart),
+                createdAtMs = requireChronologyEpochMs(snapshot.identity, snapshot.timePart),
+                hasTodo = snapshot.hasTodo,
+                hasUrl = snapshot.hasUrl,
+                hasAttachment = snapshot.attachments.isNotEmpty(),
+                isPinned = false,
+                isTrashed = isTrashed,
+                bodyPreview = snapshot.content,
+                contentRevision = contentRevision,
+                rank = null,
+                tags = snapshot.tags,
+                imageUrls = snapshot.attachments,
+                reminders = emptyList(),
+            ),
+        body = snapshot.content,
     )
 
 /**

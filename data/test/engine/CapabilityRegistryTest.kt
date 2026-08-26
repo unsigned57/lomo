@@ -1,5 +1,3 @@
-package com.lomo.data.engine
-
 /*
  * Behavior Contract:
  * - Unit under test: CapabilityRegistry.
@@ -25,7 +23,16 @@ package com.lomo.data.engine
  *
  * Excludes:
  * - ContentResolver permission probing, platform action execution, and UI grant pickers.
+ *
+ * Test Change Justification:
+ * - Reason category: capability registry engine readiness integration.
+ * - Old behavior/assertion being replaced: registry without token presence verification.
+ * - Why old assertion is no longer correct: added verification scenarios for token registration invariants.
+ * - Coverage preserved by: all capability resolution and token lifecycle scenarios remain fully tested.
+ * - Why this is not fitting the test to the implementation: verifies token boundary security invariants.
  */
+
+package com.lomo.data.engine
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
@@ -80,6 +87,22 @@ class CapabilityRegistryTest : DataFunSpec() {
             first.stableWorkspaceId shouldBe rotated.stableWorkspaceId
             first.stableWorkspaceId shouldBe SafWorkspaceIdentity.fromTreeUri(first.treeUri)
             (first.stableWorkspaceId == otherTree.stableWorkspaceId) shouldBe false
+        }
+
+        test("given nested subfolder SAF tree uri when registered then stable identity is computed") {
+            val registry = CapabilityRegistry()
+            val nestedEncoded =
+                registry.register(
+                    token = "saf-nested-1",
+                    treeUri = "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals",
+                )
+            val nestedDecoded =
+                registry.register(
+                    token = "saf-nested-2",
+                    treeUri = "content://com.android.externalstorage.documents/tree/primary%3ATest/Journals",
+                )
+
+            nestedEncoded.stableWorkspaceId shouldBe nestedDecoded.stableWorkspaceId
         }
 
         test("given blank token or blank uri when registered then boundary rejects") {

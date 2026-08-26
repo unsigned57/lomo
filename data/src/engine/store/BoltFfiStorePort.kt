@@ -6,7 +6,10 @@ import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
 import com.lomo.nativebridge.StoreMemoCommandKind as BridgeMemoCommandKind
 import com.lomo.nativebridge.StoreMemoFilters as BridgeMemoFilters
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
+import com.lomo.nativebridge.StoreMemoSort as BridgeMemoSort
+import com.lomo.nativebridge.StoreMemoSortField as BridgeMemoSortField
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
+import com.lomo.nativebridge.StoreSortDirection as BridgeSortDirection
 import java.util.UUID
 
 /**
@@ -14,10 +17,16 @@ import java.util.UUID
  *
  * Requires a Direct workspace (store handle). Missing store handle fails closed from native.
  * Mapping logic is host-testable via fake bridges; real JNI stays behind the bridge only.
+ *
+ * Every call goes through [EngineFailureConvertingStoreBridge], so an engine rejection always leaves
+ * this port as a typed [com.lomo.domain.model.EngineCommandFailureException] and never as the
+ * message-less generated carrier.
  */
 internal class BoltFfiStorePort(
-    private val bridge: StoreNativeBridge,
+    nativeBridge: StoreNativeBridge,
 ) : StorePort {
+    private val bridge: StoreNativeBridge = EngineFailureConvertingStoreBridge(nativeBridge)
+
     override fun queryMemos(
         query: StoreMemoQuery,
         cursor: StorePageCursor?,
@@ -31,14 +40,27 @@ internal class BoltFfiStorePort(
                         BridgeMemoFilters(
                             tag = query.filters.tag,
                             tagSubtree = query.filters.tagSubtree,
-                            dateFromMs = query.filters.dateFromMs,
-                            dateToMs = query.filters.dateToMs,
+                            dateFromInclusiveMs = query.filters.dateFromInclusiveMs,
+                            dateUntilExclusiveMs = query.filters.dateUntilExclusiveMs,
                             hasTodo = query.filters.hasTodo,
                             hasAttachment = query.filters.hasAttachment,
                             hasUrl = query.filters.hasUrl,
                             pinnedOnly = query.filters.pinnedOnly,
                             includeTrash = query.filters.includeTrash,
                             trashOnly = query.filters.trashOnly,
+                        ),
+                    sort =
+                        BridgeMemoSort(
+                            field =
+                                when (query.sort.field) {
+                                    StoreMemoSortField.CreatedAt -> BridgeMemoSortField.CREATED_AT
+                                    StoreMemoSortField.UpdatedAt -> BridgeMemoSortField.UPDATED_AT
+                                },
+                            direction =
+                                when (query.sort.direction) {
+                                    StoreSortDirection.Ascending -> BridgeSortDirection.ASCENDING
+                                    StoreSortDirection.Descending -> BridgeSortDirection.DESCENDING
+                                },
                         ),
                 ),
                 cursor?.let { BridgePageCursor(encoded = it.encoded) },
@@ -153,11 +175,11 @@ internal class BoltFfiStorePort(
         return StoreMemoCommit(
             operationId = result.operationId,
             memoId = result.memoId,
-            coreRevision = result.coreRevision.toLong(),
-            eventSequence = result.eventSequence.toLong(),
-            contentRevision = result.contentRevision.toLong(),
+            coreRevision = result.coreRevision.toStoreLong("core_revision"),
+            eventSequence = result.eventSequence.toStoreLong("event_sequence"),
+            contentRevision = result.contentRevision.toStoreLong("content_revision"),
             fileFingerprint = result.fileFingerprint,
-            scopes = result.scopes,
+            scopes = result.scopes.map(String::toStoreInvalidationScope),
             idempotentReplay = result.idempotentReplay,
         )
     }
@@ -171,7 +193,7 @@ internal class BoltFfiStorePort(
             workspaceDigest = result.workspaceDigest,
             storeDigest = result.storeDigest,
             corruptLomoIsolated = result.corruptLomoIsolated.toLong(),
-            highWaterRevision = result.highWaterRevision.toLong(),
+            highWaterRevision = result.highWaterRevision.toStoreLong("high_water_revision"),
         )
     }
 
@@ -227,13 +249,31 @@ internal class BoltFfiStorePort(
         when (this) {
             StoreMemoCommandKind.Create -> BridgeMemoCommandKind.CREATE
             StoreMemoCommandKind.Update -> BridgeMemoCommandKind.UPDATE
-        StoreMemoCommandKind.Delete -> BridgeMemoCommandKind.DELETE
-        StoreMemoCommandKind.PermanentDelete -> BridgeMemoCommandKind.PERMANENT_DELETE
+            StoreMemoCommandKind.Delete -> BridgeMemoCommandKind.DELETE
+            StoreMemoCommandKind.PermanentDelete -> BridgeMemoCommandKind.PERMANENT_DELETE
             StoreMemoCommandKind.Restore -> BridgeMemoCommandKind.RESTORE
             StoreMemoCommandKind.Pin -> BridgeMemoCommandKind.PIN
             StoreMemoCommandKind.Unpin -> BridgeMemoCommandKind.UNPIN
             StoreMemoCommandKind.HistoryRestore -> BridgeMemoCommandKind.HISTORY_RESTORE
         }
+}
+
+private fun String.toStoreInvalidationScope(): StoreInvalidationScope =
+    when (this) {
+        "memo_list" -> StoreInvalidationScope.MemoList
+        "search" -> StoreInvalidationScope.Search
+        "trash" -> StoreInvalidationScope.Trash
+        "pin" -> StoreInvalidationScope.Pin
+        "tags" -> StoreInvalidationScope.Tags
+        "stats" -> StoreInvalidationScope.Stats
+        "reminder" -> StoreInvalidationScope.Reminder
+        "full" -> StoreInvalidationScope.Full
+        else -> error("Unknown Rust store invalidation scope: $this")
+    }
+
+private fun ULong.toStoreLong(field: String): Long {
+    require(this <= Long.MAX_VALUE.toULong()) { "$field exceeds the Kotlin signed revision range" }
+    return toLong()
 }
 
 private fun Long.toSidebarCount(field: String): Int {

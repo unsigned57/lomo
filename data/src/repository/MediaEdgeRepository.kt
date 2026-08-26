@@ -34,6 +34,8 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 
+private const val MEDIA_REFERENCE_PAGE_SIZE = 256
+
 /**
  * Production media edge after P4-10A: Android URI/temp + path-only [MediaPort] owner.
  *
@@ -143,7 +145,10 @@ constructor(
             // No Direct root: path-cache only from legacy storage listing (no digest claims).
             val fromStorage = mediaStorageDataSource.listImageFiles()
             imageLocationMap.value =
-                fromStorage.associate { (name, uri) -> MediaEntryId(name) to StorageLocation(uri) }
+                buildProviderImageLocationMap(
+                    providerFiles = fromStorage,
+                    attachmentPaths = storePort.currentAttachmentPaths(),
+                )
             return
         }
         val manifest = mediaPort.queryMediaManifest(root)
@@ -526,4 +531,46 @@ constructor(
         /** Bounded SAF/content stage copy (A4). 512 MiB hard ceiling at host edge. */
         const val DEFAULT_MAX_STAGE_BYTES: Long = 512L * 1024L * 1024L
     }
+}
+
+private fun buildProviderImageLocationMap(
+    providerFiles: List<Pair<String, String>>,
+    attachmentPaths: Set<String>,
+): Map<MediaEntryId, StorageLocation> {
+    val index =
+        MediaReferenceIndex.build(
+            providerFiles.map { (name, location) -> ProviderMediaLocation(name, location) },
+        )
+    val resolved =
+        providerFiles.associate { (name, location) ->
+            MediaEntryId(name) to StorageLocation(location)
+        }.toMutableMap()
+    attachmentPaths.forEach { reference ->
+        when (val resolution = index.resolve(reference)) {
+            is MediaReferenceResolution.Resolved -> {
+                val basename = reference.replace('\\', '/').substringAfterLast('/')
+                resolved[MediaEntryId(basename)] = StorageLocation(resolution.location)
+            }
+            MediaReferenceResolution.Ambiguous,
+            MediaReferenceResolution.Missing,
+            -> Unit
+        }
+    }
+    return resolved
+}
+
+private fun StorePort.currentAttachmentPaths(): Set<String> {
+    val paths = linkedSetOf<String>()
+    var cursor: com.lomo.data.engine.store.StorePageCursor? = null
+    do {
+        val page =
+            queryMemos(
+                query = StoreMemoQuery(),
+                cursor = cursor,
+                pageSize = MEDIA_REFERENCE_PAGE_SIZE,
+            )
+        page.items.forEach { memo -> paths += memo.imageUrls }
+        cursor = page.nextCursor
+    } while (cursor != null)
+    return paths
 }

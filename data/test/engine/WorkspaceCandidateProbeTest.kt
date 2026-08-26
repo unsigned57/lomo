@@ -94,12 +94,22 @@ class WorkspaceCandidateProbeTest : DataFunSpec() {
                         context = context,
                         isContentUri = { it.startsWith("content://") },
                     )
-                // DocumentFile.fromTreeUri needs Android runtime; host unit may fail earlier on resolve.
-                // Either resolvable-failure or grant-failure is fail-closed before freeze/persist.
                 shouldThrow<Throwable> {
                     probe.validate(StorageLocation("content://tree/primary%3AMissing"))
                 }
             }
+        }
+
+        test("given nested subfolder uri when uriTreesMatch runs then matches accurately") {
+            val granted = mockk<android.net.Uri>()
+            every { granted.toString() } returns "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals"
+            val candidate = "content://com.android.externalstorage.documents/tree/primary%3ATest%2FJournals"
+            val decodedCandidate = "content://com.android.externalstorage.documents/tree/primary:Test/Journals"
+            val otherCandidate = "content://com.android.externalstorage.documents/tree/primary%3ATest%2FOther"
+
+            uriTreesMatch(granted, candidate) shouldBe true
+            uriTreesMatch(granted, decodedCandidate) shouldBe true
+            uriTreesMatch(granted, otherCandidate) shouldBe false
         }
     }
 }

@@ -26,7 +26,6 @@ val reminderModule = module {
         AlarmManagerReminderScheduler(
             context = androidContext(),
             memoQueryRepository = get(),
-            markdownReminderRepository = get(),
             schedulePort = get(),
             rollingWindow = get(),
         )

@@ -16,6 +16,10 @@ package com.lomo.data.engine
  *   the first action returns a structured timeout failure.
  * - Given an unknown schema or invalid action count, when execution starts, then it fails before any
  *   side effect rather than truncating or accepting a default.
+ * - Given a batch containing only independent reads, when execution starts, then reads overlap while
+ *   their verified results remain in Rust-authored action order.
+ * - Given one independent read fails, when the concurrent batch completes, then the submitted
+ *   result stops at that failure as the longest verified ordered prefix.
  *
  * Observable outcomes:
  * - Ordered accessed action ids and PlatformBatchResult identity/outcomes.
@@ -47,12 +51,17 @@ import com.lomo.nativebridge.MetadataPage
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformActionOutput
+import com.lomo.nativebridge.PlatformBatchResult
 import com.lomo.nativebridge.VerifiedAbsence
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AndroidPlatformActionExecutorTest : DataFunSpec() {
     init {
@@ -133,6 +142,68 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
             }
             accessCount shouldBe 0
         }
+
+        test("given independent read batch when executed then reads overlap and results preserve order") {
+            val entered = CountDownLatch(2)
+            val release = CountDownLatch(1)
+            val accessed = Collections.synchronizedList(mutableListOf<String>())
+            val access =
+                PlatformActionAccess { action ->
+                    accessed += action.actionId()
+                    entered.countDown()
+                    check(release.await(2, TimeUnit.SECONDS)) { "read release timed out" }
+                    ActionOutcome.Applied(action.output())
+                }
+            val executor = AndroidPlatformActionExecutor(access) { 1_000L }
+            val caller = Executors.newSingleThreadExecutor()
+            val reads =
+                listOf(
+                    readAction("read-1", "one.md", "exchange-one"),
+                    readAction("read-2", "two.md", "exchange-two"),
+                )
+
+            try {
+                val result = caller.submit<PlatformBatchResult> {
+                    executor.execute(batch(actions = reads, deadline = 2_000uL))
+                }
+
+                entered.await(1, TimeUnit.SECONDS) shouldBe true
+                release.countDown()
+
+                result.get(2, TimeUnit.SECONDS).actionResults.map { it.actionId } shouldContainExactly
+                    listOf("read-1", "read-2")
+                accessed.toSet() shouldBe setOf("read-1", "read-2")
+            } finally {
+                release.countDown()
+                caller.shutdownNow()
+            }
+        }
+
+        test("given an independent read fails when batch completes then result stops at ordered failure") {
+            val reads =
+                listOf(
+                    readAction("read-1", "one.md", "exchange-one"),
+                    readAction("read-2", "two.md", "exchange-two"),
+                    readAction("read-3", "three.md", "exchange-three"),
+                )
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access =
+                        PlatformActionAccess { action ->
+                            if (action.actionId() == "read-2") {
+                                ActionOutcome.Failed(FAILURE)
+                            } else {
+                                ActionOutcome.Applied(action.output())
+                            }
+                        },
+                    currentTimeMillis = { 1_000L },
+                )
+
+            val result = executor.execute(batch(actions = reads, deadline = 2_000uL))
+
+            result.actionResults.map { it.actionId } shouldContainExactly listOf("read-1", "read-2")
+            result.actionResults.last().outcome shouldBe ActionOutcome.Failed(FAILURE)
+        }
     }
 }
 
@@ -201,6 +272,20 @@ private fun allActions(): List<PlatformAction> =
             "trash/memo.md",
             ExpectedFingerprint.Match(VERIFIED_EVIDENCE),
         ),
+    )
+
+private fun readAction(
+    actionId: String,
+    path: String,
+    exchangeToken: String,
+): PlatformAction.ReadToExchange =
+    PlatformAction.ReadToExchange(
+        actionId = actionId,
+        capabilityToken = "root-capability",
+        path = path,
+        documentHandle = null,
+        exchangeToken = exchangeToken,
+        expectedSource = ExpectedFingerprint.Absent,
     )
 
 private fun PlatformAction.actionId(): String =

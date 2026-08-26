@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.isWritable
+import com.lomo.domain.model.permitsWrites
 import com.lomo.domain.model.requireWritable
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -32,6 +35,7 @@ class ProcessWorkspaceMutationLease(
     private val engineReadinessRepository: EngineReadinessRepository,
 ) : WorkspaceMutationLease {
     private val monitor = Any()
+    private val transitionMutex = Mutex()
     private val admissionsOpen = MutableStateFlow(true)
     private val drained = MutableStateFlow(true)
     private var inFlight = 0
@@ -43,7 +47,8 @@ class ProcessWorkspaceMutationLease(
 
     override fun isWritable(): Boolean =
         synchronized(monitor) {
-            engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)
+            engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
+                engineReadinessRepository.projectionFreshness.value.permitsWrites()
         }
 
     override fun isWritableFlow(): Flow<Boolean> =
@@ -52,6 +57,8 @@ class ProcessWorkspaceMutationLease(
             admissionsOpen,
         ) { readiness, open ->
             readiness.isWritable(writeFrozen = !open)
+        }.combine(engineReadinessRepository.projectionFreshness) { writable, freshness ->
+            writable && freshness.permitsWrites()
         }.distinctUntilChanged()
 
     override suspend fun <T> withWrite(block: suspend (WorkspaceAuthority) -> T): T {
@@ -74,29 +81,35 @@ class ProcessWorkspaceMutationLease(
         }
     }
 
-    override suspend fun <T> withExclusiveTransition(block: suspend () -> T): T {
-        closeAdmissions()
-        try {
-            // Every writer admitted before admissions closed must finish before the workspace can
-            // change; a switch that skipped this would let an old writer commit into a new engine.
-            drained.first { it }
-            return block()
-        } finally {
-            openAdmissions()
+    override suspend fun <T> withExclusiveTransition(block: suspend () -> T): T =
+        transitionMutex.withLock {
+            closeAdmissions()
+            try {
+                // Every writer admitted before admissions closed must finish before the workspace can
+                // change; a switch that skipped this would let an old writer commit into a new engine.
+                drained.first { it }
+                block()
+            } finally {
+                openAdmissions()
+            }
         }
-    }
 
     private fun admit(): WorkspaceAuthority =
         synchronized(monitor) {
             engineReadinessRepository.readiness.value.requireWritable(
                 writeFrozen = !admissionsOpen.value,
             )
+            check(engineReadinessRepository.projectionFreshness.value.permitsWrites()) {
+                "Workspace projection is not verified; writes are blocked until indexing commits"
+            }
             registerLocked()
         }
 
     private fun admitOrNull(): WorkspaceAuthority? =
         synchronized(monitor) {
-            if (!engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)) {
+            if (!engineReadinessRepository.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
+                !engineReadinessRepository.projectionFreshness.value.permitsWrites()
+            ) {
                 null
             } else {
                 registerLocked()

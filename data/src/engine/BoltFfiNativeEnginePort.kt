@@ -31,7 +31,10 @@ import com.lomo.nativebridge.RenderRequest
 import com.lomo.nativebridge.ShutdownOutcome
 import com.lomo.nativebridge.Subscription
 import com.lomo.nativebridge.WorkspaceDocumentCommand
+import com.lomo.nativebridge.WorkspaceHistoryScanRequest
 import com.lomo.nativebridge.WorkspaceScanRequest
+import com.lomo.nativebridge.WorkspaceTrashCommand
+import com.lomo.nativebridge.WorkspaceTrashScanRequest
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -280,6 +283,44 @@ internal class BoltFfiNativeEnginePort(
             engine.readWorkspaceScanPage(jobId).toProjectionSnapshot()
         }
 
+    override fun startWorkspaceTrashScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String =
+        withReadLease { engine ->
+            engine.startWorkspaceTrashScan(
+                WorkspaceTrashScanRequest(pageSize = pageSize, cursor = cursor),
+                deadlineMillis,
+            )
+        }
+
+    override fun readWorkspaceTrashProjectionScanPage(
+        jobId: String,
+    ): WorkspaceTrashProjectionScanPageSnapshot =
+        withReadLease { engine ->
+            engine.readWorkspaceTrashScanPage(jobId).toProjectionSnapshot()
+        }
+
+    override fun startWorkspaceHistoryScan(
+        pageSize: UInt,
+        cursor: String?,
+        deadlineMillis: ULong,
+    ): String =
+        withReadLease { engine ->
+            engine.startWorkspaceHistoryScan(
+                WorkspaceHistoryScanRequest(pageSize = pageSize, cursor = cursor),
+                deadlineMillis,
+            )
+        }
+
+    override fun readWorkspaceHistoryProjectionScanPage(
+        jobId: String,
+    ): WorkspaceHistoryProjectionScanPageSnapshot =
+        withReadLease { engine ->
+            engine.readWorkspaceHistoryScanPage(jobId).toProjectionSnapshot()
+        }
+
     override fun beginSafProjectionRebuild(): String =
         withReadLease { engine -> engine.beginSafProjectionRebuild() }
 
@@ -307,6 +348,62 @@ internal class BoltFfiNativeEnginePort(
                         hasTodo = memo.hasTodo,
                         hasUrl = memo.hasUrl,
                         reminders = memo.reminders.map { reminder -> reminder.toBridge() },
+                    )
+                },
+            )
+        }
+    }
+
+    override fun appendSafTrashProjectionRebuildPage(
+        rebuildId: String,
+        memos: List<SafTrashProjectionReferenceSnapshot>,
+    ) {
+        withReadLease { engine ->
+            engine.appendSafTrashProjectionRebuildPage(
+                rebuildId,
+                memos.map { memo ->
+                    com.lomo.nativebridge.StoreSafTrashProjectionReference(
+                        memoId = memo.memoId,
+                        sourcePath = memo.sourcePath,
+                        fileFingerprint = memo.fileFingerprint,
+                        chronologyEpochMs = memo.chronologyEpochMs,
+                        trashedAtMs = memo.trashedAtMs,
+                        content =
+                            com.lomo.nativebridge.WorkspaceMemoContentReference(
+                                exchangeToken = memo.content.token,
+                                length = memo.content.length,
+                                digest = memo.content.digest,
+                            ),
+                        tags = memo.tags,
+                        attachmentPaths = memo.attachmentPaths,
+                        hasTodo = memo.hasTodo,
+                        hasUrl = memo.hasUrl,
+                        reminders = memo.reminders.map { reminder -> reminder.toBridge() },
+                    )
+                },
+            )
+        }
+    }
+
+    override fun appendSafHistoryProjectionRebuildPage(
+        rebuildId: String,
+        revisions: List<SafHistoryProjectionReferenceSnapshot>,
+    ) {
+        withReadLease { engine ->
+            engine.appendSafHistoryProjectionRebuildPage(
+                rebuildId,
+                revisions.map { revision ->
+                    com.lomo.nativebridge.StoreSafHistoryProjectionReference(
+                        memoId = revision.memoId,
+                        revision = revision.revision,
+                        createdAtMs = revision.createdAtMs,
+                        fileFingerprint = revision.fileFingerprint,
+                        content =
+                            com.lomo.nativebridge.WorkspaceMemoContentReference(
+                                exchangeToken = revision.content.token,
+                                length = revision.content.length,
+                                digest = revision.content.digest,
+                            ),
                     )
                 },
             )
@@ -350,6 +447,7 @@ internal class BoltFfiNativeEnginePort(
                     path = path,
                     expectedState = expectedState.toBridge(),
                     command = command.toBridge(),
+                    history = command.historyWrite()?.toBridge(),
                 ),
                 deadlineMillis,
             )
@@ -358,6 +456,28 @@ internal class BoltFfiNativeEnginePort(
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         withReadLease { engine ->
             engine.readWorkspaceDocumentCommandResult(jobId).toSnapshot()
+        }
+
+    override fun startWorkspaceTrashCommand(
+        path: String,
+        expectedFingerprint: String,
+        command: WorkspaceNativeTrashCommandSpec,
+        deadlineMillis: ULong,
+    ): String =
+        withReadLease { engine ->
+            engine.startWorkspaceTrashCommand(
+                WorkspaceTrashCommand(
+                    path = path,
+                    expectedFingerprint = expectedFingerprint,
+                    command = command.toBridge(),
+                ),
+                deadlineMillis,
+            )
+        }
+
+    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
+        withReadLease { engine ->
+            engine.readWorkspaceTrashCommandResult(jobId).toSnapshot()
         }
 
     override fun queryMemos(
@@ -369,6 +489,9 @@ internal class BoltFfiNativeEnginePort(
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withReadLease { engine -> engine.getMemo(memoId) }
+
+    override fun sourceDocumentFingerprint(sourcePath: String): String? =
+        withReadLease { engine -> engine.sourceDocumentFingerprint(sourcePath) }
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         withReadLease { engine -> engine.sidebarProjection() }

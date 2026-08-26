@@ -11,7 +11,7 @@ package com.lomo.data.engine.store
  * - Given a first page with a next cursor, when load runs, then items and next key are returned.
  * - Given a subsequent cursor, when load runs, then the following page is returned.
  * - Given the store throws, when load runs, then LoadResult.Error is returned.
- * - Given a registered source, when the shared invalidation bus bumps, then the source is invalidated.
+ * - Given a registered source, when a matching store commit is published, then the source is invalidated.
  *
  * Observable outcomes:
  * - PagingSource LoadResult page items, next/prev keys, and Error.
@@ -142,10 +142,28 @@ class StorePagingSourceTest : FunSpec({
 
     test("invalidation bus invalidates a registered paging source") {
         val bus = StoreInvalidationBus()
-        val source = StorePagingSource(FakeStorePort(), StoreMemoQuery(), registerInvalidation = bus::register)
+        val source =
+            StorePagingSource(
+                FakeStorePort(),
+                StoreMemoQuery(),
+                registerInvalidation = { pagingSource ->
+                    bus.register(pagingSource, setOf(StoreInvalidationScope.MemoList))
+                },
+            )
 
         source.invalid shouldBe false
-        bus.bump()
+        bus.publish(
+            StoreMemoCommit(
+                operationId = "op-1",
+                memoId = "m1",
+                coreRevision = 1L,
+                eventSequence = 1L,
+                contentRevision = 1L,
+                fileFingerprint = "fp",
+                scopes = listOf(StoreInvalidationScope.MemoList),
+                idempotentReplay = false,
+            ),
+        )
         source.invalid shouldBe true
     }
 })

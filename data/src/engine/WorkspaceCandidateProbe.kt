@@ -2,12 +2,14 @@ package com.lomo.data.engine
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.source.isContentStorageUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.WorkspaceCandidateValidator
 import java.io.File
+import java.util.Locale
 
 /**
  * Production candidate probe used before freeze + durable root persistence.
@@ -79,25 +81,34 @@ internal fun uriTreesMatch(
     if (grantedRaw == candidate) return true
     val grantedTree = grantedRaw.treeDocumentIdOrNull() ?: return false
     val candidateTree = candidate.treeDocumentIdOrNull() ?: return false
-    return grantedRaw.uriAuthorityOrNull() == candidate.uriAuthorityOrNull() &&
-        grantedTree == candidateTree
+    val grantedAuthority = grantedRaw.uriAuthorityOrNull()
+    val candidateAuthority = candidate.uriAuthorityOrNull()
+    return grantedAuthority == candidateAuthority && grantedTree == candidateTree
 }
 
 private fun String.treeDocumentIdOrNull(): String? {
-    return try {
-        val pathSegments = java.net.URI(this).path?.split('/') ?: return null
-        val treeIndex = pathSegments.indexOf("tree")
-        pathSegments.getOrNull(treeIndex + 1)?.takeIf { it.isNotEmpty() }
-            ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8.name()) }
-    } catch (_: java.net.URISyntaxException) {
-        // Not a documents tree URI; grant matching falls back to exact/string equality.
-        null
-    }
+    val withoutQuery = substringBefore('?').substringBefore('#')
+    val treeIndex = withoutQuery.indexOf("/tree/")
+    if (treeIndex < 0) return null
+    val afterTree = withoutQuery.substring(treeIndex + "/tree/".length)
+    if (afterTree.isEmpty()) return null
+    val rawId =
+        if (afterTree.contains("/document/")) {
+            afterTree.substringBefore("/document/")
+        } else {
+            afterTree
+        }
+    return runCatching {
+        java.net.URLDecoder.decode(rawId.replace("+", "%2B"), "UTF-8")
+    }.fold(
+        onSuccess = { decoded -> decoded.takeIf(String::isNotEmpty) },
+        onFailure = { null },
+    )
 }
 
-private fun String.uriAuthorityOrNull(): String? =
-    try {
-        java.net.URI(this).authority
-    } catch (_: java.net.URISyntaxException) {
-        null
-    }
+private fun String.uriAuthorityOrNull(): String? {
+    if (!startsWith("content://", ignoreCase = true)) return null
+    val withoutScheme = substring("content://".length)
+    val authority = withoutScheme.substringBefore('/')
+    return authority.takeIf { it.isNotEmpty() }?.lowercase(Locale.ROOT)
+}

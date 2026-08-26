@@ -17,7 +17,9 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MarkdownReminderRepository
-import com.lomo.domain.model.MarkdownWorkspaceCommandException
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineRetryDisposition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,9 +46,11 @@ import kotlin.concurrent.write
  * be acquired leaves the session in structured `ReadOnlyRecovery` with no adapter rather than
  * failing graph construction. When a Direct/SAF root is selected (or restored once from persisted
  * settings), [activateWorkspace] runs Prepared → RetiringPrevious → Committed: it opens a candidate
- * engine, completes the candidate projection rebuild, and promotes it only after it reaches
- * [EngineReadiness.Ready] and the previous owner has been released. Soft Recovery and hard open
- * failure leave the previous engine authoritative.
+ * engine, promotes it once it reaches [EngineReadiness.Ready], and releases the previous owner.
+ * SAF projection reconciliation is a separate generation-boundary operation: an empty candidate
+ * projection is published as [ProjectionFreshness.Building] and becomes writable only after the
+ * Rust-owned atomic rebuild commits. Soft Recovery and hard open failure leave the previous engine
+ * authoritative.
  * Session-owned recovery authority freezes readiness so a bootstrap Awaiting engine cannot
  * resnapshot Recovery away after cold-restore failure.
  *
@@ -64,9 +68,6 @@ internal class ManagedEngineSession(
     private val isContentUri: (String) -> Boolean,
 ) : ManagedEngineCapabilities(),
     EngineReadinessRepository,
-    MarkdownWorkspaceRepository,
-    MarkdownReminderRepository,
-    WorkspaceMarkdownOwner,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
     private val activationMutex = Mutex()
@@ -201,96 +202,43 @@ internal class ManagedEngineSession(
         }
     }
 
-    override fun renderMarkdown(content: String) =
-        renderMarkdown(content = content, schemaVersion = com.lomo.domain.model.markdown.MarkdownRenderDocument.SCHEMA_VERSION)
-
-    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.findMemoSnapshot(memoIdentity).reminders.map(WorkspaceReminderReferenceSnapshot::toDomainMarker)
-        }
-
-    override suspend fun rewriteReminder(
-        reference: ReminderReference,
-        replacement: String,
-    ): String =
-        withActiveWorkspaceAdapter { adapter ->
-            val before = adapter.findMemoSnapshot(reference.memoIdentity)
-            val reminder =
-                before.reminders.singleOrNull { candidate -> candidate.matches(reference) }
-                    ?: throw MarkdownWorkspaceCommandException(
-                        code = "stale_snapshot",
-                        message = "Reminder reference is not present in the current memo revision",
-                    )
-            val jobId =
-                adapter.startWorkspaceDocumentCommand(
-                    path = before.path,
-                    expectedState = WorkspaceNativeExpectedState.Match(reference.revision),
-                    command = WorkspaceNativeCommandSpec.RewriteReminder(reminder, replacement),
-                )
-            adapter.driveToCompletion(jobId)
-            adapter.readWorkspaceDocumentCommandResult(jobId)
-            adapter.findMemoSnapshot(reference.memoIdentity).content
-        }
-
-    override fun scanWorkspace(rootPath: String?): Sequence<WorkspaceMemoSummarySnapshot> =
-        withActiveWorkspaceAdapter { adapter -> adapter.scanAllMemoSnapshots(rootPath) }
-
-    override fun replaceMemo(
-        rootPath: String?,
-        filename: String,
-        identity: String,
-        content: String,
-    ): Boolean =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.executeMemoCommand(rootPath, filename, identity, WorkspaceNativeCommandSpec.Replace(identity, content))
-        }
-
-    override fun removeMemo(
-        rootPath: String?,
-        filename: String,
-        identity: String,
-    ): Boolean =
-        withActiveWorkspaceAdapter { adapter ->
-            adapter.executeMemoCommand(rootPath, filename, identity, WorkspaceNativeCommandSpec.Remove(identity))
-        }
-
-    override suspend fun toggleTask(
-        memoIdentity: String,
-        actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
-    ): String =
-        withActiveWorkspaceAdapter { adapter ->
-            val before = adapter.findMemoSnapshot(memoIdentity)
-            val relativeStart = actionSpan.startByte
-            val relativeEnd = actionSpan.endByte
-            val contentLength = before.content.encodeToByteArray().size.toULong()
-            if (relativeStart >= relativeEnd || relativeEnd > contentLength) {
-                throw MarkdownWorkspaceCommandException(
-                    code = "task_action_span_out_of_bounds",
-                    message = "Task action span is outside the rendered memo body",
-                )
+    override suspend fun retryProjectionBuild() {
+        check(!closed.get()) { "Managed engine session is closed" }
+        activationMutex.withLock {
+            val authority =
+                checkNotNull(_workspaceAuthority.value) {
+                    "Projection retry requires an active workspace authority"
+                }
+            check(_projectionFreshness.value is ProjectionFreshness.Failed) {
+                "Projection retry requires a failed first projection build"
             }
-            val absoluteStart = before.bodyStart.checkedAdd(relativeStart)
-            val absoluteEnd = before.bodyStart.checkedAdd(relativeEnd)
-            if (absoluteEnd > before.bodyEnd) {
-                throw MarkdownWorkspaceCommandException(
-                    code = "task_action_span_out_of_bounds",
-                    message = "Task action span exceeds the scanned memo body",
-                )
+            val location =
+                checkNotNull(_activeWorkspaceLocation.value) {
+                    "Projection retry requires an active workspace location"
+                }
+            check(isContentUri(location.raw)) {
+                "Projection retry is only valid for an SAF workspace"
             }
-            val jobId =
-                adapter.startWorkspaceDocumentCommand(
-                    path = before.path,
-                    expectedState = WorkspaceNativeExpectedState.Match(before.fingerprint),
-                    command =
-                        WorkspaceNativeCommandSpec.ToggleTask(
-                            sourceStart = absoluteStart,
-                            sourceEnd = absoluteEnd,
-                        ),
-                )
-            adapter.driveToCompletion(jobId)
-            adapter.readWorkspaceDocumentCommandResult(jobId)
-            adapter.findMemoSnapshot(memoIdentity).content
+            val adapter =
+                adapterLease.read {
+                    check(_readiness.value is EngineReadiness.Ready) {
+                        "Projection retry requires a Ready engine"
+                    }
+                    checkNotNull(activeAdapter) {
+                        "Projection retry requires an active workspace adapter"
+                    }
+                }
+            startProjectionRefreshIfNeeded(
+                prepared =
+                    PreparedCandidate(
+                        adapter = adapter,
+                        projectionRevision = authority.projectionRevision,
+                        refreshProjection = true,
+                    ),
+                launchedAuthority = authority,
+            )
         }
+    }
 
     override suspend fun activateWorkspace(location: StorageLocation) {
         check(!closed.get()) { "Managed engine session is closed" }
@@ -298,7 +246,7 @@ internal class ManagedEngineSession(
         activationMutex.withLock {
             check(!closed.get()) { "Managed engine session is closed" }
             val selection = selectionFor(location)
-            val prepared = prepareCandidate(selection, allowBackgroundRefresh = false)
+            val prepared = prepareCandidate(selection, allowBackgroundRefresh = true)
             val authority = promoteCandidate(
                 candidate = prepared.adapter,
                 candidateToken = selection.capabilityToken,
@@ -385,7 +333,7 @@ internal class ManagedEngineSession(
                 runCatching {
                     val currentProjectionRevision = candidate.storeProjectionRevision()
                     if (selection.workspace is NativeWorkspaceSelection.Saf &&
-                        (!allowBackgroundRefresh || currentProjectionRevision == 0uL)
+                        !allowBackgroundRefresh && currentProjectionRevision == 0uL
                     ) {
                         val rebuiltRevision =
                             withContext(Dispatchers.IO) {
@@ -402,15 +350,26 @@ internal class ManagedEngineSession(
                 }
             preparation.exceptionOrNull()?.let { error ->
                 releaseCandidate(candidate, selection.capabilityToken, error, capabilityRegistry)
-                if (error is ProjectionRebuildException) {
-                    throw WorkspaceActivationException(
-                        EngineReadiness.ReadOnlyRecovery(
-                            category = error.failureCategory.toFailureCategory(),
-                            code = error.failureCode,
-                            retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
-                            diagnostic = error.message ?: "Workspace projection rebuild failed",
-                        ),
-                    )
+                val readOnlyRecovery =
+                    when (error) {
+                        is ProjectionRebuildException ->
+                            EngineReadiness.ReadOnlyRecovery(
+                                category = error.failureCategory.toFailureCategory(),
+                                code = error.failureCode,
+                                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                diagnostic = error.message ?: "Workspace projection rebuild failed",
+                            )
+                        is ProjectionScanDeadlineExceededException ->
+                            EngineReadiness.ReadOnlyRecovery(
+                                category = EngineFailureCategory.TIMEOUT,
+                                code = "projection_scan_deadline_exceeded",
+                                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                diagnostic = "Workspace projection scan exceeded deadline",
+                            )
+                        else -> null
+                    }
+                if (readOnlyRecovery != null) {
+                    throw WorkspaceActivationException(readOnlyRecovery)
                 }
             }
             return preparation.getOrThrow()
@@ -420,9 +379,9 @@ internal class ManagedEngineSession(
             WorkspaceActivationException(
                 candidateReadiness as? EngineReadiness.ReadOnlyRecovery
                     ?: EngineReadiness.ReadOnlyRecovery(
-                        category = EngineReadiness.FailureCategory.INTERNAL,
+                        category = EngineFailureCategory.INTERNAL,
                         code = "workspace_open_not_ready",
-                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic =
                             "Workspace open did not reach Ready " +
                                 "(${candidateReadiness::class.simpleName})",
@@ -512,9 +471,9 @@ internal class ManagedEngineSession(
                 releaseCandidate(candidate, candidateToken, failure, capabilityRegistry)
                 holdRecoveryAuthority(
                     EngineReadiness.ReadOnlyRecovery(
-                        category = EngineReadiness.FailureCategory.INTERNAL,
+                        category = EngineFailureCategory.INTERNAL,
                         code = "workspace_retire_failed",
-                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic = failure.message ?: "Previous workspace engine could not be retired",
                     ),
                 )
@@ -564,7 +523,10 @@ internal class ManagedEngineSession(
                 _projectionFreshness.value =
                     when {
                         workspaceId == null -> ProjectionFreshness.Unavailable
-                        refreshProjection -> ProjectionFreshness.Refreshing(checkNotNull(projectionRevision))
+                        refreshProjection && projectionRevision == 0uL ->
+                            ProjectionFreshness.Building(0uL)
+                        refreshProjection ->
+                            ProjectionFreshness.Refreshing(checkNotNull(projectionRevision))
                         else -> ProjectionFreshness.Verified(checkNotNull(projectionRevision))
                     }
                 AdapterPromotion.Committed(token, authority)
@@ -578,6 +540,22 @@ internal class ManagedEngineSession(
         if (!prepared.refreshProjection) return
         checkNotNull(launchedAuthority) { "SAF commit must return workspace authority" }
         projectionRefreshJob?.cancel()
+        adapterLease.write {
+            check(
+                activeAdapter === prepared.adapter &&
+                    _workspaceAuthority.value == launchedAuthority,
+            ) {
+                "Projection refresh authority is no longer active"
+            }
+            _projectionFreshness.value =
+                if (prepared.projectionRevision == 0uL) {
+                    ProjectionFreshness.Building(baseRevision = 0uL)
+                } else {
+                    ProjectionFreshness.Refreshing(
+                        lastVerifiedRevision = prepared.projectionRevision,
+                    )
+                }
+        }
         projectionRefreshJob =
             appScope.launch(Dispatchers.IO) {
                 val result =
@@ -589,8 +567,11 @@ internal class ManagedEngineSession(
                             ) {
                                 "Projection refresh adapter is no longer active"
                             }
-                            prepared.adapter.rebuildSafProjectionFromWorkspaceScan()
                         }
+                        // The native port leases each FFI call. Do not hold the session lease across
+                        // Android provider I/O: a blocked refresh must not prevent the next
+                        // workspace generation from retiring this adapter.
+                        prepared.adapter.rebuildSafProjectionFromWorkspaceScan()
                     }
                 adapterLease.write {
                     val currentAuthority = _workspaceAuthority.value
@@ -606,17 +587,25 @@ internal class ManagedEngineSession(
                                     ProjectionFreshness.Verified(rebuild.highWaterRevision)
                             },
                             onFailure = { error ->
+                                val reasonCode =
+                                    when (error) {
+                                        is ProjectionRebuildException -> error.failureCode
+                                        is ProjectionScanDeadlineExceededException ->
+                                            "projection_scan_deadline_exceeded"
+                                        else -> "projection_refresh_failed"
+                                    }
                                 _projectionFreshness.value =
-                                    ProjectionFreshness.Stale(
-                                        lastVerifiedRevision = prepared.projectionRevision,
-                                        reasonCode =
-                                            when (error) {
-                                                is ProjectionRebuildException -> error.failureCode
-                                                is ProjectionScanDeadlineExceededException ->
-                                                    "projection_scan_deadline_exceeded"
-                                                else -> "projection_refresh_failed"
-                                            },
-                                    )
+                                    if (prepared.projectionRevision == 0uL) {
+                                        ProjectionFreshness.Failed(
+                                            baseRevision = 0uL,
+                                            reasonCode = reasonCode,
+                                        )
+                                    } else {
+                                        ProjectionFreshness.Stale(
+                                            lastVerifiedRevision = prepared.projectionRevision,
+                                            reasonCode = reasonCode,
+                                        )
+                                    }
                             },
                         )
                     }
@@ -770,103 +759,15 @@ class WorkspaceActivationException(
 internal fun WorkspaceNativeAdapter.findMemoSnapshot(identity: String): WorkspaceMemoSummarySnapshot {
     require(identity.isNotBlank()) { "Memo identity must be non-blank" }
     scanAllMemoSnapshots(rootPath = null).firstOrNull { item -> item.identity == identity }?.let { return it }
-    throw MarkdownWorkspaceCommandException(
+    throw engineCommandFailure(
+        category = EngineFailureCategory.VALIDATION,
         code = "memo_identity_not_found",
-        message = "Memo identity was not found in the active workspace",
+        retryDisposition = EngineRetryDisposition.NEVER,
+        diagnostic = "Memo identity was not found in the active workspace",
     )
 }
 
-private fun WorkspaceNativeAdapter.executeMemoCommand(
-    rootPath: String?,
-    filename: String,
-    identity: String,
-    command: WorkspaceNativeCommandSpec,
-): Boolean {
-    val snapshot =
-        scanAllMemoSnapshots(rootPath)
-            .firstOrNull { item -> item.identity == identity && item.path.substringAfterLast('/') == filename }
-            ?: return false
-    val jobId =
-        startWorkspaceDocumentCommand(
-            path = snapshot.path,
-            expectedState = WorkspaceNativeExpectedState.Match(snapshot.fingerprint),
-            command = command,
-        )
-    driveToCompletion(jobId)
-    readWorkspaceDocumentCommandResult(jobId)
-    return true
-}
 
-internal fun WorkspaceNativeAdapter.driveToCompletion(jobId: String) {
-    val failure = when (val terminal = driveJob(jobId)) {
-        NativeJobStep.Completed -> null
-        is NativeJobStep.Failed -> terminal.failure.toWorkspaceCommandException()
-        is NativeJobStep.BlockedByConflict -> terminal.failure.toWorkspaceCommandException()
-        else -> MarkdownWorkspaceCommandException(
-            code = "workspace_job_not_terminal",
-            message = "Workspace job did not reach a terminal state",
-        )
-    }
-    failure?.let { throw it }
-}
-
-private fun EngineFailureSnapshot.toWorkspaceCommandException(): MarkdownWorkspaceCommandException =
-    MarkdownWorkspaceCommandException(code = code, message = diagnostic)
-
-private fun ULong.checkedAdd(other: ULong): ULong {
-    if (this > ULong.MAX_VALUE - other) {
-        throw MarkdownWorkspaceCommandException(
-            code = "task_action_span_overflow",
-            message = "Task action span cannot be represented",
-        )
-    }
-    return this + other
-}
-
-private fun WorkspaceReminderReferenceSnapshot.matches(reference: ReminderReference): Boolean =
-    opaqueId == reference.opaqueId &&
-        revision == reference.revision &&
-        memoIdentity == reference.memoIdentity &&
-    sourceStart == reference.sourceSpan.startByte &&
-        sourceEnd == reference.sourceSpan.endByte &&
-        tokenFingerprint == reference.tokenFingerprint
-
-private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker =
-    ReminderMarker(
-        dueAt =
-            try {
-                LocalDateTime.parse(dueAtLocal, ReminderMarker.TIMESTAMP_FORMAT)
-            } catch (error: java.time.format.DateTimeParseException) {
-                throw WorkspaceRenderBoundaryException(
-                    code = "invalid_reminder_due_at",
-                    message = "Rust reminder due-at fact is invalid: ${error.message}",
-                )
-            },
-        repeatCount = repeatCount.toIntExact("repeat_count"),
-        firedCount = firedCount.toIntExact("fired_count"),
-        done = done,
-        intervalMinutes = intervalMinutes.toIntExact("interval_minutes"),
-        recurrence = Recurrence.fromCode(recurrenceCode),
-        reference =
-            ReminderReference(
-                opaqueId = opaqueId,
-                revision = revision,
-                memoIdentity = memoIdentity,
-                sourceSpan = MarkdownSourceSpan(startByte = sourceStart, endByte = sourceEnd),
-                tokenFingerprint = tokenFingerprint,
-            ),
-        token = token,
-    )
-
-private fun UInt.toIntExact(field: String): Int {
-    if (this > Int.MAX_VALUE.toUInt()) {
-        throw WorkspaceRenderBoundaryException(
-            code = "invalid_reminder_$field",
-            message = "Rust reminder $field exceeds Kotlin Int",
-        )
-    }
-    return toInt()
-}
 
 internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSafMemoProjection =
     com.lomo.nativebridge.StoreSafMemoProjection(
@@ -880,6 +781,7 @@ internal fun SafMemoProjectionSnapshot.toBridge(): com.lomo.nativebridge.StoreSa
         hasTodo = hasTodo,
         hasUrl = hasUrl,
         reminders = reminders.map(WorkspaceReminderReferenceSnapshot::toBridge),
+        trashedAtMs = trashedAtMs,
     )
 
 private fun WorkspaceReminderReferenceSnapshot.toBridge(): com.lomo.nativebridge.WorkspaceReminderReference =
