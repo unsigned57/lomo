@@ -27,6 +27,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.StateFlow
 
 data class MemoEditorSessionState(
     val imageDirectory: String?,
@@ -61,11 +62,20 @@ data class MemoEditorOperations(
         onResult: (String) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
-    val onSubmit: (
+    val onSubmit: suspend (
+        submissionId: MemoEditorSubmissionId,
         memo: Memo?,
         content: String,
         timestampMillis: Long?,
-    ) -> Unit,
+    ) -> Boolean,
+    /**
+     * The owning submission state for this editor host.
+     *
+     * The editor lock is a projection of this flow, never of a value returned through composition:
+     * the owner outlives every composition that observes it, so a torn-down acknowledgement path
+     * must still resolve the editor.
+     */
+    val submissionState: StateFlow<MemoEditorSubmissionState>,
     val onDismiss: (() -> Unit)?,
     val onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
 ) {
@@ -140,7 +150,8 @@ fun unsupportedMemoEditorCommand(command: InputEditorCommand): Nothing =
 fun existingMemoEditorSurface(
     session: MemoEditorSessionState,
     toolbarToolOrder: ImmutableList<String>,
-    onUpdateMemo: (Memo, String) -> Unit,
+    onUpdateMemo: suspend (MemoEditorSubmissionId, Memo, String) -> Boolean,
+    submissionState: StateFlow<MemoEditorSubmissionState>,
     onSaveImage: (
         uri: Uri,
         onResult: (String) -> Unit,
@@ -160,12 +171,13 @@ fun existingMemoEditorSurface(
         operations =
             MemoEditorOperations(
                 onSaveImage = onSaveImage,
-                onSubmit = { memo, content, _ ->
+                onSubmit = { submissionId, memo, content, _ ->
                     checkNotNull(memo) {
                         "Existing memo editor surface cannot submit a new memo"
                     }
-                    onUpdateMemo(memo, content)
+                    onUpdateMemo(submissionId, memo, content)
                 },
+                submissionState = submissionState,
                 onDismiss = null,
                 onToolbarOrderChanged = { tools ->
                     onToolbarOrderChanged(tools.map { tool -> tool.persistedId })

@@ -60,13 +60,30 @@ internal fun rememberMainMemoEditorSurface(
         operations =
             MemoEditorOperations(
                 onSaveImage = dependencies.editorViewModel::saveImage,
-                onSubmit = { memo, content, timestampMillis ->
+                onSubmit = { submissionId, memo, content, timestampMillis ->
                     if (memo != null) {
-                        dependencies.editorViewModel.updateMemo(memo, content)
+                        dependencies.editorViewModel.submissions.update(submissionId, memo, content)
+                        dependencies.editorViewModel.submissions.await(submissionId)
                     } else {
-                        interactionCallbacks.onCreateMemo(content, null, timestampMillis)
+                        val accepted =
+                            interactionCallbacks.onCreateMemo(
+                                submissionId,
+                                content,
+                                null,
+                                timestampMillis,
+                            )
+                        if (!accepted) {
+                            dependencies.editorViewModel.submissions.reject(
+                                submissionId,
+                                IllegalStateException("Another memo creation is already pending"),
+                            )
+                            false
+                        } else {
+                            dependencies.editorViewModel.submissions.await(submissionId)
+                        }
                     }
                 },
+                submissionState = dependencies.editorViewModel.submissionState,
                 onDismiss = dependencies.editorViewModel::discardInputs,
                 onToolbarOrderChanged = { tools ->
                     dependencies.mainViewModel.updateInputToolbarToolOrder(tools.map { tool -> tool.persistedId })

@@ -19,11 +19,14 @@ import kotlinx.coroutines.test.runTest
  *
  * Scenarios:
  * - Given the list is at top, when submit is called, then the coordinator creates before resolving the optional animation baseline.
- * - Given the list is away from top, when submit is called, then it scrolls to top, creates, and resolves the post-scroll animation baseline.
+ * - Given the list is away from top, when submit is called, then durable creation starts before
+ *   presentation scrolling and the post-commit animation baseline is resolved afterward.
  * - Given a submit is in flight, when a second submit is called, then the second submit is rejected.
  * - Given awaiting a new top id times out, when the lifecycle finishes, then the prepared enter request is canceled.
  * - Given an empty list baseline, when a new memo is created, then any non-null top id can reveal.
  * - Given the top baseline is not loaded, when submit is called, then create still runs and the animation hint may be skipped.
+ * - Given durable create fails, when submit runs, then baseline/reveal work is skipped and the
+ *   submission slot is released for retry.
  *
  * Observable outcomes:
  * - Sequence of events, captured baseline, prepared request id cancellation, overlap rejection, and reveal target id.
@@ -31,6 +34,8 @@ import kotlinx.coroutines.test.runTest
  * TDD proof:
  * - Fails before the fix because NewMemoCreationCoordinator accepts a nullable previousTopId, so
  *   an unloaded head is treated as an empty list and the pending request can be consumed too early.
+ * - RED on 2026-08-09 because create was a fire-and-forget Unit callback, so the coordinator could
+ *   prepare/reveal a row even when the underlying memo commit failed.
  *
  * Excludes:
  * - Compose rendering, actual DB persistence, and paging source internals.
@@ -74,6 +79,7 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                         createMemo = { content, wasAtTop ->
                             events += "create:$content"
                             createdWasAtTop = wasAtTop
+                            true
                         },
                         awaitNewTopItem = { baseline ->
                             events += "await:$baseline"
@@ -103,7 +109,7 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
             }
         }
 
-        test("submit away from top scrolls first, then awaits the top baseline observed after scrolling") {
+        test("submit away from top starts durable creation before presentation scrolling") {
             runTest {
                 val events = mutableListOf<String>()
                 var atTop = false
@@ -127,6 +133,7 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                         createMemo = { content, wasAtTop ->
                             events += "create:$content"
                             createdWasAtTop = wasAtTop
+                            true
                         },
                         awaitNewTopItem = { baseline ->
                             events += "await:$baseline"
@@ -145,14 +152,14 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
-                    "scroll",
                     "create:memo body",
+                    "scroll",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
                     "await:ExistingHead(id=prev-id)",
                     "reveal:new-id",
                 )
-                createdWasAtTop shouldBe true
+                createdWasAtTop shouldBe false
             }
         }
 
@@ -173,7 +180,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             events += "prepare:$baseline"
                             EnterRequestId(3L)
                         },
-                        createMemo = { content, _ -> events += "create:$content" },
+                        createMemo = { content, _ ->
+                            events += "create:$content"
+                            true
+                        },
                         awaitNewTopItem = { baseline ->
                             events += "await:$baseline"
                             awaitGate.await()
@@ -222,7 +232,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             events += "prepare:$baseline"
                             EnterRequestId(4L)
                         },
-                        createMemo = { content, _ -> events += "create:$content" },
+                        createMemo = { content, _ ->
+                            events += "create:$content"
+                            true
+                        },
                         awaitNewTopItem = { baseline ->
                             events += "await:$baseline"
                             "first-id"
@@ -266,7 +279,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             events += "prepare:$baseline"
                             EnterRequestId(5L)
                         },
-                        createMemo = { content, _ -> events += "create:$content" },
+                        createMemo = { content, _ ->
+                            events += "create:$content"
+                            true
+                        },
                         awaitNewTopItem = { baseline ->
                             events += "await:$baseline"
                             null
@@ -310,7 +326,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             events += "prepare:$loadedBaseline"
                             EnterRequestId(6L)
                         },
-                        createMemo = { content, _ -> events += "create:$content" },
+                        createMemo = { content, _ ->
+                            events += "create:$content"
+                            true
+                        },
                         awaitNewTopItem = { loadedBaseline ->
                             events += "await-new:$loadedBaseline"
                             "new-id"
@@ -348,7 +367,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                             CompletableDeferred<HeadEnterBaseline>().await()
                         },
                         prepareNewTopEnter = { error("baseline timeout must skip animation preparation") },
-                        createMemo = { content, _ -> events += content },
+                        createMemo = { content, _ ->
+                            events += content
+                            true
+                        },
                         awaitNewTopItem = { error("baseline timeout must skip reveal observation") },
                         revealNewTopItem = { error("baseline timeout must skip reveal") },
                         cancelPreparedEnter = { error("no enter request was prepared") },
@@ -359,6 +381,54 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 coordinator.submit("second") shouldBe true
 
                 events shouldBe listOf("first", "second")
+            }
+        }
+
+        test("failed durable create skips baseline work and releases submission for retry") {
+            runTest {
+                val events = mutableListOf<String>()
+                var createSucceeds = false
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = { events += "scroll" },
+                        awaitTopBaseline = {
+                            events += "baseline"
+                            HeadEnterBaseline.EmptyList
+                        },
+                        prepareNewTopEnter = {
+                            events += "prepare"
+                            EnterRequestId(7L)
+                        },
+                        createMemo = { content, _ ->
+                            events += "create:$content"
+                            createSucceeds
+                        },
+                        awaitNewTopItem = {
+                            events += "await"
+                            "new-id"
+                        },
+                        revealNewTopItem = { events += "reveal:$it" },
+                        cancelPreparedEnter = { events += "cancel:${it.value}" },
+                    )
+
+                coordinator.submit("first") shouldBe true
+                advanceUntilIdle()
+                events shouldBe listOf("create:first")
+
+                createSucceeds = true
+                coordinator.submit("retry") shouldBe true
+                advanceUntilIdle()
+                events shouldBe
+                    listOf(
+                        "create:first",
+                        "create:retry",
+                        "baseline",
+                        "prepare",
+                        "await",
+                        "reveal:new-id",
+                    )
             }
         }
     }

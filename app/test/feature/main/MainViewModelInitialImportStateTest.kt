@@ -24,7 +24,7 @@ import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
 import com.lomo.domain.usecase.FakeDispatcherProvider
-import com.lomo.domain.model.Memo
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
@@ -53,19 +53,12 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
-import java.time.LocalDate
-import java.time.ZoneId
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -79,25 +72,33 @@ import kotlinx.coroutines.test.runTest
  * - Capability: Main screen loading and directory switching state orchestration.
  *
  * Scenarios:
- * - Given a workspace rebuild starts on a new empty directory, when the ViewModel observes the rebuild, then UI reports InitialImporting until complete.
- * - Given a root directory change occurs, when the ViewModel transitions state, then Ready state is not flashed prematurely before InitialImporting starts.
- * - Given a workspace rebuild finishes, when the ViewModel observes completion, then UI state transitions cleanly to Ready.
+ * - Given a first workspace projection is Building, when the ViewModel observes it, then UI reports
+ *   InitialImporting until that same projection becomes Verified.
+ * - Given the first projection fails, when the user retries, then the session-owned projection
+ *   state returns to Building instead of requiring a process restart.
+ * - Given a root switch commits before its DataStore echo arrives, when the echo is observed, then
+ *   the already-ready workspace does not re-enter an ownerless importing state.
  *
  * Observable outcomes:
  * - uiState StateFlow values over time during deferred import/rebuild operations.
  *
  * TDD proof:
- * - Fails before the fix because lifecycle status management during asynchronous I/O background refreshes was not robustly observed.
+ * - RED on 2026-08-16 because a late DataStore root echo set the local importing Boolean after
+ *   the switch coroutine had already cleared it, leaving Main permanently InitialImporting.
  *
  * Excludes:
  * - Database writes, direct file synchronization protocols, and UI rendering hooks.
  *
  * Test Change Justification:
- * - Reason category: App layer restructuring replaced page-based memo retention and viewport delete animations with LomoList system, extracted provider settings dialogs, and added conflict/startup orchestration.
- * - Old behavior/assertion being replaced: previous app-layer tests relied on monolithic settings dialogs, DeleteViewportEntry animation system, and pre-LomoList memo retention.
- * - Why old assertion is no longer correct: the app layer was restructured: settings dialogs are now provider-specific, DeleteViewportEntry files are removed in favor of LomoList components, and paged memo content uses new pagination source.
- * - Coverage preserved by: all existing scenarios retained; assertions updated to use new LomoList animation contracts, provider settings surfaces, and paging source APIs.
- * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state, UI coordinator behavior, and screen rendering outcomes, not internal animation or dialog mechanics.
+ * - Reason category: the managed session is now the sole SAF projection rebuild owner.
+ * - Old behavior/assertion being replaced: DataStore root observations triggered a second rebuild
+ *   and a ViewModel-owned importing Boolean tracked its lifetime.
+ * - Why old assertion is no longer correct: a persisted-root echo is a replay of the committed
+ *   switch, not a new rebuild command; treating it as one creates an ordering race.
+ * - Coverage preserved by: Building, Verified, Failed, retry, and late-root-echo states are asserted
+ *   at the user-visible MainScreenState boundary.
+ * - Why this is not fitting the test to the implementation: the tests assert authoritative domain
+ *   state transitions and explicitly reject the duplicate command path.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelInitialImportStateTest : AppFunSpec() {
@@ -112,8 +113,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
     private val switchRootStorageUseCase by lazy { FakeSwitchRootStorageUseCase(rootLocationFlow) }
     private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
-    private val workspaceMutationLease = FakeWorkspaceMutationLease()
     private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
+    private val workspaceMutationLease = FakeWorkspaceMutationLease(engineReadinessRepository)
 
     private lateinit var gitSyncRepo: FakeGitSyncRepository
     private lateinit var mediaRepository: FakeMediaRepository
@@ -164,107 +165,22 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             settleMainDispatcher()
         }
 
-        test("uiState is initial-importing while first refresh after root selection is running and no memos exist") {
+        test("first projection stays importing until its verified revision is readable") {
             runTest {
-                val refreshStarted = CompletableDeferred<Unit>()
-                val allowRefreshToFinish = CompletableDeferred<Unit>()
-                val refreshFinished = CompletableDeferred<Unit>()
-
-                switchRootStorageUseCase.rebuildWorkspaceCallback = {
-                    refreshStarted.complete(Unit)
-                    allowRefreshToFinish.await()
-                    refreshFinished.complete(Unit)
-                }
+                val root = StorageLocation("/tmp/large-root")
+                appConfigRepository.setLocation(StorageArea.ROOT, root)
+                engineReadinessRepository.activateWorkspace(root)
+                val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
+                engineReadinessRepository.publishProjectionFreshness(ProjectionFreshness.Building(revision))
 
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
-                    // Observe-root rebuild requires Ready engine identity matching the new selection.
-                    engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
-                    rootLocationFlow.value = StorageLocation("/tmp/large-root")
-                    appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
-                    runCurrent()
-
-                    refreshStarted.await()
-
                     viewModel.uiState.value shouldBe MainViewModel.MainScreenState.InitialImporting
 
-                    allowRefreshToFinish.complete(Unit)
-                    refreshFinished.await()
-                    advanceUntilIdle()
-                } finally {
-                    clearViewModel(viewModel)
-                }
-            }
-        }
-
-        test("root change does not emit ready before initial-importing while first refresh is pending") {
-            runTest {
-                val refreshStarted = CompletableDeferred<Unit>()
-                val allowRefreshToFinish = CompletableDeferred<Unit>()
-                val refreshFinished = CompletableDeferred<Unit>()
-                val observedStates = mutableListOf<MainViewModel.MainScreenState>()
-
-                switchRootStorageUseCase.rebuildWorkspaceCallback = {
-                    refreshStarted.complete(Unit)
-                    allowRefreshToFinish.await()
-                    refreshFinished.complete(Unit)
-                }
-
-                val viewModel = createViewModel()
-                try {
-                    advanceUntilIdle()
-                    val collectJob =
-                        backgroundScope.launch {
-                            viewModel.uiState.drop(1).collect { state ->
-                                observedStates += state
-                            }
-                        }
-
-                    try {
-                        engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
-                        rootLocationFlow.value = StorageLocation("/tmp/large-root")
-                        appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
-                        runCurrent()
-                        refreshStarted.await()
-
-                        observedStates.contains(MainViewModel.MainScreenState.Ready) shouldBe false
-                        viewModel.uiState.value shouldBe MainViewModel.MainScreenState.InitialImporting
-
-                        allowRefreshToFinish.complete(Unit)
-                        refreshFinished.await()
-                        advanceUntilIdle()
-                    } finally {
-                        collectJob.cancelAndJoin()
-                    }
-                } finally {
-                    clearViewModel(viewModel)
-                }
-            }
-        }
-
-        test("uiState returns to ready after first refresh completes with empty memo list") {
-            runTest {
-                val refreshStarted = CompletableDeferred<Unit>()
-                val allowRefreshToFinish = CompletableDeferred<Unit>()
-                val refreshFinished = CompletableDeferred<Unit>()
-
-                switchRootStorageUseCase.rebuildWorkspaceCallback = {
-                    refreshStarted.complete(Unit)
-                    allowRefreshToFinish.await()
-                    refreshFinished.complete(Unit)
-                }
-
-                val viewModel = createViewModel()
-                try {
-                    advanceUntilIdle()
-                    engineReadinessRepository.activateWorkspace(StorageLocation("/tmp/large-root"))
-                    rootLocationFlow.value = StorageLocation("/tmp/large-root")
-                    appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/large-root"))
-                    refreshStarted.await()
-
-                    allowRefreshToFinish.complete(Unit)
-                    refreshFinished.await()
+                    engineReadinessRepository.publishProjectionFreshness(
+                        ProjectionFreshness.Verified(revision),
+                    )
                     awaitUiState(viewModel, MainViewModel.MainScreenState.Ready)
                 } finally {
                     clearViewModel(viewModel)
@@ -272,68 +188,66 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             }
         }
 
-        test("uiState switches to initial-importing during root refresh when previous directory had memos") {
+        test("failed first projection is recoverable without recreating the ViewModel") {
             runTest {
-                repository.setActiveMemos(listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9)))
-                rootLocationFlow.value = StorageLocation("/tmp/old-root")
-                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/old-root"))
-
-                switchRootStorageUseCase.updateRootLocationCallback = { location ->
-                    rootLocationFlow.value = location
-                    appConfigRepository.setLocation(StorageArea.ROOT, location)
-                    if (location.raw == "/tmp/new-root") {
-                        awaitCancellation()
-                    }
-                }
+                val root = StorageLocation("/tmp/large-root")
+                appConfigRepository.setLocation(StorageArea.ROOT, root)
+                engineReadinessRepository.activateWorkspace(root)
+                val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
+                engineReadinessRepository.publishProjectionFreshness(
+                    ProjectionFreshness.Failed(revision, "projection_refresh_failed"),
+                )
 
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
-                    viewModel.onDirectorySelected("/tmp/new-root")
-                    runCurrent()
+                    viewModel.uiState.value shouldBe
+                        MainViewModel.MainScreenState.ReadOnlyRecovery(
+                            code = "projection_refresh_failed",
+                            diagnostic = "Workspace projection build failed",
+                            canRebuildDerivedIndex = false,
+                        )
 
-                    awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
+                    viewModel.retryEngineOpen()
+                    advanceUntilIdle()
+
+                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.InitialImporting
                 } finally {
                     clearViewModel(viewModel)
                 }
             }
         }
 
-        test("populated-directory switch does not emit ready before initial-importing while refresh is pending") {
+        test("late persisted root echo cannot leave a completed switch permanently importing") {
             runTest {
-                val observedStates = mutableListOf<MainViewModel.MainScreenState>()
-                repository.setActiveMemos(listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9)))
-                rootLocationFlow.value = StorageLocation("/tmp/old-root")
-                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/old-root"))
-
+                val oldRoot = StorageLocation("/tmp/old-root")
+                val newRoot = StorageLocation("/tmp/new-root")
+                rootLocationFlow.value = oldRoot
+                appConfigRepository.setLocation(StorageArea.ROOT, oldRoot)
+                engineReadinessRepository.activateWorkspace(oldRoot)
                 switchRootStorageUseCase.updateRootLocationCallback = { location ->
-                    rootLocationFlow.value = location
-                    appConfigRepository.setLocation(StorageArea.ROOT, location)
-                    if (location.raw == "/tmp/new-root") {
-                        awaitCancellation()
-                    }
+                    engineReadinessRepository.activateWorkspace(location)
+                    val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
+                    engineReadinessRepository.publishProjectionFreshness(
+                        ProjectionFreshness.Building(revision),
+                    )
                 }
 
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
-                    val collectJob =
-                        backgroundScope.launch {
-                            viewModel.uiState.drop(1).collect { state ->
-                                observedStates += state
-                            }
-                        }
+                    viewModel.onDirectorySelected(newRoot.raw)
+                    advanceUntilIdle()
 
-                    try {
-                        viewModel.onDirectorySelected("/tmp/new-root")
-                        runCurrent()
-                        awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
+                    appConfigRepository.setLocation(StorageArea.ROOT, newRoot)
+                    viewModel.rootDirectory.first { directory -> directory == newRoot.raw }
+                    val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
+                    engineReadinessRepository.publishProjectionFreshness(
+                        ProjectionFreshness.Verified(revision),
+                    )
+                    runCurrent()
 
-                        observedStates.contains(MainViewModel.MainScreenState.Ready) shouldBe false
-                        observedStates.firstOrNull() shouldBe MainViewModel.MainScreenState.InitialImporting
-                    } finally {
-                        collectJob.cancelAndJoin()
-                    }
+                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.Ready
                 } finally {
                     clearViewModel(viewModel)
                 }
@@ -379,7 +293,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
                     engineReadinessRepository = engineReadinessRepository,
-                    workspaceMutationLease = workspaceMutationLease,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(
@@ -445,25 +358,6 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                 ),
         )
 
-    private fun memo(
-        id: String,
-        date: LocalDate,
-        hour: Int,
-    ): Memo =
-        Memo(
-            id = id,
-            timestamp =
-                date
-                    .atTime(hour, 0)
-                    .atZone(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli(),
-            content = id,
-            rawContent = id,
-            dateKey = date.toString().replace("-", "_"),
-            localDate = date,
-        )
-
     private suspend fun awaitUiState(
         viewModel: MainViewModel,
         expected: MainViewModel.MainScreenState,
@@ -518,16 +412,10 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     class FakeSwitchRootStorageUseCase(
         private val rootLocationFlow: MutableStateFlow<StorageLocation?>
     ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver(), FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository()) {
-        var rebuildWorkspaceCallback: (suspend () -> Unit)? = null
         var updateRootLocationCallback: (suspend (StorageLocation) -> Unit)? = null
 
         fun reset() {
-            rebuildWorkspaceCallback = null
             updateRootLocationCallback = null
-        }
-
-        override suspend fun rebuildCurrentWorkspace() {
-            rebuildWorkspaceCallback?.invoke()
         }
 
         override suspend fun updateRootLocation(location: StorageLocation) {

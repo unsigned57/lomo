@@ -10,6 +10,8 @@
  * - Given restore action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given deletePermanently action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given clearTrash action, when mapToUiModel throws exception, then exception is caught and reported to errors.
+ * - Given an editor update, when the durable mutation is pending, then submit awaits it and reports
+ *   success only after content replacement is committed.
  *
  * Observable outcomes:
  * - Errors state is updated with mapping failure without throwing an exception to the caller thread.
@@ -31,11 +33,14 @@
 package com.lomo.app.feature.common
 
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -258,6 +263,55 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 actions.restore(memo, null)
                 runCurrent()
                 errorMessage.value shouldBe "Failed to restore memo: Cannot restore memo. Collection is not Trash."
+            }
+        }
+
+        test("editor update awaits durable mutation before acknowledging commit") {
+            runTest {
+                val gate = CompletableDeferred<Unit>()
+                val errorMessage = MutableStateFlow<String?>(null)
+                val memo =
+                    Memo(
+                        id = "memo-submit",
+                        timestamp = 1_000L,
+                        content = "old",
+                        rawContent = "old",
+                        dateKey = "2026_08_09",
+                    )
+                var replacement: String? = null
+                val actions =
+                    MemoCollectionActions(
+                        exitAnimationRegistry = ExitAnimationRegistry(),
+                        errors = MemoCollectionErrors(errorMessage),
+                        capabilities =
+                            MemoCollectionCapabilities.Editable(
+                                deleteMemo = {},
+                                updateMemo = { _, _ -> gate.await() },
+                                toggleTodo = { _, _ -> "updated" },
+                                saveImage = { error("not used") },
+                            ),
+                        scope = this,
+                        onMemoContentReplaced = { _, content -> replacement = content },
+                        mapToUiModel = { error("not used") },
+                    )
+
+                val result =
+                    async {
+                        actions.submitMemoUpdate(
+                            MemoEditorSubmissionId(20L),
+                            memo,
+                            "committed",
+                        )
+                    }
+                runCurrent()
+
+                result.isCompleted shouldBe false
+                replacement shouldBe null
+
+                gate.complete(Unit)
+                result.await() shouldBe true
+                replacement shouldBe "committed"
+                errorMessage.value shouldBe null
             }
         }
     }

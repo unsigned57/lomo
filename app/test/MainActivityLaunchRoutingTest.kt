@@ -369,9 +369,9 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             val recovery =
                 entryWorkspaceStateFor(
                     com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
-                        category = com.lomo.domain.model.EngineReadiness.FailureCategory.CORRUPTION,
+                        category = com.lomo.domain.model.EngineFailureCategory.CORRUPTION,
                         code = "journal_corrupt",
-                        retryDisposition = com.lomo.domain.model.EngineReadiness.RetryDisposition.NEVER,
+                        retryDisposition = com.lomo.domain.model.EngineRetryDisposition.NEVER,
                         diagnostic = "checksum mismatch",
                     ),
                 )

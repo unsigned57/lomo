@@ -38,8 +38,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -220,8 +222,20 @@ private fun SettingsBody(
             onSyncNow = { triggerEnabledProviderSyncs(features, uiState) },
         )
 
+        val rootOperationState by features.storage.rootOperationState.collectAsStateWithLifecycle()
+        val memoDirectoryLabel =
+            when (rootOperationState) {
+                WorkspaceRootOperationState.Idle -> uiState.storage.rootDirectory.subtitle(notSetLabel)
+                WorkspaceRootOperationState.Switching ->
+                    stringResource(R.string.settings_storage_switching_workspace)
+                WorkspaceRootOperationState.Indexing ->
+                    stringResource(R.string.settings_storage_scanning_workspace)
+                is WorkspaceRootOperationState.Failed ->
+                    stringResource(R.string.settings_storage_index_failed)
+            }
+
         SettingsStorageQuickGroup(
-            memoDirectoryLabel = uiState.storage.rootDirectory.subtitle(notSetLabel),
+            memoDirectoryLabel = memoDirectoryLabel,
             imageDirectoryLabel = uiState.storage.imageDirectory.subtitle(notSetLabel),
             voiceDirectoryLabel = uiState.storage.voiceDirectory.subtitle(notSetLabel),
             onMemoDirectoryClick = storagePickers.openRoot,

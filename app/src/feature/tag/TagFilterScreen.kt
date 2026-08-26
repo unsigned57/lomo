@@ -162,7 +162,8 @@ fun TagFilterScreen(
                     timeFormat = appPreferences.timeFormat,
                 ),
             toolbarToolOrder = appPreferences.inputToolbarToolOrder,
-            onUpdateMemo = viewModel::updateMemo,
+            onUpdateMemo = viewModel::submitMemoUpdate,
+            submissionState = viewModel.editorSubmissionState,
             onSaveImage = viewModel::saveImage,
             onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
         )

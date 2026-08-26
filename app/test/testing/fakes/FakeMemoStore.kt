@@ -8,6 +8,7 @@ import com.lomo.domain.model.DailyReviewCandidateBoundary
 import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoContentAnalysis
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
@@ -225,10 +226,12 @@ class FakeMemoStore(
     internal fun observeSyncing(): Flow<Boolean> = syncing.asStateFlow()
 
     var refreshMemosFailure: Throwable? = null
+    var refreshMemosGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
     internal suspend fun recordMemoRefresh() {
         refreshMemosFailure?.let { throw it }
         refreshMemosCallCount += 1
+        refreshMemosGate?.await()
     }
 
     internal suspend fun addSavedMemo(
@@ -276,9 +279,9 @@ class FakeMemoStore(
 
     internal suspend fun restoreMemoRevision(
         currentMemo: Memo,
-        revisionId: String,
+        revision: MemoRevision,
     ) {
-        restoredRevisionRequests += RestoredRevisionRequest(currentMemo = currentMemo, revisionId = revisionId)
+        restoredRevisionRequests += RestoredRevisionRequest(currentMemo = currentMemo, revision = revision)
     }
 
     var setMemoPinnedFailure: Throwable? = null
@@ -506,7 +509,7 @@ data class MainListCall(
 
 data class RestoredRevisionRequest(
     val currentMemo: Memo,
-    val revisionId: String,
+    val revision: MemoRevision,
 )
 
     data class MainListPageLoad(

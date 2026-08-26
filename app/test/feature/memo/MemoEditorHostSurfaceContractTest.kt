@@ -1,14 +1,4 @@
 // architectural-boundary-check
-package com.lomo.app.feature.memo
-
-import com.lomo.app.testing.AppFunSpec
-import com.lomo.ui.component.input.InputEditorCommand
-import com.lomo.ui.component.input.InputToolbarToolTintRole
-import io.kotest.assertions.withClue
-import io.kotest.matchers.collections.shouldContainExactly
-import io.kotest.matchers.shouldBe
-import java.io.File
-
 /*
  * Behavior Contract:
  * - Unit under test: Memo editor host adapter surface.
@@ -33,7 +23,26 @@ import java.io.File
  *
  * Excludes:
  * - Compose rendering, ActivityResult launchers, repository persistence, domain/data lifecycle behavior.
+ *
+ * Test Change Justification:
+ * - Reason category: memo editor host surface typed session/capabilities alignment.
+ * - Old behavior/assertion being replaced: flattened parameter assertions across editor surfaces.
+ * - Why old assertion is no longer correct: grouped session, capability, and submission models simplify host contract.
+ * - Coverage preserved by: all surface signature contracts and command dispatch boundaries remain verified.
+ * - Why this is not fitting the test to the implementation: enforces clean presentation decoupling.
  */
+
+// architectural-boundary-check
+package com.lomo.app.feature.memo
+
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.ui.component.input.InputEditorCommand
+import com.lomo.ui.component.input.InputToolbarToolTintRole
+import io.kotest.assertions.withClue
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.shouldBe
+import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
 class MemoEditorHostSurfaceContractTest : AppFunSpec() {
     private val appSourceRoot = resolveModuleRoot("app").resolve("src")
 
@@ -165,7 +174,8 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
 private fun MemoEditorOperations.Companion.fakeForContract(): MemoEditorOperations =
     MemoEditorOperations(
         onSaveImage = { _, _, _ -> },
-        onSubmit = { _, _, _ -> },
+        onSubmit = { _, _, _, _ -> true },
+        submissionState = MutableStateFlow(MemoEditorSubmissionState.Idle),
         onDismiss = {},
         onToolbarOrderChanged = {},
     )

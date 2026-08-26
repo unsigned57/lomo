@@ -17,6 +17,7 @@ import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -163,6 +164,7 @@ class SearchViewModel(
         val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
         val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
         val collectionUiState: StateFlow<MemoCollectionUiState> = actionStateHolder.uiState
+        val editorSubmissionState = actionStateHolder.editorSubmissionState
         val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
         val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
@@ -196,6 +198,12 @@ class SearchViewModel(
         ) {
             actionStateHolder.actions.updateMemo(memo, newContent)
         }
+
+        suspend fun submitMemoUpdate(
+            submissionId: MemoEditorSubmissionId,
+            memo: Memo,
+            newContent: String,
+        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, memo, newContent)
 
         fun toggleTodo(
             memo: Memo,

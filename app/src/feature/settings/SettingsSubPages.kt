@@ -41,6 +41,9 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.toImmutableMap
 
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SyncBackupSettingsPage(
@@ -50,6 +53,7 @@ internal fun SyncBackupSettingsPage(
     dialogOptions: SettingsDialogOptions,
     storagePickers: StoragePickerActions,
     migrationPickers: MigrationPickerActions,
+    snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onOpenSyncCenter: (() -> Unit)? = null,
 ) {
@@ -59,6 +63,7 @@ internal fun SyncBackupSettingsPage(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             LargeTopAppBar(
                 title = {

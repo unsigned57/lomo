@@ -1,7 +1,10 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
+
 internal data class PendingNewMemoCreationRequest(
     val requestId: Long,
+    val submissionId: MemoEditorSubmissionId,
     val content: String,
     val geoLocation: String? = null,
     val timestampMillis: Long? = null,
@@ -14,6 +17,7 @@ internal class PendingNewMemoCreationCoordinator {
         private set
 
     fun submit(
+        submissionId: MemoEditorSubmissionId,
         content: String,
         geoLocation: String? = null,
         timestampMillis: Long? = null,
@@ -24,6 +28,7 @@ internal class PendingNewMemoCreationCoordinator {
 
         return PendingNewMemoCreationRequest(
             requestId = nextRequestId++,
+            submissionId = submissionId,
             content = content,
             geoLocation = geoLocation,
             timestampMillis = timestampMillis,

@@ -16,6 +16,7 @@ import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -104,6 +105,7 @@ class TagFilterViewModel(
         val errorMessage: StateFlow<String?> = actionStateHolder.errorMessage
         val deletingMemoIds: StateFlow<Set<String>> = actionStateHolder.deletingMemoIds
         val exitAnimationRegistry = actionStateHolder.exitAnimationRegistry
+        val editorSubmissionState = actionStateHolder.editorSubmissionState
         val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
         val rootDir: StateFlow<String?> = appConfigStateProvider.rootDirectory
         val imageDir: StateFlow<String?> = appConfigStateProvider.imageDirectory
@@ -126,6 +128,12 @@ class TagFilterViewModel(
         ) {
             actionStateHolder.actions.updateMemo(memo, newContent)
         }
+
+        suspend fun submitMemoUpdate(
+            submissionId: MemoEditorSubmissionId,
+            memo: Memo,
+            newContent: String,
+        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, memo, newContent)
 
         fun toggleTodo(
             memo: Memo,

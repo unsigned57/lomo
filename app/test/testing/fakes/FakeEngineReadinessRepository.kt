@@ -47,6 +47,10 @@ class FakeEngineReadinessRepository(
         _readiness.value = value
     }
 
+    fun publishProjectionFreshness(value: ProjectionFreshness) {
+        _projectionFreshness.value = value
+    }
+
     fun clearAuthority() {
         _workspaceAuthority.value = null
     }
@@ -67,6 +71,12 @@ class FakeEngineReadinessRepository(
         require(recovery.canRebuildDerivedIndex())
         _readiness.value = EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
         return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
+    }
+
+    override suspend fun retryProjectionBuild() {
+        val failed = _projectionFreshness.value as? ProjectionFreshness.Failed
+            ?: error("fake projection is not failed")
+        _projectionFreshness.value = ProjectionFreshness.Building(failed.baseRevision)
     }
 
     private fun workspaceKind(): RecoveryWorkspaceKind =

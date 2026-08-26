@@ -51,6 +51,7 @@ enum class MemoEditorMode {
 class MemoEditorController
     internal constructor() {
         private val undoRedoManager = UndoRedoManager()
+        internal val submission = MemoEditorSubmissionGate(onCommitted = ::resetSession)
 
         var isVisible by mutableStateOf(false)
             private set
@@ -79,6 +80,7 @@ class MemoEditorController
             get() = undoRedoManager.canRedo
 
         fun openForCreate(initialText: String = "") {
+            submission.reset()
             editingMemo = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
             undoRedoManager.reset()
@@ -90,6 +92,7 @@ class MemoEditorController
         }
 
         fun openForEdit(memo: Memo) {
+            submission.reset()
             editingMemo = memo
             inputValue = TextFieldValue(memo.content, TextRange(memo.content.length))
             undoRedoManager.reset()
@@ -133,10 +136,6 @@ class MemoEditorController
             }
         }
 
-        fun toggleExpanded() {
-            setExpanded(mode == MemoEditorMode.Compact)
-        }
-
         fun consumeBackPress(): Boolean =
             if (mode == MemoEditorMode.Expanded) {
                 setExpanded(false)
@@ -158,7 +157,13 @@ class MemoEditorController
             }
         }
 
-        fun close() {
+        fun close(): Boolean {
+            if (!submission.canDismiss) return false
+            resetSession()
+            return true
+        }
+
+        private fun resetSession() {
             isVisible = false
             editingMemo = null
             inputValue = TextFieldValue("")
@@ -166,6 +171,7 @@ class MemoEditorController
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
             backfillSelection.clear()
+            submission.reset()
         }
     }
 
@@ -366,6 +372,15 @@ fun MemoEditorSheetHost(
             editorCommandHandler = editorCommandHandler,
         )
 
+    // The editor lock is a projection of the owning submission state. Collecting it here means a
+    // torn-down acknowledgement path cannot leave the sheet locked: the next composition reads the
+    // owner's current terminal state and resolves the session.
+    LaunchedEffect(controller, surface.operations.submissionState) {
+        surface.operations.submissionState.collect { state ->
+            controller.submission.onOwnerState(state)
+        }
+    }
+
     com.lomo.ui.component.input.InputSheet(
         state = sheetState,
         callbacks = sheetCallbacks,
@@ -406,8 +421,7 @@ private fun buildMemoEditorSheetState(
 ): InputSheetState {
     val session = surface.session
     return InputSheetState(
-        surface =
-            InputEditorSurfaceState(
+        surface =            InputEditorSurfaceState(
                 inputValue = controller.inputValue,
                 previewState = previewState,
                 focusRequestToken = controller.focusRequestToken,
@@ -450,6 +464,7 @@ private fun buildMemoEditorSheetState(
                         )
                     },
             ),
+        ownerSubmission = controller.submission.ownerSubmission,
     )
 }
 
@@ -461,22 +476,35 @@ private fun buildMemoEditorSheetCallbacks(
     InputSheetCallbacks(
         onInputValueChange = controller::updateInputValue,
         onDismiss = {
-            controller.close()
-            surface.operations.onDismiss?.invoke()
+            if (controller.close()) {
+                surface.operations.onDismiss?.invoke()
+            }
         },
-        onToggleExpanded = controller::toggleExpanded,
+        onToggleExpanded = { controller.setExpanded(controller.mode == MemoEditorMode.Compact) },
         onCollapse = { controller.setExpanded(false) },
         onDisplayModeChange = controller::updateDisplayMode,
         onConsumeBackPress = controller::consumeBackPress,
         onSubmit = { content ->
-            surface.operations.onSubmit(
-                controller.editingMemo,
-                content,
-                controller.backfillSelection.timestampMillisForCreateSubmit(
-                    isEditingExistingMemo = controller.editingMemo != null,
-                ),
-            )
-            controller.close()
+            val submissionId = controller.submission.begin()
+            if (submissionId == null) {
+                false
+            } else {
+                val committed =
+                    surface.operations.onSubmit(
+                        submissionId,
+                        controller.editingMemo,
+                        content,
+                        controller.backfillSelection.timestampMillisForCreateSubmit(
+                            isEditingExistingMemo = controller.editingMemo != null,
+                        ),
+                    )
+                if (committed) {
+                    controller.submission.commit(submissionId)
+                } else {
+                    controller.submission.fail(submissionId)
+                    false
+                }
+            }
         },
         commands = editorCommandHandler,
         onToolbarOrderChanged = surface.operations.onToolbarOrderChanged,

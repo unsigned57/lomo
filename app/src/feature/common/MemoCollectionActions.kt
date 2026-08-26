@@ -2,6 +2,8 @@ package com.lomo.app.feature.common
 
 import android.net.Uri
 import com.lomo.domain.model.Memo
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
+import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.domain.model.StorageLocation
@@ -37,6 +39,8 @@ sealed interface MemoCollectionCapabilities {
 class MemoCollectionActions internal constructor(
     private val exitAnimationRegistry: ExitAnimationRegistry<MemoUiModel>,
     private val errors: MemoCollectionErrors,
+    private val editorSubmissionStateMachine: MemoEditorSubmissionStateMachine =
+        MemoEditorSubmissionStateMachine(),
     private val capabilities: MemoCollectionCapabilities,
     private val scope: CoroutineScope,
     private val onMemoContentReplaced: ((Memo, String) -> Unit)?,
@@ -68,6 +72,23 @@ class MemoCollectionActions internal constructor(
             editable.updateMemo(memo, newContent)
             onMemoContentReplaced?.invoke(memo, newContent)
         }
+    }
+
+    suspend fun submitMemoUpdate(
+        submissionId: MemoEditorSubmissionId,
+        memo: Memo,
+        newContent: String,
+    ): Boolean {
+        editorSubmissionStateMachine.launch(
+            scope = scope,
+            submissionId = submissionId,
+            onFailure = { throwable -> errors.report(throwable, "Failed to update memo") },
+        ) {
+            val editable = capabilities.editable("update memo")
+            editable.updateMemo(memo, newContent)
+            onMemoContentReplaced?.invoke(memo, newContent)
+        }
+        return editorSubmissionStateMachine.await(submissionId)
     }
 
     fun toggleTodo(

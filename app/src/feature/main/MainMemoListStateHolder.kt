@@ -10,7 +10,9 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.permitsReadsAt
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,6 +50,7 @@ internal class MainMemoListStateHolder(
     searchQuery: StateFlow<String>,
     memoListFilter: StateFlow<MemoListFilter>,
     workspaceAuthority: StateFlow<WorkspaceAuthority?>,
+    projectionFreshness: StateFlow<ProjectionFreshness>,
     rootDirectory: StateFlow<String?>,
     imageDirectory: StateFlow<String?>,
     imageMap: StateFlow<Map<String, android.net.Uri>>,
@@ -85,9 +88,16 @@ internal class MainMemoListStateHolder(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val memoPagingData: StateFlow<PagingData<Memo>?> =
-        combine(workspaceAuthority, mainMemoQueryInput) { authority, queryInput ->
-            authority?.let { AuthorizedMemoQueryInput(authority = it, query = queryInput) }
+        combine(workspaceAuthority, projectionFreshness, mainMemoQueryInput) {
+            authority,
+            freshness,
+            queryInput,
+            ->
+            authority
+                ?.takeIf { active -> freshness.permitsReadsAt(active.projectionRevision) }
+                ?.let { active -> AuthorizedMemoQueryInput(authority = active, query = queryInput) }
         }.filterNotNull()
+            .distinctUntilChanged()
             .flatMapLatest { authorizedInput ->
                 memoPager(
                     scope = scope,
@@ -125,11 +135,12 @@ internal class MainMemoListStateHolder(
     val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> =
         combine(
             workspaceAuthority,
+            projectionFreshness,
             rootDirectory,
             imageDirectory,
             imageMap,
-        ) { authority, rootDir, imageDir, currentImageMap ->
-            if (authority == null) {
+        ) { authority, freshness, rootDir, imageDir, currentImageMap ->
+            if (authority == null || !freshness.permitsReadsAt(authority.projectionRevision)) {
                 null
             } else {
                 GalleryPagingInput(

@@ -2,6 +2,7 @@ package com.lomo.app.feature.common
 
 import com.lomo.domain.model.Memo
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,8 @@ class MemoCollectionActionStateHolder(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
     val errors: MemoCollectionErrors = MemoCollectionErrors(_errorMessage)
+    private val editorSubmissionStateMachine = MemoEditorSubmissionStateMachine()
+    val editorSubmissionState = editorSubmissionStateMachine.state
 
     val visibleContentReplacements = MutableStateFlow<Map<String, MemoVisibleContentReplacement>>(emptyMap())
 
@@ -42,6 +45,7 @@ class MemoCollectionActionStateHolder(
         MemoCollectionActions(
             exitAnimationRegistry = exitAnimationRegistry,
             errors = errors,
+            editorSubmissionStateMachine = editorSubmissionStateMachine,
             capabilities = capabilities,
             scope = scope,
             onMemoContentReplaced = ::replaceVisibleMemoContent,

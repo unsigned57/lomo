@@ -32,6 +32,9 @@
     <string name="settings_group_formats">格式</string>
     <string name="settings_memo_directory">备忘录目录</string>
     <string name="settings_not_set">未设置</string>
+    <string name="settings_storage_switching_workspace">正在切换工作区…</string>
+    <string name="settings_storage_scanning_workspace">正在为工作区建立索引…</string>
+    <string name="settings_storage_index_failed">已切换工作区，但建立索引失败</string>
     <string name="settings_image_storage">图片存储</string>
     <string name="settings_voice_storage">语音存储</string>
     <string name="settings_sync_inbox_enabled">同步收件箱文件夹</string>
@@ -182,6 +185,10 @@
     <string name="settings_update_available_subtitle">发现新版本 %1$s，点击可查看更新选项。</string>
     <string name="settings_debug_update_preview">Debug 更新预览</string>
     <string name="settings_debug_update_preview_subtitle">打开 GitHub 最新正式包的真实更新流程，直接测试应用内下载。</string>
+    <string name="settings_debug_engine_diagnostics">引擎命令诊断</string>
+    <string name="settings_debug_engine_diagnostics_subtitle">最近的工作区命令及其结果码、类别与耗时。</string>
+    <string name="settings_debug_engine_diagnostics_empty">还没有记录到任何工作区命令。</string>
+    <string name="settings_debug_engine_diagnostics_entry">%1$s · %2$d ms</string>
     
     <!-- Dialog Titles -->
     <string name="settings_select_date_format">选择日期格式</string>

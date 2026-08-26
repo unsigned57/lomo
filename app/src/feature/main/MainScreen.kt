@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -27,9 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -37,6 +33,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.MemoMenuPresentationState
@@ -146,15 +143,11 @@ fun MainScreen(
         }
     val currentListTopMemoId = displayedVisibleUiMemos.firstOrNull()?.memo?.id
     val unknownErrorMessage = stringResource(R.string.error_unknown)
-    var isRefreshing by remember { mutableStateOf(false) }
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     MainScreenDraftAutosaveEffect(
         editorController = hostState.editorController,
         dependencies = dependencies,
-    )
-    MainScreenAutomaticRefreshEffect(
-        onRequestAutomaticRefresh = dependencies.mainViewModel.requestAutomaticRefreshForVisibleScreen,
-        uiState = renderState.uiState,
     )
     MainScreenPendingNewMemoCreationEffect(
         pendingRequest = renderState.pendingNewMemoCreationRequest,
@@ -191,7 +184,6 @@ fun MainScreen(
         dependencies = dependencies,
         unknownErrorMessage = unknownErrorMessage,
         isRefreshing = isRefreshing,
-        onRefreshingChange = { isRefreshing = it },
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToTrash = onNavigateToTrash,
         onNavigateToSearch = onNavigateToSearch,
@@ -251,34 +243,6 @@ private fun RecoveryDiagnosticExportEffect(
 }
 
 @Composable
-private fun MainScreenAutomaticRefreshEffect(
-    onRequestAutomaticRefresh: () -> Unit,
-    uiState: MainViewModel.MainScreenState,
-) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val latestAutomaticRefresh = rememberUpdatedState(onRequestAutomaticRefresh)
-
-    LaunchedEffect(uiState) {
-        if (uiState is MainViewModel.MainScreenState.Ready) {
-            latestAutomaticRefresh.value()
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer =
-            LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) {
-                    latestAutomaticRefresh.value()
-                }
-            }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-}
-
-@Composable
 private fun MainScreenPendingNewMemoCreationEffect(
     pendingRequest: PendingNewMemoCreationRequest?,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -310,20 +274,38 @@ private fun MainScreenPendingNewMemoCreationEffect(
                     // The feed renders loaded rows from the paging snapshot and only calls
                     // pagedUiMemos[index] for placeholders, so scrolling up to the top never updates
                     // Paging's anchorPosition. Register a top access here so the create-triggered
-                    // Room refresh reloads anchored at the top (placeholdersBefore=0) instead of the
-                    // stale deep anchor — otherwise the top rows briefly become placeholders during
-                    // the refresh, which reads as the whole-list "flash".
+                    // The Rust commit publication invalidates this source. Anchor that refresh at
+                    // the top (placeholdersBefore=0) instead of the stale deep position; otherwise
+                    // the top rows briefly become placeholders and the whole list appears to flash.
                     if (pagedUiMemos.itemCount > 0) {
                         pagedUiMemos[0]
                     }
                     val consumedRequest =
                         latestDependencies.value.mainViewModel.consumePendingNewMemoCreationRequest(request.requestId)
-                    if (consumedRequest != null) {
-                        latestDependencies.value.editorViewModel.createMemo(
-                            consumedRequest.content,
-                            geoLocation = consumedRequest.geoLocation,
-                            timestampMillis = consumedRequest.timestampMillis,
+                    if (consumedRequest == null) {
+                        latestDependencies.value.editorViewModel.submissions.reject(
+                            request.submissionId,
+                            IllegalStateException("Pending memo request was already consumed or cancelled"),
                         )
+                        false
+                    } else {
+                        try {
+                            latestDependencies.value.editorViewModel.submissions.create(
+                                submissionId = consumedRequest.submissionId,
+                                content = consumedRequest.content,
+                                geoLocation = consumedRequest.geoLocation,
+                                timestampMillis = consumedRequest.timestampMillis,
+                            )
+                            latestDependencies.value.editorViewModel.submissions.await(
+                                consumedRequest.submissionId,
+                            )
+                        } catch (error: Exception) {
+                            latestDependencies.value.editorViewModel.submissions.reject(
+                                consumedRequest.submissionId,
+                                error,
+                            )
+                            false
+                        }
                     }
                 },
                 awaitNewTopItem = { baseline ->
@@ -344,7 +326,15 @@ private fun MainScreenPendingNewMemoCreationEffect(
         }
 
     LaunchedEffect(pendingRequest?.requestId) {
-        pendingRequest?.let(creationCoordinator::submit)
+        pendingRequest?.let { request ->
+            if (!creationCoordinator.submit(request)) {
+                latestDependencies.value.mainViewModel.cancelPendingNewMemoCreationRequest(request.requestId)
+                latestDependencies.value.editorViewModel.submissions.reject(
+                    request.submissionId,
+                    IllegalStateException("Memo creation reveal is still in progress"),
+                )
+            }
+        }
     }
 }
 
@@ -411,7 +401,7 @@ internal typealias MainScreenInteractionContent =
     @Composable ((MemoMenuSelection) -> Unit, (Memo) -> Unit) -> Unit
 
 internal data class MainScreenInteractionCallbacks(
-    val onCreateMemo: (String, String?, Long?) -> Unit,
+    val onCreateMemo: (MemoEditorSubmissionId, String, String?, Long?) -> Boolean,
     val onCameraCaptureError: (Throwable) -> Unit,
     val onStartRecording: () -> Unit,
     val onStopRecording: () -> Unit,
@@ -526,7 +516,9 @@ private fun MainScreenTransientEffects(
                 }
             }.value,
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
-        onSaveImage = { uri, onResult -> dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult) },
+        onSaveImage = { uri, onResult, onError ->
+            dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult, onError = onError)
+        },
         onRequireImageDirectory = directoryGuideController::requestImage,
         onConsumeSharedContentEvent = dependencies.mainViewModel.consumeSharedContentEvent,
         onConsumeAppActionEvent = dependencies.mainViewModel.consumeAppActionEvent,
@@ -680,8 +672,9 @@ private fun rememberMainScreenInteractionCallbacks(
         unknownErrorMessage,
     ) {
         MainScreenInteractionCallbacks(
-            onCreateMemo = { contentText, geoLocation, timestampMillis ->
+            onCreateMemo = { submissionId, contentText, geoLocation, timestampMillis ->
                 dependencies.mainViewModel.requestPendingNewMemoCreation(
+                    submissionId = submissionId,
                     content = contentText,
                     geoLocation = geoLocation,
                     timestampMillis = timestampMillis,

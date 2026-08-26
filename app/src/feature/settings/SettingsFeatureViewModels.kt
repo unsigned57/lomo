@@ -8,6 +8,7 @@ import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -23,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 interface SettingsLanShareFeatureActions {
@@ -94,17 +97,39 @@ interface SettingsS3FeatureSupport {
     fun isValidEndpointUrl(url: String): Boolean
 }
 
+sealed interface WorkspaceRootOperationState {
+    data object Idle : WorkspaceRootOperationState
+
+    data object Switching : WorkspaceRootOperationState
+
+    data object Indexing : WorkspaceRootOperationState
+
+    data class Failed(
+        val reasonCode: String,
+    ) : WorkspaceRootOperationState
+}
+
 class SettingsStorageFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
+    projectionFreshness: StateFlow<ProjectionFreshness>,
     private val onError: (Throwable) -> Unit,
 ) {
+    private val rootCommandInFlight = MutableStateFlow(false)
+    val rootOperationState: StateFlow<WorkspaceRootOperationState> =
+        combine(rootCommandInFlight, projectionFreshness, ::workspaceRootOperationState)
+            .stateIn(
+                scope = scope,
+                started = settingsWhileSubscribed(),
+                initialValue = workspaceRootOperationState(false, projectionFreshness.value),
+            )
+
     fun updateRootDirectory(path: String) {
-        launchUpdate { appConfigCoordinator.updateRootDirectory(path) }
+        launchRootUpdate { appConfigCoordinator.updateRootDirectory(path) }
     }
 
     fun updateRootUri(uriString: String) {
-        launchUpdate { appConfigCoordinator.updateRootUri(uriString) }
+        launchRootUpdate { appConfigCoordinator.updateRootUri(uriString) }
     }
 
     fun updateImageDirectory(path: String) {
@@ -146,7 +171,29 @@ class SettingsStorageFeatureViewModel(
     private val launchUpdate: (suspend () -> Unit) -> Unit = { operation ->
         scope.launchStorageUpdate(onError, operation)
     }
+
+    private val launchRootUpdate: (suspend () -> Unit) -> Unit = { operation ->
+        rootCommandInFlight.value = true
+        launchUpdate {
+            try {
+                operation()
+            } finally {
+                rootCommandInFlight.value = false
+            }
+        }
+    }
 }
+
+private fun workspaceRootOperationState(
+    commandInFlight: Boolean,
+    freshness: ProjectionFreshness,
+): WorkspaceRootOperationState =
+    when {
+        commandInFlight -> WorkspaceRootOperationState.Switching
+        freshness is ProjectionFreshness.Building -> WorkspaceRootOperationState.Indexing
+        freshness is ProjectionFreshness.Failed -> WorkspaceRootOperationState.Failed(freshness.reasonCode)
+        else -> WorkspaceRootOperationState.Idle
+    }
 
 private fun CoroutineScope.launchStorageUpdate(
     onError: (Throwable) -> Unit,

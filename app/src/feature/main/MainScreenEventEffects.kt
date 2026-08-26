@@ -24,7 +24,7 @@ fun MainScreenEventEffectsHost(
     onFocusMemoInList: suspend (String) -> Boolean,
     focusRetryKey: Any?,
     onResolveMemoById: suspend (String) -> Memo?,
-    onSaveImage: (Uri, (String) -> Unit) -> Unit,
+    onSaveImage: (Uri, (String) -> Unit, () -> Unit) -> Unit,
     onRequireImageDirectory: () -> Unit,
     onConsumeSharedContentEvent: (Long) -> Unit,
     onConsumeAppActionEvent: (Long) -> Unit,
@@ -57,10 +57,8 @@ fun MainScreenEventEffectsHost(
         events = pendingSharedImageEvents,
         onImageDirectoryMissing = onRequireImageDirectory,
         onSaveImage = onSaveImage,
-        onImageSaved = { path ->
-            onAppendImageMarkdown(path)
-            onEnsureEditorVisible()
-        },
+        onAppendImageMarkdown = onAppendImageMarkdown,
+        onEnsureEditorVisible = onEnsureEditorVisible,
         onConsume = onConsumePendingSharedImageEvent,
     )
 
@@ -141,22 +139,54 @@ fun HandlePendingSharedImageEvents(
     imageDirectory: String?,
     events: ImmutableList<PendingUiEvent<android.net.Uri>>,
     onImageDirectoryMissing: () -> Unit,
-    onSaveImage: (android.net.Uri, (String) -> Unit) -> Unit,
-    onImageSaved: (String) -> Unit,
+    onSaveImage: (android.net.Uri, (String) -> Unit, () -> Unit) -> Unit,
+    onAppendImageMarkdown: (String) -> Unit,
+    onEnsureEditorVisible: () -> Unit,
     onConsume: (Long) -> Unit,
 ) {
     LaunchedEffect(imageDirectory, events) {
         val pending = events.firstOrNull() ?: return@LaunchedEffect
-        if (imageDirectory == null) {
-            onImageDirectoryMissing()
-            return@LaunchedEffect
-        }
-
-        onSaveImage(pending.payload) { path ->
-            onImageSaved(path)
-            onConsume(pending.id)
-        }
+        resolveSharedImageIntent(
+            intentId = pending.id,
+            imageDirectory = imageDirectory,
+            onRequireImageDirectory = onImageDirectoryMissing,
+            onSaveImage = { onResult, onError -> onSaveImage(pending.payload, onResult, onError) },
+            onAppendImageMarkdown = onAppendImageMarkdown,
+            onEnsureEditorVisible = onEnsureEditorVisible,
+            onConsume = onConsume,
+        )
     }
+}
+
+/**
+ * Resolves one shared-image launch intent to a terminal state.
+ *
+ * Every outcome consumes the intent. A queue head that survives its own failure can never be
+ * retried: this effect is keyed on the queue contents, so an unconsumed head means nothing will
+ * ever move the intent again and the editor waits on markdown that will never arrive.
+ */
+internal fun resolveSharedImageIntent(
+    intentId: Long,
+    imageDirectory: String?,
+    onRequireImageDirectory: () -> Unit,
+    onSaveImage: (onResult: (String) -> Unit, onError: () -> Unit) -> Unit,
+    onAppendImageMarkdown: (String) -> Unit,
+    onEnsureEditorVisible: () -> Unit,
+    onConsume: (Long) -> Unit,
+) {
+    if (imageDirectory == null) {
+        onRequireImageDirectory()
+        onConsume(intentId)
+        return
+    }
+    onSaveImage(
+        { path ->
+            onAppendImageMarkdown(path)
+            onEnsureEditorVisible()
+            onConsume(intentId)
+        },
+        { onConsume(intentId) },
+    )
 }
 
 @Composable

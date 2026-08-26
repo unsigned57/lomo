@@ -179,7 +179,7 @@ private class NoOpMemoMutationRepository : MemoMutationRepository {
 
     override suspend fun restoreMemoRevision(
         currentMemo: com.lomo.domain.model.Memo,
-        revisionId: String,
+        revision: com.lomo.domain.model.MemoRevision,
     ) = Unit
 
     override suspend fun setMemoPinned(

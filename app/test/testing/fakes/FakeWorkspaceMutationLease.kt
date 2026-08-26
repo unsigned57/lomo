@@ -2,6 +2,7 @@ package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.model.isWritable
+import com.lomo.domain.model.permitsWrites
 import com.lomo.domain.model.requireWritable
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
@@ -29,12 +30,17 @@ class FakeWorkspaceMutationLease(
 
     override fun isWritable(): Boolean =
         synchronized(monitor) {
-            engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)
+            engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) &&
+                engineReadiness.projectionFreshness.value.permitsWrites()
         }
 
     override fun isWritableFlow(): Flow<Boolean> =
-        combine(engineReadiness.readiness, admissionsOpen) { readiness, open ->
-            readiness.isWritable(writeFrozen = !open)
+        combine(
+            engineReadiness.readiness,
+            engineReadiness.projectionFreshness,
+            admissionsOpen,
+        ) { readiness, freshness, open ->
+            readiness.isWritable(writeFrozen = !open) && freshness.permitsWrites()
         }
 
     override suspend fun <T> withWrite(block: suspend (WorkspaceAuthority) -> T): T {
@@ -72,12 +78,17 @@ class FakeWorkspaceMutationLease(
     private fun admit(): WorkspaceAuthority =
         synchronized(monitor) {
             engineReadiness.readiness.value.requireWritable(writeFrozen = !admissionsOpen.value)
+            check(engineReadiness.projectionFreshness.value.permitsWrites()) {
+                "Workspace projection is not writable"
+            }
             registerLocked()
         }
 
     private fun admitOrNull(): WorkspaceAuthority? =
         synchronized(monitor) {
-            if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value)) {
+            if (!engineReadiness.readiness.value.isWritable(writeFrozen = !admissionsOpen.value) ||
+                !engineReadiness.projectionFreshness.value.permitsWrites()
+            ) {
                 null
             } else {
                 registerLocked()

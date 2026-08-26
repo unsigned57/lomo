@@ -158,6 +158,14 @@ fun SettingsScreen(
         snackbarHostState = snackbarHostState,
         onClearOperationState = features.migration::clearOperationState,
     )
+    HandleSettingsOperationError(
+        operationError = uiState.operationError,
+        gitFeature = features.git,
+        dialogState = dialogState,
+        snackbarHostState = snackbarHostState,
+        messages = resources.messages,
+        onClearOperationError = viewModel::clearOperationError,
+    )
 
     SettingsSubPagesAnimatedContent(
         uiState = uiState,
@@ -248,6 +256,7 @@ private fun SettingsSubPagesAnimatedContent(
                     dialogOptions = resources.dialogOptions,
                     storagePickers = storagePickers,
                     migrationPickers = migrationPickers,
+                    snackbarHostState = snackbarHostState,
                     onBack = { dialogState.activeSubPage = SettingsSubPage.NONE },
                     onOpenSyncCenter = onOpenSyncCenter,
                 )

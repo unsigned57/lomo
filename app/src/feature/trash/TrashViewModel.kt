@@ -8,6 +8,7 @@ import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.MemoCollectionActionStateHolder
 import com.lomo.app.feature.common.MemoCollectionCapabilities
 import com.lomo.app.feature.common.DeleteAnimationItem
+import com.lomo.app.feature.common.WorkspaceProjectionStateProvider
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiMapper
@@ -20,14 +21,20 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import androidx.paging.cachedIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TrashViewModel(
     memoTrashUseCase: MemoTrashUseCase,
     appConfigStateProvider: AppConfigStateProvider,
     imageMapProvider: ImageMapProvider,
     memoUiMapper: MemoUiMapper,
+    workspaceProjectionStateProvider: WorkspaceProjectionStateProvider,
 ) : ViewModel() {
 
         private val mappingInput =
@@ -39,18 +46,30 @@ class TrashViewModel(
                 .distinctUntilChanged { old, new -> old.sameForPaging(new) }
                 .stateIn(viewModelScope, appWhileSubscribed(), UiMappingInput.EMPTY)
 
+        val projectionReadable: StateFlow<Boolean> =
+            workspaceProjectionStateProvider.projectionReadable
+                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+        // Trash and the main feed share the same published projection-revision admission.
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
-            combine(
-                mappingInput,
-                memoPager(
-                    scope = viewModelScope,
-                    pagingSourceFactory = memoTrashUseCase::getDeletedMemosPagingSource,
-                ),
-            ) { input, pagingData ->
-                pagingData.map { memo ->
-                    memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)
-                }
-            }
+            projectionReadable
+                .flatMapLatest { readable ->
+                    if (!readable) {
+                        flowOf(PagingData.empty())
+                    } else {
+                        combine(
+                            mappingInput,
+                            memoPager(
+                                scope = viewModelScope,
+                                pagingSourceFactory = memoTrashUseCase::getDeletedMemosPagingSource,
+                            ),
+                        ) { input, pagingData ->
+                            pagingData.map { memo ->
+                                memoUiMapper.mapToUiModel(memo, input.root, input.img, input.map)
+                            }
+                        }
+                    }
+                }.cachedIn(viewModelScope)
 
         private val actionStateHolder =
             MemoCollectionActionStateHolder(

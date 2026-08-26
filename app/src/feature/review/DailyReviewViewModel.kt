@@ -11,6 +11,7 @@ import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.mapToUiModels
 import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditorUpdateSubmission
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.DailyReviewCollectionSource
@@ -60,6 +61,15 @@ class DailyReviewViewModel(
         val restoredPageIndex: StateFlow<Int> = _restoredPageIndex.asStateFlow()
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+        private val memoUpdater = DailyReviewMemoUpdater(updateMemoContentUseCase, rawMemos)
+        internal val editorSubmission =
+            MemoEditorUpdateSubmission(
+                scope = viewModelScope,
+                updateMemo = memoUpdater::update,
+                onFailure = { throwable ->
+                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
+                },
+            )
         private var loadJob: Job? = null
         private var canLoadMore = true
         private var currentSession: DailyReviewSession? = null
@@ -209,19 +219,7 @@ class DailyReviewViewModel(
         ) {
             viewModelScope.launch {
                 runCatching {
-                    updateMemoContentUseCase(memo, newContent)
-                }.onSuccess {
-                    rawMemos.value =
-                        rawMemos.value?.map { current ->
-                            if (current.id == memo.id) {
-                                current.copy(
-                                    content = newContent,
-                                    rawContent = newContent,
-                                )
-                            } else {
-                                current
-                            }
-                        }
+                    memoUpdater.update(memo, newContent)
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -342,3 +340,26 @@ class DailyReviewViewModel(
         }
 
     }
+
+private class DailyReviewMemoUpdater(
+    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    private val rawMemos: MutableStateFlow<List<Memo>?>,
+) {
+    suspend fun update(
+        memo: Memo,
+        newContent: String,
+    ) {
+        updateMemoContentUseCase(memo, newContent)
+        rawMemos.value =
+            rawMemos.value?.map { current ->
+                if (current.id == memo.id) {
+                    current.copy(
+                        content = newContent,
+                        rawContent = newContent,
+                    )
+                } else {
+                    current
+                }
+            }
+    }
+}

@@ -204,7 +204,6 @@ internal fun MainScreenContentHost(
     dependencies: MainScreenDependencies,
     unknownErrorMessage: String,
     isRefreshing: Boolean,
-    onRefreshingChange: (Boolean) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -249,7 +248,6 @@ internal fun MainScreenContentHost(
             hostState = hostState,
             dependencies = dependencies,
             isRefreshing = isRefreshing,
-            onRefreshingChange = onRefreshingChange,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToTrash = onNavigateToTrash,
             onNavigateToSearch = onNavigateToSearch,
@@ -287,7 +285,6 @@ private fun MainScreenNavigationContent(
     hostState: MainScreenHostState,
     dependencies: MainScreenDependencies,
     isRefreshing: Boolean,
-    onRefreshingChange: (Boolean) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -338,7 +335,6 @@ private fun MainScreenNavigationContent(
             }
         },
         onRefreshMemos = dependencies.mainViewModel.refresh,
-        onRefreshingChange = onRefreshingChange,
     ) { actions ->
         MainScreenNavigationRender(
             screenState = screenState,

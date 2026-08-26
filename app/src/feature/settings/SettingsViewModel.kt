@@ -9,7 +9,6 @@ import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
-
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +73,7 @@ class SettingsViewModel(
             SettingsStorageFeatureViewModel(
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
+                projectionFreshness = coordinatorFactory.projectionFreshness(),
                 onError = { error ->
                     _operationError.value = errorMapper.map(error, "Failed to update storage settings")
                 },

@@ -18,6 +18,7 @@ import com.lomo.app.startup.ThemeSideEffect
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
+import com.lomo.app.feature.common.WorkspaceProjectionStateProvider
 import com.lomo.app.feature.main.MainMemoMutationCoordinator
 import com.lomo.app.feature.main.MainSidebarStateHolder
 import com.lomo.app.feature.main.MainStartupCoordinator
@@ -71,11 +72,12 @@ val appModule = module {
     single { AppConfigStateProvider(get(), get(), get(), get(named("AppScope"))) }
     single { AppConfigUiCoordinator(get()) }
     single { MemoCollectionProjectionMapper(get()) }
+    single { WorkspaceProjectionStateProvider(get()) }
     single { MainMemoMutationCoordinator(get(), get(), get()) }
     single { MainSidebarStateHolder() }
     single { MainStartupCoordinator(get(), get(), get(), get()) }
     single { MainVersionHistoryCoordinator(get(), get()) }
-    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get(), get()) }
+    single { MainWorkspaceCoordinator(get(), get(), get(), get(), get()) }
     single {
         MemoUiMapper(
             dispatcherProvider = get(),
@@ -86,7 +88,7 @@ val appModule = module {
     single {
         SettingsCoordinatorFactory(
             get(), get(), get(), get(), get(),
-            get(), get(), get(), get(), get(), getOrNull()
+            get(), get(), get(), get(), get(), get(), getOrNull()
         )
     }
     single { LanShareUiCoordinator(get()) }

@@ -1,25 +1,42 @@
-package com.lomo.app.feature.memo
-
-/**
+/*
  * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
+ * - Unit under test: MemoEditorViewModel.
+ * - Owning layer: app.
+ * - Priority tier: P1.
+ * - Capability: own draft persistence and an acknowledged memo submission state machine.
+ * - Scenarios:
+ *   - Given starting a memo draft, save/clear persists state to storage.
+ *   - Given constructor is called, it does not block on first persisted draft emission.
+ *   - Given a create/update is still executing, submission remains Submitting and callers cannot
+ *     observe success early; after the durable use case returns it becomes Committed.
+ *   - Given createMemo/updateMemo success, discard inputs, clear draft text, and update widgets.
+ *   - Given create/update failure, submission becomes Failed and the draft remains available.
+ *   - Given a submission that never reaches a terminal state, when the acknowledgement budget
+ *     elapses, then a stalled diagnostic is recorded (the only trace of an editor that can never
+ *     close because nothing ever throws).
+ *   - Given saveImage success or failure, manage tracked image list and propagate error states appropriately.
+ * - Observable outcomes:
+ *   - draftText/errorMessage/submissionState, terminal await result, and use-case payloads.
+ * - TDD proof:
+ *   - RED on 2026-08-09 because createMemo/updateMemo were fire-and-forget and exposed no state
+ *     distinguishing an accepted click from a durable commit or failure.
+ * - Excludes: actual widgets UI layout and Compose rendering components.
+ *
  * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
+ * - Reason category: editor submission state machine and engine diagnostics integration.
+ * - Old behavior/assertion being replaced: fire-and-forget submission without stalled diagnostics.
+ * - Why old assertion is no longer correct: submissions require deterministic acknowledgement and stalled diagnostics.
+ * - Coverage preserved by: all draft persistence, submission state machine, and error handling scenarios remain fully tested.
+ * - Why this is not fitting the test to the implementation: verifies submission state transitions and timeouts.
  */
 
+package com.lomo.app.feature.memo
 
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.domain.model.EngineDiagnosticEvent
+import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
@@ -29,32 +46,24 @@ import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-
-/*
- * Behavior Contract:
- * - Capability: Draft persistence state machine, success-path cleanup side effects, optional backfill timestamp forwarding, and failure message mapping.
- * - Scenarios:
- *   - Given starting a memo draft, save/clear persists state to storage.
- *   - Given constructor is called, it does not block on first persisted draft emission.
- *   - Given createMemo/updateMemo success, discard inputs, clear draft text, and update widgets.
- *   - Given saveImage success or failure, manage tracked image list and propagate error states appropriately.
- * - Observable outcomes:
- *   - draftText/errorMessage state, callbacks, and use-case invocation payloads.
- * - TDD proof: Asserts correct draft persistence flow and exception mapping in the memo editor.
- * - Excludes: actual widgets UI layout and Compose rendering components.
- */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemoEditorViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
@@ -68,6 +77,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
     private val appWidgetRepository = FakeAppWidgetRepository()
     private val observeDraftTextUseCase = FakeObserveDraftTextUseCase(sharedDraftTextFlow)
     private val setDraftTextUseCase = FakeSetDraftTextUseCase(sharedDraftTextFlow)
+    private val diagnostics = FakeEngineDiagnosticsRecorder()
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -81,6 +91,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             appWidgetRepository.reset()
             observeDraftTextUseCase.reset()
             setDraftTextUseCase.reset()
+            diagnostics.reset()
         }
 
         test("saveDraft updates local draft state and persists text") {
@@ -146,18 +157,40 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.saveImage(uri, onResult = {}, onError = null)
                 advanceUntilIdle()
 
-                var successCalled = false
-                viewModel.createMemo(content = "new memo", onSuccess = { successCalled = true })
+                val submissionId = MemoEditorSubmissionId(1L)
+                viewModel.submissions.create(submissionId = submissionId, content = "new memo")
                 advanceUntilIdle()
 
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
-                successCalled shouldBe true
+                viewModel.submissions.await(submissionId) shouldBe true
                 viewModel.draftText.value shouldBe ""
                 createMemoUseCase.createMemoCalledWithContent shouldBe "new memo"
                 setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
                 discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
+            }
+        }
+
+        test("create submission stays pending until the durable use case commits") {
+            runTest {
+                val gate = CompletableDeferred<Unit>()
+                createMemoUseCase.createMemoGate = gate
+                val viewModel = createViewModel()
+                val submissionId = MemoEditorSubmissionId(101L)
+
+                viewModel.submissions.create(submissionId = submissionId, content = "new memo")
+                val terminal = async { viewModel.submissions.await(submissionId) }
+                testScheduler.runCurrent()
+
+                viewModel.submissionState.value shouldBe MemoEditorSubmissionState.Submitting(submissionId)
+                terminal.isCompleted shouldBe false
+
+                gate.complete(Unit)
+                advanceUntilIdle()
+
+                terminal.await() shouldBe true
+                viewModel.submissionState.value shouldBe MemoEditorSubmissionState.Committed(submissionId)
             }
         }
 
@@ -168,11 +201,16 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.saveDraft("keep me")
                 advanceUntilIdle()
 
-                viewModel.createMemo("new memo")
+                viewModel.submissions.create(
+                    submissionId = MemoEditorSubmissionId(102L),
+                    content = "new memo",
+                )
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "create failed"
                 viewModel.draftText.value shouldBe "keep me"
+                viewModel.submissionState.value shouldBe
+                    MemoEditorSubmissionState.Failed(MemoEditorSubmissionId(102L))
             }
         }
 
@@ -181,7 +219,8 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 val timestampMillis = 1_777_777_777_000L
 
-                viewModel.createMemo(
+                viewModel.submissions.create(
+                    submissionId = MemoEditorSubmissionId(2L),
                     content = "backfilled memo",
                     timestampMillis = timestampMillis,
                 )
@@ -198,10 +237,12 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 val memo = sampleMemo("memo-update")
                 updateMemoContentUseCase.updateMemoException = IllegalStateException("update failed")
 
-                viewModel.updateMemo(memo, "updated")
+                val submissionId = MemoEditorSubmissionId(3L)
+                viewModel.submissions.update(submissionId, memo, "updated")
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "update failed"
+                viewModel.submissionState.value shouldBe MemoEditorSubmissionState.Failed(submissionId)
             }
         }
 
@@ -217,13 +258,15 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.saveImage(uri, onResult = {}, onError = null)
                 advanceUntilIdle()
 
-                viewModel.updateMemo(memo, "updated")
+                val submissionId = MemoEditorSubmissionId(4L)
+                viewModel.submissions.update(submissionId, memo, "updated")
                 advanceUntilIdle()
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
                 updateMemoContentUseCase.updateMemoCalledWithMemo shouldBe memo
                 updateMemoContentUseCase.updateMemoCalledWithContent shouldBe "updated"
+                viewModel.submissions.await(submissionId) shouldBe true
                 appWidgetRepository.updateAllWidgetsCalledCount shouldBe 1
                 discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
             }
@@ -296,7 +339,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 createMemoUseCase.createMemoException = IllegalStateException("create failed")
                 val viewModel = createViewModel()
 
-                viewModel.createMemo("new memo")
+                viewModel.submissions.create(MemoEditorSubmissionId(5L), "new memo")
                 advanceUntilIdle()
                 viewModel.errorMessage.value shouldBe "create failed"
 
@@ -317,7 +360,47 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.errorMessage.value shouldBe "Failed to discard input: discard failed"
             }
         }
+
+        test("given a submission that never acknowledges then a stalled diagnostic is recorded") {
+            runTest {
+                val viewModel = createViewModel()
+                createMemoUseCase.createMemoGate = CompletableDeferred()
+
+                viewModel.submissions.create(
+                    submissionId = MemoEditorSubmissionId(1L),
+                    content = "hanging memo",
+                )
+                advanceTimeBy(1_000L)
+                diagnostics.events.value.filterIsInstance<EngineDiagnosticEvent.Stalled>()
+                    .shouldBeEmpty()
+
+                advanceTimeBy(30_000L)
+
+                val stalled = diagnostics.events.value.filterIsInstance<EngineDiagnosticEvent.Stalled>()
+                stalled shouldHaveSize 1
+                stalled[0].label shouldBe "editor.submit"
+                viewModel.submissionState.value
+                    .shouldBeInstanceOf<MemoEditorSubmissionState.Submitting>()
+
+                createMemoUseCase.createMemoGate?.complete(Unit)
+                advanceUntilIdle()
+            }
+        }
     }
+
+    private class FakeEngineDiagnosticsRecorder : EngineDiagnosticsRecorder {
+        private val _events = MutableStateFlow<List<EngineDiagnosticEvent>>(emptyList())
+        override val events: StateFlow<List<EngineDiagnosticEvent>> = _events
+
+        fun reset() {
+            _events.value = emptyList()
+        }
+
+        override fun record(event: EngineDiagnosticEvent) {
+            _events.value = listOf(event) + _events.value
+        }
+    }
+
 
     private fun createViewModel(): MemoEditorViewModel =
         MemoEditorViewModel(
@@ -328,6 +411,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             appWidgetRepository = appWidgetRepository,
             observeDraftTextUseCase = observeDraftTextUseCase,
             setDraftTextUseCase = setDraftTextUseCase,
+            diagnostics = diagnostics,
         )
 
     private fun sampleMemo(id: String): Memo =
@@ -343,14 +427,17 @@ class MemoEditorViewModelTest : AppFunSpec() {
         var createMemoCalledWithContent: String? = null
         var createMemoCalledWithTimestamp: Long? = null
         var createMemoException: Throwable? = null
+        var createMemoGate: CompletableDeferred<Unit>? = null
 
         fun reset() {
             createMemoCalledWithContent = null
             createMemoCalledWithTimestamp = null
             createMemoException = null
+            createMemoGate = null
         }
 
         override suspend fun invoke(content: String, timestampMillis: Long, geoLocation: String?): Memo {
+            createMemoGate?.await()
             createMemoException?.let { throw it }
             createMemoCalledWithContent = content
             createMemoCalledWithTimestamp = timestampMillis

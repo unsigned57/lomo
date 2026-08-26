@@ -36,6 +36,7 @@ data class StorageSectionState(
     val syncInboxDirectory: DirectoryDisplayState,
     val filenameFormat: String,
     val timestampFormat: String,
+    val isUpdatingRoot: Boolean = false,
 )
 
 data class DisplaySectionState(

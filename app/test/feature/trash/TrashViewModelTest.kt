@@ -8,6 +8,7 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.DeleteAnimationItem
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.common.WorkspaceProjectionStateProvider
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
@@ -16,6 +17,7 @@ import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeMemoStore
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoTrashUseCase
+import com.lomo.app.testing.fakes.FakeEngineReadinessRepository
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.ZoneId
@@ -40,6 +42,7 @@ import kotlinx.coroutines.test.runTest
  * - Given clearTrash is called with multiple memos, when the operation runs, then all memos transition into the deleting state and one batch clear command is issued to the repository.
  * - Given deletePermanently is triggered for a memo, when the repository completes removal, then the row deletion indicator is retained until animation and source absence have both settled.
  * - Given restoreMemo is triggered for a memo, when the repository completes the restore, then the row deletion indicator is retained until animation and source absence have both settled.
+ * - Given the SAF projection is not verified, when the trash screen is created, then its paging read admission remains closed.
  *
  * Observable outcomes:
  * - deletingMemoIds StateFlow values, pagedUiMemos flow emissions, recorded page calls, and repository call checks.
@@ -67,6 +70,7 @@ class TrashViewModelTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
     private val memoUiMapper: MemoUiMapper = testMemoUiMapper()
+    private val engineReadinessRepository = FakeEngineReadinessRepository()
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
@@ -205,6 +209,26 @@ class TrashViewModelTest : AppFunSpec() {
                 collectJob.cancel()
             }
         }
+
+        test("trash paging stays closed until the active projection is verified") {
+            runTest {
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Building(0uL),
+                )
+
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                viewModel.projectionReadable.value shouldBe false
+
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Verified(0uL),
+                )
+                advanceUntilIdle()
+
+                viewModel.projectionReadable.value shouldBe true
+            }
+        }
     }
 
     private fun createViewModel(): TrashViewModel =
@@ -222,6 +246,7 @@ class TrashViewModelTest : AppFunSpec() {
                 ),
             imageMapProvider = imageMapProvider,
             memoUiMapper = memoUiMapper,
+            workspaceProjectionStateProvider = WorkspaceProjectionStateProvider(engineReadinessRepository),
         ).also(createdViewModels::add)
 
     private fun clearViewModel(viewModel: TrashViewModel) {

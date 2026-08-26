@@ -191,7 +191,8 @@ private fun dailyReviewMemoEditorSurface(
                 timeFormat = timeFormat,
             ),
         toolbarToolOrder = toolbarToolOrder,
-        onUpdateMemo = viewModel::updateMemo,
+        onUpdateMemo = viewModel.editorSubmission::submit,
+        submissionState = viewModel.editorSubmission.state,
         onSaveImage = viewModel::saveImage,
         onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
     )

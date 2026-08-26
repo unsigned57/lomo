@@ -31,6 +31,9 @@
     <string name="settings_group_formats">Formats</string>
     <string name="settings_memo_directory">Memo Directory</string>
     <string name="settings_not_set">Not set</string>
+    <string name="settings_storage_switching_workspace">Switching workspace…</string>
+    <string name="settings_storage_scanning_workspace">Indexing workspace…</string>
+    <string name="settings_storage_index_failed">Workspace selected; indexing failed</string>
     <string name="settings_image_storage">Image Storage</string>
     <string name="settings_voice_storage">Voice Storage</string>
     <string name="settings_sync_inbox_enabled">Sync inbox folder</string>
@@ -172,6 +175,10 @@
     <string name="settings_update_available_subtitle">New version %1$s is available. Tap to review update options.</string>
     <string name="settings_debug_update_preview">Debug update preview</string>
     <string name="settings_debug_update_preview_subtitle">Open the real latest GitHub release update flow for direct in-app download testing.</string>
+    <string name="settings_debug_engine_diagnostics">Engine command diagnostics</string>
+    <string name="settings_debug_engine_diagnostics_subtitle">Recent workspace commands with their result code, category and duration.</string>
+    <string name="settings_debug_engine_diagnostics_empty">No workspace command has been recorded yet.</string>
+    <string name="settings_debug_engine_diagnostics_entry">%1$s · %2$d ms</string>
     <string name="settings_lan_share_enabled_title">Enable LAN Share</string>
     <string name="settings_lan_share_enabled_subtitle">Allow device discovery and local network transfers</string>
     

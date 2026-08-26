@@ -10,8 +10,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Coordinates the full new-memo insert lifecycle:
- * 1. if not at top, scroll to top (await maybe)
- * 2. invoke `createMemo` (fire-and-forget from caller's perspective; the DB write is async)
+ * 1. submit and await the acknowledged durable `createMemo` result
+ * 2. if not at top, scroll to top for presentation
  * 3. opportunistically resolve a loaded top baseline and prepare the head-enter animation
  * 4. `awaitNewTopItem` waits until the paging snapshot reflects a new top memo
  *    (which resolves the typed head baseline)
@@ -27,7 +27,7 @@ internal class NewMemoCreationCoordinator<T>(
     private val scrollListToAbsoluteTop: suspend () -> Unit,
     private val awaitTopBaseline: suspend () -> HeadEnterBaseline,
     private val prepareNewTopEnter: (HeadEnterBaseline) -> EnterRequestId,
-    private val createMemo: (request: T, wasAtTop: Boolean) -> Unit,
+    private val createMemo: suspend (request: T, wasAtTop: Boolean) -> Boolean,
     private val awaitNewTopItem: suspend (HeadEnterBaseline) -> String?,
     private val revealNewTopItem: suspend (newTopId: String) -> Unit,
     private val cancelPreparedEnter: (EnterRequestId) -> Unit,
@@ -45,11 +45,13 @@ internal class NewMemoCreationCoordinator<T>(
             var preparedEnterRequest: EnterRequestId? = null
             var preparedEnterResolved = false
             try {
+                val wasAtTop = isListAtAbsoluteTop()
+                if (!createMemo(request, wasAtTop)) {
+                    return@launch
+                }
                 if (!isListAtAbsoluteTop()) {
                     scrollListToAbsoluteTop()
                 }
-                val isAtTop = isListAtAbsoluteTop()
-                createMemo(request, isAtTop)
                 val baseline = withTimeoutOrNull(baselineTimeoutMillis) { awaitTopBaseline() }
                     ?: return@launch
                 preparedEnterRequest = prepareNewTopEnter(baseline)

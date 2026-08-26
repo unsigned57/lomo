@@ -16,6 +16,10 @@ import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
@@ -297,6 +301,17 @@ fun AboutSettingsSection(
                 onClick = onPreviewDebugUpdate,
             )
             SettingsDivider()
+            var showEngineDiagnostics by remember { mutableStateOf(false) }
+            PreferenceItem(
+                title = stringResource(R.string.settings_debug_engine_diagnostics),
+                subtitle = stringResource(R.string.settings_debug_engine_diagnostics_subtitle),
+                icon = Icons.Outlined.Info,
+                onClick = { showEngineDiagnostics = true },
+            )
+            SettingsDivider()
+            if (showEngineDiagnostics) {
+                EngineDiagnosticsDialog(onDismiss = { showEngineDiagnostics = false })
+            }
         }
         PreferenceItem(
             title = stringResource(R.string.settings_github),

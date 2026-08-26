@@ -3,6 +3,7 @@ package com.lomo.app.feature.settings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.SnackbarHostState
@@ -179,9 +180,21 @@ internal fun persistTreePermission(
     context.contentResolver.takePersistableUriPermission(uri, flags)
     check(
         context.contentResolver.persistedUriPermissions.any { permission ->
-            permission.uri == uri && permission.isReadPermission && permission.isWritePermission
+            persistedTreeMatches(permission.uri, uri) &&
+                permission.isReadPermission &&
+                permission.isWritePermission
         },
     ) { "saf_grant_not_persisted" }
+}
+
+private fun persistedTreeMatches(
+    persistedUri: Uri,
+    requestedUri: Uri,
+): Boolean {
+    if (persistedUri == requestedUri || persistedUri.toString() == requestedUri.toString()) return true
+    if (!DocumentsContract.isTreeUri(persistedUri) || !DocumentsContract.isTreeUri(requestedUri)) return false
+    return DocumentsContract.getTreeDocumentId(persistedUri) ==
+        DocumentsContract.getTreeDocumentId(requestedUri)
 }
 
 @Composable

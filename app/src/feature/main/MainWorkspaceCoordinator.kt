@@ -3,15 +3,14 @@ package com.lomo.app.feature.main
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 
 class MainWorkspaceCoordinator(
@@ -20,10 +19,10 @@ class MainWorkspaceCoordinator(
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
     private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
-    private val workspaceMutationLease: WorkspaceMutationLease,
 ) {
     val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
     val workspaceAuthority: StateFlow<WorkspaceAuthority?> = engineReadinessRepository.workspaceAuthority
+    val projectionFreshness: StateFlow<ProjectionFreshness> = engineReadinessRepository.projectionFreshness
 
     suspend fun createDefaultDirectories(
         forImage: Boolean,
@@ -40,12 +39,12 @@ class MainWorkspaceCoordinator(
         switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
     }
 
-    suspend fun rebuildCurrentWorkspace() {
-        switchRootStorageUseCase.rebuildCurrentWorkspace()
-    }
-
     suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary =
         engineReadinessRepository.rebuildDerivedIndex()
+
+    suspend fun retryProjectionBuild() {
+        engineReadinessRepository.retryProjectionBuild()
+    }
 
     suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport =
         engineReadinessRepository.createRecoveryDiagnosticReport()
@@ -54,15 +53,8 @@ class MainWorkspaceCoordinator(
         refreshMemosUseCase()
     }
 
-    suspend fun syncImageCacheBestEffort() {
-        try {
-            mediaRepository.refreshImageLocations()
-        } catch (error: Exception) {
-            if (error is CancellationException) {
-                throw error
-            }
-            // Best-effort background sync.
-        }
+    suspend fun syncImageCache() {
+        mediaRepository.refreshImageLocations()
     }
 
     /**
@@ -80,13 +72,4 @@ class MainWorkspaceCoordinator(
         engineReadinessRepository.resnapshot()
     }
 
-    /**
-     * Observe-root rebuild is suppressed while a workspace transition is draining writers and until
-     * the active engine identity matches the persisted selection at Ready. ManagedEngineSession is
-     * the sole projection rebuild owner for intentional root switches (settings + main picker).
-     */
-    fun canObserveRootRebuild(directory: String): Boolean {
-        if (!workspaceMutationLease.isWritable()) return false
-        return engineReadinessRepository.activeWorkspaceLocation.value?.raw == directory
-    }
 }

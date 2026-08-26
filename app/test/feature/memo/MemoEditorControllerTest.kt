@@ -1,3 +1,34 @@
+/*
+ * Behavior Contract:
+ * - Unit under test: MemoEditorController.
+ * - Owning layer: app.
+ * - Priority tier: P1.
+ * - Capability: own one editor session, including acknowledged submit/close transitions.
+ *
+ * Scenarios:
+ * - Given create/edit input, when open/append/expand/backfill/close actions run, then session state
+ *   changes without losing text unexpectedly.
+ * - Given a submit is in flight, when dismiss is requested, then close is refused and the draft is
+ *   retained; failure unlocks retry, and only the matching committed retry closes the editor.
+ *
+ * Observable outcomes:
+ * - Visibility, editing memo, input/selection, mode, backfill state, submission status and ids.
+ *
+ * TDD proof:
+ * - RED on 2026-08-09 because submit had no controller state and the sheet closed unconditionally
+ *   immediately after dispatching a fire-and-forget mutation.
+ *
+ * Excludes:
+ * - Compose sheet animation, activity-result launchers, repository writes, and media save wiring.
+ *
+ * Test Change Justification:
+ * - Reason category: editor submission lifecycle and controller state machine.
+ * - Old behavior/assertion being replaced: unconditional editor close on submission dispatch.
+ * - Why old assertion is no longer correct: editor must remain open until durable acknowledgement is received.
+ * - Coverage preserved by: all text editing, cursor insertion, mode switching, and submission retry scenarios remain fully tested.
+ * - Why this is not fitting the test to the implementation: verifies invariant preventing user draft data loss.
+ */
+
 package com.lomo.app.feature.memo
 
 import androidx.compose.ui.text.TextRange
@@ -5,15 +36,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
-
-/*
- * Test Contract:
- * - Unit under test: MemoEditorController
- * - Behavior focus: create/edit opening state, markdown append behavior, compact/expanded mode transitions, visibility management, backfill timestamp selection, and close reset semantics.
- * - Observable outcomes: visible flag, editingMemo selection, editor mode, input text/value selection, back-press consumption, backfill timestamp state, and appended markdown content.
- * - Red phase: Fails before the fix because MemoEditorController has no long-form mode state, cannot expand/collapse the active session, and cannot consume back to collapse before dismiss.
- * - Excludes: Compose sheet rendering, activity-result launchers, and media save wiring.
- */
 class MemoEditorControllerTest : AppFunSpec() {
     init {
         /*
@@ -210,6 +232,32 @@ class MemoEditorControllerTest : AppFunSpec() {
             (controller.inputValue.text) shouldBe ("draft")
             (controller.backfillSelection.timestampMillis) shouldBe null
             (controller.backfillSelection.timestampMillisForCreateSubmit(false)) shouldBe null
+        }
+
+        test("submitting refuses dismiss and only a matching commit closes the editor") {
+            val controller = MemoEditorController()
+            controller.openForCreate("keep this draft")
+
+            val first = checkNotNull(controller.submission.begin())
+
+            controller.close() shouldBe false
+            controller.isVisible shouldBe true
+            controller.inputValue.text shouldBe "keep this draft"
+            controller.submission.status shouldBe MemoEditorSubmissionStatus.Submitting
+
+            controller.submission.fail(first)
+            controller.submission.status shouldBe MemoEditorSubmissionStatus.Failed
+            controller.isVisible shouldBe true
+            controller.inputValue.text shouldBe "keep this draft"
+
+            val retry = checkNotNull(controller.submission.begin())
+            controller.submission.commit(first)
+            controller.isVisible shouldBe true
+            controller.submission.commit(retry)
+
+            controller.isVisible shouldBe false
+            controller.inputValue.text shouldBe ""
+            controller.submission.status shouldBe MemoEditorSubmissionStatus.Idle
         }
     }
 }

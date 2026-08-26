@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -11,8 +12,10 @@ import com.lomo.domain.model.WebDavProvider
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /*
@@ -29,6 +32,8 @@ import kotlinx.coroutines.test.runTest
  *   then one shared provider-keyed action path receives the provider identity.
  * - Given provider-specific Git/WebDAV/S3 fields, when wrapper extension methods are invoked,
  *   then only provider-specific action interfaces receive those values.
+ * - Given initial projection Building or Failed, when settings observes root status, then it
+ *   exposes Indexing or Failed without inventing a second scanning state.
  *
  * Observable outcomes:
  * - Captured provider-keyed action arguments, provider-specific action arguments, validation helper results,
@@ -70,15 +75,45 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
                 val errors = mutableListOf<Throwable>()
                 val viewModel =
                     SettingsStorageFeatureViewModel(
-                        scope = this,
+                        scope = backgroundScope,
                         appConfigCoordinator = coordinator,
+                        projectionFreshness = MutableStateFlow(ProjectionFreshness.Verified(1uL)),
                         onError = errors::add,
-                    )
+                )
 
                 viewModel.updateRootUri("content://tree/root")
-                advanceUntilIdle()
+                runCurrent()
 
                 errors shouldBe listOf(failure)
+            }
+        }
+
+        test("storage feature derives indexing and failure from managed projection state") {
+            runTest {
+                val coordinator = mockk<SettingsAppConfigCoordinator>()
+                val freshness = MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Verified(1uL))
+                val viewModel =
+                    SettingsStorageFeatureViewModel(
+                        scope = backgroundScope,
+                        appConfigCoordinator = coordinator,
+                        projectionFreshness = freshness,
+                        onError = {},
+                )
+                backgroundScope.launch { viewModel.rootOperationState.collect {} }
+                runCurrent()
+
+                freshness.value = ProjectionFreshness.Building(baseRevision = 0uL)
+                runCurrent()
+                viewModel.rootOperationState.value shouldBe WorkspaceRootOperationState.Indexing
+
+                freshness.value =
+                    ProjectionFreshness.Failed(
+                        baseRevision = 0uL,
+                        reasonCode = "projection_scan_deadline_exceeded",
+                    )
+                runCurrent()
+                viewModel.rootOperationState.value shouldBe
+                    WorkspaceRootOperationState.Failed("projection_scan_deadline_exceeded")
             }
         }
 

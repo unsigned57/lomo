@@ -6,7 +6,6 @@ import androidx.compose.runtime.remember
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -28,7 +27,6 @@ fun MainScreenNavigationActionHost(
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
     onRefreshMemos: suspend () -> Unit,
-    onRefreshingChange: (Boolean) -> Unit,
     content: @Composable (MainScreenActions) -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
@@ -52,7 +50,6 @@ fun MainScreenNavigationActionHost(
             onOpenMemoFilterPanel = onOpenMemoFilterPanel,
             onOpenCreateMemo = onOpenCreateMemo,
             onRefreshMemos = onRefreshMemos,
-            onRefreshingChange = onRefreshingChange,
         )
     content(actions)
 }
@@ -77,7 +74,6 @@ fun rememberMainScreenActions(
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
     onRefreshMemos: suspend () -> Unit,
-    onRefreshingChange: (Boolean) -> Unit,
 ): MainScreenActions =
     remember(
         scope,
@@ -98,7 +94,6 @@ fun rememberMainScreenActions(
         onOpenMemoFilterPanel,
         onOpenCreateMemo,
         onRefreshMemos,
-        onRefreshingChange,
     ) {
         val closeDrawerIfNeeded = {
             if (!isExpanded) {
@@ -128,7 +123,6 @@ fun rememberMainScreenActions(
                 createRefreshAction(
                     scope = scope,
                     onRefreshMemos = onRefreshMemos,
-                    onRefreshingChange = onRefreshingChange,
                 ),
             onDailyReviewClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToDailyReview),
             onGalleryClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToGallery),
@@ -163,18 +157,9 @@ private fun createFabAction(
 private fun createRefreshAction(
     scope: CoroutineScope,
     onRefreshMemos: suspend () -> Unit,
-    onRefreshingChange: (Boolean) -> Unit,
 ): () -> Unit =
     {
-        scope.launch {
-            onRefreshingChange(true)
-            try {
-                onRefreshMemos()
-                delay(REFRESH_DELAY)
-            } finally {
-                onRefreshingChange(false)
-            }
-        }
+        scope.launch { onRefreshMemos() }
     }
 
 data class MainScreenActions(
@@ -192,5 +177,3 @@ data class MainScreenActions(
     val onGalleryClick: () -> Unit,
     val onStatisticsClick: () -> Unit,
 )
-
-private const val REFRESH_DELAY = 500L

@@ -17,7 +17,8 @@ internal fun searchMemoEditorSurface(
                 timeFormat = uiState.timeFormat,
             ),
         toolbarToolOrder = uiState.inputToolbarToolOrder,
-        onUpdateMemo = viewModel::updateMemo,
+        onUpdateMemo = viewModel::submitMemoUpdate,
+        submissionState = viewModel.editorSubmissionState,
         onSaveImage = viewModel::saveImage,
         onToolbarOrderChanged = viewModel.updateInputToolbarToolOrder,
     )

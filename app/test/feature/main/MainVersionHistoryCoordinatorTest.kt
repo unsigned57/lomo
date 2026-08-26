@@ -210,7 +210,7 @@ private class FakeMemoMutationRepository(
 
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
-        revisionId: String,
+        revision: MemoRevision,
     ) {
         restoreCalls += 1
         restoreGate?.await()

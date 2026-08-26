@@ -28,8 +28,11 @@ import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.usecase.FakeDispatcherProvider
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionPage
@@ -102,6 +105,14 @@ import kotlinx.coroutines.test.runTest
  * - Given engine readiness is Ready without a committed workspace authority, when the ViewModel initializes, then the UI remains OpeningEngine until authority is published.
  * - Given a workspace root is missing, when the ViewModel initializes, then UI state stays in a non-ready state.
  * - Given a cold-start asynchronously restores the root, when the ViewModel observes the restored root, then it starts paging without treating it as a root switch.
+ * - Given the active authority's first projection is Building, when Main starts collecting, then
+ *   Paging is not created until that exact projection revision becomes readable.
+ * - Given Main becomes visible or Ready, when no explicit refresh command or workspace invalidation
+ *   occurs, then navigation lifecycle alone does not rebuild the workspace projection.
+ * - Given a manual refresh is already running, when another pull-to-refresh command arrives, then
+ *   only one refresh executes and the observable refreshing state returns to false on completion.
+ * - Given an image directory is already configured at cold start, when Main initializes, then its
+ *   image URI map is refreshed once without waiting for a directory change event.
  * - Given the user searches for memos or filters by date, when the filter changes, then pagedUiMemos remains the bounded main-list surface.
  * - Given navigation requests open or focus memos, when the ViewModel queues app actions, then the
  *   memo actions are emitted in command order.
@@ -118,22 +129,22 @@ import kotlinx.coroutines.test.runTest
  * - appActionEvents correctly sequence memo navigation requests (Open/Focus).
  *
  * TDD proof:
- * - Fails before the fix when image-directory changes are not debounced, when concurrent gallery image-cache sync requests are not coalesced, when gallery initial loading is exposed as a true empty state, when observed root changes still route through the ordinary sync refresh pipeline, when image-map changes do not remap paged main-list rows, when cold-start Paging waits for the restored root before starting, when an asynchronously restored cold-start root is treated as a root switch, rebuilds the workspace, or recreates the DB paging source, when Main collection mutations are still locally owned instead of delegated to common collection state, or when marking a reminder as done is not propagated through ViewModel to ReminderCoordinator.
+ * - Fails before the fix when image-directory changes are not debounced, when concurrent gallery image-cache sync requests are not coalesced, when gallery initial loading is exposed as a true empty state, when observed root changes still route through the ordinary sync refresh pipeline, when image-map changes do not remap paged main-list rows, when cold-start Paging waits for the restored root before starting, when an asynchronously restored cold-start root is treated as a root switch, rebuilds the workspace, or recreates the DB paging source, when Paging queries an unreadable first projection, when Main collection mutations are still locally owned instead of delegated to common collection state, or when marking a reminder as done is not propagated through ViewModel to ReminderCoordinator.
  *
  * Excludes:
  * - Compose rendering, navigation wiring, and repository implementation internals.
  *
  * Test Change Justification:
  * - Reason category: App layer restructuring replaced page-based memo retention with LomoList system and delegated collection mutations to common state.
- * - Old behavior/assertion being replaced: main collection mutations were locally owned instead of delegated through common collection state; image-directory changes were not debounced.
- * - Why old assertion is no longer correct: the MainScreen now uses LomoList animation components, paging source, and common collection state holders.
+ * - Old behavior/assertion being replaced: main collection mutations were locally owned instead of delegated through common collection state; image-directory changes were not debounced; a DataStore root echo triggered a second workspace rebuild.
+ * - Why old assertion is no longer correct: the MainScreen now uses LomoList animation components, paging source, and common collection state holders, while the managed session solely owns projection rebuilds for a committed switch.
  * - Coverage preserved by: all ViewModel scenarios retained for memo loading, filter, paging, and image-map behaviors.
  * - Why this is not fitting the test to the implementation: tests verify observable ViewModel state transitions and paging behaviors, not internal animation or widget mechanics.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest : AppFunSpec() {
     private companion object {
-        const val CURRENT_APP_VERSION = "1.6.2(46)"
+        const val CURRENT_APP_VERSION = "1.0.0(1)"
     }
 
     private val testDispatcher = StandardTestDispatcher()
@@ -742,31 +753,32 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("automatic refresh runs when root directory is available") {
+        test("manual refresh is single flight and owns its terminal UI state") {
             runTest(testDispatcher) {
-                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/root"))
                 syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE)
-
+                val refreshGate = CompletableDeferred<Unit>()
+                repository.refreshMemosGate = refreshGate
                 val viewModel = createViewModel()
-                testDispatcher.scheduler.advanceUntilIdle()
-                repository.resetRecordedCalls()
+                val stateCollection = backgroundScope.launch { viewModel.isRefreshing.collect() }
+                runCurrent()
 
-                viewModel.requestAutomaticRefreshForVisibleScreen()
-                testDispatcher.scheduler.advanceUntilIdle()
+                val firstRefresh = async { viewModel.refresh() }
+                runCurrent()
 
-                repository.verifyRefreshMemosCalled()
-            }
-        }
+                viewModel.isRefreshing.value shouldBe true
+                repository.verifyRefreshMemosCalled(exactly = 1)
 
-        test("automatic refresh stays idle when root directory is missing") {
-            runTest(testDispatcher) {
-                val viewModel = createViewModel()
-                testDispatcher.scheduler.advanceUntilIdle()
+                val duplicateRefresh = async { viewModel.refresh() }
+                runCurrent()
+                repository.verifyRefreshMemosCalled(exactly = 1)
 
-                viewModel.requestAutomaticRefreshForVisibleScreen()
-                testDispatcher.scheduler.runCurrent()
+                refreshGate.complete(Unit)
+                firstRefresh.await()
+                duplicateRefresh.await()
+                runCurrent()
 
-                repository.verifyRefreshMemosNotCalled()
+                viewModel.isRefreshing.value shouldBe false
+                stateCollection.cancel()
             }
         }
 
@@ -797,7 +809,7 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("initial non null image directory does not trigger image cache sync") {
+        test("initial non null image directory refreshes image cache once") {
             runTest(testDispatcher) {
                 val syncDebounceMillis = 300L
                 appConfigRepository.setLocation(StorageArea.IMAGE, StorageLocation("/images/initial"))
@@ -805,7 +817,7 @@ class MainViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.advanceTimeBy(syncDebounceMillis)
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                mediaRepository.verifyRefreshImageLocationsNotCalled()
+                mediaRepository.verifyRefreshImageLocationsCalled(exactly = 1)
             }
         }
 
@@ -853,7 +865,7 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("observed root change rebuilds only when Ready engine identity matches and freeze is idle") {
+        test("observed root echo never duplicates the session-owned projection rebuild") {
             runTest(testDispatcher) {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/one"))
                 engineReadinessRepository.activateWorkspace(StorageLocation("/root/one"))
@@ -868,7 +880,7 @@ class MainViewModelTest : AppFunSpec() {
                 appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/two"))
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                workspaceStateResolver.rebuildCount shouldBe 1
+                workspaceStateResolver.rebuildCount shouldBe 0
                 repository.verifyRefreshMemosNotCalled()
                 mediaRepository.verifyRefreshImageLocationsNotCalled()
                 (viewModel.errorMessage.value) shouldBe null
@@ -957,22 +969,34 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("automatic refresh is rate limited for repeated visible events") {
+        test("first projection does not create Paging until its revision is readable") {
             runTest(testDispatcher) {
-                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/tmp/root"))
-                syncPolicyRepository.updateRemoteSyncBackend(SyncBackendType.NONE)
-
-                val viewModel = createViewModel()
-                testDispatcher.scheduler.advanceUntilIdle()
+                appConfigRepository.setLocation(StorageArea.ROOT, StorageLocation("/root/current"))
+                val authority = checkNotNull(engineReadinessRepository.workspaceAuthority.value)
+                engineReadinessRepository.publishProjectionFreshness(
+                    ProjectionFreshness.Building(authority.projectionRevision),
+                )
                 repository.resetRecordedCalls()
 
-                viewModel.requestAutomaticRefreshForVisibleScreen()
-                testDispatcher.scheduler.advanceUntilIdle()
-                repository.verifyRefreshMemosCalled(exactly = 1)
+                val viewModel = createViewModel()
+                val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+                val collectJob =
+                    backgroundScope.launch {
+                        viewModel.pagedUiMemos.collect(pagingEmissions::add)
+                    }
 
-                viewModel.requestAutomaticRefreshForVisibleScreen()
-                testDispatcher.scheduler.advanceUntilIdle()
-                repository.verifyRefreshMemosCalled(exactly = 1)
+                runCurrent()
+                pagingEmissions.size shouldBe 0
+                repository.recordedSpec shouldBe null
+
+                engineReadinessRepository.publishProjectionFreshness(
+                    ProjectionFreshness.Verified(authority.projectionRevision),
+                )
+                advanceUntilIdle()
+
+                pagingEmissions.size shouldBe 1
+                repository.verifyMainListPagingSourceCalled(query = "", filter = MemoListFilter())
+                collectJob.cancel()
             }
         }
 
@@ -1017,9 +1041,9 @@ class MainViewModelTest : AppFunSpec() {
             runTest(testDispatcher) {
                 val recovery =
                     EngineReadiness.ReadOnlyRecovery(
-                        category = EngineReadiness.FailureCategory.CORRUPTION,
+                        category = EngineFailureCategory.CORRUPTION,
                         code = "sqlite_integrity_failed",
-                        retryDisposition = EngineReadiness.RetryDisposition.AFTER_USER_ACTION,
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
                         diagnostic = "secret=do-not-export",
                     )
                 engineReadinessRepository.publish(recovery)
@@ -1081,7 +1105,6 @@ class MainViewModelTest : AppFunSpec() {
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
                     engineReadinessRepository = engineReadinessRepository,
-                    workspaceMutationLease = workspaceMutationLease,
                 ),
             startupCoordinator =
                 MainStartupCoordinator(

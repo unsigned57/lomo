@@ -3,6 +3,7 @@ package com.lomo.app.feature.settings
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.CustomFontStore
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
@@ -25,6 +26,7 @@ class SettingsCoordinatorFactory(
     private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
     private val memoVersionRepository: MemoVersionRepository,
     private val customFontStore: CustomFontStore,
+    private val engineReadinessRepository: EngineReadinessRepository,
     private val syncInboxRepository: SyncInboxRepository? = null,
 ) {
         private val settingsCredentialCoordinator =
@@ -71,4 +73,6 @@ class SettingsCoordinatorFactory(
         fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper()
 
         fun customFontStore(): CustomFontStore = customFontStore
+
+        fun projectionFreshness() = engineReadinessRepository.projectionFreshness
     }
