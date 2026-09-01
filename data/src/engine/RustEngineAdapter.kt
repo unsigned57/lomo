@@ -37,6 +37,7 @@ internal class RustEngineAdapter private constructor(
     private val platformBatchRunner: PlatformBatchRunner,
     private val projectionScanNowMillis: () -> Long,
     private val sourceDocumentFingerprintProbe: ((String) -> String?)?,
+    private val safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
 ) : WorkspaceNativeAdapter,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
@@ -333,6 +334,24 @@ internal class RustEngineAdapter private constructor(
         }
     }
 
+    /**
+     * Platform execution of the memo-bound media promote for SAF workspaces.
+     *
+     * Deliberately not on [WorkspaceNativeAdapter]: only the SAF memo command boundary may invoke
+     * it, under the same operation-id and command-kind rules as the Rust store transaction.
+     */
+    fun promoteSafMedia(
+        promotes: List<com.lomo.nativebridge.MediaPromotePlanDto>,
+        operationId: String,
+    ) {
+        if (promotes.isEmpty()) return
+        val promoter =
+            checkNotNull(safMediaPromoter) {
+                "SAF media promoter is not configured on this adapter"
+            }
+        promoter.invoke(promotes, operationId)
+    }
+
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         native.sidebarProjection()
 
@@ -536,6 +555,7 @@ internal class RustEngineAdapter private constructor(
             platformBatchRunner: PlatformBatchRunner,
             projectionScanNowMillis: () -> Long = { System.nanoTime() / NANOS_PER_MILLISECOND },
             sourceDocumentFingerprintProbe: ((String) -> String?)? = null,
+            safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
         ): RustEngineAdapter {
             val adapter =
                 RustEngineAdapter(
@@ -543,6 +563,7 @@ internal class RustEngineAdapter private constructor(
                     platformBatchRunner,
                     projectionScanNowMillis,
                     sourceDocumentFingerprintProbe,
+                    safMediaPromoter,
                 )
             runCatching { adapter.completeAcquisition() }
                 .onFailure { failure ->

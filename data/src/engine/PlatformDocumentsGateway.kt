@@ -4,6 +4,7 @@ import android.net.Uri
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
+import java.io.File
 
 /**
  * Android document operations required by the platform-action protocol.
@@ -45,6 +46,19 @@ internal interface PlatformDocumentsGateway {
         treeUri: String,
         path: String,
         bytes: ByteArray,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot
+
+    /**
+     * Streams one local file into the tree without materializing its bytes in memory, so media
+     * promotion stays bounded by the copy chunk instead of the media size. The persisted document
+     * is verified against the streamed bytes by digest before the write is reported successful.
+     */
+    fun writeFromFile(
+        treeUri: String,
+        path: String,
+        source: File,
         mode: WriteMode,
         mimeType: String?,
     ): PlatformDocumentSnapshot

@@ -454,6 +454,15 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         return node.toSnapshot(WorkspaceTarget.Relative(path))
     }
 
+    override fun writeFromFile(
+        treeUri: String,
+        path: String,
+        source: java.io.File,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot =
+        writeFromExchange(treeUri, path, source.readBytes(), mode, mimeType)
+
     override fun move(
         treeUri: String,
         source: String,

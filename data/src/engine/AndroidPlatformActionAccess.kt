@@ -368,7 +368,7 @@ private fun validateWorkspacePath(path: String) {
     }
 }
 
-private fun isValidWorkspacePath(path: String): Boolean {
+internal fun isValidWorkspacePath(path: String): Boolean {
     if (path.isEmpty() || path.length > MAX_WORKSPACE_PATH_BYTES) return false
     if (path.startsWith('/') || path.contains('\\')) return false
     if (path.length >= 2 && path[1] == ':') return false

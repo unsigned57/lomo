@@ -24,8 +24,15 @@ internal fun applySafMemoCommandOnSafAdapter(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
 ): com.lomo.nativebridge.StoreMemoCommit {
-    require(command.pendingPromotes.isEmpty()) {
-        "SAF memo mutation with pending media requires the platform media transaction"
+    if (command.pendingPromotes.isNotEmpty()) {
+        require(
+            command.kind == com.lomo.nativebridge.StoreMemoCommandKind.CREATE ||
+                command.kind == com.lomo.nativebridge.StoreMemoCommandKind.UPDATE ||
+                command.kind == com.lomo.nativebridge.StoreMemoCommandKind.HISTORY_RESTORE,
+        ) {
+            "SAF memo mutation kind ${command.kind} must not carry pendingPromotes"
+        }
+        adapter.promoteSafMedia(command.pendingPromotes, command.operationId)
     }
     return when (command.kind) {
         com.lomo.nativebridge.StoreMemoCommandKind.CREATE -> createSafMemo(adapter, command)

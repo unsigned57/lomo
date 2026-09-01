@@ -48,6 +48,17 @@ internal object BoltFfiNativeEngineFactory {
                         }
                     }
                 },
+            safMediaPromoter =
+                safGrant?.let { grant ->
+                    { promotes, operationId ->
+                        promoteSafMediaToWorkspace(
+                            treeUri = grant.treeUri,
+                            documents = documents,
+                            promotes = promotes,
+                            operationId = operationId,
+                        )
+                    }
+                },
         )
     }
 

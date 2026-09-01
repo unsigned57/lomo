@@ -7,7 +7,11 @@ import android.provider.DocumentsContract
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
+import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.security.MessageDigest
 
 /**
  * Production [PlatformDocumentsGateway] over [ContentResolver] / DocumentsContract.
@@ -175,18 +179,59 @@ internal class ContentResolverPlatformDocumentsGateway(
         bytes: ByteArray,
         mode: WriteMode,
         mimeType: String?,
+    ): PlatformDocumentSnapshot =
+        writeToDocument(treeUri, path, ByteArrayInputStream(bytes), mode, mimeType)
+
+    override fun writeFromFile(
+        treeUri: String,
+        path: String,
+        source: File,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot =
+        writeToDocument(treeUri, path, source.inputStream().buffered(), mode, mimeType)
+
+    /**
+     * One write law for every source: stream the payload chunk-wise, hash the streamed bytes while
+     * writing, verify the persisted document by streaming readback digest, and roll back a document
+     * this write created when any step fails. Memory stays bounded by [WRITE_CHUNK_BYTES].
+     */
+    private fun writeToDocument(
+        treeUri: String,
+        path: String,
+        source: InputStream,
+        mode: WriteMode,
+        mimeType: String?,
     ): PlatformDocumentSnapshot {
         val root = treeUri.toAndroidUri()
         val existing = resolvePath(root, path)
         val target = resolveWriteTarget(root, treeUri, path, mode, existing, mimeType)
         try {
+            val writtenDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
             contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
-                output.write(bytes)
+                val buffer = ByteArray(WRITE_CHUNK_BYTES)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    val chunk = if (read == buffer.size) buffer else buffer.copyOf(read)
+                    output.write(chunk)
+                    writtenDigest.update(chunk)
+                }
             } ?: errorIo("openOutputStream returned null for $path")
-            val persistedBytes =
-                contentResolver.openInputStream(target.uri)?.use { input -> input.readBytes() }
-                    ?: errorIo("Written document cannot be reopened for verification: $path")
-            if (!persistedBytes.contentEquals(bytes)) {
+            val (persistedDigest, persistedLength) =
+                contentResolver.openInputStream(target.uri)?.use { input ->
+                    val readbackDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
+                    val buffer = ByteArray(WRITE_CHUNK_BYTES)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        readbackDigest.update(buffer, 0, read)
+                        total += read
+                    }
+                    readbackDigest.digest().sha256Hex() to total
+                } ?: errorIo("Written document cannot be reopened for verification: $path")
+            if (persistedDigest != writtenDigest.digest().sha256Hex()) {
                 errorIo("Written document readback does not match requested bytes: $path")
             }
             val documentId = DocumentsContract.getDocumentId(target.uri)
@@ -197,8 +242,8 @@ internal class ContentResolverPlatformDocumentsGateway(
                 digestMode = SnapshotDigestMode.METADATA_ONLY,
             )
                 ?.copy(
-                    digest = persistedBytes.sha256Hex(),
-                    length = persistedBytes.size.toULong(),
+                    digest = persistedDigest,
+                    length = persistedLength.toULong(),
                 )
                 ?: errorIo("Written document is not observable: $path")
         } catch (failure: Exception) {
@@ -214,6 +259,8 @@ internal class ContentResolverPlatformDocumentsGateway(
                 }
             }
             throw failure
+        } finally {
+            source.close()
         }
     }
 
@@ -471,6 +518,10 @@ internal class ContentResolverPlatformDocumentsGateway(
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED,
             )
         val EMPTY_SHA256 = ByteArray(0).sha256Hex()
+
+        private const val DIGEST_ALGORITHM = "SHA-256"
+
+        private const val WRITE_CHUNK_BYTES = 64 * 1024
     }
 }
 

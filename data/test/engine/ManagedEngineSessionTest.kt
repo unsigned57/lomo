@@ -63,6 +63,8 @@ import com.lomo.domain.model.ProjectionFreshness
  * - Given SAF create/update/delete/restore/permanent-delete, when the verified Rust workspace job
  *   completes, then the projection commit uses its affected memo facts and no mutation performs a
  *   workspace scan; delete never removes the memo through the generic document-command path.
+ * - Given SAF create/update with pending promotes, when applied through the session, then media
+ *   is promoted to the capability-bound SAF tree before the document mutation is committed.
  * - Given no workspace, when a trusted LAN session begins, then it uses the bootstrap engine
  *   handle and remains independent of workspace readiness.
  * - Given a Ready workspace, when an authenticated LAN batch is prepared and queried, then the
@@ -73,7 +75,7 @@ import com.lomo.domain.model.ProjectionFreshness
  *   the same managed handle exposes its decision and typed per-item recovery result.
  *
  * Observable outcomes: readiness StateFlow, open request workspace shape, adapter close counts,
- * workspace port identity and engine-open count.
+ * workspace port identity, media promote calls, and engine-open count.
  * TDD proof: RED on 2026-07-27 because NativeWorkspaceSelection.Saf exposed no stableWorkspaceId;
  * repeated activation could only send the newly randomized capability token to native.
  * TDD proof: RED on 2026-07-27 because a throwing engine close skipped capability revoke, terminal
@@ -96,6 +98,8 @@ import com.lomo.domain.model.ProjectionFreshness
  * app-private projection state, so restart lost the deletion or resurrected the memo.
  * TDD proof: RED on 2026-08-16 because explicit SAF activation synchronously rebuilt the full
  * projection before authority commit, so a blocked provider scan prevented the root from switching.
+ * TDD proof: RED on 2026-09-01 because SAF memo mutations with pendingPromotes were rejected with
+ * IllegalArgumentException instead of executing the platform media transaction.
  * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
  *
  * Test Change Justification:
@@ -1785,6 +1789,92 @@ class ManagedEngineSessionTest : DataFunSpec() {
                 }
             }
         }
+
+        test("given SAF workspace and memo create with pending promotes when applied then media is promoted before document write") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("lomo-saf-promote-test").toFile()
+                val tree = StorageLocation("content://com.example/tree/workspace")
+                val epoch = 1_754_300_000_000L
+                val local = Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault())
+                val createdTimePart =
+                    local.toLocalTime().format(StorageTimestampFormats.formatter(StorageTimestampFormats.DEFAULT_PATTERN))
+                val datePath =
+                    "${local.toLocalDate().format(StorageFilenameFormats.formatter(StorageFilenameFormats.DEFAULT_PATTERN))}.md"
+                val created =
+                    workspaceSnapshot(
+                        path = datePath,
+                        identity = "${datePath.removeSuffix(".md")}_${createdTimePart}_0",
+                        fingerprint = "b".repeat(64),
+                        content = "![image](media/photo.png)",
+                        timePart = createdTimePart,
+                    )
+                val candidate = SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(1uL, 1uL))
+                val projectionRebuilt = CountDownLatch(1)
+                candidate.onSafProjectionRebuild = projectionRebuilt::countDown
+                val promotedPlans = mutableListOf<com.lomo.nativebridge.MediaPromotePlanDto>()
+                val promotedOpIds = mutableListOf<String>()
+                try {
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                if (request.workspace == null) {
+                                    testRustEngineAdapter(SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection))
+                                } else {
+                                    testRustEngineAdapter(
+                                        candidate,
+                                        safMediaPromoter = { promotes, opId ->
+                                            promotedPlans.addAll(promotes)
+                                            promotedOpIds.add(opId)
+                                            candidate.commandEvents += "promote"
+                                        },
+                                    )
+                                }
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(tree)
+                    projectionRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    candidate.documentResult = commandResult(created)
+                    val plan = com.lomo.nativebridge.MediaPromotePlanDto(
+                        operationId = "op-create-media",
+                        staged = com.lomo.nativebridge.MediaStagedDto(
+                            digest = "img-digest",
+                            size = 100uL,
+                            mime = "image/png",
+                            stagingPath = "/tmp/staged.png",
+                            humanNameHint = "photo.png",
+                            suggestedFinalRelativePath = "media/photo.png",
+                        ),
+                        finalRelativePath = "media/photo.png",
+                    )
+                    session.applyMemoCommand(
+                        bridgeMemoCommand(
+                            operationId = "op-create-media",
+                            kind = com.lomo.nativebridge.StoreMemoCommandKind.CREATE,
+                            memoId = "client-id",
+                            expectedRevision = 0uL,
+                            content = "![image](media/photo.png)",
+                            pendingPromotes = listOf(plan),
+                            chronologyEpochMs = epoch,
+                        ),
+                    )
+                    promotedPlans shouldBe listOf(plan)
+                    promotedOpIds shouldBe listOf("op-create-media")
+                    // Ordering is the P4-04 law: promote commits before the memo body write starts.
+                    candidate.commandEvents shouldBe listOf("promote", "document")
+                    candidate.lastDocumentCommand.shouldBeInstanceOf<WorkspaceNativeCommandSpec.Create>()
+                    candidate.safProjectionCommits.last().second?.memoId shouldBe created.identity
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
     }
 }
 
@@ -2169,6 +2259,7 @@ private class SessionFakeNativeEnginePort(
     val projectionEvents = mutableListOf<String>()
     var documentTerminal: NativeJobStep = NativeJobStep.Completed
     var lastDocumentCommand: WorkspaceNativeCommandSpec? = null
+    val commandEvents = mutableListOf<String>()
     var lastTrashCommand: WorkspaceNativeTrashCommandSpec? = null
     var lastExpectedState: WorkspaceNativeExpectedState? = null
     var lastExpectedFingerprint: String? = null
@@ -2363,6 +2454,7 @@ private class SessionFakeNativeEnginePort(
         lastExpectedState = expectedState
         lastExpectedFingerprint = (expectedState as? WorkspaceNativeExpectedState.Match)?.fingerprint
         lastDocumentCommand = command
+        commandEvents += "document"
         return "document-job"
     }
 
@@ -2474,6 +2566,7 @@ private fun bridgeMemoCommand(
     expectedFingerprint: String? = null,
     content: String? = null,
     pin: Boolean? = null,
+    pendingPromotes: List<com.lomo.nativebridge.MediaPromotePlanDto> = emptyList(),
     chronologyEpochMs: Long? = null,
 ): com.lomo.nativebridge.StoreMemoCommand =
     com.lomo.nativebridge.StoreMemoCommand(
@@ -2485,7 +2578,7 @@ private fun bridgeMemoCommand(
         content = content,
         tags = emptyList(),
         pin = pin,
-        pendingPromotes = emptyList(),
+        pendingPromotes = pendingPromotes,
         chronologyEpochMs = chronologyEpochMs,
     )
 
@@ -2600,7 +2693,10 @@ private fun safCandidatePort(
     return candidate()
 }
 
-private fun testRustEngineAdapter(port: SessionFakeNativeEnginePort): RustEngineAdapter =
+private fun testRustEngineAdapter(
+    port: SessionFakeNativeEnginePort,
+    safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
+): RustEngineAdapter =
     RustEngineAdapter.acquire(
         native = port,
         platformBatchRunner =
@@ -2612,6 +2708,7 @@ private fun testRustEngineAdapter(port: SessionFakeNativeEnginePort): RustEngine
                         currentTimeMillis = { 0L },
                     ),
             ),
+        safMediaPromoter = safMediaPromoter,
     )
 
 private fun readyTaskPort(): SessionFakeNativeEnginePort =
