@@ -2,12 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, params};
 
 use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
     BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL,
-    MIGRATE_V4_TO_V5_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
@@ -81,26 +81,34 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
     } else if user_version == 1 {
         connection
             .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
+                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}COMMIT;"
             ))
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version == 2 {
         connection
             .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
+                "BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}COMMIT;"
             ))
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version == 3 {
         connection
             .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}COMMIT;"
+                "BEGIN IMMEDIATE;{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}COMMIT;"
             ))
             .map_err(|err| from_sqlite(&err))?;
     } else if user_version == 4 {
         connection
-            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V4_TO_V5_DDL}COMMIT;"))
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}COMMIT;"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+    } else if user_version == 5 {
+        connection
+            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V5_TO_V6_DDL}COMMIT;"))
             .map_err(|err| from_sqlite(&err))?;
     }
+
+    sweep_stale_pending_creates(&connection)?;
 
     let integrity = quick_integrity(&connection)?;
     if !integrity {
@@ -198,4 +206,46 @@ fn quick_integrity(connection: &Connection) -> Result<bool, lomo_core::LomoError
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(|err| from_sqlite(&err))?;
     Ok(result.eq_ignore_ascii_case("ok"))
+}
+
+/// Removes pending create rows whose operation never reached a projection commit.
+///
+/// Pending rows are volatile visibility state published before durable platform I/O; a process
+/// that died between begin and commit leaves no authoritative fact behind. The workspace truth is
+/// recovered by the next rebuild (a written document becomes a real memo) or by the user retrying
+/// the send, so sweeping at open can never lose a durable memo. No publication is emitted: the
+/// list reloads fully when the owning engine republishes readiness.
+fn sweep_stale_pending_creates(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    let stale: Vec<(i64, String)> = {
+        let mut statement = connection
+            .prepare(
+                "SELECT rowid, search_content FROM memo WHERE pending_operation_id IS NOT NULL",
+            )
+            .map_err(|error| from_sqlite(&error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| from_sqlite(&error))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| from_sqlite(&error))?
+    };
+    for (rowid, search_content) in stale {
+        connection
+            .execute(
+                "INSERT INTO memo_fts(memo_fts, rowid, search_content) VALUES('delete', ?1, ?2)",
+                params![rowid, search_content],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    let swept = connection
+        .execute(
+            "DELETE FROM memo WHERE pending_operation_id IS NOT NULL",
+            [],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    if swept > 0 {
+        crate::query::recompute_stats(connection)?;
+    }
+    Ok(())
 }

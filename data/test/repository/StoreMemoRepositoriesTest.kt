@@ -204,7 +204,10 @@ private class RecordingStorePort : StorePort {
     /** When set, the store refuses the next command exactly as a converted engine rejection does. */
     var rejection: EngineCommandFailureException? = null
 
-    override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit {
+    override fun applyMemoCommand(
+        command: StoreMemoCommand,
+        onPublication: (StoreMemoCommit) -> Unit,
+    ): StoreMemoCommit {
         commands += command
         rejection?.let { throw it }
         return when (command.kind) {
@@ -259,7 +262,28 @@ private class RecordingStorePort : StorePort {
                 commitOf(command, updated)
             }
             StoreMemoCommandKind.PermanentDelete -> {
-                val existing = memos.remove(command.memoId) ?: error("missing")
+                val existing = memos[command.memoId] ?: error("missing")
+                if (command.expectedFingerprint != null && command.expectedFingerprint != existing.summary.fileFingerprint) {
+                    throw EngineCommandFailureException(
+                        EngineCommandFailure(
+                            category = EngineFailureCategory.CONFLICT,
+                            code = "stale_snapshot",
+                            retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                            operationId = command.operationId,
+                            jobId = null,
+                            diagnostic = "File fingerprint changed before permanent delete",
+                        ),
+                    )
+                }
+                memos.remove(command.memoId)
+                val newFingerprint = "ff-after-${command.memoId}"
+                memos.replaceAll { _, memoSnapshot ->
+                    if (memoSnapshot.summary.sourcePath == existing.summary.sourcePath) {
+                        memoSnapshot.copy(summary = memoSnapshot.summary.copy(fileFingerprint = newFingerprint))
+                    } else {
+                        memoSnapshot
+                    }
+                }
                 commitOf(command, existing, fileFingerprint = "")
             }
             StoreMemoCommandKind.Pin, StoreMemoCommandKind.Unpin -> {
@@ -385,20 +409,23 @@ private fun seededSnapshot(
     hasAttachment: Boolean = false,
     tags: List<String> = emptyList(),
     imageUrls: List<String> = emptyList(),
+    sourcePath: String = "memos/2026_07_21.md",
+    fileFingerprint: String = "ff-$id",
+    isTrashed: Boolean = false,
 ): StoreMemoSnapshot =
     StoreMemoSnapshot(
         summary =
             StoreMemoSummary(
                 memoId = id,
-                sourcePath = "memos/2026_07_21.md",
-                fileFingerprint = "ff-$id",
+                sourcePath = sourcePath,
+                fileFingerprint = fileFingerprint,
                 updatedAtMs = createdAtMs + 1,
                 createdAtMs = createdAtMs,
                 hasTodo = false,
                 hasUrl = false,
                 hasAttachment = hasAttachment,
                 isPinned = false,
-                isTrashed = false,
+                isTrashed = isTrashed,
                 bodyPreview = body.take(80),
                 contentRevision = 1L,
                 tags = tags,
@@ -773,6 +800,54 @@ class StoreMemoRepositoriesTest : FunSpec({
 
             failure.failure.code shouldBe "projection_not_ready"
             port.commands shouldHaveSize 0
+        }
+    }
+
+    test("clearTrash permanently deletes all trashed memos sharing the same source file without stale_snapshot conflict") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(
+                seededSnapshot(
+                    id = "memo-1",
+                    body = "memo 1",
+                    sourcePath = "2026-09-02.md",
+                    fileFingerprint = "ff-initial",
+                    isTrashed = true,
+                ),
+            )
+            port.seed(
+                seededSnapshot(
+                    id = "memo-2",
+                    body = "memo 2",
+                    sourcePath = "2026-09-02.md",
+                    fileFingerprint = "ff-initial",
+                    isTrashed = true,
+                ),
+            )
+            port.seed(
+                seededSnapshot(
+                    id = "memo-3",
+                    body = "memo 3",
+                    sourcePath = "2026-09-03.md",
+                    fileFingerprint = "ff-initial-3",
+                    isTrashed = true,
+                ),
+            )
+            val invalidation = StoreInvalidationBus()
+            val trash =
+                StoreMemoTrashRepository(
+                    port = port,
+                    writeLease = alwaysWritableWorkspaceMutationLease(),
+                    invalidation = invalidation,
+                    readiness = FakeEngineReadinessRepository(),
+                )
+
+            trash.clearTrash()
+
+            port.getMemo("memo-1") shouldBe null
+            port.getMemo("memo-2") shouldBe null
+            port.getMemo("memo-3") shouldBe null
+            port.commands.filter { it.kind == StoreMemoCommandKind.PermanentDelete } shouldHaveSize 3
         }
     }
 

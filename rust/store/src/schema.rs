@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 5;
+pub const STORE_SCHEMA_VERSION: u32 = 6;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -49,7 +49,8 @@ CREATE TABLE {memo} (
     body TEXT,
     search_content TEXT NOT NULL DEFAULT '',
     reminders_json TEXT NOT NULL DEFAULT '[]',
-    content_revision INTEGER NOT NULL DEFAULT 0
+    content_revision INTEGER NOT NULL DEFAULT 0,
+    pending_operation_id TEXT
 );
 
 CREATE TABLE {tag} (
@@ -207,4 +208,14 @@ pub const MIGRATE_V4_TO_V5_DDL: &str = r"
 ALTER TABLE revision_index ADD COLUMN content TEXT;
 ALTER TABLE revision_index ADD COLUMN file_fingerprint TEXT;
 PRAGMA user_version = 5;
+";
+
+/// Additive v5 -> v6 migration for pending create projections published before durable I/O.
+///
+/// `pending_operation_id` marks a memo row whose workspace bytes are not yet durable. It is owned
+/// by the begin/complete/rollback lifecycle and is swept on open, so the column carries no durable
+/// facts and needs no backfill.
+pub const MIGRATE_V5_TO_V6_DDL: &str = r"
+ALTER TABLE memo ADD COLUMN pending_operation_id TEXT;
+PRAGMA user_version = 6;
 ";

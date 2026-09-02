@@ -29,7 +29,7 @@ mod support;
 )]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use lomo_core::ErrorCategory;
+    use lomo_core::{ErrorCategory, RetryDisposition};
     use lomo_workspace::{
         DocumentPatchCommand, MemoIdentity, SourceBytes, SourceFingerprint, TaskSourceIdentity,
         WorkspaceRelativePath, parse_workspace_document, plan_document_patch,
@@ -167,7 +167,8 @@ mod tests {
             },
         )
         .test_err("stale");
-        assert_eq!(error.category(), ErrorCategory::Validation);
+        assert_eq!(error.category(), ErrorCategory::Conflict);
+        assert_eq!(error.retry_disposition(), RetryDisposition::AfterUserAction);
         assert_eq!(error.code(), "stale_snapshot");
     }
 

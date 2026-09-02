@@ -7,7 +7,7 @@ use lomo_core::LomoError;
 
 use crate::document::WorkspaceDocument;
 use crate::header::parse_memo_header_line;
-use crate::limits::{ResourceBudget, validation};
+use crate::limits::{ResourceBudget, conflict, validation};
 use crate::reminder::ReminderRef;
 use crate::render::validate_reminder_token;
 use crate::source::{
@@ -205,7 +205,7 @@ fn plan_rewrite_reminder(
     if current != reminder.token()
         || SourceFingerprint::of_bytes(current.as_bytes()) != *reminder.token_fingerprint()
     {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "reminder token bytes no longer match the bound source occurrence",
         ));
@@ -225,7 +225,7 @@ fn ensure_fresh(
     expected: &SourceFingerprint,
 ) -> Result<(), LomoError> {
     if document.source().fingerprint().as_str() != expected.as_str() {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "document fingerprint does not match expected snapshot",
         ));

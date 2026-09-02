@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 // Re-export codec surface so existing `lomo_store::…` call sites keep compiling.
 pub use lomo_workspace::{
     HistorySnapshotV1 as HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths,
-    LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, isolate_corrupt_record,
-    read_record, write_record_atomic,
+    LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, history_record_filename,
+    isolate_corrupt_record, read_record, write_record_atomic,
 };
 
 /// Operation intent body (step 2 durable journal).

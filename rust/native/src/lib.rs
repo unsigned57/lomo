@@ -47,8 +47,9 @@ pub use store_ffi::{
     StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StoreMemoSort, StoreMemoSortField,
     StoreMemoSummary, StorePageCursor, StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand,
     StoreReminderCommandKind, StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery,
-    StoreReminderSession, StoreSafHistoryProjectionReference, StoreSafMemoProjection,
-    StoreSafMemoProjectionReference, StoreSafTrashProjectionReference, StoreSidebarDateCount,
+    StoreReminderSession, StoreSafHistoryProjectionReference, StoreSafMemoCreateBegin,
+    StoreSafMemoCreateBeginResult, StoreSafMemoProjection, StoreSafMemoProjectionReference,
+    StoreSafMemoRollbackResult, StoreSafTrashProjectionReference, StoreSidebarDateCount,
     StoreSidebarProjection, StoreSidebarTagCount, StoreSortDirection, StoreTimeZoneContext,
     StoreZoneTransition,
 };
@@ -2143,6 +2144,32 @@ impl LomoEngine {
     ) -> Result<StoreMemoCommit, EngineError> {
         self.active_store()?
             .commit_saf_projection_mutation(command, projection)
+    }
+
+    /// Publishes a pending SAF memo create projection before durable platform I/O.
+    ///
+    /// # Errors
+    ///
+    /// No SAF store, malformed begin facts, or projection transaction errors.
+    pub fn begin_saf_memo_create(
+        &self,
+        begin: StoreSafMemoCreateBegin,
+    ) -> Result<StoreSafMemoCreateBeginResult, EngineError> {
+        self.active_store()?.begin_saf_memo_create(begin)
+    }
+
+    /// Removes a begun SAF memo create's pending projection when the pipeline fails.
+    ///
+    /// # Errors
+    ///
+    /// No SAF store, malformed identifiers, or projection transaction errors.
+    pub fn rollback_saf_memo_create(
+        &self,
+        operation_id: &str,
+        memo_id: &str,
+    ) -> Result<StoreSafMemoRollbackResult, EngineError> {
+        self.active_store()?
+            .rollback_saf_memo_create(operation_id, memo_id)
     }
 
     /// Dark-build `query_reminder_plan`.

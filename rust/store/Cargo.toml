@@ -40,6 +40,10 @@ name = "rebuild_contract"
 path = "tests/rebuild_contract.rs"
 
 [[test]]
+name = "saf_pending_create_contract"
+path = "tests/saf_pending_create_contract.rs"
+
+[[test]]
 name = "reminder_core_contract"
 path = "tests/reminder_core_contract.rs"
 

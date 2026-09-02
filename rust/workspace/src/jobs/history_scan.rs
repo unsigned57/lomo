@@ -8,14 +8,16 @@ use lomo_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::limits::{ResourceBudget, corruption, validation};
-use crate::lomo_record::{HistorySnapshotV1, LomoRecordKind, decode_record};
+use crate::lomo_record::{
+    HistorySnapshotV1, LomoRecordKind, decode_record, history_record_filename,
+};
 use crate::types::WorkspaceRelativePath;
 
 use super::scan::WorkspaceMemoContentReference;
 use super::shared::{
     ListedDocument, exchange_token_for, first_applied_output, is_file_metadata, listed_page,
-    plan_listed_read, read_exchange_bytes, read_to_exchange_output, remove_exchange_artifact,
-    to_core_path, write_exchange_bytes,
+    plan_listed_read, plan_read, read_exchange_bytes, read_to_exchange_output,
+    remove_exchange_artifact, to_core_path, write_exchange_bytes,
 };
 
 pub const HISTORY_SCAN_DRIVER_KIND: &str = "workspace-history-scan-v1";
@@ -53,6 +55,9 @@ struct HistoryScanState {
     phase: HistoryScanPhase,
     exchange_token: Option<String>,
     current_path: Option<String>,
+    /// Canonical target of an in-flight filename repair (see `HistoryScanPhase::Repair`).
+    #[serde(default)]
+    repair_target: Option<String>,
     accumulated: Vec<HistoryRevisionSummary>,
     emitted_total: u64,
 }
@@ -62,6 +67,7 @@ enum HistoryScanPhase {
     EnsureDirectory,
     List,
     Read,
+    Repair,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,6 +181,7 @@ impl JobDriver for HistoryScanDriver {
             phase: HistoryScanPhase::EnsureDirectory,
             exchange_token: None,
             current_path: None,
+            repair_target: None,
             accumulated: Vec::new(),
             emitted_total: cursor.as_ref().map_or(0, |value| value.emitted_total),
         };
@@ -211,6 +218,7 @@ impl JobDriver for HistoryScanDriver {
             }
             HistoryScanPhase::List => advance_after_list(ctx, &mut state, batch, result),
             HistoryScanPhase::Read => advance_after_read(ctx, &mut state, batch, result),
+            HistoryScanPhase::Repair => advance_after_repair(ctx, &mut state, batch, result),
         }
     }
 }
@@ -271,19 +279,30 @@ fn advance_after_read(
     if record.payload.kind != LomoRecordKind::History {
         return Err(validation(
             "history_record_kind_mismatch",
-            "history directory contains a non-history record",
+            &format!("history directory contains a non-history record: {path}"),
         ));
     }
-    let snapshot: HistorySnapshotV1 = serde_json::from_str(&record.payload.body_json)
-        .map_err(|_error| corruption("history_payload_invalid", "history payload is invalid"))?;
+    let snapshot: HistorySnapshotV1 =
+        serde_json::from_str(&record.payload.body_json).map_err(|_error| {
+            corruption(
+                "history_payload_invalid",
+                &format!("history payload is invalid: {path}"),
+            )
+        })?;
     let expected_record_id = format!("{}-r{}", snapshot.memo_id, snapshot.revision);
-    if record.payload.record_id != expected_record_id
-        || path.rsplit('/').next() != Some(format!("{expected_record_id}.rec").as_str())
-    {
+    let expected_filename = history_record_filename(&expected_record_id);
+    let filename_matches = path.rsplit('/').next() == Some(expected_filename.as_str());
+    if record.payload.record_id != expected_record_id {
+        // The envelope identity contradicts the payload body: no rename can restore the law.
         return Err(validation(
             "history_record_path_mismatch",
-            "history record identity does not match its filename or payload",
+            &format!("history record identity does not match its filename or payload: {path}"),
         ));
+    }
+    if !filename_matches {
+        // The bytes are self-consistent; a foreign display name (typically an SAF provider
+        // sanitizing the identity's `HH:mm:ss` colons) is repaired onto the filename law.
+        return plan_filename_repair(ctx, state, &path, &expected_filename, &token);
     }
     let ordinal = state
         .emitted_total
@@ -325,6 +344,91 @@ fn advance_after_read(
     state.current_path = None;
     state.pending_index = state.pending_index.saturating_add(1);
     driver_start_to_advance(plan_next(ctx, state)?)
+}
+
+/// Plans the rename of a self-consistent record onto the durable filename law, then re-reads
+/// the canonical path so the repaired record flows through the validated read pipeline.
+fn plan_filename_repair(
+    ctx: &mut JobDriverContext<'_>,
+    state: &mut HistoryScanState,
+    path: &str,
+    expected_filename: &str,
+    token: &str,
+) -> Result<DriverAdvance, LomoError> {
+    let expected_path =
+        WorkspaceRelativePath::parse(&format!("{HISTORY_RECORD_DIRECTORY}/{expected_filename}"))?;
+    if expected_path.as_str() == path {
+        return Err(corruption(
+            "history_scan_repair_target_self",
+            "history scan repair planned a no-op rename",
+        ));
+    }
+    // The consumed read artifact is dropped before the repair batch; the rename is the only
+    // durable effect this phase publishes.
+    remove_exchange_artifact(ctx.exchange_root, token)?;
+    state.exchange_token = None;
+    let action = PlatformAction::move_path(
+        ctx.next_action_id("history-scan-repair")?,
+        ctx.capability(),
+        to_core_path(&WorkspaceRelativePath::parse(path)?)?,
+        to_core_path(&expected_path)?,
+        ExpectedFingerprint::absent(),
+        ExpectedFingerprint::absent(),
+    );
+    state.phase = HistoryScanPhase::Repair;
+    state.repair_target = Some(expected_path.as_str().to_owned());
+    state.current_path = None;
+    if let Some(document) = state.pending_documents.get_mut(state.pending_index) {
+        // Cursor resumes must target the repaired name, never the foreign one.
+        expected_path.as_str().clone_into(&mut document.path);
+    }
+    Ok(DriverAdvance::NeedsBatch {
+        state_json: encode_state(state)?,
+        actions: vec![action],
+        result_json: None,
+    })
+}
+
+fn advance_after_repair(
+    ctx: &mut JobDriverContext<'_>,
+    state: &mut HistoryScanState,
+    batch: &PlatformActionBatch,
+    result: &PlatformBatchResult,
+) -> Result<DriverAdvance, LomoError> {
+    let output = first_applied_output(batch, result, 0)?;
+    if !matches!(output, PlatformActionOutput::MoveComplete { .. }) {
+        return Err(corruption(
+            "history_scan_repair_unverified",
+            "history scan repair action returned the wrong output",
+        ));
+    }
+    let expected_path = state.repair_target.clone().ok_or_else(|| {
+        corruption(
+            "history_scan_repair_target_missing",
+            "history scan repair phase has no canonical target",
+        )
+    })?;
+    let token = exchange_token_for(
+        ctx.workspace.identity().as_str(),
+        ctx.job_id.as_str(),
+        &format!("history-scan-repaired-read-{}", state.pending_index),
+    );
+    let action = plan_read(
+        ctx.next_action_id("history-scan-repaired-read")?,
+        ctx.capability(),
+        to_core_path(&WorkspaceRelativePath::parse(&expected_path)?)?,
+        &token,
+        ExpectedFingerprint::absent(),
+    )?;
+    state.phase = HistoryScanPhase::Read;
+    state.exchange_token = Some(token);
+    state.current_path = Some(expected_path);
+    state.repair_target = None;
+    Ok(DriverAdvance::NeedsBatch {
+        state_json: encode_state(state)?,
+        actions: vec![action],
+        result_json: None,
+    })
 }
 
 fn plan_next(

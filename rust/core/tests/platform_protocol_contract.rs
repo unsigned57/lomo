@@ -296,4 +296,146 @@ mod tests {
             "platform_result_output_mismatch"
         );
     }
+
+    fn witness_test_batch() -> (PlatformActionBatch, PlatformActionOutput) {
+        let capability = CapabilityToken::parse("root-capability").must_succeed("capability");
+        let artifact = ExchangeArtifact::new(
+            "exchange-write-1",
+            12,
+            Sha256Digest::parse(&"b".repeat(64)).must_succeed("digest"),
+        )
+        .must_succeed("exchange artifact");
+        let batch = PlatformActionBatch::new(
+            JobId::parse("job-witness").must_succeed("job id"),
+            BatchId::parse("batch-witness").must_succeed("batch id"),
+            1,
+            1_800_000_000_000,
+            vec![
+                PlatformAction::ensure_directory(action_id(1), capability.clone(), path("images")),
+                PlatformAction::write_from_exchange(
+                    action_id(2),
+                    capability,
+                    artifact,
+                    path("memo.md"),
+                    WriteMode::Replace,
+                    ExpectedFingerprint::absent(),
+                ),
+            ],
+        )
+        .must_succeed("valid batch");
+
+        let directory_ready = PlatformActionOutput::DirectoryReady {
+            metadata: fixture_metadata(path("images"), DocumentKind::Directory, 0, "c"),
+        };
+        (batch, directory_ready)
+    }
+
+    fn check_rejected_output(
+        batch: &PlatformActionBatch,
+        outputs: Vec<PlatformActionOutput>,
+        reason: &str,
+    ) -> String {
+        PlatformBatchResult::new(
+            1,
+            JobId::parse("job-witness").must_succeed("job id"),
+            BatchId::parse("batch-witness").must_succeed("batch id"),
+            1,
+            outputs
+                .into_iter()
+                .enumerate()
+                .map(|(index, output)| {
+                    ActionResult::new(action_id(index + 1), ActionOutcome::Applied(output))
+                })
+                .collect(),
+        )
+        .validate_against(batch)
+        .must_fail(reason)
+        .diagnostic()
+        .to_owned()
+    }
+
+    #[test]
+    fn a_rejected_output_names_its_position_and_the_field_that_diverged() {
+        let (batch, directory_ready) = witness_test_batch();
+        let reject = |outputs, reason| check_rejected_output(&batch, outputs, reason);
+
+        let wrong_shape = reject(
+            vec![PlatformActionOutput::Stat {
+                metadata: fixture_metadata(path("images"), DocumentKind::Directory, 0, "c"),
+            }],
+            "a stat output cannot witness an ensure-directory action",
+        );
+        assert!(
+            wrong_shape.contains("index 0")
+                && wrong_shape.contains("EnsureDirectory")
+                && wrong_shape.contains("output shape expected EnsureDirectory, observed Stat"),
+            "{wrong_shape}"
+        );
+
+        let wrong_kind = reject(
+            vec![PlatformActionOutput::DirectoryReady {
+                metadata: fixture_metadata(path("images"), DocumentKind::File, 12, "c"),
+            }],
+            "a file cannot witness an ensure-directory action",
+        );
+        assert!(
+            wrong_kind.contains("index 0")
+                && wrong_kind.contains("document kind expected Directory, observed File"),
+            "{wrong_kind}"
+        );
+
+        let wrong_target = reject(
+            vec![
+                directory_ready.clone(),
+                PlatformActionOutput::WriteComplete {
+                    metadata: fixture_metadata(path("other.md"), DocumentKind::File, 12, "b"),
+                },
+            ],
+            "a write to another path cannot witness this write action",
+        );
+        assert!(
+            wrong_target.contains("index 1")
+                && wrong_target.contains("target expected memo.md, observed other.md"),
+            "{wrong_target}"
+        );
+
+        let wrong_digest = reject(
+            vec![
+                directory_ready,
+                PlatformActionOutput::WriteComplete {
+                    metadata: fixture_metadata(path("memo.md"), DocumentKind::File, 12, "a"),
+                },
+            ],
+            "persisted bytes that differ from the artifact cannot witness this write action",
+        );
+        assert!(
+            wrong_digest.contains("index 1")
+                && wrong_digest.contains(&format!(
+                    "digest expected {}, observed {}",
+                    "b".repeat(64),
+                    "a".repeat(64)
+                )),
+            "{wrong_digest}"
+        );
+    }
+
+    fn fixture_metadata(
+        target: RelativeWorkspacePath,
+        kind: DocumentKind,
+        length: u64,
+        digest_byte: &str,
+    ) -> DocumentMetadata {
+        DocumentMetadata::new(
+            WorkspaceTarget::Relative(target),
+            kind,
+            Some("application/octet-stream"),
+            ActionEvidence::verified(
+                length,
+                Sha256Digest::parse(&digest_byte.repeat(64)).must_succeed("digest"),
+                "fingerprint-witness",
+            )
+            .must_succeed("evidence"),
+        )
+        .must_succeed("metadata")
+    }
 }

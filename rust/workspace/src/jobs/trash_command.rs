@@ -14,7 +14,7 @@ use lomo_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::limits::validation;
+use crate::limits::{conflict, validation};
 use crate::parse::parse_workspace_document;
 use crate::patch::{DocumentPatchCommand, plan_document_patch};
 use crate::source::{SourceBytes, SourceFingerprint};
@@ -302,7 +302,7 @@ fn verified_source_read(
     let source_bytes = read_exchange_bytes(ctx.exchange_root, &state.source_read_token)?;
     let source_fingerprint = source_fingerprint_of(&source_bytes);
     if source_fingerprint.as_str() != state.expected_fingerprint {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "trash command source fingerprint does not match the expected snapshot",
         ));
@@ -402,7 +402,7 @@ fn plan_soft_delete(
                 ctx.capability(),
                 artifact,
                 to_core_path(&marker_path)?,
-                WriteMode::Create,
+                WriteMode::Replace,
                 ExpectedFingerprint::absent(),
             ),
         ],

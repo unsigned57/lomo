@@ -112,7 +112,7 @@ impl LomoError {
         &self.diagnostic
     }
 
-    pub(crate) fn validation(code: &'static str, diagnostic: &'static str) -> Self {
+    pub(crate) fn validation(code: &'static str, diagnostic: impl Into<String>) -> Self {
         Self::new(
             ErrorCategory::Validation,
             code,

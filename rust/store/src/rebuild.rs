@@ -299,10 +299,43 @@ pub fn commit_saf_projection_mutation(
                     "scanned projection memo id does not match mutation",
                 ));
             }
-            if current.is_some() || mutation.expected_revision != 0 {
+            let pending_owner: Option<Option<String>> = if current.is_some() {
+                Some(
+                    transaction
+                        .query_row(
+                            "SELECT pending_operation_id FROM memo WHERE memo_id = ?1",
+                            params![&mutation.memo_id],
+                            |row| row.get::<_, Option<String>>(0),
+                        )
+                        .map_err(|error| from_sqlite(&error))?,
+                )
+            } else {
+                None
+            };
+            let pending_completion = match (&current, pending_owner) {
+                (Some((_, _, source_path)), Some(owner))
+                    if owner.as_deref() == Some(mutation.operation_id.as_str()) =>
+                {
+                    if source_path != &projection.source_path {
+                        return Err(validation(
+                            "saf_projection_source_path_mismatch",
+                            "committed create facts do not match the begun source path",
+                        ));
+                    }
+                    true
+                }
+                (Some(_), _) => {
+                    return Err(validation(
+                        "saf_projection_create_conflict",
+                        "SAF projection create target already exists",
+                    ));
+                }
+                (None, _) => false,
+            };
+            if mutation.expected_revision != 0 {
                 return Err(validation(
                     "saf_projection_create_conflict",
-                    "SAF projection create target already exists",
+                    "SAF projection create requires expected revision zero",
                 ));
             }
             validate_scanned_projection(projection)?;
@@ -311,6 +344,14 @@ pub fn commit_saf_projection_mutation(
                 .checked_add(1)
                 .ok_or_else(|| validation("revision_overflow", "content revision overflow"))?;
             upsert_saf_projection(&transaction, projection, revision)?;
+            if pending_completion {
+                transaction
+                    .execute(
+                        "UPDATE memo SET pending_operation_id = NULL WHERE memo_id = ?1",
+                        params![&mutation.memo_id],
+                    )
+                    .map_err(|error| from_sqlite(&error))?;
+            }
             (revision, projection.file_fingerprint.clone())
         }
         SafProjectionMutationKind::Update | SafProjectionMutationKind::HistoryRestore => {
@@ -334,7 +375,7 @@ pub fn commit_saf_projection_mutation(
             if *revision != expected_revision
                 || mutation.expected_fingerprint.as_deref() != Some(fingerprint)
             {
-                return Err(validation(
+                return Err(conflict(
                     "stale_snapshot",
                     "SAF projection update snapshot is stale",
                 ));
@@ -369,7 +410,7 @@ pub fn commit_saf_projection_mutation(
             if revision != expected_revision
                 || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
             {
-                return Err(validation(
+                return Err(conflict(
                     "stale_snapshot",
                     "SAF projection delete snapshot is stale",
                 ));
@@ -432,7 +473,7 @@ pub fn commit_saf_projection_mutation(
             if revision != expected_revision
                 || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
             {
-                return Err(validation(
+                return Err(conflict(
                     "stale_snapshot",
                     "SAF projection restore snapshot is stale",
                 ));
@@ -500,7 +541,7 @@ pub fn commit_saf_projection_mutation(
             if revision != expected_revision
                 || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
             {
-                return Err(validation(
+                return Err(conflict(
                     "stale_snapshot",
                     "SAF projection permanent delete snapshot is stale",
                 ));
@@ -563,7 +604,7 @@ pub fn commit_saf_projection_mutation(
             if revision != expected_revision
                 || mutation.expected_fingerprint.as_deref() != Some(fingerprint.as_str())
             {
-                return Err(validation(
+                return Err(conflict(
                     "stale_snapshot",
                     "SAF projection pin snapshot is stale",
                 ));
@@ -654,6 +695,307 @@ pub fn commit_saf_projection_mutation(
         scopes: saf_projection_scopes(mutation.kind),
         idempotent_replay: false,
     })
+}
+
+/// Begin facts for a SAF memo create whose workspace bytes are not yet durable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafMemoCreateBegin {
+    pub operation_id: String,
+    /// Filename stem of the target day document (product filename format).
+    pub date_key: String,
+    /// Header time part of the appended memo block.
+    pub time_part: String,
+    pub chronology_epoch_ms: i64,
+    pub source_path: String,
+    pub body: String,
+}
+
+/// One projection publication emitted by begin/rollback, shaped for invalidation buses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafMemoPublication {
+    pub core_revision: u64,
+    pub event_sequence: u64,
+    pub scopes: Vec<lomo_core::InvalidationScope>,
+}
+
+/// Result of a begun SAF memo create: the identity every later step must agree on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafMemoCreateBeginResult {
+    pub memo_id: String,
+    pub core_revision: u64,
+    pub event_sequence: u64,
+    pub scopes: Vec<lomo_core::InvalidationScope>,
+    pub idempotent_replay: bool,
+}
+
+/// Publishes a pending create projection before durable platform I/O.
+///
+/// The memo identity is allocated here — the next per-document time-part ordinal — so the later
+/// document command and projection commit can verify against one identity instead of inventing
+/// one after the bytes land. The pending row is ordinary queryable projection state carrying
+/// `pending_operation_id`; the commit upgrades it in place and rollback removes it. Crash between
+/// begin and commit is recovered by the open-time sweep (or the next rebuild), never by durable
+/// half-state.
+///
+/// # Errors
+///
+/// Validation for malformed operation id, identity parts, chronology or source path; conflict when
+/// the same operation id replays with a different body or the allocated identity already exists.
+pub fn begin_saf_memo_create(
+    projection_root: &Path,
+    begin: &SafMemoCreateBegin,
+) -> Result<SafMemoCreateBeginResult, lomo_core::LomoError> {
+    validate_saf_memo_begin(begin)?;
+
+    let database = database_path(projection_root);
+    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| from_sqlite(&error))?;
+
+    if let Some(memo_id) = transaction
+        .query_row(
+            "SELECT memo_id FROM memo WHERE pending_operation_id = ?1",
+            params![&begin.operation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| from_sqlite(&error))?
+    {
+        let stored: String = transaction
+            .query_row(
+                "SELECT COALESCE(body, '') FROM memo WHERE memo_id = ?1",
+                params![&memo_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| from_sqlite(&error))?;
+        let pending = stored;
+        if pending != begin.body {
+            return Err(conflict(
+                "saf_operation_conflict",
+                "SAF operation id is already bound to a different begin body",
+            ));
+        }
+        let (core_revision, event_sequence) = current_counters(&transaction)?;
+        return Ok(SafMemoCreateBeginResult {
+            memo_id,
+            core_revision,
+            event_sequence,
+            scopes: saf_projection_scopes(SafProjectionMutationKind::Create),
+            idempotent_replay: true,
+        });
+    }
+
+    let memo_id = allocate_saf_create_identity(
+        &transaction,
+        &begin.date_key,
+        &begin.time_part,
+        &begin.source_path,
+    )?;
+    let existing = transaction
+        .query_row(
+            "SELECT 1 FROM memo WHERE memo_id = ?1",
+            params![&memo_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|error| from_sqlite(&error))?;
+    if existing.is_some() {
+        return Err(conflict(
+            "saf_projection_create_conflict",
+            "allocated create identity already exists in the projection",
+        ));
+    }
+
+    insert_pending_memo_row(&transaction, begin, &memo_id)?;
+    recompute_stats(&transaction)?;
+    let (core_revision, event_sequence) = bump_counters(&transaction)?;
+    transaction.commit().map_err(|error| from_sqlite(&error))?;
+    Ok(SafMemoCreateBeginResult {
+        memo_id,
+        core_revision,
+        event_sequence,
+        scopes: saf_projection_scopes(SafProjectionMutationKind::Create),
+        idempotent_replay: false,
+    })
+}
+
+/// Validates begin facts at the furthest boundary before any projection state is touched.
+fn validate_saf_memo_begin(begin: &SafMemoCreateBegin) -> Result<(), lomo_core::LomoError> {
+    if begin.operation_id.trim().is_empty() || begin.operation_id.len() > 256 {
+        return Err(validation(
+            "invalid_saf_operation_id",
+            "SAF projection operation id must be non-empty and bounded",
+        ));
+    }
+    // Ordinal is a placeholder; identity validation still checks date key/time part shape.
+    lomo_workspace::MemoIdentity::try_new(&begin.date_key, &begin.time_part, 0)?;
+    if begin.chronology_epoch_ms <= 0 {
+        return Err(validation(
+            "invalid_memo_chronology",
+            "SAF memo begin chronology must be a positive epoch millisecond",
+        ));
+    }
+    lomo_workspace::WorkspaceRelativePath::parse(&begin.source_path)?;
+    Ok(())
+}
+
+fn insert_pending_memo_row(
+    transaction: &Transaction<'_>,
+    begin: &SafMemoCreateBegin,
+    memo_id: &str,
+) -> Result<(), lomo_core::LomoError> {
+    let facts = project_content_facts(&begin.body)?;
+    let search_content = index_tokens(&begin.body);
+    let preview: String = begin.body.chars().take(200).collect();
+    let fingerprint = fingerprint_content(&begin.body);
+    transaction
+        .execute(
+            "INSERT INTO memo( \
+             memo_id,source_path,file_fingerprint,has_todo,has_url,has_attachment, \
+             created_at_ms,updated_at_ms,body_preview,body,search_content,reminders_json, \
+             content_revision,pending_operation_id \
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8,?9,?10,'[]',1,?11)",
+            params![
+                memo_id,
+                &begin.source_path,
+                &fingerprint,
+                i64::from(facts.has_todo),
+                i64::from(facts.has_url),
+                i64::from(!facts.attachment_paths.is_empty()),
+                begin.chronology_epoch_ms,
+                &preview,
+                &begin.body,
+                &search_content,
+                &begin.operation_id,
+            ],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let rowid = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "INSERT INTO memo_fts(rowid, search_content) VALUES(?1, ?2)",
+            params![rowid, &search_content],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
+}
+
+/// Removes the pending create row published for this operation, if it is still pending.
+///
+/// # Errors
+///
+/// Storage/`SQLite` errors; no error is produced when the row is already gone (swept or rolled
+/// back), which returns `None` without publishing.
+pub fn rollback_saf_memo_create(
+    projection_root: &Path,
+    operation_id: &str,
+    memo_id: &str,
+) -> Result<Option<SafMemoPublication>, lomo_core::LomoError> {
+    if operation_id.trim().is_empty() || operation_id.len() > 256 {
+        return Err(validation(
+            "invalid_saf_operation_id",
+            "SAF projection operation id must be non-empty and bounded",
+        ));
+    }
+    if memo_id.trim().is_empty() || memo_id.len() > 512 {
+        return Err(validation(
+            "invalid_memo_id",
+            "SAF projection memo id must be non-empty and bounded",
+        ));
+    }
+    let database = database_path(projection_root);
+    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| from_sqlite(&error))?;
+    let pending = transaction
+        .query_row(
+            "SELECT rowid, search_content FROM memo WHERE memo_id = ?1 AND pending_operation_id = ?2",
+            params![memo_id, operation_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| from_sqlite(&error))?;
+    let Some((rowid, search_content)) = pending else {
+        return Ok(None);
+    };
+    transaction
+        .execute(
+            "INSERT INTO memo_fts(memo_fts, rowid, search_content) VALUES('delete', ?1, ?2)",
+            params![rowid, &search_content],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let removed = transaction
+        .execute(
+            "DELETE FROM memo WHERE memo_id = ?1 AND pending_operation_id = ?2",
+            params![memo_id, operation_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    if removed != 1 {
+        return Err(corruption(
+            "saf_pending_rollback_missing_row",
+            "pending create row disappeared between select and delete",
+        ));
+    }
+    recompute_stats(&transaction)?;
+    let (core_revision, event_sequence) = bump_counters(&transaction)?;
+    transaction.commit().map_err(|error| from_sqlite(&error))?;
+    Ok(Some(SafMemoPublication {
+        core_revision,
+        event_sequence,
+        scopes: saf_projection_scopes(SafProjectionMutationKind::Create),
+    }))
+}
+
+/// Allocates the next per-document time-part ordinal from the mirrored projection rows.
+///
+/// The parse law derives ordinals from same-time-part occurrence order inside one document, and
+/// the projection mirrors the document at write admission, so counting rows with the same source
+/// path and time part yields exactly the ordinal the post-write parse will produce.
+fn allocate_saf_create_identity(
+    transaction: &Transaction<'_>,
+    date_key: &str,
+    time_part: &str,
+    source_path: &str,
+) -> Result<String, lomo_core::LomoError> {
+    let mut statement = transaction
+        .prepare("SELECT memo_id FROM memo WHERE source_path = ?1")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map(params![source_path], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?;
+    let mut same_time_part = 0_u32;
+    for row in rows {
+        let memo_id = row.map_err(|error| from_sqlite(&error))?;
+        if let Ok(identity) = lomo_workspace::MemoIdentity::parse(&memo_id)
+            && identity.time_part() == time_part
+        {
+            same_time_part = same_time_part.saturating_add(1);
+        }
+    }
+    let identity = lomo_workspace::MemoIdentity::try_new(date_key, time_part, same_time_part)?;
+    Ok(identity.as_str().to_owned())
+}
+
+fn current_counters(transaction: &Transaction<'_>) -> Result<(u64, u64), lomo_core::LomoError> {
+    Ok((
+        crate::read_meta_u64(transaction, "high_water_revision")?,
+        crate::read_meta_u64(transaction, "event_sequence")?,
+    ))
+}
+
+fn bump_counters(transaction: &Transaction<'_>) -> Result<(u64, u64), lomo_core::LomoError> {
+    let (current_revision, current_sequence) = current_counters(transaction)?;
+    let core_revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| validation("revision_overflow", "core revision overflow"))?;
+    let event_sequence = current_sequence
+        .checked_add(1)
+        .ok_or_else(|| validation("event_sequence_overflow", "event sequence overflow"))?;
+    crate::write_meta_u64(transaction, "high_water_revision", core_revision)?;
+    crate::write_meta_u64(transaction, "event_sequence", event_sequence)?;
+    Ok((core_revision, event_sequence))
 }
 
 fn saf_projection_scopes(kind: SafProjectionMutationKind) -> Vec<lomo_core::InvalidationScope> {

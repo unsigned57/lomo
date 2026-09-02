@@ -10,7 +10,7 @@ use lomo_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::WorkspaceMemo;
-use crate::limits::{ResourceBudget, corruption, validation};
+use crate::limits::{ResourceBudget, conflict, corruption, validation};
 use crate::parse::parse_workspace_document;
 use crate::reminder::ReminderReference;
 use crate::source::SourceBytes;
@@ -362,7 +362,7 @@ fn project_file_page(
     let fingerprint = source_fingerprint_of(source.as_bytes()).as_str().to_owned();
     let resume_index = resume_index(state.current_file.as_ref(), path, &fingerprint)?;
     if resume_index > document.memos().len() {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "workspace scan cursor memo offset is outside the source revision",
         ));
@@ -510,7 +510,7 @@ fn resume_index(
         return Ok(0);
     };
     if cursor.path != path || cursor.source_fingerprint != fingerprint {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "workspace scan cursor source revision changed before resume",
         ));

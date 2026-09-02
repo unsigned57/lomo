@@ -413,6 +413,18 @@ struct LayoutHeadBody {
     layout: LomoLayoutVersion,
 }
 
+/// Durable filename for one history record id.
+///
+/// Memo identity embeds `HH:mm:ss`, and a colon is unsafe as an Android SAF display name:
+/// providers may sanitize, reject, or uniquify it, which silently detaches the durable file
+/// name from the record identity. The filename law therefore strips colons from the record id.
+/// The history scan derives the expected name from a record's payload with this same law and
+/// repairs foreign-named files by rename, so this is the single naming authority.
+#[must_use]
+pub fn history_record_filename(record_id: &str) -> String {
+    format!("{}.rec", record_id.replace(':', ""))
+}
+
 /// Hex-encodes bytes (lowercase).
 #[must_use]
 pub fn hex_encode(bytes: &[u8]) -> String {

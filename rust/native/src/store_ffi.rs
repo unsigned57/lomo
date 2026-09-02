@@ -170,6 +170,8 @@ pub struct StoreMemoSummary {
     pub tags: Vec<String>,
     pub image_urls: Vec<String>,
     pub reminders: Vec<crate::WorkspaceReminderReference>,
+    /// Row was published by a begun create whose durable commit has not landed yet.
+    pub is_pending: bool,
 }
 
 #[data]
@@ -278,6 +280,39 @@ pub struct StoreMemoCommit {
     pub file_fingerprint: String,
     pub scopes: Vec<String>,
     pub idempotent_replay: bool,
+}
+
+/// Begin facts for a SAF memo create published before durable platform I/O.
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSafMemoCreateBegin {
+    pub operation_id: String,
+    pub date_key: String,
+    pub time_part: String,
+    pub chronology_epoch_ms: i64,
+    pub source_path: String,
+    pub body: String,
+}
+
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSafMemoCreateBeginResult {
+    pub memo_id: String,
+    pub core_revision: u64,
+    pub event_sequence: u64,
+    pub scopes: Vec<String>,
+    pub idempotent_replay: bool,
+}
+
+/// Publication for a begun create's rollback. `removed=false` means nothing was pending
+/// (already swept or already rolled back) and no publication happened.
+#[data]
+#[derive(Clone, Debug)]
+pub struct StoreSafMemoRollbackResult {
+    pub removed: bool,
+    pub core_revision: u64,
+    pub event_sequence: u64,
+    pub scopes: Vec<String>,
 }
 
 #[data]
@@ -978,6 +1013,74 @@ impl StoreHandle {
         })
     }
 
+    /// Publishes a pending SAF memo create projection before durable platform I/O.
+    ///
+    /// # Errors
+    ///
+    /// Rejects Direct callers, malformed begin facts, or projection transaction errors.
+    pub fn begin_saf_memo_create(
+        &self,
+        begin: StoreSafMemoCreateBegin,
+    ) -> Result<StoreSafMemoCreateBeginResult, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let inner = store::SafMemoCreateBegin {
+            operation_id: begin.operation_id,
+            date_key: begin.date_key,
+            time_part: begin.time_part,
+            chronology_epoch_ms: begin.chronology_epoch_ms,
+            source_path: begin.source_path,
+            body: begin.body,
+        };
+        let result = self.with_projection_store_mut(|store| store.begin_saf_memo_create(&inner))?;
+        Ok(StoreSafMemoCreateBeginResult {
+            memo_id: result.memo_id,
+            core_revision: result.core_revision,
+            event_sequence: result.event_sequence,
+            scopes: result.scopes.into_iter().map(scope_name).collect(),
+            idempotent_replay: result.idempotent_replay,
+        })
+    }
+
+    /// Removes a begun SAF memo create's pending projection when the pipeline fails.
+    ///
+    /// # Errors
+    ///
+    /// Rejects Direct callers, malformed identifiers, or projection transaction errors.
+    pub fn rollback_saf_memo_create(
+        &self,
+        operation_id: &str,
+        memo_id: &str,
+    ) -> Result<StoreSafMemoRollbackResult, EngineError> {
+        let _projection = self.projection_gate.lock().map_err(|_error| {
+            EngineError::from(boundary_err(
+                "store_projection_mutex_poisoned",
+                "store projection mutex poisoned",
+            ))
+        })?;
+        let result = self.with_projection_store_mut(|store| {
+            store.rollback_saf_memo_create(operation_id, memo_id)
+        })?;
+        Ok(match result {
+            Some(publication) => StoreSafMemoRollbackResult {
+                removed: true,
+                core_revision: publication.core_revision,
+                event_sequence: publication.event_sequence,
+                scopes: publication.scopes.into_iter().map(scope_name).collect(),
+            },
+            None => StoreSafMemoRollbackResult {
+                removed: false,
+                core_revision: 0,
+                event_sequence: 0,
+                scopes: Vec::new(),
+            },
+        })
+    }
+
     /// See plan `query_reminder_plan`.
     ///
     /// # Errors
@@ -1653,6 +1756,7 @@ fn summary_to_ffi(s: store::MemoSummary) -> StoreMemoSummary {
             .into_iter()
             .map(crate::workspace_reminder_to_ffi)
             .collect(),
+        is_pending: s.is_pending,
     }
 }
 

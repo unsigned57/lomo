@@ -295,6 +295,9 @@ class StoreMemoMutationRepository(
                         content = content,
                             pendingPromotes = promotes,
                         ),
+                        // The engine publishes the pending create before its durable SAF I/O, so
+                        // the list shows the memo while the commit is still in flight.
+                        onPublication = invalidation::publish,
                     )
                 } catch (error: Exception) {
                     // B5: re-stage so draft retry can takePlans again under a new opId.
@@ -721,20 +724,23 @@ class StoreMemoTrashRepository(
     override suspend fun clearTrash() {
         mutate {
             val trashQuery = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true))
-            val ids = walkStorePages(port, trashQuery).toList()
+            val ids = walkStorePages(port, trashQuery).map { it.memoId }.toList()
             val commits = ArrayList<com.lomo.data.engine.store.StoreMemoCommit>(ids.size)
-            for (item in ids) {
+            for (memoId in ids) {
+                val snap = port.getMemo(memoId) ?: continue
                 commits += port.applyMemoCommand(
                     StoreMemoCommand(
                         operationId = UUID.randomUUID().toString(),
                         kind = StoreMemoCommandKind.PermanentDelete,
-                        memoId = item.memoId,
-                        expectedRevision = item.contentRevision,
-                        expectedFingerprint = item.fileFingerprint,
+                        memoId = snap.summary.memoId,
+                        expectedRevision = snap.summary.contentRevision,
+                        expectedFingerprint = snap.summary.fileFingerprint,
                     ),
                 )
             }
-            invalidation.publishBatch(commits)
+            if (commits.isNotEmpty()) {
+                invalidation.publishBatch(commits)
+            }
         }
     }
 

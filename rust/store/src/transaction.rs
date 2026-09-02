@@ -12,7 +12,8 @@ use crate::content_facts::{fingerprint_content, merge_tags, project_content_fact
 use crate::error::{busy, conflict, from_sqlite, storage, validation};
 use crate::lomo_format::{
     HistoryBody, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind, MemoCommandKind,
-    OperationIntent, OperationStatus, StateBody, read_record, write_record_atomic,
+    OperationIntent, OperationStatus, StateBody, history_record_filename, read_record,
+    write_record_atomic,
 };
 use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
@@ -716,7 +717,7 @@ fn append_history(paths: &LomoPaths, intent: &OperationIntent) -> Result<(), lom
         )
     })?;
     let record_id = format!("{}-r{revision}", intent.memo_id);
-    let path = paths.history.join(format!("{record_id}.rec"));
+    let path = paths.history.join(history_record_filename(&record_id));
     write_record_atomic(
         &path,
         &LomoPayload {

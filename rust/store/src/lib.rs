@@ -51,11 +51,12 @@ pub use query::{
     query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 pub use rebuild::{
-    RebuildCheckpoint, RebuildPhase, RebuildResult, SafProjectionCommitResult,
-    SafProjectionMutation, SafProjectionMutationKind, SafProjectionRebuild,
-    ScannedHistoryProjection, ScannedMemoProjection, ScannedTrashProjection,
-    commit_saf_projection_mutation, ensure_writable, rebuild_scanned_projection, run_rebuild,
-    write_gate_for_checkpoint,
+    RebuildCheckpoint, RebuildPhase, RebuildResult, SafMemoCreateBegin, SafMemoCreateBeginResult,
+    SafMemoPublication, SafProjectionCommitResult, SafProjectionMutation,
+    SafProjectionMutationKind, SafProjectionRebuild, ScannedHistoryProjection,
+    ScannedMemoProjection, ScannedTrashProjection, begin_saf_memo_create,
+    commit_saf_projection_mutation, ensure_writable, rebuild_scanned_projection,
+    rollback_saf_memo_create, run_rebuild, write_gate_for_checkpoint,
 };
 pub use reminder::{
     PlannedAlarm, ReminderCommand, ReminderCommandResult, ReminderPlan, ReminderQuery,
@@ -361,6 +362,39 @@ impl Store {
         let result = commit_saf_projection_mutation(&self.workspace_root, mutation)?;
         self.high_water_revision = result.core_revision;
         self.event_sequence = result.event_sequence;
+        Ok(result)
+    }
+
+    /// Publishes a pending SAF memo create projection before durable platform I/O.
+    ///
+    /// # Errors
+    ///
+    /// See [`begin_saf_memo_create`].
+    pub fn begin_saf_memo_create(
+        &mut self,
+        begin: &SafMemoCreateBegin,
+    ) -> Result<SafMemoCreateBeginResult, LomoError> {
+        let result = begin_saf_memo_create(&self.workspace_root, begin)?;
+        self.high_water_revision = result.core_revision;
+        self.event_sequence = result.event_sequence;
+        Ok(result)
+    }
+
+    /// Removes a begun SAF memo create's pending projection when the pipeline fails.
+    ///
+    /// # Errors
+    ///
+    /// See [`rollback_saf_memo_create`].
+    pub fn rollback_saf_memo_create(
+        &mut self,
+        operation_id: &str,
+        memo_id: &str,
+    ) -> Result<Option<SafMemoPublication>, LomoError> {
+        let result = rollback_saf_memo_create(&self.workspace_root, operation_id, memo_id)?;
+        if let Some(publication) = &result {
+            self.high_water_revision = publication.core_revision;
+            self.event_sequence = publication.event_sequence;
+        }
         Ok(result)
     }
 

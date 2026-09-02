@@ -13,9 +13,10 @@ use lomo_core::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::limits::validation;
+use crate::limits::{conflict, validation};
 use crate::lomo_record::{
     HistorySnapshotV1, LomoPayload, LomoRecordKind, encode_record, hex_encode,
+    history_record_filename,
 };
 use crate::parse::parse_workspace_document;
 use crate::patch::{DocumentPatchCommand, TaskSourceIdentity, plan_document_patch};
@@ -376,7 +377,7 @@ fn advance_after_read(
     let bytes = read_exchange_bytes(ctx.exchange_root, &token)?;
     let source_fp = source_fingerprint_of(&bytes);
     if Some(source_fp.as_str()) != state.expected_fingerprint.as_deref() {
-        return Err(validation(
+        return Err(conflict(
             "stale_snapshot",
             "document fingerprint does not match expected snapshot",
         ));
@@ -731,7 +732,7 @@ fn prepare_history_actions(
     );
     let (length, digest) = write_exchange_bytes(ctx.exchange_root, &token, &bytes)?;
     let artifact = ExchangeArtifact::new(&token, length, Sha256Digest::parse(&digest)?)?;
-    let path = format!(".lomo/history/v1/{record_id}.rec");
+    let path = format!(".lomo/history/v1/{}", history_record_filename(&record_id));
     let target = to_core_path(&WorkspaceRelativePath::parse(&path)?)?;
     state.history_token = Some(token);
     state.history_path = Some(path);

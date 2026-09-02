@@ -136,6 +136,20 @@ pub fn validation(code: &str, diagnostic: &str) -> LomoError {
     .unwrap_or_else(|error| error)
 }
 
+/// Builds a conflict error (optimistic concurrency / snapshot mismatch) on the workspace boundary.
+#[must_use]
+pub fn conflict(code: &str, diagnostic: &str) -> LomoError {
+    LomoError::from_platform_boundary(
+        ErrorCategory::Conflict,
+        code,
+        RetryDisposition::AfterUserAction,
+        None,
+        None,
+        diagnostic,
+    )
+    .unwrap_or_else(|error| error)
+}
+
 /// Builds a resource-limit error on the workspace boundary.
 #[must_use]
 pub fn resource_limit(code: &str, diagnostic: &str) -> LomoError {

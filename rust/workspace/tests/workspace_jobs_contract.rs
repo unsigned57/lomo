@@ -85,19 +85,20 @@ mod tests {
 
     use lomo_core::{
         ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
-        ExchangeArtifact, ExpectedFingerprint, JobStep, LomoEngine, MetadataPage, PlatformAction,
-        PlatformActionBatch, PlatformActionOutput, PlatformBatchResult, Sha256Digest,
-        VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget, WriteMode,
+        ErrorCategory, ExchangeArtifact, ExpectedFingerprint, JobStep, LomoEngine, MetadataPage,
+        PlatformAction, PlatformActionBatch, PlatformActionOutput, PlatformBatchResult,
+        RetryDisposition, Sha256Digest, VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget,
+        WriteMode,
     };
     use lomo_workspace::{
         DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandKind, DocumentCommandRequest,
         DocumentCommandResult, DocumentExpectedState, DocumentHistoryWrite,
-        HISTORY_SCAN_DRIVER_KIND, HistoryScanPage, HistoryScanRequest, LomoRecordKind,
-        SCAN_DRIVER_KIND, SourceFingerprint, TRASH_COMMAND_DRIVER_KIND, TRASH_SCAN_DRIVER_KIND,
-        TrashCommandKind, TrashCommandRequest, TrashCommandResult, TrashMemoSummary,
-        TrashRecordCreate, TrashRecordV1, TrashScanPage, TrashScanRequest, WorkspaceScanRequest,
-        decode_record, decode_trash_record, encode_trash_record, trash_record_relative_path,
-        workspace_driver_registry,
+        HISTORY_SCAN_DRIVER_KIND, HistoryScanPage, HistoryScanRequest, HistorySnapshotV1,
+        LomoPayload, LomoRecordKind, SCAN_DRIVER_KIND, SourceFingerprint,
+        TRASH_COMMAND_DRIVER_KIND, TRASH_SCAN_DRIVER_KIND, TrashCommandKind, TrashCommandRequest,
+        TrashCommandResult, TrashMemoSummary, TrashRecordCreate, TrashRecordV1, TrashScanPage,
+        TrashScanRequest, WorkspaceScanRequest, decode_record, decode_trash_record, encode_record,
+        encode_trash_record, trash_record_relative_path, workspace_driver_registry,
     };
     use tempfile::tempdir;
 
@@ -179,9 +180,9 @@ mod tests {
             if full.exists() {
                 Some(ActionOutcome::Failed(
                     lomo_core::LomoError::from_platform_boundary(
-                        lomo_core::ErrorCategory::Conflict,
+                        ErrorCategory::Conflict,
                         "target_already_exists",
-                        lomo_core::RetryDisposition::AfterUserAction,
+                        RetryDisposition::AfterUserAction,
                         None,
                         None,
                         "Create target already exists",
@@ -203,9 +204,9 @@ mod tests {
             }
             Some(ActionOutcome::Failed(
                 lomo_core::LomoError::from_platform_boundary(
-                    lomo_core::ErrorCategory::Validation,
+                    ErrorCategory::Validation,
                     "postcondition_mismatch",
-                    lomo_core::RetryDisposition::Never,
+                    RetryDisposition::Never,
                     None,
                     None,
                     "Target fingerprint does not match the expected postcondition",
@@ -276,9 +277,9 @@ mod tests {
             }
             let result = self.engine.read_job_result(&job_id)?.ok_or_else(|| {
                 lomo_core::LomoError::from_platform_boundary(
-                    lomo_core::ErrorCategory::Internal,
+                    ErrorCategory::Internal,
                     "scan_result_missing",
-                    lomo_core::RetryDisposition::Never,
+                    RetryDisposition::Never,
                     None,
                     None,
                     "scan completed without a page",
@@ -287,9 +288,9 @@ mod tests {
             })?;
             serde_json::from_str(&result).map_err(|_error| {
                 lomo_core::LomoError::from_platform_boundary(
-                    lomo_core::ErrorCategory::Corruption,
+                    ErrorCategory::Corruption,
                     "scan_result_invalid",
-                    lomo_core::RetryDisposition::Never,
+                    RetryDisposition::Never,
                     None,
                     None,
                     "scan result is not a page",
@@ -354,10 +355,71 @@ mod tests {
                 }
                 PlatformAction::EnsureDirectory { .. } => self.execute_ensure_directory(action),
                 PlatformAction::Delete { .. } => self.execute_delete(action),
-                PlatformAction::Stat { .. } | PlatformAction::Move { .. } => {
-                    panic!("unexpected action in harness: {action:?}")
+                PlatformAction::Move { .. } => self.execute_move(action),
+                PlatformAction::Stat { .. } => panic!("unexpected action in harness: {action:?}"),
+            }
+        }
+
+        /// Mirrors the SAF access replay law: source absent + target present is an already
+        /// satisfied rename; a present source with an occupied target fails closed.
+        fn execute_move(&self, action: &PlatformAction) -> ActionOutcome {
+            let PlatformAction::Move {
+                source,
+                target,
+                expected_source,
+                ..
+            } = action
+            else {
+                panic!("move helper received non-move action: {action:?}");
+            };
+            let move_metadata = |path: &lomo_core::RelativeWorkspacePath, bytes: &[u8]| {
+                let digest = format!("{:x}", Sha256::digest(bytes));
+                DocumentMetadata::new(
+                    WorkspaceTarget::Relative(path.clone()),
+                    DocumentKind::File,
+                    None,
+                    ActionEvidence::verified(
+                        bytes.len() as u64,
+                        Sha256Digest::parse(&digest).test_ok("digest"),
+                        &format!("fp.{}", path.as_str().replace('/', ".")),
+                    )
+                    .test_ok("evidence"),
+                )
+                .test_ok("metadata")
+            };
+            let from = self.workspace_root.join(source.as_str());
+            if !from.exists() {
+                let bytes = fs::read(self.workspace_root.join(target.as_str()))
+                    .test_ok("replayed move target bytes");
+                return ActionOutcome::AlreadySatisfied(PlatformActionOutput::MoveComplete {
+                    metadata: move_metadata(target, &bytes),
+                });
+            }
+            if let ExpectedFingerprint::Match(expected) = expected_source {
+                let bytes = fs::read(&from).test_ok("move source bytes");
+                if let Some(failure) = Self::verify_current_target(&bytes, expected) {
+                    return failure;
                 }
             }
+            let to = self.workspace_root.join(target.as_str());
+            if to.exists() {
+                return ActionOutcome::Failed(
+                    lomo_core::LomoError::from_platform_boundary(
+                        ErrorCategory::Conflict,
+                        "move_target_exists",
+                        RetryDisposition::AfterUserAction,
+                        None,
+                        None,
+                        "Move target already exists",
+                    )
+                    .test_ok("error"),
+                );
+            }
+            let bytes = fs::read(&from).test_ok("move source bytes");
+            fs::rename(&from, &to).test_ok("rename to the durable filename law");
+            ActionOutcome::Applied(PlatformActionOutput::MoveComplete {
+                metadata: move_metadata(target, &bytes),
+            })
         }
 
         fn execute_write_from_exchange(&self, action: &PlatformAction) -> ActionOutcome {
@@ -1275,9 +1337,11 @@ mod tests {
         let terminal = harness.drive_until_terminal(&job_id);
 
         assert!(matches!(terminal, JobStep::Completed), "{terminal:?}");
+        // Durable filename law strips the identity's `HH:mm:ss` colons (unsafe as SAF display
+        // names), so `2026-08-26_12:00:00_0-r1` lands as `2026-08-26_120000_0-r1.rec`.
         let history_path = harness
             .workspace_root
-            .join(".lomo/history/v1/2026-08-26_12:00:00_0-r1.rec");
+            .join(".lomo/history/v1/2026-08-26_120000_0-r1.rec");
         let record = decode_record(&fs::read(history_path).test_ok("history record bytes"))
             .test_ok("history record");
         assert_eq!(record.payload.kind, LomoRecordKind::History);
@@ -1319,6 +1383,119 @@ mod tests {
         assert_eq!(
             harness.read_exchange_token(&revision.content.exchange_token),
             b"history survives projection rebuild"
+        );
+    }
+
+    #[test]
+    fn history_scan_repairs_provider_sanitized_record_names_to_the_durable_filename_law() {
+        let harness = Harness::new();
+        // Simulates a provider that sanitized the `HH:mm:ss` colons out of the display name at
+        // write time: payload identity is self-consistent, the on-disk name is not.
+        let body = HistorySnapshotV1 {
+            memo_id: "2026-08-26_12:00:00_0".to_owned(),
+            revision: 1,
+            content: "sanitized filename survives refresh".to_owned(),
+            file_fingerprint: fingerprint_of(b"sanitized filename survives refresh"),
+            created_at_ms: 1_777_000_000_000,
+        };
+        let record_id = format!("{}-r{}", body.memo_id, body.revision);
+        let bytes = encode_record(&LomoPayload {
+            kind: LomoRecordKind::History,
+            record_id,
+            body_json: serde_json::to_string(&body).test_ok("history body"),
+        })
+        .test_ok("encode record");
+        harness.write_file(".lomo/history/v1/2026-08-26_12-00-00_0-r1.rec", &bytes);
+
+        let scan_request = serde_json::to_string(&HistoryScanRequest {
+            page_size: 16,
+            cursor: None,
+        })
+        .test_ok("history scan request");
+        let scan_job = harness
+            .engine
+            .start_user_job(
+                HISTORY_SCAN_DRIVER_KIND,
+                &scan_request,
+                Duration::from_secs(30),
+            )
+            .test_ok("start history scan");
+        assert!(matches!(
+            harness.drive_until_terminal(&scan_job),
+            JobStep::Completed
+        ));
+        let payload = harness
+            .engine
+            .read_job_result(&scan_job)
+            .test_ok("history scan result")
+            .test_ok("history scan payload");
+        let page: HistoryScanPage = serde_json::from_str(&payload).test_ok("decode history page");
+        let revision = page.items.first().test_ok("history revision");
+        assert_eq!(revision.memo_id, "2026-08-26_12:00:00_0");
+        assert_eq!(revision.revision, 1);
+        assert_eq!(
+            harness.read_exchange_token(&revision.content.exchange_token),
+            b"sanitized filename survives refresh"
+        );
+
+        // The repair renames the record onto the durable filename law instead of failing the
+        // whole workspace refresh.
+        assert!(
+            !harness
+                .workspace_root
+                .join(".lomo/history/v1/2026-08-26_12-00-00_0-r1.rec")
+                .exists(),
+            "sanitized record name must be repaired away"
+        );
+        let repaired = harness
+            .workspace_root
+            .join(".lomo/history/v1/2026-08-26_120000_0-r1.rec");
+        assert_eq!(fs::read(repaired).test_ok("repaired record bytes"), bytes);
+    }
+
+    #[test]
+    fn history_scan_fails_closed_with_the_offending_path_when_payload_identity_is_inconsistent() {
+        let harness = Harness::new();
+        let body = HistorySnapshotV1 {
+            memo_id: "2026-08-26_12:00:00_0".to_owned(),
+            revision: 1,
+            content: "identity cannot be trusted".to_owned(),
+            file_fingerprint: fingerprint_of(b"identity cannot be trusted"),
+            created_at_ms: 1_777_000_000_000,
+        };
+        let bytes = encode_record(&LomoPayload {
+            kind: LomoRecordKind::History,
+            record_id: "bogus-identity".to_owned(),
+            body_json: serde_json::to_string(&body).test_ok("history body"),
+        })
+        .test_ok("encode record");
+        harness.write_file(".lomo/history/v1/2026-08-26_120000_0-r1.rec", &bytes);
+
+        let scan_request = serde_json::to_string(&HistoryScanRequest {
+            page_size: 16,
+            cursor: None,
+        })
+        .test_ok("history scan request");
+        let scan_job = harness
+            .engine
+            .start_user_job(
+                HISTORY_SCAN_DRIVER_KIND,
+                &scan_request,
+                Duration::from_secs(30),
+            )
+            .test_ok("start history scan");
+        let terminal = harness.drive_until_terminal(&scan_job);
+        let JobStep::Failed { error } = terminal else {
+            panic!("inconsistent payload identity must fail the job, got {terminal:?}")
+        };
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains("history_record_path_mismatch"),
+            "diagnostic must carry the failure code: {diagnostic}"
+        );
+        assert!(
+            diagnostic.contains(".lomo/history/v1/2026-08-26_120000_0-r1.rec"),
+            "diagnostic must name the offending record file: {diagnostic}"
         );
     }
 
@@ -1453,6 +1630,32 @@ mod tests {
             0,
             "terminal trash success must reclaim private exchange artifacts"
         );
+    }
+
+    #[test]
+    fn trash_command_overwrites_existing_marker_idempotently() {
+        let harness = Harness::new();
+        let source = b"- 09:30:00\nkeep\n\n- 10:45:00\ndelete me\n";
+        harness.write_file("2026_08_09.md", source);
+        let identity = "2026_08_09_10:45:00_0";
+        let marker_path = trash_record_relative_path(identity).test_ok("marker path");
+        harness.write_file(marker_path.as_str(), b"stale marker bytes");
+
+        let request = TrashCommandRequest {
+            path: "2026_08_09.md".to_owned(),
+            expected_fingerprint: fingerprint_of(source),
+            command: TrashCommandKind::Trash {
+                identity: identity.to_owned(),
+                chronology_epoch_ms: 1_754_721_900_000,
+            },
+        };
+        let result = harness.trash_command(&request);
+        assert_eq!(result.path, "2026_08_09.md");
+        assert_eq!(result.affected_memo.identity, identity);
+        let marker_bytes = harness.read_file(marker_path.as_str());
+        let marker = decode_trash_record(&marker_bytes).test_ok("trash record");
+        assert_eq!(marker.memo_id, identity);
+        assert_eq!(marker.body, "delete me");
     }
 
     #[test]
@@ -1778,6 +1981,8 @@ mod tests {
         let after = harness.engine.submit_platform_result(&job_id, result);
         match after {
             Ok(JobStep::Failed { error }) | Err(error) => {
+                assert_eq!(error.category(), ErrorCategory::Conflict);
+                assert_eq!(error.retry_disposition(), RetryDisposition::AfterUserAction);
                 assert_eq!(error.code(), "stale_snapshot");
             }
             other => panic!("stale snapshot must fail closed, got {other:?}"),

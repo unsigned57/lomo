@@ -503,7 +503,7 @@ fn advance_after_fire(session: &ReminderSessionInput) -> Result<ReminderSessionI
 
 fn ensure_revision(session: &ReminderSessionInput, expected: &str) -> Result<(), LomoError> {
     if session.memo_revision != expected {
-        return Err(reminder_validation(
+        return Err(crate::error::conflict(
             "stale_snapshot",
             "reminder command holds a stale memo revision",
         ));

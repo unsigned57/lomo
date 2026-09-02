@@ -125,6 +125,8 @@ pub struct MemoSummary {
     /// Non-audio attachment relative paths (gallery/image surfaces).
     pub image_urls: Vec<String>,
     pub reminders: Vec<lomo_workspace::ReminderReference>,
+    /// Row was published by a begun create whose durable commit has not landed yet.
+    pub is_pending: bool,
 }
 
 /// Bounded page result.
@@ -292,6 +294,7 @@ fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoEr
             &row.get::<_, String>(13).map_err(|err| from_sqlite(&err))?,
         )
         .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
+        is_pending: row.get::<_, i64>(14).map_err(|err| from_sqlite(&err))? != 0,
     })
 }
 
@@ -348,7 +351,8 @@ fn build_sql(
          m.has_todo, m.has_url, m.has_attachment, \
          EXISTS(SELECT 1 FROM memo_pin p WHERE p.memo_id = m.memo_id) AS is_pinned, \
          EXISTS(SELECT 1 FROM memo_trash t WHERE t.memo_id = m.memo_id), \
-         m.body_preview, m.content_revision, {rank_select}, m.reminders_json \
+         m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
+         m.pending_operation_id IS NOT NULL \
          FROM {from_sql} \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
@@ -519,7 +523,8 @@ pub fn get_memo_projection(
                     m.has_todo, m.has_url, m.has_attachment, \
                     CASE WHEN p.memo_id IS NULL THEN 0 ELSE 1 END, \
                     CASE WHEN t.memo_id IS NULL THEN 0 ELSE 1 END, \
-                    m.body_preview, m.content_revision, m.reminders_json \
+                    m.body_preview, m.content_revision, m.reminders_json, \
+                    m.pending_operation_id IS NOT NULL \
              FROM memo m \
              LEFT JOIN memo_pin p ON p.memo_id = m.memo_id \
              LEFT JOIN memo_trash t ON t.memo_id = m.memo_id \
@@ -552,6 +557,7 @@ pub fn get_memo_projection(
                             Box::new(error),
                         )
                     })?,
+                    is_pending: row.get::<_, i64>(13)? != 0,
                 })
             },
         )
@@ -614,7 +620,7 @@ pub fn source_document_fingerprint(
     let _path = lomo_workspace::WorkspaceRelativePath::parse(source_path)?;
     let mut statement = connection
         .prepare(
-            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 ORDER BY file_fingerprint LIMIT 2",
+            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 AND pending_operation_id IS NULL ORDER BY file_fingerprint LIMIT 2",
         )
         .map_err(|error| from_sqlite(&error))?;
     let fingerprints = statement

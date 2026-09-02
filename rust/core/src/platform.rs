@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt};
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -837,16 +837,17 @@ impl PlatformBatchResult {
                 "platform result action ids must match the ordered batch prefix",
             ));
         }
-        if self
-            .action_results
-            .iter()
-            .zip(&batch.actions)
-            .any(|(result, action)| !result.output_matches(action))
+        for (index, (result, action)) in self.action_results.iter().zip(&batch.actions).enumerate()
         {
-            return Err(LomoError::validation(
-                "platform_result_output_mismatch",
-                "platform result output does not match its action kind or postcondition",
-            ));
+            if let Err(mismatch) = result.witness(action) {
+                return Err(LomoError::validation(
+                    "platform_result_output_mismatch",
+                    format!(
+                        "platform result at index {index} does not witness its {} action: {mismatch}",
+                        action_shape(action)
+                    ),
+                ));
+            }
         }
         Ok(self.action_results.len())
     }
@@ -858,25 +859,185 @@ impl PlatformBatchResult {
 }
 
 impl ActionResult {
-    fn output_matches(&self, action: &PlatformAction) -> bool {
+    fn witness(&self, action: &PlatformAction) -> Result<(), OutputMismatch> {
         let output = match &self.outcome {
             ActionOutcome::Applied(output) | ActionOutcome::AlreadySatisfied(output) => output,
-            ActionOutcome::Failed(_) => return true,
+            ActionOutcome::Failed(_) => return Ok(()),
         };
-        output.matches_action(action)
+        output.witness_action(action)
     }
 }
 
+/// The one conjunct that made an output fail to witness its action.
+///
+/// A boolean answer to "does this output witness this action" destroys the evidence at the only
+/// place where both sides of the platform contract are simultaneously observable, which leaves the
+/// rejection unable to name anything but its own code. Deciding admissibility therefore yields the
+/// reason as part of the decision.
+#[derive(Debug)]
+enum OutputMismatch {
+    Shape {
+        expected: &'static str,
+        observed: &'static str,
+    },
+    Kind {
+        expected: DocumentKind,
+        observed: DocumentKind,
+    },
+    Target {
+        expected: String,
+        observed: String,
+    },
+    ExchangeToken {
+        expected: String,
+        observed: String,
+    },
+    Length {
+        expected: u64,
+        observed: u64,
+    },
+    Digest {
+        expected: String,
+        observed: String,
+    },
+}
+
+impl fmt::Display for OutputMismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Shape { expected, observed } => {
+                write!(
+                    formatter,
+                    "output shape expected {expected}, observed {observed}"
+                )
+            }
+            Self::Kind { expected, observed } => {
+                write!(
+                    formatter,
+                    "document kind expected {expected:?}, observed {observed:?}"
+                )
+            }
+            Self::Target { expected, observed } => {
+                write!(formatter, "target expected {expected}, observed {observed}")
+            }
+            Self::ExchangeToken { expected, observed } => {
+                write!(
+                    formatter,
+                    "exchange token expected {expected}, observed {observed}"
+                )
+            }
+            Self::Length { expected, observed } => {
+                write!(formatter, "length expected {expected}, observed {observed}")
+            }
+            Self::Digest { expected, observed } => {
+                write!(formatter, "digest expected {expected}, observed {observed}")
+            }
+        }
+    }
+}
+
+/// Keeps every reported field inside the boundary's diagnostic budget.
+const MISMATCH_FIELD_CHARS: usize = 160;
+
+fn brief(value: &str) -> String {
+    let mut brief: String = value.chars().take(MISMATCH_FIELD_CHARS).collect();
+    if brief.len() < value.len() {
+        brief.push('…');
+    }
+    brief
+}
+
+fn describe_target(target: &WorkspaceTarget) -> String {
+    match target {
+        WorkspaceTarget::Root => "<root>".to_owned(),
+        WorkspaceTarget::Relative(path) => brief(path.as_str()),
+    }
+}
+
+const fn action_shape(action: &PlatformAction) -> &'static str {
+    match action {
+        PlatformAction::Stat { .. } => "Stat",
+        PlatformAction::ListChildren { .. } => "ListChildren",
+        PlatformAction::EnsureDirectory { .. } => "EnsureDirectory",
+        PlatformAction::ReadToExchange { .. } => "ReadToExchange",
+        PlatformAction::WriteFromExchange { .. } => "WriteFromExchange",
+        PlatformAction::Move { .. } => "Move",
+        PlatformAction::Delete { .. } => "Delete",
+    }
+}
+
+const fn output_shape(output: &PlatformActionOutput) -> &'static str {
+    match output {
+        PlatformActionOutput::Stat { .. } => "Stat",
+        PlatformActionOutput::Listed { .. } => "Listed",
+        PlatformActionOutput::DirectoryReady { .. } => "DirectoryReady",
+        PlatformActionOutput::ReadToExchange { .. } => "ReadToExchange",
+        PlatformActionOutput::WriteComplete { .. } => "WriteComplete",
+        PlatformActionOutput::MoveComplete { .. } => "MoveComplete",
+        PlatformActionOutput::DeleteComplete { .. } => "DeleteComplete",
+    }
+}
+
+fn expect_target(
+    observed: &WorkspaceTarget,
+    expected: &WorkspaceTarget,
+) -> Result<(), OutputMismatch> {
+    if observed == expected {
+        return Ok(());
+    }
+    Err(OutputMismatch::Target {
+        expected: describe_target(expected),
+        observed: describe_target(observed),
+    })
+}
+
+fn expect_relative(
+    observed: &WorkspaceTarget,
+    expected: &RelativeWorkspacePath,
+) -> Result<(), OutputMismatch> {
+    expect_target(observed, &WorkspaceTarget::Relative(expected.clone()))
+}
+
+const fn expect_kind(observed: DocumentKind, expected: DocumentKind) -> Result<(), OutputMismatch> {
+    if matches!(
+        (observed, expected),
+        (DocumentKind::File, DocumentKind::File)
+            | (DocumentKind::Directory, DocumentKind::Directory)
+    ) {
+        return Ok(());
+    }
+    Err(OutputMismatch::Kind { expected, observed })
+}
+
+fn expect_evidence(
+    observed: &ActionEvidence,
+    expected: &ExchangeArtifact,
+) -> Result<(), OutputMismatch> {
+    if observed.length() != expected.length() {
+        return Err(OutputMismatch::Length {
+            expected: expected.length(),
+            observed: observed.length(),
+        });
+    }
+    if observed.digest() != expected.digest() {
+        return Err(OutputMismatch::Digest {
+            expected: brief(expected.digest().as_str()),
+            observed: brief(observed.digest().as_str()),
+        });
+    }
+    Ok(())
+}
+
 impl PlatformActionOutput {
-    fn matches_action(&self, action: &PlatformAction) -> bool {
+    fn witness_action(&self, action: &PlatformAction) -> Result<(), OutputMismatch> {
         match (self, action) {
             (Self::Stat { metadata }, PlatformAction::Stat { target, .. }) => {
-                metadata.target() == target
+                expect_target(metadata.target(), target)
             }
-            (Self::Listed { .. }, PlatformAction::ListChildren { .. }) => true,
+            (Self::Listed { .. }, PlatformAction::ListChildren { .. }) => Ok(()),
             (Self::DirectoryReady { metadata }, PlatformAction::EnsureDirectory { path, .. }) => {
-                metadata.kind() == DocumentKind::Directory
-                    && metadata.target() == &WorkspaceTarget::Relative(path.clone())
+                expect_kind(metadata.kind(), DocumentKind::Directory)?;
+                expect_relative(metadata.target(), path)
             }
             (
                 Self::ReadToExchange {
@@ -889,24 +1050,32 @@ impl PlatformActionOutput {
                     ..
                 },
             ) => {
-                source_metadata.target() == &WorkspaceTarget::Relative(path.clone())
-                    && artifact.token() == exchange_token
+                expect_relative(source_metadata.target(), path)?;
+                if artifact.token() == exchange_token {
+                    return Ok(());
+                }
+                Err(OutputMismatch::ExchangeToken {
+                    expected: brief(exchange_token.as_str()),
+                    observed: brief(artifact.token().as_str()),
+                })
             }
             (
                 Self::WriteComplete { metadata },
                 PlatformAction::WriteFromExchange { artifact, path, .. },
             ) => {
-                metadata.target() == &WorkspaceTarget::Relative(path.clone())
-                    && metadata.evidence().length() == artifact.length()
-                    && metadata.evidence().digest() == artifact.digest()
+                expect_relative(metadata.target(), path)?;
+                expect_evidence(metadata.evidence(), artifact)
             }
             (Self::MoveComplete { metadata }, PlatformAction::Move { target, .. }) => {
-                metadata.target() == &WorkspaceTarget::Relative(target.clone())
+                expect_relative(metadata.target(), target)
             }
             (Self::DeleteComplete { absence }, PlatformAction::Delete { path, .. }) => {
-                absence.target() == &WorkspaceTarget::Relative(path.clone())
+                expect_relative(absence.target(), path)
             }
-            _ => false,
+            _ => Err(OutputMismatch::Shape {
+                expected: action_shape(action),
+                observed: output_shape(self),
+            }),
         }
     }
 }

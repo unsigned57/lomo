@@ -37,7 +37,7 @@ mod tests {
         assert!(info.foreign_keys, "foreign_keys must be ON");
         assert_eq!(info.journal_mode, "wal");
         assert_eq!(info.user_version, STORE_SCHEMA_VERSION);
-        assert_eq!(info.user_version, 5);
+        assert_eq!(info.user_version, 6);
         assert!(info.busy_timeout_ms >= 1000);
         assert!(info.integrity_ok);
         assert!(info.database_path.ends_with("store.db"));
@@ -49,7 +49,7 @@ mod tests {
         );
         drop(store);
         let reopened = Store::open(dir.path()).expect("reopen");
-        assert_eq!(reopened.open_info().user_version, 5);
+        assert_eq!(reopened.open_info().user_version, 6);
     }
 
     #[test]
@@ -98,6 +98,8 @@ mod tests {
                 .expect("remove v3 column");
             conn.execute("ALTER TABLE memo DROP COLUMN body", [])
                 .expect("remove v4 column");
+            conn.execute("ALTER TABLE memo DROP COLUMN pending_operation_id", [])
+                .expect("remove v6 column");
             conn.execute("ALTER TABLE revision_index DROP COLUMN content", [])
                 .expect("remove v5 content column");
             conn.execute(

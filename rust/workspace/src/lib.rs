@@ -52,7 +52,8 @@ pub use limits::{
 pub use lomo_record::{
     HistorySnapshotV1, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LOMO_MAX_PAYLOAD_BYTES, LomoLayoutVersion,
     LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, hex_encode,
-    isolate_corrupt_record, read_record, write_layout_head_v2, write_record_atomic,
+    history_record_filename, isolate_corrupt_record, read_record, write_layout_head_v2,
+    write_record_atomic,
 };
 pub use migration_v2::{
     MigrationAction, MigrationCrashPoint, MigrationResult, all_migration_actions,
