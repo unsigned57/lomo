@@ -165,11 +165,9 @@ internal class MemoUiImageContentResolver {
     ): Any {
         val relativePath = normalizeRelativePath(normalizedImageUrl, removeParentSegments = false)
         val candidateBasePaths = buildCandidateBasePaths(isWikiStyle, rootPath, imagePath, relativePath)
-        val contentUriFallback =
-            normalizedImageUrl.takeIf { containsContentUriBase(candidateBasePaths) }
 
         return resolveExistingRelativeFile(candidateBasePaths, relativePath)
-            ?: contentUriFallback
+            ?: resolveRelativeContentUri(candidateBasePaths, relativePath)
             ?: resolveFallbackRelativeFile(candidateBasePaths, relativePath)
             ?: normalizedImageUrl
     }
@@ -215,6 +213,26 @@ internal class MemoUiImageContentResolver {
 
 private fun containsContentUriBase(candidateBasePaths: List<String>): Boolean =
     candidateBasePaths.any { basePath -> basePath.startsWith(CONTENT_URI_PREFIX) }
+
+private fun resolveRelativeContentUri(
+    candidateBasePaths: List<String>,
+    relativePath: String,
+): String? =
+    candidateBasePaths.firstNotNullOfOrNull { basePath ->
+        if (basePath.startsWith(CONTENT_URI_PREFIX)) {
+            // behavior-contract: silent-result-ok: non-tree URI or malformed URI syntax falls back to next candidate
+            runCatching {
+                val rootUri = Uri.parse(basePath)
+                val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(rootUri)
+                    ?: return@firstNotNullOfOrNull null
+                val normalized = normalizeRelativePath(relativePath, removeParentSegments = false)
+                val docId = if (treeDocId.endsWith('/')) "$treeDocId$normalized" else "$treeDocId/$normalized"
+                android.provider.DocumentsContract.buildDocumentUriUsingTree(rootUri, docId).toString()
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
 
 private fun resolveExistingRelativeFile(
     candidateBasePaths: List<String>,

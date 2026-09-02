@@ -36,10 +36,12 @@ fun MemoCardEntry(
         content = memo.content,
         processedContent = uiModel.processedContent,
         renderDocument = uiModel.renderDocument,
+        presentationPlan = uiModel.presentationPlan,
         timestamp = memo.timestamp,
         dateFormat = dateFormat,
         timeFormat = timeFormat,
         isPinned = memo.isPinned,
+        isPending = memo.isPending,
         tags = uiModel.tags,
         reminders = uiModel.reminders,
         modifier = modifier

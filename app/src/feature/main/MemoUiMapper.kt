@@ -108,13 +108,19 @@ class MemoUiMapper(
                     imagePath = imagePath,
                     imageMap = imageMap,
                 )
+            val presentationPlan =
+                com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan(
+                    document = renderDocument,
+                    policy = com.lomo.ui.component.markdown.MarkdownPresentationPolicy.MEMO_CARD,
+                )
             val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
-            val collapsedSummary = buildMemoCardCollapsedSummary(renderDocument)
+            val collapsedSummary = buildMemoCardCollapsedSummary(presentationPlan)
 
             return MemoUiModel(
                 memo = memo,
                 processedContent = processedContent,
                 renderDocument = renderDocument,
+                presentationPlan = presentationPlan,
                 tags = memo.tags.toImmutableList(),
                 imageUrls = imageUrls,
                 shouldShowExpand = shouldShowExpand,

@@ -691,6 +691,11 @@ data class MemoUiModel(
     val memo: Memo,
     val processedContent: String,
     val renderDocument: com.lomo.domain.model.markdown.MarkdownRenderDocument,
+    val presentationPlan: com.lomo.ui.component.markdown.MarkdownIrPresentationPlan =
+        com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan(
+            document = renderDocument,
+            policy = com.lomo.ui.component.markdown.MarkdownPresentationPolicy.MEMO_CARD,
+        ),
     val tags: ImmutableList<String>,
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val shouldShowExpand: Boolean = false,

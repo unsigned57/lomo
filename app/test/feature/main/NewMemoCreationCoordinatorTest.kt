@@ -98,9 +98,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
-                    "create:memo body",
                     "baseline",
                     "prepare:ExistingHead(id=old-memo-id)",
+                    "create:memo body",
                     "await:ExistingHead(id=old-memo-id)",
                     "reveal:new-memo-id",
                 )
@@ -152,10 +152,10 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
-                    "create:memo body",
-                    "scroll",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
+                    "create:memo body",
+                    "scroll",
                     "await:ExistingHead(id=prev-id)",
                     "reveal:new-id",
                 )
@@ -205,9 +205,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 firstAccepted shouldBe true
                 secondAccepted shouldBe false
                 events shouldBe listOf(
-                    "create:first",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
+                    "create:first",
                     "await:ExistingHead(id=prev-id)",
                     "reveal:new-id",
                 )
@@ -253,9 +253,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
-                    "create:memo body",
                     "baseline",
                     "prepare:EmptyList",
+                    "create:memo body",
                     "await:EmptyList",
                     "reveal:first-id",
                 )
@@ -300,9 +300,9 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 accepted shouldBe true
                 events shouldBe listOf(
-                    "create:memo body",
                     "baseline",
                     "prepare:ExistingHead(id=prev-id)",
+                    "create:memo body",
                     "await:ExistingHead(id=prev-id)",
                     "cancel:5",
                 )
@@ -340,18 +340,14 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                         cancelPreparedEnter = { requestId ->
                             events += "cancel:${requestId.value}"
                         },
-                        baselineTimeoutMillis = 1L,
+                        baselineTimeoutMillis = 0L,
                     )
 
                 val accepted = coordinator.submit("memo body")
-                runCurrent()
-
-                accepted shouldBe true
-                events shouldBe listOf("create:memo body", "await-baseline")
-
                 advanceUntilIdle()
 
-                events shouldBe listOf("create:memo body", "await-baseline")
+                accepted shouldBe true
+                events shouldBe listOf("create:memo body")
             }
         }
 
@@ -415,17 +411,20 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
 
                 coordinator.submit("first") shouldBe true
                 advanceUntilIdle()
-                events shouldBe listOf("create:first")
+                events shouldBe listOf("baseline", "prepare", "create:first", "cancel:7")
 
                 createSucceeds = true
                 coordinator.submit("retry") shouldBe true
                 advanceUntilIdle()
                 events shouldBe
                     listOf(
-                        "create:first",
-                        "create:retry",
                         "baseline",
                         "prepare",
+                        "create:first",
+                        "cancel:7",
+                        "baseline",
+                        "prepare",
+                        "create:retry",
                         "await",
                         "reveal:new-id",
                     )

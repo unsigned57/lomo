@@ -46,19 +46,22 @@ internal class NewMemoCreationCoordinator<T>(
             var preparedEnterResolved = false
             try {
                 val wasAtTop = isListAtAbsoluteTop()
+                val baseline = withTimeoutOrNull(baselineTimeoutMillis) { awaitTopBaseline() }
+                if (baseline != null) {
+                    preparedEnterRequest = prepareNewTopEnter(baseline)
+                }
                 if (!createMemo(request, wasAtTop)) {
                     return@launch
                 }
                 if (!isListAtAbsoluteTop()) {
                     scrollListToAbsoluteTop()
                 }
-                val baseline = withTimeoutOrNull(baselineTimeoutMillis) { awaitTopBaseline() }
-                    ?: return@launch
-                preparedEnterRequest = prepareNewTopEnter(baseline)
-                val newTopId = awaitNewTopItem(baseline)
-                if (newTopId != null) {
-                    revealNewTopItem(newTopId)
-                    preparedEnterResolved = true
+                if (baseline != null) {
+                    val newTopId = awaitNewTopItem(baseline)
+                    if (newTopId != null) {
+                        revealNewTopItem(newTopId)
+                        preparedEnterResolved = true
+                    }
                 }
             } finally {
                 if (!preparedEnterResolved) {

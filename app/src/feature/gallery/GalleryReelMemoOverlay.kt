@@ -262,6 +262,7 @@ private fun GalleryReelTextPanelContent(
             }
             MarkdownRenderer(
                 document = memo.renderDocument,
+                presentationPlan = memo.presentationPlan,
                 onTodoClick = stableTodoClick,
                 modifier = Modifier.fillMaxWidth(),
                 mediaPresentationResolver = MemoMarkdownMediaAdapter.resolver,

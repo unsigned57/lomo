@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
+import com.lomo.domain.model.detail
 import org.koin.compose.koinInject
 
 /**
@@ -73,21 +74,3 @@ private fun EngineDiagnosticEventRow(event: EngineDiagnosticEvent) {
         )
     }
 }
-
-private fun EngineDiagnosticEvent.detail(): String =
-    when (this) {
-        is EngineDiagnosticEvent.Committed ->
-            "committed · revision=$coreRevision · scopes=${scopes.joinToString(",").ifEmpty { "-" }}"
-        is EngineDiagnosticEvent.Rejected ->
-            buildString {
-                append("rejected · ${failure.code} · ${failure.category.wireValue}")
-                append(" · retry=${failure.retryDisposition.wireValue}")
-                failure.operationId?.let { append(" · op=$it") }
-                failure.jobId?.let { append(" · job=$it") }
-                if (failure.diagnostic.isNotBlank()) {
-                    append("\n${failure.diagnostic}")
-                }
-            }
-        is EngineDiagnosticEvent.Stalled ->
-            "stalled · no terminal acknowledgement within the submission budget"
-    }

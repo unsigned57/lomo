@@ -98,10 +98,13 @@ class MemoEditorViewModel(
         }
     }
 
+        private var draftJob: kotlinx.coroutines.Job? = null
+
         fun saveDraft(text: String) {
             hasLocalDraftMutation = true
             _draftText.value = text
-            viewModelScope.launch {
+            draftJob?.cancel()
+            draftJob = viewModelScope.launch {
                 setDraftTextUseCase(text)
             }
         }
@@ -109,7 +112,8 @@ class MemoEditorViewModel(
         fun clearDraft() {
             hasLocalDraftMutation = true
             _draftText.value = ""
-            viewModelScope.launch {
+            draftJob?.cancel()
+            draftJob = viewModelScope.launch {
                 setDraftTextUseCase(null)
             }
         }
