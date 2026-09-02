@@ -206,7 +206,6 @@ fun WithDraggableScrollbar(
             value =
                 estimator.update(
                     snapshot = snapshot,
-                    contentGeneration = contentGeneration,
                     totalItemsCountOverride = totalItemsCountOverride,
                     scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
                 )
