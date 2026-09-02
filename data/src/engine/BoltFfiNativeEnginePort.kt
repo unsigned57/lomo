@@ -508,7 +508,9 @@ internal class BoltFfiNativeEnginePort(
 
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit =
+        // Direct writes are one synchronous nine-step call; no mid-flight publication exists.
         withReadLease { engine -> engine.applyMemoCommand(command) }
 
     override fun commitSafProjectionMutation(
@@ -516,6 +518,17 @@ internal class BoltFfiNativeEnginePort(
         projection: com.lomo.nativebridge.StoreSafMemoProjection?,
     ): com.lomo.nativebridge.StoreMemoCommit =
         withReadLease { engine -> engine.commitSafProjectionMutation(command, projection) }
+
+    override fun beginSafMemoCreate(
+        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
+    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult =
+        withReadLease { engine -> engine.beginSafMemoCreate(begin) }
+
+    override fun rollbackSafMemoCreate(
+        operationId: String,
+        memoId: String,
+    ): com.lomo.nativebridge.StoreSafMemoRollbackResult =
+        withReadLease { engine -> engine.rollbackSafMemoCreate(operationId, memoId) }
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         withReadLease { engine -> engine.startRebuild(batchSize) }

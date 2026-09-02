@@ -1139,7 +1139,15 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         isContentUri = { it.startsWith("content://") },
                     )
                 try {
-                    refreshFailed.await(5, TimeUnit.SECONDS) shouldBe true
+                    refreshFailed.await(10, TimeUnit.SECONDS) shouldBe true
+                    withContext(Dispatchers.Default) {
+                        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                        while (session.projectionFreshness.value !is ProjectionFreshness.Stale &&
+                            System.nanoTime() < deadline
+                        ) {
+                            Thread.sleep(10)
+                        }
+                    }
                     advanceUntilIdle()
 
                     session.readiness.value shouldBe
@@ -1865,10 +1873,151 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     )
                     promotedPlans shouldBe listOf(plan)
                     promotedOpIds shouldBe listOf("op-create-media")
-                    // Ordering is the P4-04 law: promote commits before the memo body write starts.
-                    candidate.commandEvents shouldBe listOf("promote", "document")
+                    // Ordering law: the pending projection publishes first, promote commits
+                    // before the memo body write starts, and the projection commit lands last.
+                    candidate.commandEvents shouldBe listOf("begin", "promote", "document")
                     candidate.lastDocumentCommand.shouldBeInstanceOf<WorkspaceNativeCommandSpec.Create>()
                     candidate.safProjectionCommits.last().second?.memoId shouldBe created.identity
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given a SAF create when the engine publishes its pending projection then the publication lands before the durable commit") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-pending").toFile()
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                val epoch = 1_754_300_000_000L
+                val local = Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault())
+                val createdTimePart =
+                    local.toLocalTime().format(StorageTimestampFormats.formatter(StorageTimestampFormats.DEFAULT_PATTERN))
+                val datePath =
+                    "${local.toLocalDate().format(StorageFilenameFormats.formatter(StorageFilenameFormats.DEFAULT_PATTERN))}.md"
+                val created =
+                    workspaceSnapshot(
+                        path = datePath,
+                        identity = "${datePath.removeSuffix(".md")}_${createdTimePart}_0",
+                        fingerprint = "b".repeat(64),
+                        content = "created",
+                        timePart = createdTimePart,
+                    )
+                val candidate = SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(1uL, 1uL))
+                val projectionRebuilt = CountDownLatch(1)
+                candidate.onSafProjectionRebuild = projectionRebuilt::countDown
+                try {
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                if (request.workspace == null) {
+                                    testRustEngineAdapter(SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection))
+                                } else {
+                                    testRustEngineAdapter(candidate)
+                                }
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(tree)
+                    projectionRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    candidate.documentResult = commandResult(created)
+                    val publications = mutableListOf<com.lomo.nativebridge.StoreMemoCommit>()
+                    session.applyMemoCommand(
+                        bridgeMemoCommand(
+                            operationId = "saf-create",
+                            kind = com.lomo.nativebridge.StoreMemoCommandKind.CREATE,
+                            memoId = "client-id",
+                            expectedRevision = 0uL,
+                            content = "created",
+                            chronologyEpochMs = epoch,
+                        ),
+                        onPublication = { publications += it },
+                    )
+
+                    val begin = candidate.safBegins.single()
+                    begin.sourcePath shouldBe datePath
+                    begin.operationId shouldBe "saf-create"
+                    begin.body shouldBe "created"
+                    publications.single().memoId shouldBe created.identity
+                    publications.single().coreRevision shouldBe 1uL
+                    publications.single().eventSequence shouldBe 1uL
+                    publications.single().scopes shouldBe listOf("memo_list", "search", "tags", "stats")
+                    candidate.safProjectionCommits.single().first.memoId shouldBe created.identity
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given a failing SAF create when the document write fails then the pending projection rolls back and the cause propagates") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-saf-rollback").toFile()
+                val tree = StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
+                val epoch = 1_754_300_000_000L
+                val local = Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault())
+                val createdTimePart =
+                    local.toLocalTime().format(StorageTimestampFormats.formatter(StorageTimestampFormats.DEFAULT_PATTERN))
+                val datePath =
+                    "${local.toLocalDate().format(StorageFilenameFormats.formatter(StorageFilenameFormats.DEFAULT_PATTERN))}.md"
+                val created =
+                    workspaceSnapshot(
+                        path = datePath,
+                        identity = "${datePath.removeSuffix(".md")}_${createdTimePart}_0",
+                        fingerprint = "b".repeat(64),
+                        content = "created",
+                        timePart = createdTimePart,
+                    )
+                val candidate = SessionFakeNativeEnginePort(NativeEngineSnapshot.Ready(1uL, 1uL))
+                val projectionRebuilt = CountDownLatch(1)
+                candidate.onSafProjectionRebuild = projectionRebuilt::countDown
+                try {
+                    val session =
+                        ManagedEngineSession(
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                if (request.workspace == null) {
+                                    testRustEngineAdapter(SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection))
+                                } else {
+                                    testRustEngineAdapter(candidate)
+                                }
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+                            isContentUri = { it.startsWith("content://") },
+                        )
+                    session.activateWorkspace(tree)
+                    projectionRebuilt.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    candidate.documentResult = commandResult(created)
+                    candidate.documentCommandFailure = IllegalStateException("SAF write failed")
+                    val publications = mutableListOf<com.lomo.nativebridge.StoreMemoCommit>()
+                    val failure =
+                        kotlin.runCatching {
+                            session.applyMemoCommand(
+                                bridgeMemoCommand(
+                                    operationId = "saf-create",
+                                    kind = com.lomo.nativebridge.StoreMemoCommandKind.CREATE,
+                                    memoId = "client-id",
+                                    expectedRevision = 0uL,
+                                    content = "created",
+                                    chronologyEpochMs = epoch,
+                                ),
+                                onPublication = { publications += it },
+                            )
+                        }.exceptionOrNull()
+
+                    failure?.message shouldBe "SAF write failed"
+                    candidate.safRollbacks.single() shouldBe ("saf-create" to created.identity)
+                    publications.map { it.coreRevision } shouldBe listOf(1uL, 3uL)
+                    publications.last().scopes shouldBe listOf("memo_list", "search", "tags", "stats")
+                    candidate.safProjectionCommits shouldBe emptyList()
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -2291,6 +2440,10 @@ private class SessionFakeNativeEnginePort(
     val memoSnapshots = mutableMapOf<String, com.lomo.nativebridge.StoreMemoSnapshot>()
     val sourceDocumentFingerprints = mutableMapOf<String, String>()
     var directApplyCount: Int = 0
+    val safBegins = mutableListOf<com.lomo.nativebridge.StoreSafMemoCreateBegin>()
+    val safRollbacks = mutableListOf<Pair<String, String>>()
+    var safBeginResult: com.lomo.nativebridge.StoreSafMemoCreateBeginResult? = null
+    var documentCommandFailure: Throwable? = null
     val safProjectionCommits =
         mutableListOf<
             Pair<
@@ -2451,6 +2604,7 @@ private class SessionFakeNativeEnginePort(
         command: WorkspaceNativeCommandSpec,
         deadlineMillis: ULong,
     ): String {
+        documentCommandFailure?.let { throw it }
         lastExpectedState = expectedState
         lastExpectedFingerprint = (expectedState as? WorkspaceNativeExpectedState.Match)?.fingerprint
         lastDocumentCommand = command
@@ -2506,9 +2660,37 @@ private class SessionFakeNativeEnginePort(
 
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit {
         directApplyCount += 1
         return fakeCommit(command)
+    }
+
+    override fun beginSafMemoCreate(
+        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
+    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult {
+        commandEvents += "begin"
+        safBegins += begin
+        return safBeginResult ?: com.lomo.nativebridge.StoreSafMemoCreateBeginResult(
+            memoId = "${begin.dateKey}_${begin.timePart}_0",
+            coreRevision = 1uL,
+            eventSequence = 1uL,
+            scopes = listOf("memo_list", "search", "tags", "stats"),
+            idempotentReplay = false,
+        )
+    }
+
+    override fun rollbackSafMemoCreate(
+        operationId: String,
+        memoId: String,
+    ): com.lomo.nativebridge.StoreSafMemoRollbackResult {
+        safRollbacks += operationId to memoId
+        return com.lomo.nativebridge.StoreSafMemoRollbackResult(
+            removed = true,
+            coreRevision = 3uL,
+            eventSequence = 3uL,
+            scopes = listOf("memo_list", "search", "tags", "stats"),
+        )
     }
 
     override fun commitSafProjectionMutation(
@@ -2673,6 +2855,7 @@ private fun storeSnapshot(
                 tags = snapshot.tags,
                 imageUrls = snapshot.attachments,
                 reminders = emptyList(),
+                isPending = false,
             ),
         body = snapshot.content,
     )

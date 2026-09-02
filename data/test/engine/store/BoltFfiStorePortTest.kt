@@ -143,7 +143,10 @@ private class RecordingStoreNativeBridge : StoreNativeBridge {
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = sidebar
 
-    override fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit {
+    override fun applyMemoCommand(
+        command: BridgeMemoCommand,
+        onPublication: (BridgeMemoCommit) -> Unit,
+    ): BridgeMemoCommit {
         lastCommand = command
         failure?.let { throw it }
         return commit
@@ -182,6 +185,7 @@ private fun bridgeSummary(
         tags = listOf("work"),
         imageUrls = listOf("images/a.png"),
         reminders = emptyList(),
+        isPending = false,
     )
 
 class BoltFfiStorePortTest : FunSpec({

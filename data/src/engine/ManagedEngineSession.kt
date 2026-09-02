@@ -406,13 +406,14 @@ internal class ManagedEngineSession(
 
     protected override fun applyActiveMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter ->
             val location = checkNotNull(_activeWorkspaceLocation.value) {
                 "Ready workspace has no active storage location"
             }
             if (isContentUri(location.raw)) {
-                applySafMemoCommandOnSafAdapter(adapter, command)
+                applySafMemoCommandOnSafAdapter(adapter, command, onPublication)
             } else {
                 adapter.applyMemoCommand(command)
             }

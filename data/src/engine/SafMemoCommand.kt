@@ -23,6 +23,7 @@ internal fun WorkspaceNativeAdapter.scanAllMemoSnapshots(
 internal fun applySafMemoCommandOnSafAdapter(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
+    onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit = {},
 ): com.lomo.nativebridge.StoreMemoCommit {
     if (command.pendingPromotes.isNotEmpty()) {
         require(
@@ -32,13 +33,18 @@ internal fun applySafMemoCommandOnSafAdapter(
         ) {
             "SAF memo mutation kind ${command.kind} must not carry pendingPromotes"
         }
-        adapter.promoteSafMedia(command.pendingPromotes, command.operationId)
     }
     return when (command.kind) {
-        com.lomo.nativebridge.StoreMemoCommandKind.CREATE -> createSafMemo(adapter, command)
+        com.lomo.nativebridge.StoreMemoCommandKind.CREATE ->
+            createSafMemo(adapter, command, onPublication)
         com.lomo.nativebridge.StoreMemoCommandKind.UPDATE,
-        com.lomo.nativebridge.StoreMemoCommandKind.HISTORY_RESTORE ->
+        com.lomo.nativebridge.StoreMemoCommandKind.HISTORY_RESTORE,
+        -> {
+            if (command.pendingPromotes.isNotEmpty()) {
+                adapter.promoteSafMedia(command.pendingPromotes, command.operationId)
+            }
             replaceSafMemo(adapter, command, requireCurrentMemo(adapter, command, mustBeTrashed = false))
+        }
         com.lomo.nativebridge.StoreMemoCommandKind.DELETE ->
             deleteSafMemo(adapter, command, requireCurrentMemo(adapter, command, mustBeTrashed = false))
         com.lomo.nativebridge.StoreMemoCommandKind.RESTORE ->
@@ -50,13 +56,24 @@ internal fun applySafMemoCommandOnSafAdapter(
                 requireCurrentMemo(adapter, command, mustBeTrashed = true),
             )
         com.lomo.nativebridge.StoreMemoCommandKind.PIN,
-        com.lomo.nativebridge.StoreMemoCommandKind.UNPIN -> adapter.commitSafProjectionMutation(command, null)
+        com.lomo.nativebridge.StoreMemoCommandKind.UNPIN,
+        -> adapter.commitSafProjectionMutation(command, null)
     }
 }
 
+/**
+ * Creates one SAF memo as begin → promote → document write → projection commit.
+ *
+ * Begin publishes the pending projection and allocates the identity before any durable platform
+ * I/O, so the memo is list-visible while the slow SAF work is still running. The document command
+ * and the projection commit must then both agree on that one identity; any failure — including the
+ * identity disagreeing with the parsed document — rolls the pending row back so the list never
+ * keeps a memo that never became durable.
+ */
 private fun createSafMemo(
     adapter: RustEngineAdapter,
     command: com.lomo.nativebridge.StoreMemoCommand,
+    onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
 ): com.lomo.nativebridge.StoreMemoCommit {
     val chronology = requireNotNull(command.chronologyEpochMs) { "SAF create requires chronologyEpochMs" }
     require(chronology > 0) { "SAF create chronologyEpochMs must be positive" }
@@ -70,35 +87,103 @@ private fun createSafMemo(
         StorageTimestampFormats.formatter(StorageTimestampFormats.DEFAULT_PATTERN),
     )
     val path = "$dateKey.md"
-    val sourceFingerprint = adapter.sourceDocumentFingerprint(path)
-    val specification =
-        sourceFingerprint?.let {
-            WorkspaceNativeCommandSpec.Append(
+
+    val begin = adapter.beginSafMemoCreate(
+        com.lomo.nativebridge.StoreSafMemoCreateBegin(
+            operationId = command.operationId,
+            dateKey = dateKey,
+            timePart = timePart,
+            chronologyEpochMs = chronology,
+            sourcePath = path,
+            body = content,
+        ),
+    )
+    onPublication(begin.toCreatePublication(command.operationId))
+    return try {
+        if (command.pendingPromotes.isNotEmpty()) {
+            adapter.promoteSafMedia(command.pendingPromotes, command.operationId)
+        }
+        val sourceFingerprint = adapter.sourceDocumentFingerprint(path)
+        val specification =
+            sourceFingerprint?.let {
+                WorkspaceNativeCommandSpec.Append(
+                    timePart = timePart,
+                    content = content,
+                    history = WorkspaceNativeHistoryWrite(revision = 1uL, createdAtMs = chronology),
+                )
+            } ?: WorkspaceNativeCommandSpec.Create(
                 timePart = timePart,
                 content = content,
                 history = WorkspaceNativeHistoryWrite(revision = 1uL, createdAtMs = chronology),
             )
-        } ?: WorkspaceNativeCommandSpec.Create(
-            timePart = timePart,
-            content = content,
-            history = WorkspaceNativeHistoryWrite(revision = 1uL, createdAtMs = chronology),
+        val expectedState =
+            sourceFingerprint?.let(WorkspaceNativeExpectedState::Match)
+                ?: WorkspaceNativeExpectedState.Absent
+        val result = adapter.executeDocumentCommand(path, expectedState, specification)
+        val affected = result.requireAffectedMemo(path = path, identity = begin.memoId)
+        val projection =
+            affected.toSafProjection(
+                documentFingerprint = result.resultFingerprint,
+                chronologyEpochMs = chronology,
+                body = content,
+            )
+        adapter.commitSafProjectionMutation(
+            command.copy(memoId = begin.memoId),
+            projection.toBridge(),
         )
-    val expectedState =
-        sourceFingerprint?.let(WorkspaceNativeExpectedState::Match)
-            ?: WorkspaceNativeExpectedState.Absent
-    val result = adapter.executeDocumentCommand(path, expectedState, specification)
-    val affected = result.requireAffectedMemo(path = path)
-    val projection =
-        affected.toSafProjection(
-            documentFingerprint = result.resultFingerprint,
-            chronologyEpochMs = chronology,
-            body = content,
-        )
-    return adapter.commitSafProjectionMutation(
-        command.copy(memoId = affected.identity),
-        projection.toBridge(),
-    )
+    } catch (failure: Exception) {
+        rollbackPendingSafCreate(adapter, command, begin.memoId, onPublication, failure)
+        throw failure
+    }
 }
+
+/** Rolls the pending row back after a failed pipeline; a rollback failure cannot mask the cause. */
+private fun rollbackPendingSafCreate(
+    adapter: RustEngineAdapter,
+    command: com.lomo.nativebridge.StoreMemoCommand,
+    memoId: String,
+    onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
+    failure: Exception,
+) {
+    try {
+        val rollback = adapter.rollbackSafMemoCreate(command.operationId, memoId)
+        if (rollback.removed) {
+            onPublication(rollback.toRollbackPublication(command.operationId, memoId))
+        }
+    } catch (rollbackFailure: Exception) {
+        if (rollbackFailure is kotlinx.coroutines.CancellationException) throw rollbackFailure
+        failure.addSuppressed(rollbackFailure)
+    }
+}
+
+private fun com.lomo.nativebridge.StoreSafMemoCreateBeginResult.toCreatePublication(
+    operationId: String,
+): com.lomo.nativebridge.StoreMemoCommit =
+    com.lomo.nativebridge.StoreMemoCommit(
+        operationId = operationId,
+        memoId = memoId,
+        coreRevision = coreRevision,
+        eventSequence = eventSequence,
+        contentRevision = 1uL,
+        fileFingerprint = "",
+        scopes = scopes,
+        idempotentReplay = idempotentReplay,
+    )
+
+private fun com.lomo.nativebridge.StoreSafMemoRollbackResult.toRollbackPublication(
+    operationId: String,
+    memoId: String,
+): com.lomo.nativebridge.StoreMemoCommit =
+    com.lomo.nativebridge.StoreMemoCommit(
+        operationId = operationId,
+        memoId = memoId,
+        coreRevision = coreRevision,
+        eventSequence = eventSequence,
+        contentRevision = 0uL,
+        fileFingerprint = "",
+        scopes = scopes,
+        idempotentReplay = false,
+    )
 
 private fun replaceSafMemo(
     adapter: RustEngineAdapter,

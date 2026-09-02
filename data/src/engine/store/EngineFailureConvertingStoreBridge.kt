@@ -46,8 +46,10 @@ internal class EngineFailureConvertingStoreBridge(
     ): com.lomo.nativebridge.StoreMemoHistoryPage =
         withEngineFailureConversion { delegate.listMemoHistory(memoId, cursor, limit) }
 
-    override fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit =
-        withEngineFailureConversion { delegate.applyMemoCommand(command) }
+    override fun applyMemoCommand(
+        command: BridgeMemoCommand,
+        onPublication: (BridgeMemoCommit) -> Unit,
+    ): BridgeMemoCommit = withEngineFailureConversion { delegate.applyMemoCommand(command, onPublication) }
 
     override fun commitSafProjectionMutation(
         command: BridgeMemoCommand,

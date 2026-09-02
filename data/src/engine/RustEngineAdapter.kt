@@ -257,34 +257,6 @@ internal class RustEngineAdapter private constructor(
         }
     }
 
-    fun storeProjectionRevision(): ULong =
-        native.queryMemos(
-            query =
-                com.lomo.nativebridge.StoreMemoQuery(
-                    searchText = null,
-                    filters =
-                        com.lomo.nativebridge.StoreMemoFilters(
-                            tag = null,
-                            tagSubtree = false,
-                            dateFromInclusiveMs = null,
-                            dateUntilExclusiveMs = null,
-                            hasTodo = null,
-                            hasAttachment = null,
-                            hasUrl = null,
-                            pinnedOnly = false,
-                            includeTrash = false,
-                            trashOnly = false,
-                        ),
-                    sort =
-                        com.lomo.nativebridge.StoreMemoSort(
-                            field = com.lomo.nativebridge.StoreMemoSortField.CREATED_AT,
-                            direction = com.lomo.nativebridge.StoreSortDirection.DESCENDING,
-                        ),
-                ),
-            cursor = null,
-            pageSize = 1u,
-        ).highWaterRevision
-
     override fun startWorkspaceDocumentCommand(
         path: String,
         expectedState: WorkspaceNativeExpectedState,
@@ -367,13 +339,23 @@ internal class RustEngineAdapter private constructor(
 
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
-    ): com.lomo.nativebridge.StoreMemoCommit = native.applyMemoCommand(command)
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
+    ): com.lomo.nativebridge.StoreMemoCommit = native.applyMemoCommand(command, onPublication)
 
     override fun commitSafProjectionMutation(
         command: com.lomo.nativebridge.StoreMemoCommand,
         projection: com.lomo.nativebridge.StoreSafMemoProjection?,
     ): com.lomo.nativebridge.StoreMemoCommit =
         native.commitSafProjectionMutation(command, projection)
+
+    override fun beginSafMemoCreate(
+        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
+    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult = native.beginSafMemoCreate(begin)
+
+    override fun rollbackSafMemoCreate(
+        operationId: String,
+        memoId: String,
+    ): com.lomo.nativebridge.StoreSafMemoRollbackResult = native.rollbackSafMemoCreate(operationId, memoId)
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         native.startRebuild(batchSize)
@@ -734,3 +716,35 @@ internal fun String.toFailureCategory(): EngineFailureCategory =
 private fun String.toRetryDisposition(): EngineRetryDisposition =
     EngineRetryDisposition.fromWireOrNull(this)
         ?: error("Unknown Rust engine retry disposition: $this")
+
+/**
+ * Current store revision through the public query surface; callers use it to decide whether a
+ * fresh projection publication is required before an activation or rebuild completes.
+ */
+internal fun WorkspaceNativeAdapter.storeProjectionRevision(): ULong =
+    queryMemos(
+        query =
+            com.lomo.nativebridge.StoreMemoQuery(
+                searchText = null,
+                filters =
+                    com.lomo.nativebridge.StoreMemoFilters(
+                        tag = null,
+                        tagSubtree = false,
+                        dateFromInclusiveMs = null,
+                        dateUntilExclusiveMs = null,
+                        hasTodo = null,
+                        hasAttachment = null,
+                        hasUrl = null,
+                        pinnedOnly = false,
+                        includeTrash = false,
+                        trashOnly = false,
+                    ),
+                sort =
+                    com.lomo.nativebridge.StoreMemoSort(
+                        field = com.lomo.nativebridge.StoreMemoSortField.CREATED_AT,
+                        direction = com.lomo.nativebridge.StoreSortDirection.DESCENDING,
+                    ),
+            ),
+        cursor = null,
+        pageSize = 1u,
+    ).highWaterRevision

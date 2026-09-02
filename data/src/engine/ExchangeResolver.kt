@@ -121,7 +121,7 @@ internal class ExchangeResolver(
         return ExchangeArtifact(
             token = token,
             length = length,
-            digest = digest.digest().toHexLower(),
+            digest = digest.finishSha256Hex(),
         )
     }
 
@@ -190,11 +190,33 @@ internal fun InputStream.sha256Hex(): String {
         if (read <= 0) break
         digest.update(buffer, 0, read)
     }
-    return digest.digest().toHexLower()
+    return digest.finishSha256Hex()
 }
 
 internal fun ByteArray.sha256Hex(): String =
     MessageDigest.getInstance("SHA-256").digest(this).toHexLower()
 
-private fun ByteArray.toHexLower(): String =
-    joinToString(separator = "") { byte -> "%02x".format(byte) }
+/**
+ * Finishes a streaming hash and encodes it.
+ *
+ * [sha256Hex] *computes* a hash over content, so at a call site already holding a [MessageDigest]
+ * the reading of `digest().sha256Hex()` is plausible and wrong: it hashes the digest a second time.
+ * `ByteArray` cannot distinguish content from a digest of content, so the confusion is removed by
+ * never handing the raw digest bytes to a call site.
+ */
+internal fun MessageDigest.finishSha256Hex(): String = digest().toHexLower()
+
+private val HEX_CHARS = "0123456789abcdef".toCharArray()
+private const val BYTE_MASK = 0xFF
+private const val NIBBLE_SHIFT = 4
+private const val NIBBLE_MASK = 0x0F
+
+private fun ByteArray.toHexLower(): String {
+    val result = CharArray(size * 2)
+    for (i in indices) {
+        val byte = this[i].toInt() and BYTE_MASK
+        result[i * 2] = HEX_CHARS[byte ushr NIBBLE_SHIFT]
+        result[i * 2 + 1] = HEX_CHARS[byte and NIBBLE_MASK]
+    }
+    return String(result)
+}

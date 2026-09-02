@@ -6,6 +6,9 @@ import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
+import com.lomo.nativebridge.StoreSafMemoCreateBegin as BridgeSafMemoCreateBegin
+import com.lomo.nativebridge.StoreSafMemoCreateBeginResult as BridgeSafMemoCreateBeginResult
+import com.lomo.nativebridge.StoreSafMemoRollbackResult as BridgeSafMemoRollbackResult
 import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
@@ -37,12 +40,33 @@ internal interface StoreNativeBridge {
     fun listMemoHistory(memoId: String, cursor: String?, limit: UInt): com.lomo.nativebridge.StoreMemoHistoryPage =
         error("Store history capability is not available on this bridge")
 
-    fun applyMemoCommand(command: BridgeMemoCommand): BridgeMemoCommit
+    /**
+     * Applies one memo command.
+     *
+     * [onPublication] receives bridge commits the engine publishes while the command is still
+     * executing — currently the pending-create publication a SAF create emits before its durable
+     * platform I/O — so the caller can feed them to its invalidation bus mid-flight.
+     */
+    fun applyMemoCommand(
+        command: BridgeMemoCommand,
+        onPublication: (BridgeMemoCommit) -> Unit = {},
+    ): BridgeMemoCommit
 
     fun commitSafProjectionMutation(
         command: BridgeMemoCommand,
         projection: BridgeSafMemoProjection?,
     ): BridgeMemoCommit
+
+    /** Publishes the pending-create projection and allocates the create identity. */
+    fun beginSafMemoCreate(begin: BridgeSafMemoCreateBegin): BridgeSafMemoCreateBeginResult =
+        error("SAF pending create capability is not available on this bridge")
+
+    /** Removes a begun create's pending projection; `removed=false` when nothing was pending. */
+    fun rollbackSafMemoCreate(
+        operationId: String,
+        memoId: String,
+    ): BridgeSafMemoRollbackResult =
+        error("SAF pending create capability is not available on this bridge")
 
     fun startRebuild(batchSize: UInt): BridgeRebuildResult
 }

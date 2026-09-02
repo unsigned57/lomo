@@ -76,6 +76,7 @@ internal fun StoreMemoSummary.toDomainMemo(body: String): Memo {
         imageUrls = imageUrls,
         isPinned = isPinned,
         isDeleted = isTrashed,
+        isPending = isPending,
         geoLocation = null,
         reminders = reminders,
     )

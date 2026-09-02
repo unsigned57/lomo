@@ -989,6 +989,7 @@ private class FakeNativeEnginePort(
 
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit = error("store apply not expected")
 
     override fun commitSafProjectionMutation(

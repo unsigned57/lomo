@@ -18,6 +18,9 @@
  *   success instead of publishing the requested digest as evidence.
  * - Given a create allocates the final provider document but opening its output stream fails, when
  *   the boundary aborts, then that newly allocated final document is deleted.
+ * - Given a provider sanitizes or uniquifies the display name at create time, when a document is
+ *   created, then the boundary repairs the durable name onto the requested path by rename, or
+ *   fails closed and rolls back the created document instead of leaving a misnamed file.
  *
  * Observable outcomes:
  * - Returned document metadata/read bytes, write failure, ContentResolver stream opens, and
@@ -28,6 +31,8 @@
  *   selected file once for querySnapshot digest plus a second time for the returned bytes.
  * - RED on 2026-08-25 because a failed create left the provider-allocated final path as a zero-byte
  *   document, causing every durable retry to fail with target-exists conflict.
+ * - RED on 2026-09-02 because a provider-side display-name sanitize/uniquify silently detached
+ *   the durable filename from the record identity, poisoning every later workspace history scan.
  *
  * Excludes:
  * - Provider-specific paging order, moves, deletes, and Rust scan orchestration.
@@ -142,6 +147,81 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
             fixture.createdDocumentDeleteCount shouldBe 1
         }
 
+        test("given a provider sanitizes the created display name when a document is created then the boundary renames it onto the requested name") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubCreateWithDisplayName(initialName = "2026_08_06 (1).md", repairedName = FILE_NAME)
+
+            val snapshot =
+                fixture.gateway.writeFromExchange(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    bytes = FILE_BYTES,
+                    mode = WriteMode.CREATE,
+                    mimeType = "text/markdown",
+                )
+
+            snapshot.documentId shouldBe DOCUMENT_ID
+            snapshot.digest shouldBe sha256Hex(FILE_BYTES)
+            snapshot.length shouldBe FILE_BYTES.size.toULong()
+            fixture.createdDocumentRenameCount shouldBe 1
+            fixture.createdDocumentDeleteCount shouldBe 0
+        }
+
+        test("given a file source when written from file then snapshot digest witnesses single-pass hash") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubCreateWithDisplayName(initialName = FILE_NAME, repairedName = null)
+            val tempFile = kotlin.io.path.createTempFile(prefix = "write_test", suffix = ".md").toFile()
+            tempFile.writeBytes(FILE_BYTES)
+            tempFile.deleteOnExit()
+
+            val snapshot =
+                fixture.gateway.writeFromFile(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    source = tempFile,
+                    mode = WriteMode.CREATE,
+                    mimeType = "text/markdown",
+                )
+
+            snapshot.documentId shouldBe DOCUMENT_ID
+            snapshot.digest shouldBe sha256Hex(FILE_BYTES)
+            snapshot.length shouldBe FILE_BYTES.size.toULong()
+        }
+
+        test("given a provider cannot honor the requested name when a document is created then the write fails and rolls back") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubCreateWithDisplayName(initialName = "2026_08_06 (1).md", repairedName = null)
+
+            shouldThrow<IOException> {
+                fixture.gateway.writeFromExchange(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    bytes = FILE_BYTES,
+                    mode = WriteMode.CREATE,
+                    mimeType = "text/markdown",
+                )
+            }
+
+            fixture.createdDocumentDeleteCount shouldBe 1
+        }
+
+        test("given the requested name is occupied when a provider uniquified the create then the write fails and rolls back") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubCreateWithOccupiedRequestedName()
+
+            shouldThrow<IOException> {
+                fixture.gateway.writeFromExchange(
+                    treeUri = TREE_URI,
+                    path = FILE_NAME,
+                    bytes = FILE_BYTES,
+                    mode = WriteMode.CREATE,
+                    mimeType = "text/markdown",
+                )
+            }
+
+            fixture.createdDocumentDeleteCount shouldBe 1
+        }
+
         test("given listing cursor when children are listed then page respects cursor offset") {
             val fixture = ResolverFixture(FILE_BYTES)
             val cursor = mockk<Cursor>()
@@ -187,6 +267,8 @@ private class ResolverFixture(
     var parentQueryCount: Int = 0
         private set
     var createdDocumentDeleteCount: Int = 0
+        private set
+    var createdDocumentRenameCount: Int = 0
         private set
 
     init {
@@ -303,24 +385,7 @@ private class ResolverFixture(
     }
 
     fun stubFailedCreateWrite() {
-        val absentLookup = mockk<Cursor>()
-        every {
-            absentLookup.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-        } returns 0
-        every {
-            absentLookup.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-        } returns 1
-        every { absentLookup.moveToNext() } returns false
-        every { absentLookup.close() } returns Unit
-        every {
-            resolver.query(
-                childrenUri,
-                any<Array<String>>(),
-                null,
-                null,
-                null,
-            )
-        } returns absentLookup
+        stubAbsentChildLookup()
         every {
             DocumentsContract.buildDocumentUriUsingTree(rootUri, ROOT_DOCUMENT_ID)
         } returns documentUri
@@ -332,11 +397,145 @@ private class ResolverFixture(
                 FILE_NAME,
             )
         } returns documentUri
+        every {
+            resolver.query(
+                documentUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+        } returns displayNameCursor(FILE_NAME)
         every { resolver.openOutputStream(documentUri, "wt") } returns null
         every { DocumentsContract.deleteDocument(resolver, documentUri) } answers {
             createdDocumentDeleteCount += 1
             true
         }
+    }
+
+    /** Create flow whose provider sanitizes the requested display name at createDocument time. */
+    fun stubCreateWithDisplayName(
+        initialName: String,
+        repairedName: String?,
+    ) {
+        stubAbsentChildLookup()
+        every {
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, ROOT_DOCUMENT_ID)
+        } returns documentUri
+        every {
+            DocumentsContract.createDocument(
+                resolver,
+                documentUri,
+                any<String>(),
+                FILE_NAME,
+            )
+        } returns documentUri
+        every { resolver.query(documentUri, any<Array<String>>(), null, null, null) } returns
+            documentCursor(includeDisplayName = false)
+        stubDisplayNameQueries(initialName, repairedName)
+        every { resolver.openOutputStream(documentUri, "wt") } returns ByteArrayOutputStream()
+        if (repairedName != null) {
+            every {
+                DocumentsContract.renameDocument(resolver, documentUri, FILE_NAME)
+            } answers {
+                createdDocumentRenameCount += 1
+                documentUri
+            }
+        } else {
+            every {
+                DocumentsContract.renameDocument(resolver, documentUri, FILE_NAME)
+            } returns null
+        }
+        every { DocumentsContract.deleteDocument(resolver, documentUri) } answers {
+            createdDocumentDeleteCount += 1
+            true
+        }
+        every { resolver.openInputStream(documentUri) } answers {
+            inputStreamOpenCount += 1
+            ByteArrayInputStream(fileBytes)
+        }
+    }
+
+    /**
+     * Create flow where the provider uniquified against a document the path lookup missed, so
+     * the requested name is occupied when the display-name law runs.
+     */
+    fun stubCreateWithOccupiedRequestedName() {
+        var childQueries = 0
+        val foundLookup = lookupCursor()
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } answers {
+            childQueries += 1
+            if (childQueries == 1) absentLookup() else foundLookup
+        }
+        every {
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, ROOT_DOCUMENT_ID)
+        } returns documentUri
+        every {
+            DocumentsContract.createDocument(
+                resolver,
+                documentUri,
+                any<String>(),
+                FILE_NAME,
+            )
+        } returns documentUri
+        stubDisplayNameQueries(initialName = "2026_08_06 (1).md", repairedName = null)
+        every { DocumentsContract.deleteDocument(resolver, documentUri) } answers {
+            createdDocumentDeleteCount += 1
+            true
+        }
+    }
+
+    private fun stubAbsentChildLookup() {
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } returns absentLookup()
+    }
+
+    private fun absentLookup(): Cursor =
+        mockk<Cursor>().also { cursor ->
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            } returns 0
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            } returns 1
+            every { cursor.moveToNext() } returns false
+            every { cursor.close() } returns Unit
+        }
+
+    private fun displayNameCursor(name: String): Cursor =
+        mockk<Cursor>().also { cursor ->
+            every { cursor.moveToFirst() } returns true
+            every { cursor.getString(0) } returns name
+            every { cursor.close() } returns Unit
+        }
+
+    private fun stubDisplayNameQueries(
+        initialName: String,
+        repairedName: String?,
+    ) {
+        val displayNameProjection = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        // The generic projection stub is registered first so the specific display-name stubs
+        // win; the gateway queries the name twice when a rename repair is attempted.
+        every { resolver.query(documentUri, displayNameProjection, null, null, null) } returnsMany
+            listOf(
+                displayNameCursor(initialName),
+                displayNameCursor(repairedName ?: initialName),
+            )
     }
 
     private fun lookupCursor(): Cursor =

@@ -124,24 +124,22 @@ private fun verifyStagedFile(
         )
     }
     val observed = stagedFile.inputStream().buffered().use { input -> digestAndLengthOf(input) }
-    if (observed.length != staged.size.toLong()) {
-        throw engineCommandFailure(
-            category = EngineFailureCategory.VALIDATION,
-            code = "staged_media_size_mismatch",
-            retryDisposition = EngineRetryDisposition.NEVER,
-            diagnostic = "staged media file size mismatch at ${staged.stagingPath}",
-            operationId = operationId,
-        )
+    if (observed.length == staged.size.toLong() && observed.digest == staged.digest) {
+        return
     }
-    if (observed.digest != staged.digest) {
-        throw engineCommandFailure(
-            category = EngineFailureCategory.VALIDATION,
-            code = "staged_media_digest_mismatch",
-            retryDisposition = EngineRetryDisposition.NEVER,
-            diagnostic = "staged media file digest mismatch at ${staged.stagingPath}",
-            operationId = operationId,
-        )
-    }
+    val (code, fact) =
+        if (observed.length != staged.size.toLong()) {
+            "staged_media_size_mismatch" to "size"
+        } else {
+            "staged_media_digest_mismatch" to "digest"
+        }
+    throw engineCommandFailure(
+        category = EngineFailureCategory.VALIDATION,
+        code = code,
+        retryDisposition = EngineRetryDisposition.NEVER,
+        diagnostic = "staged media file $fact mismatch at ${staged.stagingPath}",
+        operationId = operationId,
+    )
 }
 
 private fun digestAndLengthOf(input: InputStream): DigestObservation {
@@ -155,7 +153,7 @@ private fun digestAndLengthOf(input: InputStream): DigestObservation {
         total += read
     }
     return DigestObservation(
-        digest = digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) },
+        digest = digest.finishSha256Hex(),
         length = total,
     )
 }

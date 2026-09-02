@@ -121,7 +121,10 @@ internal class BoltFfiStorePort(
         )
     }
 
-    override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit {
+    override fun applyMemoCommand(
+        command: StoreMemoCommand,
+        onPublication: (StoreMemoCommit) -> Unit,
+    ): StoreMemoCommit {
         // D4: same-operation promote requires a real operationId. Never mint when promotes are
         // present (blank mint would desync plan.operationId from the memo command).
         val operationId =
@@ -171,17 +174,10 @@ internal class BoltFfiStorePort(
                         },
                     chronologyEpochMs = command.chronologyEpochMs,
                 ),
-            )
-        return StoreMemoCommit(
-            operationId = result.operationId,
-            memoId = result.memoId,
-            coreRevision = result.coreRevision.toStoreLong("core_revision"),
-            eventSequence = result.eventSequence.toStoreLong("event_sequence"),
-            contentRevision = result.contentRevision.toStoreLong("content_revision"),
-            fileFingerprint = result.fileFingerprint,
-            scopes = result.scopes.map(String::toStoreInvalidationScope),
-            idempotentReplay = result.idempotentReplay,
-        )
+            ) { publication ->
+                onPublication(publication.toStoreCommit())
+            }
+        return result.toStoreCommit()
     }
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
@@ -215,6 +211,7 @@ internal class BoltFfiStorePort(
             tags = tags,
             imageUrls = imageUrls,
             reminders = reminders.map { reminder -> reminder.toDomainMarker() },
+            isPending = isPending,
         )
 
     private fun com.lomo.nativebridge.WorkspaceReminderReference.toDomainMarker():
@@ -258,7 +255,19 @@ internal class BoltFfiStorePort(
         }
 }
 
-private fun String.toStoreInvalidationScope(): StoreInvalidationScope =
+private fun com.lomo.nativebridge.StoreMemoCommit.toStoreCommit(): StoreMemoCommit =
+    StoreMemoCommit(
+        operationId = operationId,
+        memoId = memoId,
+        coreRevision = coreRevision.toStoreLong("core_revision"),
+        eventSequence = eventSequence.toStoreLong("event_sequence"),
+        contentRevision = contentRevision.toStoreLong("content_revision"),
+        fileFingerprint = fileFingerprint,
+        scopes = scopes.map(String::toStoreInvalidationScope),
+        idempotentReplay = idempotentReplay,
+    )
+
+internal fun String.toStoreInvalidationScope(): StoreInvalidationScope =
     when (this) {
         "memo_list" -> StoreInvalidationScope.MemoList
         "search" -> StoreInvalidationScope.Search
@@ -271,7 +280,7 @@ private fun String.toStoreInvalidationScope(): StoreInvalidationScope =
         else -> error("Unknown Rust store invalidation scope: $this")
     }
 
-private fun ULong.toStoreLong(field: String): Long {
+internal fun ULong.toStoreLong(field: String): Long {
     require(this <= Long.MAX_VALUE.toULong()) { "$field exceeds the Kotlin signed revision range" }
     return toLong()
 }

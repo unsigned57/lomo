@@ -66,8 +66,10 @@ private class FakeStorePort : StorePort {
 
     override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
 
-    override fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit =
-        error("not used")
+    override fun applyMemoCommand(
+        command: StoreMemoCommand,
+        onPublication: (StoreMemoCommit) -> Unit,
+    ): StoreMemoCommit = error("not used")
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult =
         StoreRebuildResult(

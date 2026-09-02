@@ -344,11 +344,13 @@ internal abstract class ManagedEngineCapabilities :
 
     protected abstract fun applyActiveMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit
 
     final override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
-    ): com.lomo.nativebridge.StoreMemoCommit = applyActiveMemoCommand(command)
+        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
+    ): com.lomo.nativebridge.StoreMemoCommit = applyActiveMemoCommand(command, onPublication)
 
     override fun commitSafProjectionMutation(
         command: com.lomo.nativebridge.StoreMemoCommand,

@@ -192,9 +192,10 @@ internal class ContentResolverPlatformDocumentsGateway(
         writeToDocument(treeUri, path, source.inputStream().buffered(), mode, mimeType)
 
     /**
-     * One write law for every source: stream the payload chunk-wise, hash the streamed bytes while
-     * writing, verify the persisted document by streaming readback digest, and roll back a document
-     * this write created when any step fails. Memory stays bounded by [WRITE_CHUNK_BYTES].
+     * One write law for every source: repair the created document onto the requested display
+     * name, stream the payload chunk-wise, hash the streamed bytes while writing, verify the
+     * persisted document by streaming readback digest, and roll back a document this write
+     * created when any step fails. Memory stays bounded by [WRITE_CHUNK_BYTES].
      */
     private fun writeToDocument(
         treeUri: String,
@@ -206,20 +207,31 @@ internal class ContentResolverPlatformDocumentsGateway(
         val root = treeUri.toAndroidUri()
         val existing = resolvePath(root, path)
         val target = resolveWriteTarget(root, treeUri, path, mode, existing, mimeType)
+        var targetUri = target.uri
         try {
+            if (target.createdByThisWrite) {
+                targetUri =
+                    repairDisplayName(
+                        root = root,
+                        documentUri = target.uri,
+                        parentDocId = resolveParentDocId(root, path),
+                        requestedName = path.substringAfterLast('/'),
+                        description = path,
+                    )
+            }
             val writtenDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
-            contentResolver.openOutputStream(target.uri, "wt")?.use { output ->
+            contentResolver.openOutputStream(targetUri, "wt")?.use { output ->
                 val buffer = ByteArray(WRITE_CHUNK_BYTES)
                 while (true) {
                     val read = source.read(buffer)
                     if (read < 0) break
-                    val chunk = if (read == buffer.size) buffer else buffer.copyOf(read)
-                    output.write(chunk)
-                    writtenDigest.update(chunk)
+                    output.write(buffer, 0, read)
+                    writtenDigest.update(buffer, 0, read)
                 }
             } ?: errorIo("openOutputStream returned null for $path")
+            val writtenDigestHex = writtenDigest.finishSha256Hex()
             val (persistedDigest, persistedLength) =
-                contentResolver.openInputStream(target.uri)?.use { input ->
+                contentResolver.openInputStream(targetUri)?.use { input ->
                     val readbackDigest = MessageDigest.getInstance(DIGEST_ALGORITHM)
                     val buffer = ByteArray(WRITE_CHUNK_BYTES)
                     var total = 0L
@@ -229,14 +241,14 @@ internal class ContentResolverPlatformDocumentsGateway(
                         readbackDigest.update(buffer, 0, read)
                         total += read
                     }
-                    readbackDigest.digest().sha256Hex() to total
+                    readbackDigest.finishSha256Hex() to total
                 } ?: errorIo("Written document cannot be reopened for verification: $path")
-            if (persistedDigest != writtenDigest.digest().sha256Hex()) {
+            if (persistedDigest != writtenDigestHex) {
                 errorIo("Written document readback does not match requested bytes: $path")
             }
-            val documentId = DocumentsContract.getDocumentId(target.uri)
+            val documentId = DocumentsContract.getDocumentId(targetUri)
             return querySnapshot(
-                documentUri = target.uri,
+                documentUri = targetUri,
                 target = WorkspaceTarget.Relative(path),
                 documentId = documentId,
                 digestMode = SnapshotDigestMode.METADATA_ONLY,
@@ -249,7 +261,7 @@ internal class ContentResolverPlatformDocumentsGateway(
         } catch (failure: Exception) {
             if (target.createdByThisWrite) {
                 try {
-                    if (!DocumentsContract.deleteDocument(contentResolver, target.uri)) {
+                    if (!DocumentsContract.deleteDocument(contentResolver, targetUri)) {
                         failure.addSuppressed(
                             IOException("Incomplete created document could not be deleted: $path"),
                         )
@@ -299,14 +311,28 @@ internal class ContentResolverPlatformDocumentsGateway(
                 ensureDirectory(treeUri, targetParentPath).documentId
             }
         val sourceParentDocId = resolveParentDocId(root, source)
-        val moved =
-            DocumentsContract.moveDocument(
-                contentResolver,
-                sourceResolved.uri,
-                DocumentsContract.buildDocumentUriUsingTree(root, sourceParentDocId),
-                DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
-            ) ?: errorIo("moveDocument returned null for $source -> $target")
-        renameIfNeeded(root, moved, targetName, target)
+        val targetExisting = resolvePath(root, target)
+        if (targetExisting != null && targetExisting.uri != sourceResolved.uri) {
+            DocumentsContract.deleteDocument(contentResolver, targetExisting.uri)
+        }
+        val targetDocUri =
+            if (sourceParentDocId == parentDocId) {
+                sourceResolved.uri
+            } else {
+                DocumentsContract.moveDocument(
+                    contentResolver,
+                    sourceResolved.uri,
+                    DocumentsContract.buildDocumentUriUsingTree(root, sourceParentDocId),
+                    DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
+                ) ?: errorIo("moveDocument returned null for $source -> $target")
+            }
+        repairDisplayName(
+            root = root,
+            documentUri = targetDocUri,
+            parentDocId = parentDocId,
+            requestedName = targetName,
+            description = target,
+        )
         return stat(treeUri, WorkspaceTarget.Relative(target))
             ?: errorIo("Moved document is not observable: $target")
     }
@@ -324,20 +350,29 @@ internal class ContentResolverPlatformDocumentsGateway(
         }
     }
 
-    private fun renameIfNeeded(
+    private fun repairDisplayName(
         root: Uri,
-        moved: Uri,
-        targetName: String,
-        target: String,
-    ) {
-        val movedName = queryDisplayName(root, DocumentsContract.getDocumentId(moved))
-        if (movedName != null && movedName != targetName) {
-            DocumentsContract.renameDocument(contentResolver, moved, targetName)
-                ?: errorIo("rename after move failed for $target")
+        documentUri: Uri,
+        parentDocId: String,
+        requestedName: String,
+        description: String,
+    ): Uri {
+        val initialName = queryDisplayName(documentUri)
+        if (initialName == null || initialName == requestedName) return documentUri
+        val existing = findChild(root, parentDocId, requestedName)
+        if (existing != null) {
+            errorIo("Cannot repair display name: $requestedName is occupied")
         }
+        val renamed =
+            DocumentsContract.renameDocument(contentResolver, documentUri, requestedName)
+                ?: errorIo("rename failed for $description")
+        val finalName = queryDisplayName(renamed)
+        if (finalName != requestedName) {
+            errorIo("rename did not honor requested display name for $description: got $finalName")
+        }
+        return renamed
     }
 
-    private fun errorIo(message: String): Nothing = throw IOException(message)
 
     override fun delete(
         treeUri: String,
@@ -415,13 +450,11 @@ internal class ContentResolverPlatformDocumentsGateway(
     }
 
     private fun queryDisplayName(
-        root: Uri,
-        documentId: String,
+        documentUri: Uri,
     ): String? {
-        val uri = DocumentsContract.buildDocumentUriUsingTree(root, documentId)
         contentResolver
             .query(
-                uri,
+                documentUri,
                 arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
                 null,
                 null,
@@ -567,6 +600,8 @@ private data class DocumentColumnIndices(
             )
     }
 }
+
+private fun errorIo(message: String): Nothing = throw IOException(message)
 
 private fun Cursor.seekToPosition(skip: Int): Boolean =
     try {

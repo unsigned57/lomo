@@ -61,6 +61,8 @@ data class StoreMemoSummary(
     val tags: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
     val reminders: List<com.lomo.domain.model.ReminderMarker> = emptyList(),
+    /** Published by a begun create whose durable commit has not landed yet. */
+    val isPending: Boolean = false,
 )
 
 data class StoreMemoPage(
@@ -200,7 +202,18 @@ interface StorePort {
     fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage =
         error("Store history capability is not available on this port")
 
-    fun applyMemoCommand(command: StoreMemoCommand): StoreMemoCommit
+    /**
+     * Applies one memo command.
+     *
+     * [onPublication] receives projection publications the engine emits while the command is still
+     * executing — currently the pending-create publication a SAF create publishes before its
+     * durable platform I/O. The caller feeds them to its invalidation bus so the list shows the
+     * begun memo immediately; the command's own commit is still the returned value.
+     */
+    fun applyMemoCommand(
+        command: StoreMemoCommand,
+        onPublication: (StoreMemoCommit) -> Unit = {},
+    ): StoreMemoCommit
 
     fun startRebuild(batchSize: Int): StoreRebuildResult
 }
