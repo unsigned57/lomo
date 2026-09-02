@@ -110,4 +110,5 @@
         <item quantity="other">%1$d 天前</item>
     </plurals>
     <string name="reminder_done">已完成</string>
+    <string name="memo_card_pending">保存中…</string>
 </resources>

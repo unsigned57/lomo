@@ -118,4 +118,5 @@
         <item quantity="other">%1$d days ago</item>
     </plurals>
     <string name="reminder_done">done</string>
+    <string name="memo_card_pending">saving…</string>
 </resources>

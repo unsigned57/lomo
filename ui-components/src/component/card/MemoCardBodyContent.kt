@@ -14,11 +14,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.lomo.ui.component.markdown.MarkdownMediaPresentation
-import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
-import com.lomo.ui.component.markdown.MarkdownIrRenderer
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
+import com.lomo.ui.component.markdown.MarkdownIrPresentationPlan
+import com.lomo.ui.component.markdown.MarkdownIrRenderer
+import com.lomo.ui.component.markdown.MarkdownMediaPresentation
+import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
+import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionScope
 
@@ -33,6 +35,7 @@ internal fun MemoCardBodyContent(
     onLongClick: (() -> Unit)?,
     processedContent: String,
     renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan? = null,
     isExpanded: Boolean,
     isCollapsedPreview: Boolean,
     onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
@@ -59,6 +62,7 @@ internal fun MemoCardBodyContent(
                     onLongClick = onLongClick,
                     processedContent = processedContent,
                     renderDocument = renderDocument,
+                    presentationPlan = presentationPlan,
                     onTodoClick = onTodoClick,
                     onImageClick = onImageClick,
                     mediaPresentationResolver = mediaPresentationResolver,
@@ -90,6 +94,7 @@ internal fun MemoCardBodyContent(
                     onLongClick = onLongClick,
                     processedContent = processedContent,
                     renderDocument = renderDocument,
+                    presentationPlan = presentationPlan,
                     onTodoClick = onTodoClick,
                     onImageClick = onImageClick,
                     mediaPresentationResolver = mediaPresentationResolver,
@@ -120,6 +125,7 @@ private fun MemoCardBodyStateContent(
     onLongClick: (() -> Unit)?,
     processedContent: String,
     renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan?,
     onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
     onImageClick: ((String) -> Unit)?,
     mediaPresentationResolver: MarkdownMediaPresentationResolver?,
@@ -130,6 +136,7 @@ private fun MemoCardBodyStateContent(
         MemoCardBodyVisualState.Expanded -> {
             MemoCardMarkdownContent(
                 renderDocument = renderDocument,
+                presentationPlan = presentationPlan,
                 isCollapsedPreview = false,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTapFeedback = onTapFeedback,
@@ -162,6 +169,7 @@ private fun MemoCardBodyStateContent(
             MemoCardCollapsedBody {
                 MemoCardMarkdownContent(
                     renderDocument = renderDocument,
+                    presentationPlan = presentationPlan,
                     isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
                     allowFreeTextCopy = allowFreeTextCopy,
                     onTapFeedback = onTapFeedback,
@@ -196,6 +204,7 @@ private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
 @Composable
 private fun MemoCardMarkdownContent(
     renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan?,
     isCollapsedPreview: Boolean,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
@@ -210,6 +219,8 @@ private fun MemoCardMarkdownContent(
 ) {
     MarkdownIrRenderer(
         document = renderDocument,
+        presentationPlan = presentationPlan,
+        presentationPolicy = MarkdownPresentationPolicy.MEMO_CARD,
         modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
         maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
         onTaskClick = onTodoClick,
@@ -240,7 +251,7 @@ private fun BoxScope.MemoCardCollapsedOverlay() {
                                 listOf(
                                     Color.Transparent,
                                     MaterialTheme.colorScheme.surfaceContainer,
-                                ),
+                                    ),
                         ),
                 ),
     )

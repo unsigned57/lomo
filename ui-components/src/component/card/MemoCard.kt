@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -48,6 +49,7 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.*
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
+import com.lomo.ui.component.markdown.MarkdownIrPresentationPlan
 import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
@@ -77,9 +79,12 @@ fun MemoCard(
     menuButtonModifier: Modifier = Modifier,
     onClick: () -> Unit = {},
     renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan? = null,
     dateFormat: String = "yyyy-MM-dd",
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
+    /** The engine published this memo as a pending create; its durable commit is still in flight. */
+    isPending: Boolean = false,
     allowFreeTextCopy: Boolean = false,
     expandOnClick: Boolean = false,
     isExpanded: Boolean? = null,
@@ -151,6 +156,7 @@ fun MemoCard(
                 timestamp = timestamp,
                 dateTimeFormatter = dateTimeFormatter,
                 isPinned = isPinned,
+                isPending = isPending,
                 onMenuClick = onMenuClick,
                 haptic = haptic,
                 modifier = menuButtonModifier,
@@ -160,6 +166,7 @@ fun MemoCard(
             MemoCardBody(
                 processedContent = processedContent,
                 renderDocument = renderDocument,
+                presentationPlan = presentationPlan,
                 shouldShowExpand = shouldShowExpand,
                 isCollapsedPreview = isCollapsedPreview,
                 collapsedPreviewMode = collapsedPreviewMode,
@@ -186,6 +193,25 @@ fun MemoCard(
                 onReminderClick = onReminderClick,
             )
         }
+    }
+}
+
+@Composable
+private fun MemoCardPendingBadge() {
+    Surface(
+        shape = MemoCardTokens.PinnedBadgeShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(
+            text = stringResource(Res.string.memo_card_pending),
+            style = MaterialTheme.typography.labelSmall,
+            modifier =
+                Modifier.padding(
+                    horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding,
+                    vertical = MemoCardTokens.PinnedBadgeVerticalPadding,
+                ),
+        )
     }
 }
 
@@ -229,6 +255,7 @@ private fun MemoCardHeader(
     timestamp: Long,
     dateTimeFormatter: DateTimeFormatter,
     isPinned: Boolean,
+    isPending: Boolean,
     onMenuClick: (() -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     modifier: Modifier = Modifier,
@@ -244,11 +271,17 @@ private fun MemoCardHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = timeStr,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = timeStr,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (isPending) {
+                Spacer(modifier = Modifier.width(AppSpacing.Small))
+                MemoCardPendingBadge()
+            }
+        }
         MemoCardHeaderActions(
             isPinned = isPinned,
             onMenuClick = onMenuClick,
@@ -327,6 +360,7 @@ private fun MemoCardHeaderActions(
 private fun MemoCardBody(
     processedContent: String,
     renderDocument: MarkdownRenderDocument,
+    presentationPlan: MarkdownIrPresentationPlan?,
     shouldShowExpand: Boolean,
     isCollapsedPreview: Boolean,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
@@ -365,6 +399,7 @@ private fun MemoCardBody(
             onLongClick = onLongClick,
             processedContent = processedContent,
             renderDocument = renderDocument,
+            presentationPlan = presentationPlan,
             isExpanded = isExpanded,
             isCollapsedPreview = isCollapsedPreview,
             onTodoClick = onTodoClick,

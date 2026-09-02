@@ -3,6 +3,10 @@ package com.lomo.ui.component.card
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
+import com.lomo.ui.component.markdown.MarkdownIrPresentationItem
+import com.lomo.ui.component.markdown.MarkdownIrPresentationPlan
+import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
+import com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan
 
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
@@ -14,13 +18,23 @@ fun shouldShowMemoCardExpand(content: String): Boolean =
         content.lineSequence().count() > EXPAND_LINE_THRESHOLD
 
 /** Builds the collapsed preview only from Rust-issued render facts. */
-fun buildMemoCardCollapsedSummary(document: MarkdownRenderDocument): String {
+fun buildMemoCardCollapsedSummary(
+    document: MarkdownRenderDocument,
+    policy: MarkdownPresentationPolicy = MarkdownPresentationPolicy.MEMO_CARD,
+): String =
+    buildMemoCardCollapsedSummary(
+        plan = buildMarkdownIrPresentationPlan(document = document, policy = policy),
+    )
+
+/** Builds the collapsed preview from a precomputed presentation plan. */
+fun buildMemoCardCollapsedSummary(plan: MarkdownIrPresentationPlan): String {
     val lines = mutableListOf<String>()
     var charCount = 0
 
-    document.blocks
+    plan.items
         .asSequence()
-        .flatMap { block -> block.summaryLines().asSequence() }
+        .filterIsInstance<MarkdownIrPresentationItem.Block>()
+        .flatMap { item -> item.block.summaryLines().asSequence() }
         .map(String::trim)
         .filter(String::isNotBlank)
         .takeWhile { lines.size < COLLAPSED_SUMMARY_MAX_LINES && charCount < COLLAPSED_SUMMARY_MAX_CHARS }

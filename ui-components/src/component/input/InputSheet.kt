@@ -458,6 +458,7 @@ private fun InputSheetLifecycle(
     onRequestDismiss: () -> Unit,
 ) {
     InputSheetVisibilityEffects(
+        focusRequestToken = focusRequestToken,
         isSheetVisible = sessionState.isSheetVisible,
         isRecording = state.surface.recordingState.isRecording,
         isDismissing = sessionState.isDismissing,

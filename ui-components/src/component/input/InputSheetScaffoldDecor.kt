@@ -43,6 +43,7 @@ internal fun InputSheetFocusParkingTarget(focusParkingRequester: FocusRequester)
 @Composable
 internal fun InputSheetDismissScrim(
     scrimAlpha: Float,
+    enabled: Boolean = true,
     onRequestDismiss: () -> Unit,
 ) {
     Box(
@@ -50,7 +51,11 @@ internal fun InputSheetDismissScrim(
             Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
-                .pointerInput(Unit) { detectTapGestures(onTap = { onRequestDismiss() }) },
+                .pointerInput(enabled) {
+                    if (enabled) {
+                        detectTapGestures(onTap = { onRequestDismiss() })
+                    }
+                },
     )
 }
 

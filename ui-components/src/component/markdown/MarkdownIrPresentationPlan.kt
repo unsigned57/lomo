@@ -7,7 +7,8 @@ import com.lomo.domain.model.markdown.MarkdownRenderInline
 /**
  * Compose-facing layout plan built exclusively from the Rust-owned typed Render IR.
  *
- * This policy may group media and bound visible blocks, but it receives no Markdown source and has
+ * This policy may group media, bound visible blocks, and apply presentation policies (such as
+ * filtering inline tags/reminders and pruning empty blocks), but it receives no Markdown source and has
  * no parser or semantic fallback surface.
  */
 data class MarkdownIrPresentationPlan(
@@ -28,11 +29,16 @@ sealed interface MarkdownIrPresentationItem {
 fun buildMarkdownIrPresentationPlan(
     document: MarkdownRenderDocument,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
+    policy: MarkdownPresentationPolicy = MarkdownPresentationPolicy.DEFAULT,
 ): MarkdownIrPresentationPlan {
     require(maxVisibleBlocks >= 0) { "maxVisibleBlocks must not be negative" }
+    val filteredBlocks =
+        document.blocks.mapNotNull { block ->
+            MarkdownPresentationFilter.filterBlock(block, policy)
+        }
     return MarkdownIrPresentationPlan(
-        totalBlocks = document.blocks.size,
-        items = buildPresentationItems(document.blocks.take(maxVisibleBlocks)),
+        totalBlocks = filteredBlocks.size,
+        items = buildPresentationItems(filteredBlocks.take(maxVisibleBlocks)),
     )
 }
 

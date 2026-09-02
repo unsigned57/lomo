@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -31,6 +32,8 @@ import kotlinx.collections.immutable.toImmutableList
 fun MarkdownRenderer(
     document: MarkdownRenderDocument,
     modifier: Modifier = Modifier,
+    presentationPlan: MarkdownIrPresentationPlan? = null,
+    presentationPolicy: MarkdownPresentationPolicy = MarkdownPresentationPolicy.DEFAULT,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     onTodoClick: ((MarkdownSourceSpan) -> Unit)? = null,
     onImageClick: ((String) -> Unit)? = null,
@@ -43,6 +46,8 @@ fun MarkdownRenderer(
     MarkdownIrRenderer(
         document = document,
         modifier = modifier,
+        presentationPlan = presentationPlan,
+        presentationPolicy = presentationPolicy,
         maxVisibleBlocks = maxVisibleBlocks,
         onTaskClick = onTodoClick,
         onImageClick = onImageClick,
@@ -58,6 +63,8 @@ fun MarkdownRenderer(
 internal fun MarkdownIrRenderer(
     document: MarkdownRenderDocument,
     modifier: Modifier = Modifier,
+    presentationPlan: MarkdownIrPresentationPlan? = null,
+    presentationPolicy: MarkdownPresentationPolicy = MarkdownPresentationPolicy.DEFAULT,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     onTaskClick: ((MarkdownSourceSpan) -> Unit)? = null,
     onImageClick: ((String) -> Unit)? = null,
@@ -72,7 +79,15 @@ internal fun MarkdownIrRenderer(
     hideImages: Boolean = false,
     mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)? = null,
 ) {
-    val plan = buildMarkdownIrPresentationPlan(document, maxVisibleBlocks)
+    val plan =
+        presentationPlan
+            ?: remember(document, maxVisibleBlocks, presentationPolicy) {
+                buildMarkdownIrPresentationPlan(
+                    document = document,
+                    maxVisibleBlocks = maxVisibleBlocks,
+                    policy = presentationPolicy,
+                )
+            }
     LaunchedEffect(plan.totalBlocks, onTotalBlocks) {
         onTotalBlocks?.invoke(plan.totalBlocks)
     }

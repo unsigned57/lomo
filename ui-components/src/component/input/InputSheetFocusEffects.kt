@@ -18,13 +18,14 @@ internal const val INPUT_SHEET_ENTRY_SETTLE_DELAY_MILLIS = MotionTokens.Duration
 
 @Composable
 internal fun InputSheetVisibilityEffects(
+    focusRequestToken: Long,
     isSheetVisible: Boolean,
     isRecording: Boolean,
     isDismissing: Boolean,
     onSheetVisibleChange: (Boolean) -> Unit,
     onSheetEntrySettledChange: (Boolean) -> Unit,
 ) {
-    LaunchedEffect(Unit) {
+    LaunchedEffect(focusRequestToken) {
         withFrameNanos { }
         onSheetVisibleChange(true)
     }

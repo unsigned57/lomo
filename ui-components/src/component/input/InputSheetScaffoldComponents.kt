@@ -54,6 +54,7 @@ internal fun InputSheetScaffold(
         InputSheetFocusParkingTarget(focusParkingRequester = focusParkingRequester)
         InputSheetDismissScrim(
             scrimAlpha = animatedScrimAlpha,
+            enabled = isSheetVisible,
             onRequestDismiss = onRequestDismiss,
         )
         AnimatedVisibility(
