@@ -14,6 +14,8 @@ data class Memo(
     val imageUrls: List<String> = emptyList(),
     val isPinned: Boolean = false,
     val isDeleted: Boolean = false,
+    /** Engine accepted the create; the durable commit has not landed yet. */
+    val isPending: Boolean = false,
     val geoLocation: String? = null, // "lat,lng" coordinate pair
     val reminders: List<ReminderMarker> = emptyList(),
 ) {

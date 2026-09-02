@@ -51,3 +51,27 @@ interface EngineDiagnosticsRecorder {
 
     fun record(event: EngineDiagnosticEvent)
 }
+
+/**
+ * The one rendering of an event's outcome, shared by every surface that shows it.
+ *
+ * A second rendering would let the on-device window and the external log disagree about the same
+ * recorded fact, which is precisely the ambiguity a diagnostics channel exists to remove.
+ */
+fun EngineDiagnosticEvent.detail(): String =
+    when (this) {
+        is EngineDiagnosticEvent.Committed ->
+            "committed · revision=$coreRevision · scopes=${scopes.joinToString(",").ifEmpty { "-" }}"
+        is EngineDiagnosticEvent.Rejected ->
+            buildString {
+                append("rejected · ${failure.code} · ${failure.category.wireValue}")
+                append(" · retry=${failure.retryDisposition.wireValue}")
+                failure.operationId?.let { append(" · op=$it") }
+                failure.jobId?.let { append(" · job=$it") }
+                if (failure.diagnostic.isNotBlank()) {
+                    append("\n${failure.diagnostic}")
+                }
+            }
+        is EngineDiagnosticEvent.Stalled ->
+            "stalled · no terminal acknowledgement within the submission budget"
+    }
