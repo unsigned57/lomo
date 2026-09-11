@@ -1,0 +1,322 @@
+package com.lomo.app.feature.share
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.navigation.ShareRoutePayloadStore
+import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanIncomingBatch
+import com.lomo.domain.model.LanPairingRequest
+import com.lomo.domain.model.LanShareDiscoveryDiagnostics
+import com.lomo.domain.model.LanShareRuntimeState
+import com.lomo.domain.model.LanShareStartupFailure
+import com.lomo.domain.model.ShareTransferState
+import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import timber.log.Timber
+
+private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
+private const val LAN_SHARE_PERMISSION_REQUIRED_MESSAGE = "Local network permission is required for LAN sharing"
+private const val SHARE_PAYLOAD_KEY = "payloadKey"
+private const val SHARE_MEMO_CONTENT_KEY = "memoContent"
+private const val SHARE_MEMO_TIMESTAMP_KEY = "memoTimestamp"
+
+class ShareViewModel(
+    private val lanShareUiCoordinator: LanShareUiCoordinator,
+    private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
+    private val shareErrorPolicy: ShareErrorPolicy,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    private val memoPayloadKey: String = savedStateHandle.get<String>(SHARE_PAYLOAD_KEY).orEmpty()
+    private val memoContentState =
+        MutableStateFlow(
+            resolveShareMemoContent(
+                savedStateHandle = savedStateHandle,
+                payloadKey = memoPayloadKey,
+            ),
+        )
+
+    val memoContent: String
+        get() = memoContentState.value
+
+    val memoTimestamp: Long = savedStateHandle.get<Long>(SHARE_MEMO_TIMESTAMP_KEY) ?: 0L
+
+    private val _operationError = MutableStateFlow<String?>(null)
+    val operationError: StateFlow<String?> = _operationError.asStateFlow()
+    private val _lanSharePermissionState =
+        MutableStateFlow<LanSharePermissionState>(LanSharePermissionState.Unrequested)
+    private val _lanShareDiscoveryError = MutableStateFlow<String?>(null)
+    val lanShareDiscoveryError: StateFlow<String?> = _lanShareDiscoveryError.asStateFlow()
+    val isTechnicalShareError: (String) -> Boolean = shareErrorPolicy::isTechnicalMessage
+
+    val uiState: StateFlow<ShareScreenUiState> =
+        combine(
+            combine(
+                lanShareUiCoordinator.discoveredDevices,
+                lanShareUiCoordinator.transferState,
+                lanShareUiCoordinator.lanShareEnabled,
+                lanShareUiCoordinator.pendingPairing,
+                lanShareUiCoordinator.incomingBatch,
+            ) { devices, transfer, enabled, pairing, batch ->
+                ShareSessionPrimary(
+                    devices = devices,
+                    transfer = transfer,
+                    enabled = enabled,
+                    pairing = pairing,
+                    batch = batch,
+                )
+            },
+            combine(
+                lanShareUiCoordinator.lanShareDeviceName,
+                lanShareUiCoordinator.lanShareDiscoveryDiagnostics,
+                _lanSharePermissionState,
+                _lanShareDiscoveryError,
+                _operationError,
+            ) { deviceName, diagnostics, permission, discoveryError, operationError ->
+                ShareSessionSecondary(
+                    deviceName = deviceName,
+                    diagnostics = diagnostics,
+                    permission = permission,
+                    discoveryError = discoveryError,
+                    operationError = operationError,
+                )
+            },
+            memoContentState,
+        ) { primary, secondary, content ->
+            ShareScreenUiState(
+                discoveredDevices = primary.devices.toImmutableList(),
+                transferState = primary.transfer,
+                lanShareEnabled = primary.enabled,
+                lanSharePermissionState = secondary.permission,
+                lanShareDiscoveryError = secondary.discoveryError,
+                lanShareDiscoveryDiagnostics = secondary.diagnostics,
+                pendingPairing = primary.pairing,
+                incomingBatch = primary.batch,
+                deviceName = secondary.deviceName,
+                memoContent = content,
+            )
+        }.stateIn(
+            viewModelScope,
+            appWhileSubscribed(),
+            ShareScreenUiState(
+                discoveredDevices = persistentListOf(),
+                transferState = ShareTransferState.Idle,
+                lanShareEnabled = true,
+                lanSharePermissionState = LanSharePermissionState.Unrequested,
+                lanShareDiscoveryError = null,
+                lanShareDiscoveryDiagnostics = LanShareDiscoveryDiagnostics(),
+                pendingPairing = null,
+                incomingBatch = null,
+                deviceName = "",
+                memoContent = memoContentState.value,
+            ),
+        )
+
+    init {
+        if (memoContentState.value.isBlank()) {
+            _operationError.value = "Share content is unavailable. Please reopen the share page."
+        }
+        viewModelScope.launch {
+            lanShareUiCoordinator.lanShareRuntimeState.collect { runtimeState ->
+                handleLanShareRuntimeState(runtimeState)
+            }
+        }
+        viewModelScope.launch {
+            lanShareUiCoordinator.lanShareStartupFailures.collect { failure ->
+                val message = failure.toShareUserFacingMessage()
+                _lanShareDiscoveryError.value = message
+                _operationError.value = message
+            }
+        }
+    }
+
+    fun startLanShareDiscoverySession() {
+        clearLanShareDiscoveryError()
+        viewModelScope.launch {
+            if (!lanShareUiCoordinator.isLanShareEnabled()) {
+                return@launch
+            }
+            runCatching {
+                lanShareUiCoordinator.startServices()
+                lanShareUiCoordinator.startDiscovery()
+                Timber.d("ShareViewModel: discovery session started")
+            }.onFailure { throwable ->
+                reportOperationError(throwable, "Failed to start device discovery")
+            }
+        }
+    }
+
+    val onLanShareNetworkPermissionsGranted: () -> Unit = {
+        _lanSharePermissionState.value = LanSharePermissionState.Granted
+        lanShareUiCoordinator.refreshNetworkPermissionState()
+        clearLanShareDiscoveryError()
+        startLanShareDiscoverySession()
+    }
+
+    val onLanShareNetworkPermissionsDenied: () -> Unit = {
+        _lanSharePermissionState.value = LanSharePermissionState.Denied
+        lanShareUiCoordinator.refreshNetworkPermissionState()
+        _lanShareDiscoveryError.value = null
+    }
+
+    fun sendMemo(device: DiscoveredDevice) {
+        viewModelScope.launch {
+            runCatching {
+                val currentContent = memoContentState.value
+                if (currentContent.isBlank()) {
+                    _operationError.value = "Share content is unavailable. Please reopen the share page."
+                    return@launch
+                }
+
+                if (!lanShareUiCoordinator.isLanShareEnabled()) {
+                    _operationError.value = LAN_SHARE_DISABLED_MESSAGE
+                    return@launch
+                }
+
+                val attachmentResult = extractShareAttachmentsUseCase(currentContent)
+                val result =
+                    lanShareUiCoordinator.sendMemo(
+                        device = device,
+                        content = currentContent,
+                        timestamp = memoTimestamp,
+                        attachmentUris = attachmentResult.attachmentUris,
+                    )
+                result.exceptionOrNull()?.let { throwable ->
+                    reportOperationError(throwable, "Failed to send memo")
+                }
+            }.onFailure { throwable ->
+                if (throwable is CancellationException) {
+                    throw throwable
+                }
+                reportOperationError(throwable, "Failed to send memo")
+            }
+        }
+    }
+
+    val confirmPairing: (String) -> Unit = lanShareUiCoordinator::confirmPairing
+
+    val declinePairing: (String) -> Unit = lanShareUiCoordinator::declinePairing
+
+    val approveIncoming: (String, String) -> Unit = lanShareUiCoordinator::approveIncoming
+
+    val rejectIncoming: (String, String) -> Unit = lanShareUiCoordinator::rejectIncoming
+
+    val revokePeer: (String) -> Unit = lanShareUiCoordinator::revokePeer
+
+    val clearOperationError: () -> Unit = {
+        _operationError.value = null
+        _lanShareDiscoveryError.value = null
+    }
+
+    fun updateLanShareDeviceName(deviceName: String) {
+        viewModelScope.launch {
+            runCatching {
+                lanShareUiCoordinator.setLanShareDeviceName(deviceName)
+            }.onFailure { throwable ->
+                if (throwable is CancellationException) {
+                    throw throwable
+                }
+                reportOperationError(throwable, "Failed to update device name")
+            }
+        }
+    }
+
+    fun resetTransferState() {
+        runCatching {
+            lanShareUiCoordinator.resetTransferState()
+        }.onFailure { throwable ->
+            reportOperationError(throwable, "Failed to reset transfer state")
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        runCatching {
+            lanShareUiCoordinator.stopDiscovery()
+            Timber.d("ShareViewModel cleared: discovery stopped")
+        }.onFailure { throwable ->
+            reportOperationError(throwable, "Failed to stop device discovery")
+        }
+    }
+
+    private fun reportOperationError(
+        throwable: Throwable,
+        fallbackMessage: String,
+    ) {
+        if (throwable is CancellationException) throw throwable
+        val message = throwable.toUserMessage(fallbackMessage, shareErrorPolicy::sanitizeUserFacingMessage)
+        _operationError.value = message
+        Timber.e(throwable, "ShareViewModel operation failed: %s", message)
+    }
+
+    private fun clearLanShareDiscoveryError() {
+        val previousDiscoveryError = _lanShareDiscoveryError.value
+        _lanShareDiscoveryError.value = null
+        if (_operationError.value == previousDiscoveryError) {
+            _operationError.value = null
+        }
+    }
+
+    private fun handleLanShareRuntimeState(runtimeState: LanShareRuntimeState) {
+        when (runtimeState) {
+            LanShareRuntimeState.PermissionBlocked -> {
+                _lanSharePermissionState.value = LanSharePermissionState.Denied
+                _lanShareDiscoveryError.value = LAN_SHARE_PERMISSION_REQUIRED_MESSAGE
+            }
+            LanShareRuntimeState.Running,
+            LanShareRuntimeState.WaitingForTopology,
+            -> {
+                if (_lanSharePermissionState.value == LanSharePermissionState.Denied) {
+                    _lanSharePermissionState.value = LanSharePermissionState.Granted
+                }
+                if (_lanShareDiscoveryError.value == LAN_SHARE_PERMISSION_REQUIRED_MESSAGE) {
+                    _lanShareDiscoveryError.value = null
+                }
+            }
+            LanShareRuntimeState.Stopped -> Unit
+        }
+    }
+}
+
+private data class ShareSessionPrimary(
+    val devices: List<DiscoveredDevice>,
+    val transfer: ShareTransferState,
+    val enabled: Boolean,
+    val pairing: LanPairingRequest?,
+    val batch: LanIncomingBatch?,
+)
+
+private data class ShareSessionSecondary(
+    val deviceName: String,
+    val diagnostics: LanShareDiscoveryDiagnostics,
+    val permission: LanSharePermissionState,
+    val discoveryError: String?,
+    val operationError: String?,
+)
+
+private fun LanShareStartupFailure.toShareUserFacingMessage(): String =
+    when (this) {
+        LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
+        LanShareStartupFailure.ServiceRegistrationFailed ->
+            "Failed to register this device for LAN sharing"
+    }
+
+private fun resolveShareMemoContent(
+    savedStateHandle: SavedStateHandle,
+    payloadKey: String,
+): String {
+    val routeStoreContent = ShareRoutePayloadStore.consumeMemoContent(payloadKey).orEmpty()
+    return routeStoreContent.ifBlank {
+        savedStateHandle.get<String>(SHARE_MEMO_CONTENT_KEY).orEmpty()
+    }
+}

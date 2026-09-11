@@ -1,0 +1,742 @@
+package com.lomo.app.feature.main
+
+import androidx.paging.PagingData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.lomo.app.ExternalAppCommand
+import com.lomo.app.ExternalAppCommandStatus
+import com.lomo.app.ExternalAppCommandStore
+import com.lomo.app.ExternalAppCommandTerminalResult
+import com.lomo.app.feature.common.AppConfigStateProvider
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.common.MemoCollectionActionStateHolder
+import com.lomo.app.feature.common.MemoCollectionCapabilities
+import com.lomo.app.feature.common.MemoCollectionUiState
+import com.lomo.app.feature.common.PendingUiEvent
+import com.lomo.app.feature.common.UiEventQueueCoordinator
+import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditorSubmissionId
+import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoSortOption
+import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.ReminderMarker
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.ProjectionFreshness
+import com.lomo.domain.model.RecoveryDiagnosticReport
+import com.lomo.domain.model.canRebuildDerivedIndex
+import com.lomo.domain.model.permitsReadsAt
+import com.lomo.domain.usecase.MainMemoListQueryUseCase
+import com.lomo.domain.usecase.MarkReminderDoneUseCase
+import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
+import com.lomo.domain.usecase.SetMemoPinnedUseCase
+import com.lomo.ui.component.common.EnterAnimationRegistry
+
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import timber.log.Timber
+import java.time.LocalDate
+
+private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
+private const val MANUAL_REFRESH_TIMEOUT_MILLIS = 30_000L
+
+class MainViewModel(
+    private val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
+    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    private val setMemoPinnedUseCase: SetMemoPinnedUseCase,
+    private val appConfigStateProvider: AppConfigStateProvider,
+    private val appConfigUiCoordinator: AppConfigUiCoordinator,
+    private val sidebarStateHolder: MainSidebarStateHolder,
+    private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
+    private val memoUiMapper: MemoUiMapper,
+    private val imageMapProvider: ImageMapProvider,
+    private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
+    private val workspaceCoordinator: MainWorkspaceCoordinator,
+    private val startupCoordinator: MainStartupCoordinator,
+    private val markReminderDoneUseCase: MarkReminderDoneUseCase,
+    private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+    private val externalAppCommandStore: ExternalAppCommandStore,
+) : ViewModel() {
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        private val collectionActionStateHolder =
+            MemoCollectionActionStateHolder(
+                capabilities =
+                    MemoCollectionCapabilities.DeletableTodo(
+                        deleteMemo = mainMemoMutationCoordinator::deleteMemo,
+                        toggleTodo = { memo, actionSpan ->
+                            mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, actionSpan)
+                        },
+                    ),
+                scope = viewModelScope,
+                mapToUiModel = { memo ->
+                    memoUiMapper.mapToCachedUiModel(
+                        memo = memo,
+                        rootPath = rootDirectory.value,
+                        imagePath = imageDirectory.value,
+                        imageMap = imageMap.value,
+                        reminders = memo.reminders,
+                    )
+                }
+            )
+
+        val collectionUiState: StateFlow<MemoCollectionUiState> = collectionActionStateHolder.uiState
+
+        val errorMessage: StateFlow<String?> =
+            combine(collectionActionStateHolder.errorMessage, _errorMessage) { collectionError, mainError ->
+                mainError ?: collectionError
+            }.stateIn(viewModelScope, appWhileSubscribed(), null)
+
+        val isSyncing: StateFlow<Boolean> =
+            mainMemoListQueryUseCase
+                .isSyncing()
+                .stateIn(viewModelScope, appWhileSubscribed(), false)
+
+        private val refreshMutex = Mutex()
+        private val manualRefreshInProgress = MutableStateFlow(false)
+        val isRefreshing: StateFlow<Boolean> =
+            combine(manualRefreshInProgress, isSyncing) { manual, syncing -> manual || syncing }
+                .stateIn(viewModelScope, appWhileSubscribed(), false)
+
+        val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
+        val memoListFilterController = com.lomo.app.feature.common.MemoListFilterController()
+        val memoListFilter: StateFlow<MemoListFilter> = memoListFilterController.filter
+
+        sealed interface MainScreenState {
+            data object Loading : MainScreenState
+
+            data object NoDirectory : MainScreenState
+
+            data object InitialImporting : MainScreenState
+
+            data object OpeningEngine : MainScreenState
+
+            data class ReadOnlyRecovery(
+                val code: String,
+                val diagnostic: String,
+                val canRebuildDerivedIndex: Boolean,
+            ) : MainScreenState
+
+            data object Ready : MainScreenState
+        }
+
+        // Shared content is modeled as pending events with explicit consume semantics.
+        sealed interface SharedContent {
+            data class Text(
+                val content: String,
+            ) : SharedContent
+        }
+
+        private val sharedContentQueue = UiEventQueueCoordinator<SharedContent>()
+        val sharedContentEvents: StateFlow<List<PendingUiEvent<SharedContent>>> = sharedContentQueue.events
+
+        private val pendingSharedImageQueue = UiEventQueueCoordinator<android.net.Uri>()
+        val pendingSharedImageEvents: StateFlow<List<PendingUiEvent<android.net.Uri>>> = pendingSharedImageQueue.events
+
+        sealed interface AppAction {
+            data class OpenMemo(
+                val memoId: String,
+            ) : AppAction
+
+            data class FocusMemo(
+                val memoId: String,
+            ) : AppAction
+        }
+
+        private val appActionQueue = UiEventQueueCoordinator<AppAction>()
+        val appActionEvents: StateFlow<List<PendingUiEvent<AppAction>>> = appActionQueue.events
+        val externalAppCommands: StateFlow<List<ExternalAppCommand>> = externalAppCommandStore.commands
+        private val pendingNewMemoCreationCoordinator = PendingNewMemoCreationCoordinator()
+        private val pendingNewMemoCreationQueue =
+            UiEventQueueCoordinator<PendingNewMemoCreationRequest>(maxSize = 1)
+        internal val pendingNewMemoCreationEvents: StateFlow<List<PendingUiEvent<PendingNewMemoCreationRequest>>> =
+            pendingNewMemoCreationQueue.events
+
+        val deletingMemoIds: StateFlow<Set<String>> = collectionActionStateHolder.deletingMemoIds
+        val exitAnimationRegistry = collectionActionStateHolder.exitAnimationRegistry
+
+        val enterAnimationRegistry = EnterAnimationRegistry()
+
+        private val _hasResolvedInitialRoot = MutableStateFlow(false)
+        private val _rootDirectory = MutableStateFlow<String?>(null)
+        private var imageCacheSyncJob: kotlinx.coroutines.Job? = null
+        val rootDirectory: StateFlow<String?> = _rootDirectory.asStateFlow()
+
+        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
+
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
+
+        val voiceDirectory: StateFlow<String?> = appConfigStateProvider.voiceDirectory
+
+        private val memoListStateHolder =
+            MainMemoListStateHolder(
+                scope = viewModelScope,
+                mainMemoListQueryUseCase = mainMemoListQueryUseCase,
+                memoUiMapper = memoUiMapper,
+                searchQuery = searchQuery,
+                memoListFilter = memoListFilter,
+                workspaceAuthority = workspaceCoordinator.workspaceAuthority,
+                projectionFreshness = workspaceCoordinator.projectionFreshness,
+                rootDirectory = rootDirectory,
+                imageDirectory = imageDirectory,
+                imageMap = imageMap,
+                dispatcherProvider = dispatcherProvider,
+            )
+
+    val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
+    private val diagnosticExportQueue = UiEventQueueCoordinator<RecoveryDiagnosticReport>()
+    val diagnosticExports: StateFlow<List<PendingUiEvent<RecoveryDiagnosticReport>>> =
+        diagnosticExportQueue.events
+    val consumeDiagnosticExport: (Long) -> Unit = diagnosticExportQueue::consume
+
+        val uiState: StateFlow<MainScreenState> =
+            combine(
+                _hasResolvedInitialRoot,
+                rootDirectory,
+                engineReadiness,
+                workspaceCoordinator.workspaceAuthority,
+                workspaceCoordinator.projectionFreshness,
+            ) {
+                hasResolvedInitialRoot,
+                directory,
+                readiness,
+                authority,
+                projectionFreshness,
+                ->
+                when {
+                    !hasResolvedInitialRoot -> MainScreenState.Loading
+                    directory == null -> MainScreenState.NoDirectory
+                    readiness is EngineReadiness.ReadOnlyRecovery ->
+                        MainScreenState.ReadOnlyRecovery(
+                            code = readiness.code,
+                            diagnostic = readiness.diagnostic,
+                            canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
+                        )
+                    readiness is EngineReadiness.Opening ||
+                        readiness is EngineReadiness.ShuttingDown ->
+                        MainScreenState.OpeningEngine
+                    authority == null -> MainScreenState.OpeningEngine
+                    projectionFreshness is ProjectionFreshness.Building ->
+                        MainScreenState.InitialImporting
+                    projectionFreshness is ProjectionFreshness.Failed ->
+                        MainScreenState.ReadOnlyRecovery(
+                            code = projectionFreshness.reasonCode,
+                            diagnostic = "Workspace projection build failed",
+                            canRebuildDerivedIndex = false,
+                        )
+                    readiness is EngineReadiness.Ready &&
+                        projectionFreshness.permitsReadsAt(authority.projectionRevision) ->
+                        MainScreenState.Ready
+                    // Awaiting with a configured directory: still opening / cold restore in flight.
+                    else -> MainScreenState.OpeningEngine
+                }
+            }.stateIn(
+                viewModelScope,
+                appWhileSubscribed(),
+                MainScreenState.Loading,
+            )
+
+        val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
+
+        val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.galleryPagedUiMemos
+
+
+        init {
+            // P1-002 Fix: Consolidated initialization to prevent race condition
+            // First get initial value synchronously, then listen for subsequent updates
+            viewModelScope.launch {
+                // Step 1: Get initial value and set state immediately
+                val initialDir = startupCoordinator.initializeRootDirectory()
+                updateRootDirectoryUiState(initialDir)
+
+                // Step 2: Listen for persisted root updates; unchanged restored values are ignored below.
+                startupCoordinator
+                    .observeRootDirectoryChanges()
+                    .collect { dir ->
+                        handleObservedRootDirectoryChange(dir)
+                    }
+            }
+            // Voice directory collector - pass to AudioPlayerManager for voice file resolution
+            startupCoordinator.observeVoiceDirectoryChanges().launchIn(viewModelScope)
+
+            // Initial image load
+            loadImageMap()
+        }
+
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
+
+        val appLockEnabled: StateFlow<Boolean?> = appConfigStateProvider.appLockEnabled
+
+        val activeDayCount: StateFlow<Int> =
+            observeActiveDayCountUseCase()
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
+
+        val gitSyncEnabled: StateFlow<Boolean> =
+            versionHistoryCoordinator
+                .historyEnabled()
+                .stateIn(viewModelScope, appWhileSubscribed(), false)
+
+        val versionHistoryState: StateFlow<MainVersionHistoryState> = versionHistoryCoordinator.state
+
+        val handleSharedText: (String) -> Unit = { text ->
+            sharedContentQueue.enqueue(SharedContent.Text(text))
+        }
+
+        val handleSharedImage: (android.net.Uri) -> Unit = { uri ->
+            pendingSharedImageQueue.enqueue(uri)
+        }
+
+        val consumeSharedContentEvent: (Long) -> Unit = { eventId ->
+            sharedContentQueue.consume(eventId)
+        }
+
+        val consumePendingSharedImageEvent: (Long) -> Unit = { eventId ->
+            pendingSharedImageQueue.consume(eventId)
+        }
+
+        val requestOpenMemo: (String) -> Unit = { memoId ->
+            if (memoId.isNotBlank()) {
+                appActionQueue.enqueue(AppAction.OpenMemo(memoId))
+            }
+        }
+
+        val requestFocusMemo: (String) -> Unit = { memoId ->
+            if (memoId.isNotBlank()) {
+                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
+            }
+        }
+
+        val requestFocusMemoInDefaultMainList: (String) -> Unit = { memoId ->
+            if (memoId.isNotBlank()) {
+                sidebarStateHolder.clearFilters()
+                memoListFilterController.clear()
+                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
+            }
+        }
+
+        val consumeAppActionEvent: (Long) -> Unit = { eventId ->
+            appActionQueue.consume(eventId)
+        }
+
+        val updateExternalAppCommandStatus: (String, ExternalAppCommandStatus) -> Unit = { commandId, status ->
+            externalAppCommandStore.updateStatus(commandId = commandId, status = status)
+        }
+
+        val completeExternalAppCommand: (String, ExternalAppCommandTerminalResult) -> Unit = { commandId, result ->
+            externalAppCommandStore.complete(commandId = commandId, result = result)
+        }
+
+        val expireExternalAppCommands: (Long) -> List<String> = externalAppCommandStore::expire
+
+        internal fun requestPendingNewMemoCreation(
+            submissionId: MemoEditorSubmissionId,
+            content: String,
+            geoLocation: String? = null,
+            timestampMillis: Long? = null,
+        ): Boolean {
+            if (pendingNewMemoCreationQueue.events.value.isNotEmpty()) {
+                return false
+            }
+            return pendingNewMemoCreationCoordinator
+                .submit(
+                    submissionId = submissionId,
+                    content = content,
+                    geoLocation = geoLocation,
+                    timestampMillis = timestampMillis,
+                )
+                ?.also { request ->
+                    pendingNewMemoCreationQueue.enqueue(request)
+                } != null
+        }
+
+        internal val consumePendingNewMemoCreationEvent: (Long) -> PendingNewMemoCreationRequest? =
+            consumeEvent@{ eventId ->
+                val event =
+                    pendingNewMemoCreationQueue.events.value.firstOrNull { pending -> pending.id == eventId }
+                        ?: return@consumeEvent null
+                pendingNewMemoCreationQueue.consume(eventId)
+                pendingNewMemoCreationCoordinator.consume(event.payload.requestId) ?: event.payload
+            }
+
+        internal val consumePendingNewMemoCreationRequest: (Long) -> PendingNewMemoCreationRequest? = { requestId ->
+            val event =
+                pendingNewMemoCreationQueue.events.value.firstOrNull { pending ->
+                    pending.payload.requestId == requestId
+                }
+            if (event != null) {
+                pendingNewMemoCreationQueue.consume(event.id)
+            }
+            pendingNewMemoCreationCoordinator.consume(requestId)
+        }
+
+        internal val cancelPendingNewMemoCreationEvent: (Long) -> Unit =
+            cancelEvent@{ eventId ->
+                val event =
+                    pendingNewMemoCreationQueue.events.value.firstOrNull { pending -> pending.id == eventId }
+                        ?: return@cancelEvent
+                pendingNewMemoCreationQueue.consume(eventId)
+                pendingNewMemoCreationCoordinator.cancel(event.payload.requestId)
+            }
+
+        internal val cancelPendingNewMemoCreationRequest: (Long) -> Unit = { requestId ->
+            pendingNewMemoCreationQueue.events.value
+                .firstOrNull { pending -> pending.payload.requestId == requestId }
+                ?.let { event -> pendingNewMemoCreationQueue.consume(event.id) }
+            pendingNewMemoCreationCoordinator.cancel(requestId)
+        }
+
+        val createDefaultDirectories: (Boolean, Boolean) -> Unit = { forImage, forVoice ->
+            viewModelScope.launch {
+                runCatching {
+                    workspaceCoordinator.createDefaultDirectories(forImage, forVoice)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to create directories")
+                }
+            }
+        }
+
+        val onDirectorySelected: (String) -> Unit = { path ->
+            viewModelScope.launch {
+                withContext(dispatcherProvider.io) {
+                    runCatching {
+                        workspaceCoordinator.switchRootAndRefresh(path)
+                    }.onFailure { throwable ->
+                        handleRefreshFailure(
+                            throwable = throwable,
+                            fallbackMessage = "Failed to switch storage folder",
+                        )
+                    }
+                }
+            }
+        }
+
+        val onSearch: (String) -> Unit = { query ->
+            sidebarStateHolder.updateSearchQuery(query)
+        }
+
+        val updateMemoSortOption: (MemoSortOption) -> Unit = memoListFilterController.onSortOptionSelected
+        val updateMemoStartDate: (LocalDate?) -> Unit = memoListFilterController.onStartDateSelected
+        val updateMemoEndDate: (LocalDate?) -> Unit = memoListFilterController.onEndDateSelected
+        val updateMemoHasTodo: (Boolean?) -> Unit = memoListFilterController.onHasTodoChanged
+        val updateMemoHasAttachment: (Boolean?) -> Unit = memoListFilterController.onHasAttachmentChanged
+        val updateMemoHasUrl: (Boolean?) -> Unit = memoListFilterController.onHasUrlChanged
+        val filterMemosByDate: (LocalDate) -> Unit = memoListFilterController.filterByDate
+        val clearMemoDateRange: () -> Unit = memoListFilterController.clearDateRange
+    val clearMemoFilter: () -> Unit = memoListFilterController.clearFilter
+        val clearMemoListFilter: () -> Unit = memoListFilterController.clear
+
+        val clearFilters: () -> Unit = {
+            sidebarStateHolder.clearFilters()
+        }
+
+        val refresh: suspend () -> Unit = refresh@{
+            if (!refreshMutex.tryLock()) return@refresh
+            manualRefreshInProgress.value = true
+            try {
+                withContext(dispatcherProvider.io) {
+                    runCatching {
+                        withTimeout(MANUAL_REFRESH_TIMEOUT_MILLIS) {
+                            workspaceCoordinator.refreshMemos()
+                        }
+                    }.onFailure { throwable ->
+                        handleRefreshFailure(throwable = throwable, fallbackMessage = "Failed to refresh memos")
+                    }
+                }
+            } finally {
+                refreshMutex.unlock()
+                manualRefreshInProgress.value = false
+            }
+        }
+
+        val resolveMemoById: suspend (String) -> Memo? = { memoId ->
+            withContext(dispatcherProvider.io) {
+                mainMemoListQueryUseCase.getMemoById(memoId)
+            }
+        }
+
+        val resolveDefaultMainListIndex: suspend (String) -> Int? = { memoId ->
+            withContext(dispatcherProvider.io) {
+                mainMemoListQueryUseCase.getDefaultMainListIndexInWindow(
+                    id = memoId,
+                    limit = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
+                )
+            }
+        }
+
+        val deleteMemo: (Memo, String?) -> Unit = { memo, anchoredAfterKey ->
+            collectionActionStateHolder.actions.delete(memo, anchoredAfterKey)
+        }
+
+        internal fun onPagedDeleteAnimationSettled(memoId: String) {
+            exitAnimationRegistry.markExitAnimationSettled(memoId)
+            exitAnimationRegistry.markExitSourceAbsent(memoId)
+        }
+
+
+        val markReminderDone: (String, String) -> Unit = { memoId, reminderId ->
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    markReminderDoneUseCase(memoId, reminderId)
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) throw throwable
+                    Timber.w(throwable, "Failed to mark reminder done: memoId=$memoId, reminderId=$reminderId")
+                }
+            }
+        }
+
+        val setMemoPinned: (Memo, Boolean) -> Unit = { memo, pinned ->
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    setMemoPinnedUseCase(memo.id, pinned)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update pin status")
+                }
+            }
+        }
+
+        val updateMemo: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit = { memo, actionSpan ->
+            collectionActionStateHolder.actions.toggleTodo(memo, actionSpan)
+        }
+
+        val syncImageCacheNow: () -> Unit = {
+            requestImageCacheSync("Failed to sync image cache")
+        }
+
+        private fun requestImageCacheSync(fallbackMessage: String) {
+            if (imageCacheSyncJob?.isActive == true) {
+                return
+            }
+            imageCacheSyncJob =
+                viewModelScope.launch {
+                    try {
+                        runCatching {
+                            workspaceCoordinator.syncImageCache()
+                        }.onFailure { throwable ->
+                            if (throwable is kotlinx.coroutines.CancellationException) {
+                                throw throwable
+                            }
+                            _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+                        }
+                    } finally {
+                        imageCacheSyncJob = null
+                    }
+                }
+        }
+
+        val loadVersionHistory: (Memo) -> Unit = { memo ->
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    versionHistoryCoordinator.load(memo)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    Timber.w(throwable, "Failed to load version history")
+                    versionHistoryCoordinator.hide()
+                    _errorMessage.value = throwable.toUserMessage("Failed to load version history")
+                }
+            }
+        }
+
+        val loadMoreVersionHistory: () -> Unit = {
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    versionHistoryCoordinator.loadMore()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to load more version history")
+                }
+            }
+        }
+
+        val restoreVersion: (Memo, MemoRevision) -> Unit = { memo, version ->
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    versionHistoryCoordinator.restore(memo, version)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to restore version")
+                }
+            }
+        }
+
+        val dismissVersionHistory: () -> Unit = {
+            versionHistoryCoordinator.hide()
+        }
+
+        val recordMemoActionUsage: (MemoActionId) -> Unit = { actionId ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.recordMemoActionUsage(actionId.storageKey)
+            }
+        }
+
+        val recordGalleryMemoActionUsage: (MemoActionId) -> Unit = { actionId ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.recordMemoActionUsage(
+                    scope = MemoActionOrderScopes.GALLERY,
+                    actionId = actionId.storageKey,
+                )
+            }
+        }
+
+        val updateMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateMemoActionOrder(
+                    actionIds.map(MemoActionId::storageKey),
+                )
+            }
+        }
+
+        val updateGalleryMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateMemoActionOrder(
+                    scope = MemoActionOrderScopes.GALLERY,
+                    order = actionIds.map(MemoActionId::storageKey),
+                )
+            }
+        }
+
+        val updateInputToolbarToolOrder: (List<String>) -> Unit = { toolIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
+            }
+        }
+
+        val clearError: () -> Unit = {
+            collectionActionStateHolder.errors.clear()
+            _errorMessage.value = null
+        }
+
+        private fun updateRootDirectoryUiState(directory: String?) {
+            _rootDirectory.value = directory
+            _hasResolvedInitialRoot.value = true
+        }
+
+        @OptIn(FlowPreview::class)
+        private fun loadImageMap() {
+            // Image map now provided by ImageMapProvider (P2-001 refactor)
+            // No need to collect here - imageMap exposed directly from provider
+            viewModelScope.launch {
+                val initialConfiguredImageDirectory = appConfigStateProvider.currentImageDirectory()
+                if (initialConfiguredImageDirectory != null) {
+                    requestImageCacheSync("Failed to sync image cache")
+                }
+
+                imageDirectory
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .filter { directory -> directory != initialConfiguredImageDirectory }
+                    .debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
+                    .collect { requestImageCacheSync("Failed to sync image cache") }
+            }
+        }
+
+        private suspend fun handleObservedRootDirectoryChange(directory: String?) {
+            updateRootDirectoryUiState(directory)
+        }
+
+        val retryEngineOpen: () -> Unit = {
+            viewModelScope.launch {
+                runCatching {
+                    if (workspaceCoordinator.projectionFreshness.value is ProjectionFreshness.Failed) {
+                        workspaceCoordinator.retryProjectionBuild()
+                    } else {
+                        val location = _rootDirectory.value ?: return@runCatching
+                        workspaceCoordinator.retryEngineOpen(location)
+                    }
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Engine reopen failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to reopen workspace")
+                }
+            }
+        }
+
+        val rebuildDerivedIndex: () -> Unit = {
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    workspaceCoordinator.rebuildDerivedIndex()
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Derived index rebuild failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to rebuild the derived index")
+                }
+            }
+        }
+
+        val exportRecoveryDiagnostics: () -> Unit = {
+            viewModelScope.launch(dispatcherProvider.io) {
+                runCatching {
+                    workspaceCoordinator.createRecoveryDiagnosticReport()
+                }.onSuccess { report ->
+                    diagnosticExportQueue.enqueue(report)
+                }.onFailure { throwable ->
+                    Timber.w(throwable, "Recovery diagnostic export failed")
+                    _errorMessage.value = throwable.toUserMessage("Failed to prepare recovery diagnostics")
+                }
+            }
+        }
+
+        private fun handleRefreshFailure(
+            throwable: Throwable,
+            fallbackMessage: String,
+        ) {
+            when (throwable) {
+                is kotlinx.coroutines.CancellationException -> throw throwable
+                is com.lomo.domain.usecase.SyncConflictException ->
+                    timber.log.Timber.w(
+                        "Remote sync conflict requires Sync Center: %d file(s)",
+                        throwable.conflicts.files.size,
+                    )
+                else -> _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+            }
+        }
+
+        // processMemoContent moved to MemoUiMapper
+    }
+
+data class MemoUiModel(
+    val memo: Memo,
+    val processedContent: String,
+    val renderDocument: com.lomo.domain.model.markdown.MarkdownRenderDocument,
+    val presentationPlan: com.lomo.ui.component.markdown.MarkdownIrPresentationPlan =
+        com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan(
+            document = renderDocument,
+            policy = com.lomo.ui.component.markdown.MarkdownPresentationPolicy.MEMO_CARD,
+        ),
+    val tags: ImmutableList<String>,
+    val imageUrls: ImmutableList<String> = persistentListOf(),
+    val shouldShowExpand: Boolean = false,
+    val collapsedSummary: String = "",
+    val reminders: ImmutableList<ReminderMarker> = persistentListOf(),
+)
