@@ -9,12 +9,13 @@
 </p>
 
 <p align="center">
-  <strong>Local-first Markdown memos on Android — no cloud lock-in.</strong>
+  <strong>Local-first Markdown memos on Android and Linux — no cloud lock-in.</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/unsigned57/lomo/releases/latest"><img src="https://img.shields.io/github/v/release/unsigned57/lomo?label=release&style=flat-square" alt="Release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android" />
+  <img src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License GPL-3.0" />
   <img src="https://img.shields.io/badge/minSdk-26-informational?style=flat-square" alt="minSdk 26" />
 </p>
@@ -45,6 +46,7 @@
 - **Tags** — organize with `#tags`, including nested tags like `#tag1/tag2`
 - **Full-text search** — indexed local search
 - **Material 3** — clean UI with dynamic color
+- **Linux TUI** — `lomo` on a terminal: timeline, tasks, review, stats, media, trash, settings
 
 #### Review
 
@@ -87,9 +89,20 @@ I wanted a Memos / Flomo-style lightweight, timestamped capture flow — but **s
 
 ## Install
 
+**Android**
+
 1. Download the latest APK from [Releases](https://github.com/unsigned57/lomo/releases/latest)
 2. Install on an Android device (Min SDK 26)
 3. On first launch, choose a local folder for your memos
+
+**Linux (x86_64 TUI)**
+
+1. Build a generic archive from this repository with `just package-linux` (writes `build/dist/lomo-linux-x86_64.tar.gz`)
+2. Extract it. First run writes `$XDG_CONFIG_HOME/lomo/config.toml` (usually `~/.config/lomo/config.toml`) with `workspace` set to `$HOME/Notes`. Pass a directory on the command line to bind that folder instead: `lomo /path/to/notes`. You can still start from `config/config.toml.example`.
+3. Set `workspace` to your notes directory. Editor priority is that config, then `$VISUAL`, then `$EDITOR` (never a vim default)
+4. `$XDG_RUNTIME_DIR` is required. Missing clipboard or player fails closed instead of pretending success
+
+Linux built-in Git/WebDAV/S3 sync and LAN sharing are not in this first round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
 
 Building from source is covered under **Building** below.
 
@@ -101,13 +114,13 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 <summary>Tech stack</summary>
 
 - **Languages:** Kotlin + Rust (production native infrastructure through BoltFFI/JNI;
-  stage-0 UniFFI/JNA remains historical evidence only)
-- **UI:** Jetpack Compose (Material 3)
-- **Architecture:** MVVM + Clean Architecture (Domain / Data / UI)
-- **DI:** Koin
-- **Async:** Coroutines & Flow
+  stage-0 UniFFI/JNA remains historical evidence only). Linux TUI is a host binary with no JNI.
+- **UI:** Jetpack Compose (Material 3) on Android; Ratatui terminal UI on Linux
+- **Architecture:** MVVM + Clean Architecture (Domain / Data / UI) on Android; TEA composition root on Linux
+- **DI:** Koin (Android)
+- **Async:** Coroutines & Flow (Android)
 - **Data:**
-  - Markdown workspace storage through the Storage Access Framework
+  - Markdown workspace storage through the Storage Access Framework on Android, POSIX files on Linux
   - Rust-owned SQLite derived index and durable `.lomo` state
 
 </details>
@@ -123,6 +136,10 @@ just bootstrap
 
 # Build and validate Debug APK
 just android debug
+
+# Linux host gate (no Android toolchain) and generic TUI archive
+just check-linux
+just package-linux
 
 # Run Rust and Kotlin host tests
 just test

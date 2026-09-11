@@ -149,6 +149,6 @@ stop the process using it and remove that exact directory before continuing.
   Android/Compose resource roots. Never add Maven/Java source hierarchies or common package-root
   directories on disk; keep full `package com.lomo.*` declarations.
 - Baseline Profile packaging is the sole source-layout exception: keep
-  `app/src/main/baseline-prof.txt` and `app/src/main/baselineProfiles/generated.txt`; regenerate the
+  `apps/android/app/src/main/baseline-prof.txt` and `apps/android/app/src/main/baselineProfiles/generated.txt`; regenerate the
   latter with `quality/scripts/generate_static_baseline_profile.py --build-dir <build-dir>`.
 - Assume others may be editing the tree. Preserve unrelated changes and work with overlapping ones.

@@ -9,12 +9,13 @@
 </p>
 
 <p align="center">
-  <strong>本地优先的 Android Markdown 备忘录——无云端围栏。</strong>
+  <strong>本地优先的 Android 与 Linux Markdown 备忘录——无云端围栏。</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/unsigned57/lomo/releases/latest"><img src="https://img.shields.io/github/v/release/unsigned57/lomo?label=release&style=flat-square" alt="Release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android" />
+  <img src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License GPL-3.0" />
   <img src="https://img.shields.io/badge/minSdk-26-informational?style=flat-square" alt="minSdk 26" />
 </p>
@@ -45,6 +46,7 @@
 - **标签** — 使用 `#tags` 组织笔记，支持嵌套如 `#tag1/tag2`
 - **全文搜索** — 本地索引加速检索
 - **Material 3** — 简洁现代 UI，支持动态取色
+- **Linux TUI** — 终端程序 `lomo`：时间流、任务、回顾、统计、附件、回收站、设置
 
 #### 回顾
 
@@ -87,9 +89,20 @@ Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很�
 
 ## 安装
 
+**Android**
+
 1. 从 [Releases](https://github.com/unsigned57/lomo/releases/latest) 下载最新 APK
 2. 安装到 Android 设备（Min SDK 26）
 3. 首次启动时，选择一个本地文件夹存放备忘录
+
+**Linux（x86_64 TUI）**
+
+1. 在本仓库执行 `just package-linux`，生成 `build/dist/lomo-linux-x86_64.tar.gz`
+2. 解压后首次运行会写入 `$XDG_CONFIG_HOME/lomo/config.toml`（通常是 `~/.config/lomo/config.toml`），默认 `workspace` 为 `~/Notes`。也可启动时指定目录：`lomo /path/to/notes`。仍可从 `config/config.toml.example` 复制后自行修改。
+3. 将 `workspace` 指到笔记目录。编辑器优先级为该配置，其次 `$VISUAL`，再次 `$EDITOR`（绝不默认 vim）
+4. 必须设置 `$XDG_RUNTIME_DIR`。缺少剪贴板或播放器时失败封闭，不伪造成功
+
+本轮 Linux 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区（含 `.lomo`）或使用外部文件同步。
 
 从源码构建见下方 **构建指南**。
 
@@ -100,13 +113,13 @@ Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很�
 <details>
 <summary>技术栈</summary>
 
-- **语言：** Kotlin + Rust（生产 native 基础设施为 BoltFFI/JNI；阶段 0 的 UniFFI/JNA 仅作历史证据）
-- **UI：** Jetpack Compose（Material 3）
-- **架构：** MVVM + Clean Architecture（Domain / Data / UI）
-- **依赖注入：** Koin
-- **异步：** Coroutines & Flow
+- **语言：** Kotlin + Rust（生产 native 基础设施为 BoltFFI/JNI；阶段 0 的 UniFFI/JNA 仅作历史证据）。Linux TUI 是无 JNI 的宿主二进制
+- **UI：** Android 为 Jetpack Compose（Material 3）；Linux 为 Ratatui 终端界面
+- **架构：** Android 为 MVVM + Clean Architecture（Domain / Data / UI）；Linux 为 TEA 组合根
+- **依赖注入：** Koin（Android）
+- **异步：** Coroutines & Flow（Android）
 - **数据：**
-  - 通过 Storage Access Framework 管理 Markdown 工作区
+  - Android 通过 Storage Access Framework 管理 Markdown 工作区，Linux 使用 POSIX 文件
   - Rust 管理的 SQLite 派生索引与耐久 `.lomo` 状态
 
 </details>
@@ -122,6 +135,10 @@ just bootstrap
 
 # 构建并校验 Debug APK
 just android debug
+
+# Linux 宿主门禁（不调用 Android 工具链）与通用 TUI 归档
+just check-linux
+just package-linux
 
 # 运行 Rust 与 Kotlin host tests
 just test
