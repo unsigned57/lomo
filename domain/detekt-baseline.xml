@@ -1,7 +1,0 @@
-<?xml version="1.0" ?>
-<SmellBaseline>
-  <ManuallySuppressedIssues/>
-  <CurrentIssues>
-    <ID>MagicNumber:MarkdownRenderDocument.kt:MarkdownRenderDocument$6u</ID>
-  </CurrentIssues>
-</SmellBaseline>

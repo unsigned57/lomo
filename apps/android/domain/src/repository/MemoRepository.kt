@@ -1,0 +1,164 @@
+package com.lomo.domain.repository
+
+import androidx.paging.PagingSource
+import com.lomo.domain.model.DailyReviewCandidateBoundary
+import com.lomo.domain.model.DailyReviewCandidateCursor
+import com.lomo.domain.model.DailyReviewCandidatePage
+import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
+import com.lomo.domain.model.MemoSearchMode
+import com.lomo.domain.model.TagSelection
+import com.lomo.domain.model.MemoStatistics
+import com.lomo.domain.model.MemoTask
+import com.lomo.domain.model.MemoTagCount
+import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
+import java.time.ZoneId
+
+/**
+ * Read-side list access that can serve bounded memo pages without full-list fallbacks.
+ */
+interface MemoListQueryRepository {
+    /** Returns a Rust-cursor-backed source; each load transfers one bounded gallery page. */
+    fun getGalleryMemosPagingSource(): PagingSource<String, Memo>
+
+    suspend fun getRecentMemos(limit: Int): List<Memo>
+
+    suspend fun getMemoCount(): Int
+}
+
+interface DailyReviewCandidateRepository {
+    /**
+     * Captures the stable high-water boundary for a Daily Review candidate session in the default
+     * main-list ordering. Implementations must make later candidate pages exclude rows that sort
+     * ahead of this boundary, even if the backing collection changes after the boundary is captured.
+     */
+    suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary?
+
+    /**
+     * Returns candidate ids in default main-list order at or behind [boundary], starting after
+     * [cursor]. [cursor] is null for the first page. Implementations may encode repository-owned
+     * snapshot tokens in [DailyReviewCandidateBoundary.token] and [DailyReviewCandidateCursor.token].
+     */
+    suspend fun getDailyReviewCandidatePage(
+        boundary: DailyReviewCandidateBoundary,
+        cursor: DailyReviewCandidateCursor?,
+        limit: Int,
+    ): DailyReviewCandidatePage
+
+    /**
+     * Reads the current visible ordering behind the captured boundary with the same opaque
+     * continuation semantics. This is used only to fill ids that disappeared or arrived after a
+     * session snapshot; it never exposes an integer offset to callers.
+     */
+    suspend fun getDailyReviewVisibleUnseenPage(
+        cursor: DailyReviewCandidateCursor?,
+        limit: Int,
+    ): DailyReviewCandidatePage
+}
+
+interface MainListQueryRepository {
+    fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<String, Memo>
+
+    /**
+     * Returns the zero-based index of a memo only when it is inside a bounded head window of the
+     * repository's default main-list ordering. This is an explicit focus/navigation policy, not an
+     * exact whole-list position contract.
+     */
+    suspend fun getDefaultMainListIndexInWindow(
+        id: String,
+        limit: Int,
+    ): Int?
+
+    /**
+     * Returns one memo by id without forcing callers to reload the whole list.
+     */
+    suspend fun getMemoById(id: String): Memo?
+
+    fun isSyncing(): Flow<Boolean>
+}
+
+interface MemoQueryRepository :
+    MemoListQueryRepository,
+    DailyReviewCandidateRepository,
+    MainListQueryRepository
+
+interface MemoMutationRepository {
+    suspend fun refreshMemos()
+
+    /** Commits Rust-parsed facts from a document command without rebuilding the workspace. */
+    suspend fun commitDocumentMutation(
+        mutation: com.lomo.domain.model.MemoDocumentMutation,
+    )
+
+    suspend fun saveMemo(
+        content: String,
+        timestamp: Long,
+        geoLocation: String? = null,
+    ): Memo
+
+    suspend fun updateMemo(
+        memo: Memo,
+        newContent: String,
+    )
+
+    suspend fun deleteMemo(memo: Memo)
+
+    suspend fun restoreMemoRevision(
+        currentMemo: Memo,
+        revision: MemoRevision,
+    )
+
+    suspend fun setMemoPinned(
+        memoId: String,
+        pinned: Boolean,
+    )
+}
+
+interface MemoSearchRepository {
+    fun getMemosByTagPagingSource(selection: TagSelection): PagingSource<String, Memo>
+
+    fun searchPagingSource(
+        query: String,
+        mode: MemoSearchMode,
+        filter: MemoListFilter,
+    ): PagingSource<String, Memo>
+}
+
+interface MemoStatisticsRepository {
+    suspend fun getMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+    ): MemoStatistics
+
+    fun getMemoCountFlow(): Flow<Int>
+
+    fun getSidebarStatisticsFlow(): Flow<com.lomo.domain.model.MemoSidebarStatistics>
+
+    fun getMemoCountByDateFlow(): Flow<Map<String, Int>>
+
+    fun getTagCountsFlow(): Flow<List<MemoTagCount>>
+
+    fun getActiveDayCount(): Flow<Int>
+}
+
+interface MemoTrashRepository {
+    fun getDeletedMemosPagingSource(): PagingSource<String, Memo>
+
+    suspend fun restoreMemo(memo: Memo)
+
+    suspend fun deletePermanently(memo: Memo)
+
+    suspend fun clearTrash()
+}
+
+interface MemoTaskRepository {
+    suspend fun listTasks(): List<MemoTask>
+
+    suspend fun toggleTask(
+        task: MemoTask,
+        done: Boolean,
+    )
+}
