@@ -41,9 +41,10 @@ class ClassEntry:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate Lomo static baseline profile from Kotlin Toolchain jars.")
-    parser.add_argument("--build-dir", required=True, type=Path, help="Kotlin Toolchain build directory to scan.")
-    parser.add_argument("--rules-file", default=Path("app/baseline-rules.txt"), type=Path)
-    parser.add_argument("--output", default=Path("app/src/main/baselineProfiles/generated.txt"), type=Path)
+    rules_default = Path("apps/android/app/baseline-rules.txt")
+    output_default = Path("apps/android/app/src/main/baselineProfiles/generated.txt")
+    parser.add_argument("--rules-file", default=rules_default, type=Path)
+    parser.add_argument("--output", default=output_default, type=Path)
     parser.add_argument(
         "--report",
         default=Path("build/reports/ai/static-baseline-profile/static-baseline-profile-report.txt"),
@@ -250,7 +251,7 @@ def generate_entries(
         for method in class_entry.methods:
             entries.setdefault(f"{rule.method_flags}{class_entry.internal_name};->{method.name}{method.descriptor}", rule)
     if not entries:
-        raise ValueError("Baseline profile generation matched no classes. Check --build-dir and app/baseline-rules.txt.")
+        raise ValueError("Baseline profile generation matched no classes. Check --build-dir and apps/android/app/baseline-rules.txt.")
     return dict(sorted(entries.items())), matched_rules
 
 

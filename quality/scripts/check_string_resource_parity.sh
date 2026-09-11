@@ -33,8 +33,11 @@ failures = []
 checked_modules = []
 
 for module, resource_root in module_resource_roots.items():
-    default_path = repo_root / module / resource_root / "values/strings.xml"
-    zh_path = repo_root / module / resource_root / "values-zh-rCN/strings.xml"
+    mod_dir = repo_root / "apps/android" / module
+    if not mod_dir.exists():
+        mod_dir = repo_root / module
+    default_path = mod_dir / resource_root / "values/strings.xml"
+    zh_path = mod_dir / resource_root / "values-zh-rCN/strings.xml"
 
     if not default_path.exists() and not zh_path.exists():
         continue

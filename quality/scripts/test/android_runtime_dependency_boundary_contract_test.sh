@@ -15,9 +15,11 @@ set -euo pipefail
 # Excludes: WebDAV protocol behavior and Kotlin Toolchain execution.
 
 repo_root="$(git rev-parse --show-toplevel)"
-data_module="$repo_root/data/module.yaml"
-proguard_rules="$repo_root/app/proguard-rules.pro"
-webdav_transport="$repo_root/data/src/webdav/OkHttpWebDavClient.kt"
+data_module="$repo_root/apps/android/data/module.yaml"
+[ -f "$data_module" ] || data_module="$repo_root/data/module.yaml"
+proguard_rules="$repo_root/apps/android/app/proguard-rules.pro"
+[ -f "$proguard_rules" ] || proguard_rules="$repo_root/app/proguard-rules.pro"
+webdav_transport="$repo_root/apps/android/data/src/webdav/OkHttpWebDavClient.kt"
 
 fail() {
   echo "android-runtime-dependency-boundary: $1" >&2

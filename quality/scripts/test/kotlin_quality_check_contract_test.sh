@@ -37,19 +37,19 @@ reject_path() {
 
 for file in \
   Justfile \
-  rust/Cargo.toml \
-  rust/rust-toolchain.toml \
-  rust/tools.toml \
-  rust/xtask/src/quality.rs \
-  rust/xtask/src/native.rs \
-  rust/xtask/src/android.rs \
+  Cargo.toml \
+  rust-toolchain.toml \
+  tools.toml \
+  crates/lomo-xtask/src/quality.rs \
+  crates/lomo-xtask/src/native.rs \
+  crates/lomo-xtask/src/android.rs \
   .githooks/pre-commit \
   .githooks/pre-push; do
   [ -f "$file" ] || fail "required file missing: $file"
 done
 
-require_text Justfile 'cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --'
-for command in bootstrap fmt test preflight check native android ci device-smoke deps perf cache rust-toolchain-bump; do
+require_text Justfile 'cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --'
+for command in bootstrap fmt test preflight check check-linux native android ci device-smoke deps perf cache rust-toolchain-bump; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
 
@@ -62,9 +62,9 @@ channel="$(
       print $3
       exit
     }
-  ' rust/rust-toolchain.toml
+  ' rust-toolchain.toml
 )"
-[ -n "${channel}" ] || fail "rust/rust-toolchain.toml missing channel"
+[ -n "${channel}" ] || fail "rust-toolchain.toml missing channel"
 msrv="$(printf '%s' "${channel}" | awk -F. '{ print $1 "." $2 }')"
 [ -n "${msrv}" ] || fail "unable to derive msrv from channel ${channel}"
 case "${channel}" in
@@ -73,29 +73,29 @@ case "${channel}" in
     ;;
 esac
 
-require_text rust/Cargo.toml "rust-version = \"${msrv}\""
-require_text rust/Cargo.toml 'license = "GPL-3.0-only"'
-require_text rust/Cargo.toml 'warnings = "deny"'
-require_text rust/Cargo.toml 'pedantic = "deny"'
-require_text rust/Cargo.toml '[profile.release-ci]'
-require_text rust/rust-toolchain.toml "channel = \"${channel}\""
-require_text rust/xtask/src/rust_pin.rs 'rust-toolchain.toml'
-require_text rust/xtask/src/rust_pin.rs 'pub fn bump'
-require_text rust/xtask/src/tools.rs 'rust_pin::load'
-if grep -Eq 'command\.args\(\[[[:space:]]*"\+[0-9]' rust/xtask/src/tools.rs; then
-  fail "rust/xtask/src/tools.rs must not hard-code cargo +channel literals"
+require_text Cargo.toml "rust-version = \"${msrv}\""
+require_text Cargo.toml 'license = "GPL-3.0-only"'
+require_text Cargo.toml 'warnings = "deny"'
+require_text Cargo.toml 'pedantic = "deny"'
+require_text Cargo.toml '[profile.release-ci]'
+require_text rust-toolchain.toml "channel = \"${channel}\""
+require_text crates/lomo-xtask/src/rust_pin.rs 'rust-toolchain.toml'
+require_text crates/lomo-xtask/src/rust_pin.rs 'pub fn bump'
+require_text crates/lomo-xtask/src/tools.rs 'rust_pin::load'
+if grep -Eq 'command\.args\(\[[[:space:]]*"\+[0-9]' crates/lomo-xtask/src/tools.rs; then
+  fail "crates/lomo-xtask/src/tools.rs must not hard-code cargo +channel literals"
 fi
-require_text rust/xtask/src/workspace.rs '29.0.14206865'
-require_text rust/xtask/src/native.rs 'liblomo_native_jni.so'
-require_text rust/xtask/src/native.rs 'Abi::ALL'
-require_text rust/xtask/src/native.rs 'ReleaseCi'
-require_text rust/xtask/src/android.rs 'assets/dexopt/baseline.prof'
-require_text rust/xtask/src/android.rs 'env:LOMO_APK_STORE_PASSWORD'
-require_text rust/xtask/src/quality.rs 'pub fn preflight'
-require_text native-bindings/module.yaml 'namespace: com.lomo.nativebridge'
-require_text native-bindings/module.yaml 'allWarningsAsErrors: true'
-require_text .gitignore '/native-bindings/src/'
-require_text .gitignore '/app/jniLibs/'
+require_text crates/lomo-xtask/src/workspace.rs '29.0.14206865'
+require_text crates/lomo-xtask/src/native.rs 'liblomo_native_jni.so'
+require_text crates/lomo-xtask/src/native.rs 'Abi::ALL'
+require_text crates/lomo-xtask/src/native.rs 'ReleaseCi'
+require_text crates/lomo-xtask/src/android.rs 'assets/dexopt/baseline.prof'
+require_text crates/lomo-xtask/src/android.rs 'env:LOMO_APK_STORE_PASSWORD'
+require_text crates/lomo-xtask/src/quality.rs 'pub fn preflight'
+require_text apps/android/native-bindings/module.yaml 'namespace: com.lomo.nativebridge'
+require_text apps/android/native-bindings/module.yaml 'allWarningsAsErrors: true'
+require_text .gitignore '/apps/android/native-bindings/src/'
+require_text .gitignore '/apps/android/app/jniLibs/'
 require_text .githooks/pre-commit 'preflight'
 require_text .githooks/pre-push 'preflight push'
 if grep -Eq 'just ci' .githooks/pre-commit .githooks/pre-push; then
@@ -118,7 +118,7 @@ done
 
 if rg -n '28\.2\.13676358|liblomo_sync_ffi|com\.lomo\.rustsync' \
   --glob '!quality/scripts/test/kotlin_quality_check_contract_test.sh' \
-  --glob '!rust/target/**' --glob '!build/**' --glob '!.git/**' . >/dev/null; then
+  --glob '!target/**' --glob '!build/**' --glob '!.git/**' . >/dev/null; then
   fail "old NDK, native library, or Kotlin package reference remains"
 fi
 

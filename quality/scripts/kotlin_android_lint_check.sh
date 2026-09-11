@@ -128,7 +128,10 @@ for item in classpath:
     unique_cp.append(item)
 
 # Amper keeps min/target SDK in module.yaml, not the source manifest. Inject for lint model.
-src_manifest = (repo_root / "app/src/AndroidManifest.xml").read_text(encoding="utf-8")
+app_root = repo_root / "apps/android/app"
+if not app_root.exists():
+    raise SystemExit(f"kotlin-android-lint-check: missing expected app root: {app_root}")
+src_manifest = (app_root / "src/AndroidManifest.xml").read_text(encoding="utf-8")
 if "uses-sdk" not in src_manifest:
     src_manifest = src_manifest.replace(
         '<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
@@ -168,8 +171,8 @@ lines = [
     "<project>",
     f'  <module name="app" android="true" library="false" compile-sdk-version="{app_compile_sdk}">',
     f'    <manifest file="{esc(str(merged_manifest))}" />',
-    f'    <src file="{esc(str(repo_root / "app/src"))}" />',
-    f'    <resource file="{esc(str(repo_root / "app/res"))}" />',
+    f'    <src file="{esc(str(app_root / "src"))}" />',
+    f'    <resource file="{esc(str(app_root / "res"))}" />',
 ]
 for jar in unique_cp:
     lines.append(f'    <classpath jar="{esc(str(jar))}" />')

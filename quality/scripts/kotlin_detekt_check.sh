@@ -24,32 +24,17 @@ declare -A module_config=(
   [ui-components]="quality/detekt/config/ui-components.yml"
 )
 
-declare -A module_input=(
-  [app]="app/src"
-  [domain]="domain/src"
-  [data]="data/src"
-  [ui-components]="ui-components/src"
-)
-
-declare -A module_baseline=(
-  [app]="app/detekt-baseline.xml"
-  [domain]="domain/detekt-baseline.xml"
-  [data]="data/detekt-baseline.xml"
-  [ui-components]="ui-components/detekt-baseline.xml"
-)
-
 failed=0
 for module in app domain data ui-components; do
-  input="${module_input[$module]}"
-  config="${module_config[$module]}"
-  baseline="${module_baseline[$module]}"
-  report="$report_root/${module}.html"
-
+  input="apps/android/$module/src"
   if [ ! -d "$input" ]; then
     echo "kotlin-detekt-check: missing input directory $input" >&2
     failed=1
     continue
   fi
+  config="${module_config[$module]}"
+  baseline="apps/android/$module/detekt-baseline.xml"
+  report="$report_root/${module}.html"
 
   echo "kotlin-detekt-check: analyzing $module ($input)"
   args=(

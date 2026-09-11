@@ -14,6 +14,8 @@ xtask; they are not public quality orchestrators.
 | Run Rust and Kotlin host tests | `just test` |
 | Path-aware iterative gate (manual / pre-push) | `just preflight staged`, `just preflight push` |
 | Iterative repository gate (handoff) | `just check` |
+| Linux host quality gate (independent host crates without Android/JNI dependencies) | `just check-linux` |
+| Generic Linux x86_64 TUI archive (`bin/lomo`, config template, docs) | `just package-linux` |
 | Generate four-ABI release native outputs and bindings | `just native` |
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
@@ -25,7 +27,7 @@ xtask; they are not public quality orchestrators.
 | Regenerate Kotlin bindings only | `just bindings` |
 
 Run commands from the repository root. `just android release` requires complete signing
-configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`,
+configuration through `apps/android/app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`,
 `KEY_ALIAS`, and `KEY_PASSWORD`; missing or partial configuration is an error.
 
 ## Gate Contract
@@ -37,6 +39,8 @@ configuration through `app/keystore.properties` or `KEYSTORE_FILE`, `KEYSTORE_PA
 | `just preflight push` | Path-aware subset of pushed commits vs the remote base (runs on pre-push): rust-only pushes skip the Kotlin surface; a missing remote base falls back to the full iterative surface | coverage, fat-LTO, device smoke |
 | `just test` | Cargo nextest + doc tests; Kotlin host tests | static analysis, coverage, native/APK validation |
 | `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
+| `just check-linux` | Host dependency closure purity assertion (zero Android/JNI deps in host packages), host Clippy, architecture tests, and host unit/integration tests | Kotlin, Android SDK/NDK, Gradle, device smoke |
+| `just package-linux` | Release `lomo-tui` plus a generic `lomo-linux-x86_64.tar.gz` (strips `-C target-cpu=native`; no personal toolchain paths) | Android APK, coverage, device smoke |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
 | `just device-smoke` | Builds a minimal smoke APK, installs it on an attached API ≥ 26 device with a packaged ABI (`arm64-v8a` or `x86_64`), loads `liblomo_native_jni.so`, and exercises the formal engine/planner smoke surface. Stage-1 hard gate on this line is arm64 API ≥ 26; API 26 AVD is optional non-claim | the rest of the quality gate |
 | `just sync-provider-smoke` | Six locked Stage-5 provider lines (Nutstore, Nextcloud, AWS S3, Cloudflare R2, GitHub, GitLab). Each line resolves its `LOMO_SMOKE_*` credentials, then drives the production remote port through an isolated snapshot → publish → verify → conditional delete → verify-absent round trip. Lines without credentials stay `OPEN / pending_env` and the command exits non-zero | everything else; never invoked by `just check` / `just ci` (the smoke targets are `#[ignore]`d so a credential-less run can never report a provider pass) |
@@ -48,7 +52,7 @@ which only owns gates and scripts). Large seeded corpora are generated into giti
 `build/corpora/` via:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask -- perf
+cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- perf
 ```
 
 `just perf` measures only current workspace, store and sync owners. Provider networking and device
@@ -98,28 +102,28 @@ Current production native transport is BoltFFI/JNI. ABI, ELF, DT_NEEDED, legacy-
 and packaging completeness are checked directly from generated outputs; no historical size ceiling
 is a quality input.
 
-- Rust: channel from `rust/rust-toolchain.toml` (currently `1.98`), matching
+- Rust: channel from `rust-toolchain.toml` (currently `1.98`), matching
   `workspace.package.rust-version`, Edition 2024, components `rustfmt`, `clippy`,
   `llvm-tools-preview`, `rust-src`. Bump with `just rust-toolchain-bump <x.y|x.y.z>`
   then `just bootstrap` and quality gates (the bump recipe rewrites pin sites only).
 - Android NDK: `29.0.14206865`; native API/minSdk: `26`.
 - Android ABIs: `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`.
 - Native facade: `lomo-native` (`staticlib` + `rlib`); packaged library: `liblomo_native_jni.so`.
-- Generated Kotlin module/package/owner: `native-bindings` / `com.lomo.nativebridge` /
+- Generated Kotlin module/package/owner: `apps/android/native-bindings` / `com.lomo.nativebridge` /
   `LomoNativeBridge.kt`.
-- BoltFFI CLI: exact pin in `rust/tools.toml` (`boltffi_cli` / `boltffi`); runtime uses the
-  repository-owned `rust/boltffi-facade` over exact-pinned `boltffi_core` with default features
+- BoltFFI CLI: exact pin in `tools.toml` (`boltffi_cli` / `boltffi`); runtime uses the
+  repository-owned `crates/boltffi-facade` over exact-pinned `boltffi_core` with default features
   disabled.
 - Shipping Android pack profile: `release-android` (`opt-level = "z"`, fat LTO) plus pack-path
   `immediate-abort` + `build-std` size policy owned by xtask.
-- Cargo tools: exact versions in `rust/tools.toml`, installed under `LOMO_CARGO_TOOLS_DIR` or the
+- Cargo tools: exact versions in `tools.toml`, installed under `LOMO_CARGO_TOOLS_DIR` or the
   standard XDG cache (`$XDG_CACHE_HOME/lomo/cargo-tools`).
 
 `lomo-xtask` is the only public orchestrator. No floating branch, automatic mutation, production
 dual stack, compatibility alias, or UniFFI fallback is permitted.
 
-`rust/Cargo.lock`, `rust/tools.toml`, `rust/rust-toolchain.toml`, and source/configuration files are
-versioned facts. `native-bindings/src`, `app/jniLibs`, and `native-smoke/jniLibs` are ignored outputs
+`Cargo.lock`, `tools.toml`, `rust-toolchain.toml`, and source/configuration files are
+versioned facts. `apps/android/native-bindings/src`, `apps/android/app/jniLibs`, and `apps/android/native-smoke/jniLibs` are ignored outputs
 regenerated by xtask. A clean checkout is therefore the expected build input.
 
 ## Rust Governance
@@ -133,7 +137,7 @@ Release native Android packaging uses profile `release-android` (`opt-level = "z
 codegen unit, stripped). The pack path additionally rebuilds std with `panic=immediate-abort` so
 backtrace/gimli weight never ships. Host iterative checks use the development profile. Rust
 coverage excludes `lomo-xtask` and `lomo-architecture-tests`; the fail-under threshold is fixed in
-`rust/xtask/src/quality.rs` (`RUST_COVERAGE_MINIMUM`, currently **70%** per product decision
+`crates/lomo-xtask/src/quality.rs` (`RUST_COVERAGE_MINIMUM`, currently **70%** per product decision
 2026-07-22). Raise only after a measured green run; do not grind tests solely to climb an
 arbitrary higher bar.
 

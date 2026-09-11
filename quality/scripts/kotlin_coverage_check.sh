@@ -53,15 +53,51 @@ if [ ! -f "$exec_file" ] || [ ! -s "$exec_file" ]; then
 fi
 
 # Prefer Toolchain module jars (stable, production class files).
+# AndroidDebug and jarJvm both emit `<module>-jvm.jar`; Release is a third copy.
+# JaCoCo rejects duplicate class names, so keep one jar per basename.
+# Prefer AndroidDebug (the test compilation) over jarJvm. Never use AndroidRelease.
 classfiles_args=()
 while IFS= read -r jar; do
   [ -f "$jar" ] || continue
   classfiles_args+=(--classfiles "$jar")
 done < <(
-  find "$build_dir/tasks" \
-    -type f \
-    \( -name 'domain-jvm.jar' -o -name 'app-jvm.jar' -o -name 'data-jvm.jar' -o -name 'ui-components-jvm.jar' -o -name 'detekt-rules-jvm.jar' \) \
-    2>/dev/null | sort -u
+  python3 - "$build_dir/tasks" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+names = {
+    "domain-jvm.jar",
+    "app-jvm.jar",
+    "data-jvm.jar",
+    "ui-components-jvm.jar",
+    "detekt-rules-jvm.jar",
+}
+
+def score(path: Path) -> int:
+    text = str(path)
+    if "AndroidRelease" in text:
+        return 0
+    if "AndroidDebug" in text:
+        return 3
+    if "jarJvm" in text:
+        return 2
+    return 1
+
+best: dict[str, tuple[int, Path]] = {}
+for jar in root.rglob("*.jar"):
+    if jar.name not in names:
+        continue
+    ranked = score(jar)
+    if ranked == 0:
+        continue
+    current = best.get(jar.name)
+    if current is None or ranked > current[0]:
+        best[jar.name] = (ranked, jar)
+
+for name in sorted(best):
+    print(best[name][1])
+PY
 )
 
 if [ "${#classfiles_args[@]}" -eq 0 ]; then
@@ -70,14 +106,21 @@ if [ "${#classfiles_args[@]}" -eq 0 ]; then
 fi
 
 echo "kotlin-coverage-check: generating report from ${#classfiles_args[@]} classfile roots"
+sourcefiles_args=()
+for mod in app data domain ui-components; do
+  src_dir="$repo_root/apps/android/$mod/src"
+  if [ ! -d "$src_dir" ]; then
+    echo "kotlin-coverage-check: missing expected module source directory: $src_dir" >&2
+    exit 1
+  fi
+  sourcefiles_args+=(--sourcefiles "$src_dir")
+done
+
 rm -rf "$html_report"
 mkdir -p "$html_report"
 java -jar "$cli_jar" report "$exec_file" \
   "${classfiles_args[@]}" \
-  --sourcefiles "$repo_root/app/src" \
-  --sourcefiles "$repo_root/data/src" \
-  --sourcefiles "$repo_root/domain/src" \
-  --sourcefiles "$repo_root/ui-components/src" \
+  "${sourcefiles_args[@]}" \
   --xml "$xml_report" \
   --html "$html_report" \
   --name "Lomo quality coverage"

@@ -40,8 +40,8 @@ copy_fixture_phase() {
   local phase="$2"
   local repo_dir="$3"
 
-  copy_fixture_tree "$case_dir/$phase-src" "$repo_dir/app/src"
-  copy_fixture_tree "$case_dir/$phase-test" "$repo_dir/app/test"
+  copy_fixture_tree "$case_dir/$phase-src" "$repo_dir/apps/android/app/src"
+  copy_fixture_tree "$case_dir/$phase-test" "$repo_dir/apps/android/app/test"
   copy_fixture_tree "$case_dir/$phase-gradle" "$repo_dir/gradle"
 }
 

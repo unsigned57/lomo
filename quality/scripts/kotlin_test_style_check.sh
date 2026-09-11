@@ -24,12 +24,17 @@ failed=0
 
 for module in app domain data ui-components; do
   inputs=()
-  [ -d "$module/test" ] && inputs+=("$module/test")
-  [ -d "$module/test@android" ] && inputs+=("$module/test@android")
+  mod_dir="apps/android/$module"
+  if [ ! -d "$mod_dir" ]; then
+    echo "kotlin-test-style-check: missing expected module directory: $mod_dir" >&2
+    exit 1
+  fi
+  [ -d "$mod_dir/test" ] && inputs+=("$mod_dir/test")
+  [ -d "$mod_dir/test@android" ] && inputs+=("$mod_dir/test@android")
 
   if [ "${#inputs[@]}" -eq 0 ]; then
-    echo "kotlin-test-style-check: $module has no test roots; skipping"
-    continue
+    echo "kotlin-test-style-check: $module has no test roots under $mod_dir" >&2
+    exit 1
   fi
 
   echo "kotlin-test-style-check: analyzing $module (${inputs[*]})"

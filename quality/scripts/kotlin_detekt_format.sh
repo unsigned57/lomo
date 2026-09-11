@@ -23,9 +23,14 @@ inputs=()
 case "$mode" in
   all)
     for module in app domain data ui-components quality/detekt-rules; do
-      [ -d "$module/src" ] && inputs+=("$module/src")
-      [ -d "$module/test" ] && inputs+=("$module/test")
-      [ -d "$module/test@android" ] && inputs+=("$module/test@android")
+      mod_dir="apps/android/$module"
+      if [ ! -d "$mod_dir" ]; then
+        echo "kotlin-detekt-format: missing expected module directory: $mod_dir" >&2
+        exit 1
+      fi
+      [ -d "$mod_dir/src" ] && inputs+=("$mod_dir/src")
+      [ -d "$mod_dir/test" ] && inputs+=("$mod_dir/test")
+      [ -d "$mod_dir/test@android" ] && inputs+=("$mod_dir/test@android")
     done
     ;;
   staged)

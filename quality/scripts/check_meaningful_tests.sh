@@ -166,10 +166,10 @@ has_half_migrated_assertions() {
 vintage_dependency_enabled() {
   # Production uses module.yaml only. Fixture trees may still ship a catalog file.
   local -a files=(
-    app/module.yaml
-    domain/module.yaml
-    data/module.yaml
-    ui-components/module.yaml
+    apps/android/app/module.yaml
+    apps/android/domain/module.yaml
+    apps/android/data/module.yaml
+    apps/android/ui-components/module.yaml
     gradle/libs.versions.toml
   )
   local existing=()
@@ -246,7 +246,7 @@ production_source_changed=false
 
 if [ "$all_mode" = true ] || [ "${MEANINGFUL_TEST_CHECK_ALL:-}" = "true" ]; then
   # Scan all test files
-  mapfile -t all_candidates < <(find app domain data ui-components -type f \( -name "*Test.kt" -o -name "*Test.kts" \) | grep -vE "/(build|bin)/" | sort -u)
+  mapfile -t all_candidates < <(find apps/android/app apps/android/domain apps/android/data apps/android/ui-components -type f \( -name "*Test.kt" -o -name "*Test.kts" \) | grep -vE "/(build|bin)/" | sort -u)
   for file in "${all_candidates[@]}"; do
     if is_fixture_support_path "$file" || is_test_support_path "$file"; then
       continue
@@ -279,7 +279,7 @@ else
     if is_fixture_support_path "$file" || is_test_support_path "$file"; then
       continue
     fi
-    if [[ "$file" =~ ^(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]]; then
+    if [[ "$file" =~ ^apps/android/(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]]; then
       production_source_changed=true
       break
     fi
