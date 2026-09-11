@@ -1,0 +1,1222 @@
+package com.lomo.data.local.datastore
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.model.SnapshotPreferenceOptions
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
+import com.lomo.domain.model.WorkspaceRootTransitionCorruptionException
+import com.lomo.domain.model.WorkspaceRootTransitionPhase
+import com.lomo.data.source.isContentStorageUri
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.util.UUID
+
+internal class RootLocationStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoRootLocationStore {
+    override val rootUri: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.ROOT_URI, "rootUri")
+
+    override val rootDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.ROOT_DIRECTORY, "rootDirectory")
+
+    override suspend fun updateRootUri(uri: String?) {
+        dataStore.editPreferences {
+            if (uri != null) {
+                this[LomoDataStoreKeys.ROOT_URI] = uri
+                remove(LomoDataStoreKeys.ROOT_DIRECTORY)
+            } else {
+                remove(LomoDataStoreKeys.ROOT_URI)
+            }
+        }
+    }
+
+    override suspend fun updateRootDirectory(path: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.ROOT_DIRECTORY, path)
+    }
+
+    override suspend fun getRootDirectoryOnce(): String? =
+        dataStore.firstValue("getRootDirectoryOnce", null) { prefs ->
+            prefs[LomoDataStoreKeys.ROOT_URI] ?: prefs[LomoDataStoreKeys.ROOT_DIRECTORY]
+        }
+}
+
+internal class WorkspaceRootTransitionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoWorkspaceRootTransitionStore {
+    override suspend fun prepareRootTransition(
+        previous: StorageLocation?,
+        candidate: StorageLocation,
+    ): WorkspaceRootTransition {
+        val transition =
+            WorkspaceRootTransition(
+                id = UUID.randomUUID().toString(),
+                previous = previous,
+                candidate = candidate,
+                phase = WorkspaceRootTransitionPhase.PREPARED,
+            )
+        dataStore.editPreferences {
+            requireNoPendingTransition(this)
+            requireCommittedRoot(this, previous)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_ID] = transition.id
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT] = previous != null
+            setOrRemove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS, previous?.raw)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE] = candidate.raw
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE] = transition.phase.name
+        }
+        return transition
+    }
+
+    override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition {
+        var activated: WorkspaceRootTransition? = null
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            if (current.phase != WorkspaceRootTransitionPhase.PREPARED) {
+                throw transitionCorruption("Workspace transition is not prepared")
+            }
+            requireCommittedRoot(this, current.previous)
+            activated = current.copy(phase = WorkspaceRootTransitionPhase.ACTIVATED)
+            this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE] = WorkspaceRootTransitionPhase.ACTIVATED.name
+        }
+        return checkNotNull(activated)
+    }
+
+    override suspend fun commitRootTransition(transitionId: String) {
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            if (current.phase != WorkspaceRootTransitionPhase.ACTIVATED) {
+                throw transitionCorruption("Workspace transition is not activated")
+            }
+            requireCommittedRoot(this, current.previous)
+            putCommittedRoot(current.candidate)
+            clearRootTransition()
+        }
+    }
+
+    override suspend fun rollbackRootTransition(transitionId: String) {
+        dataStore.editPreferences {
+            val current = requireTransition(transitionId)
+            requireCommittedRoot(this, current.previous)
+            clearRootTransition()
+        }
+    }
+
+    override suspend fun pendingRootTransition(): WorkspaceRootTransition? =
+        dataStore.data.first().readRootTransition()
+
+    override suspend fun recoverRootLocation(): StorageLocation? {
+        var recovered: StorageLocation? = null
+        dataStore.editPreferences {
+            val transition = readRootTransition()
+            val committed = committedRoot()
+            if (transition != null && committed != transition.previous) {
+                throw transitionCorruption("Pending transition previous root differs from committed root")
+            }
+            clearRootTransition()
+            recovered = committed
+        }
+        return recovered
+    }
+}
+
+private fun MutablePreferences.putCommittedRoot(location: StorageLocation) {
+    if (isContentStorageUri(location.raw)) {
+        this[LomoDataStoreKeys.ROOT_URI] = location.raw
+        remove(LomoDataStoreKeys.ROOT_DIRECTORY)
+    } else {
+        remove(LomoDataStoreKeys.ROOT_URI)
+        this[LomoDataStoreKeys.ROOT_DIRECTORY] = location.raw
+    }
+}
+
+private fun Preferences.committedRoot(): StorageLocation? =
+    (this[LomoDataStoreKeys.ROOT_URI] ?: this[LomoDataStoreKeys.ROOT_DIRECTORY])?.let(::StorageLocation)
+
+private fun requireCommittedRoot(
+    preferences: Preferences,
+    expected: StorageLocation?,
+) {
+    if (preferences.committedRoot() != expected) {
+        throw transitionCorruption("Committed root changed during workspace transition")
+    }
+}
+
+private fun Preferences.requireTransition(transitionId: String): WorkspaceRootTransition {
+    val transition = readRootTransition()
+        ?: throw transitionCorruption("Workspace transition does not exist")
+    if (transition.id != transitionId) {
+        throw transitionCorruption("Workspace transition id does not match")
+    }
+    return transition
+}
+
+private fun requireNoPendingTransition(preferences: Preferences) {
+    if (preferences.readRootTransition() != null) {
+        throw transitionCorruption("A workspace transition is already pending")
+    }
+}
+
+private fun Preferences.readRootTransition(): WorkspaceRootTransition? {
+    val id = this[LomoDataStoreKeys.ROOT_TRANSITION_ID]
+    val hasAny =
+        contains(LomoDataStoreKeys.ROOT_TRANSITION_ID) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE) ||
+            contains(LomoDataStoreKeys.ROOT_TRANSITION_PHASE)
+    if (id == null) {
+        requireTransitionCondition(!hasAny, "Workspace transition journal is incomplete")
+        return null
+    }
+    val previousPresent = requireTransitionValue(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT],
+        "Workspace transition previous marker is missing",
+    )
+    val previousRaw = this[LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS]
+    val previous =
+        if (previousPresent) {
+            requireTransitionString(
+                previousRaw,
+                "Workspace transition previous root is missing",
+            ).let(::StorageLocation)
+        } else {
+            requireTransitionCondition(
+                previousRaw == null,
+                "Workspace transition previous root contradicts its marker",
+            )
+            null
+        }
+    val candidate = requireTransitionString(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE],
+        "Workspace transition candidate is missing",
+    ).let(::StorageLocation)
+    val phaseRaw = requireTransitionString(
+        this[LomoDataStoreKeys.ROOT_TRANSITION_PHASE],
+        "Workspace transition phase is missing",
+    )
+    val phase = requireTransitionPhase(phaseRaw)
+    return try {
+        UUID.fromString(id)
+        WorkspaceRootTransition(id, previous, candidate, phase)
+    } catch (error: IllegalArgumentException) {
+        throw transitionCorruption("Workspace transition journal contains invalid values", error)
+    }
+}
+
+private fun MutablePreferences.clearRootTransition() {
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_ID)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PREVIOUS_PRESENT)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_CANDIDATE)
+    remove(LomoDataStoreKeys.ROOT_TRANSITION_PHASE)
+}
+
+internal fun transitionCorruption(
+    message: String,
+    cause: Throwable? = null,
+): WorkspaceRootTransitionCorruptionException =
+    WorkspaceRootTransitionCorruptionException(
+        if (cause == null) message else "$message: ${cause.message ?: cause.javaClass.simpleName}",
+    )
+
+internal class MediaLocationStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoMediaLocationStore {
+    override val imageUri: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.IMAGE_URI, "imageUri")
+
+    override val imageDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.IMAGE_DIRECTORY, "imageDirectory")
+
+    override val voiceUri: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.VOICE_URI, "voiceUri")
+
+    override val voiceDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.VOICE_DIRECTORY, "voiceDirectory")
+
+    override val syncInboxUri: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_URI, "syncInboxUri")
+
+    override val syncInboxDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, "syncInboxDirectory")
+
+    override suspend fun updateImageUri(uri: String?) {
+        dataStore.editPreferences {
+            if (uri != null) {
+                this[LomoDataStoreKeys.IMAGE_URI] = uri
+                remove(LomoDataStoreKeys.IMAGE_DIRECTORY)
+            } else {
+                remove(LomoDataStoreKeys.IMAGE_URI)
+            }
+        }
+    }
+
+    override suspend fun updateImageDirectory(path: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.IMAGE_DIRECTORY, path)
+    }
+
+    override suspend fun updateVoiceUri(uri: String?) {
+        dataStore.editPreferences {
+            if (uri != null) {
+                this[LomoDataStoreKeys.VOICE_URI] = uri
+                remove(LomoDataStoreKeys.VOICE_DIRECTORY)
+            } else {
+                remove(LomoDataStoreKeys.VOICE_URI)
+            }
+        }
+    }
+
+    override suspend fun updateVoiceDirectory(path: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.VOICE_DIRECTORY, path)
+    }
+
+    override suspend fun updateSyncInboxUri(uri: String?) {
+        dataStore.editPreferences {
+            if (uri != null) {
+                this[LomoDataStoreKeys.SYNC_INBOX_URI] = uri
+                remove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY)
+            } else {
+                remove(LomoDataStoreKeys.SYNC_INBOX_URI)
+            }
+        }
+    }
+
+    override suspend fun updateSyncInboxDirectory(path: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, path)
+    }
+}
+
+internal class StorageFormatStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoStorageFormatStore {
+    override val storageFilenameFormat: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.STORAGE_FILENAME_FORMAT,
+            flowName = "storageFilenameFormat",
+            default = PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT,
+            normalize = StorageFilenameFormats::normalize,
+        )
+
+    override val storageTimestampFormat: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.STORAGE_TIMESTAMP_FORMAT,
+            flowName = "storageTimestampFormat",
+            default = PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT,
+            normalize = StorageTimestampFormats::normalize,
+        )
+
+    override suspend fun updateStorageFilenameFormat(format: String) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.STORAGE_FILENAME_FORMAT] = StorageFilenameFormats.normalize(format)
+        }
+    }
+
+    override suspend fun updateStorageTimestampFormat(format: String) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.STORAGE_TIMESTAMP_FORMAT] = StorageTimestampFormats.normalize(format)
+        }
+    }
+}
+
+internal class DisplayPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoDisplayPreferencesStore {
+    override val dateFormat: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.DATE_FORMAT,
+            flowName = "dateFormat",
+            default = PreferenceKeys.Defaults.DATE_FORMAT,
+        )
+
+    override val timeFormat: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.TIME_FORMAT,
+            flowName = "timeFormat",
+            default = PreferenceKeys.Defaults.TIME_FORMAT,
+        )
+
+    override val themeMode: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.THEME_MODE,
+            flowName = "themeMode",
+            default = PreferenceKeys.Defaults.THEME_MODE,
+        )
+
+    override val colorSource: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.COLOR_SOURCE,
+            flowName = "colorSource",
+            default = PreferenceKeys.Defaults.COLOR_SOURCE,
+        )
+
+    override val calendarHeatmapThresholds: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.CALENDAR_HEATMAP_THRESHOLDS,
+            flowName = "calendarHeatmapThresholds",
+            default = PreferenceKeys.Defaults.CALENDAR_HEATMAP_THRESHOLDS,
+        )
+
+    override val fontPreference: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.FONT_PREFERENCE,
+            flowName = "fontPreference",
+            default = PreferenceKeys.Defaults.FONT_PREFERENCE,
+        )
+
+    override val colorHistory: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.COLOR_HISTORY,
+            flowName = "colorHistory",
+            default = "",
+        )
+
+    override suspend fun updateDateFormat(format: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.DATE_FORMAT] = format }
+    }
+
+    override suspend fun updateTimeFormat(format: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TIME_FORMAT] = format }
+    }
+
+    override suspend fun updateThemeMode(mode: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.THEME_MODE] = mode }
+    }
+
+    override suspend fun updateCalendarHeatmapThresholds(thresholds: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.CALENDAR_HEATMAP_THRESHOLDS] = thresholds }
+    }
+
+    override suspend fun updateColorSource(source: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.COLOR_SOURCE] = source }
+    }
+
+    override suspend fun updateFontPreference(preference: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.FONT_PREFERENCE] = preference }
+    }
+
+    override suspend fun addColorToHistory(argb: Int) {
+        dataStore.editPreferences {
+            val current = this[LomoDataStoreKeys.COLOR_HISTORY].orEmpty()
+            val list = current.split(",")
+                .filter { it.isNotBlank() }
+                .mapNotNull { it.toIntOrNull() }
+                .toMutableList()
+            list.remove(argb)
+            list.add(0, argb)
+            val updated = list.take(8).joinToString(",")
+            this[LomoDataStoreKeys.COLOR_HISTORY] = updated
+        }
+    }
+}
+
+internal class InteractionPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoInteractionPreferencesStore {
+    override val hapticFeedbackEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.HAPTIC_FEEDBACK_ENABLED,
+            flowName = "hapticFeedbackEnabled",
+            default = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
+        )
+
+    override val showInputHints: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SHOW_INPUT_HINTS,
+            flowName = "showInputHints",
+            default = PreferenceKeys.Defaults.SHOW_INPUT_HINTS,
+        )
+
+    override val doubleTapEditEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.DOUBLE_TAP_EDIT_ENABLED,
+            flowName = "doubleTapEditEnabled",
+            default = PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED,
+        )
+
+    override val freeTextCopyEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.FREE_TEXT_COPY_ENABLED,
+            flowName = "freeTextCopyEnabled",
+            default = PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED,
+        )
+
+    override val memoActionAutoReorderEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED,
+            flowName = "memoActionAutoReorderEnabled",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
+        )
+
+    override val autoOpenInputOnForeground: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.AUTO_OPEN_INPUT_ON_FOREGROUND,
+            flowName = "autoOpenInputOnForeground",
+            default = PreferenceKeys.Defaults.AUTO_OPEN_INPUT_ON_FOREGROUND,
+        )
+
+    override val memoActionOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_ORDER,
+            flowName = "memoActionOrder",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_ORDER,
+        )
+
+    override val memoActionOrdersByScope: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_ORDERS_BY_SCOPE,
+            flowName = "memoActionOrdersByScope",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_ORDERS_BY_SCOPE,
+        )
+
+    override val inputToolbarToolOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.INPUT_TOOLBAR_TOOL_ORDER,
+            flowName = "inputToolbarToolOrder",
+            default = PreferenceKeys.Defaults.INPUT_TOOLBAR_TOOL_ORDER,
+        )
+
+    override val quickSaveOnBackEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.QUICK_SAVE_ON_BACK_ENABLED,
+            flowName = "quickSaveOnBackEnabled",
+            default = PreferenceKeys.Defaults.QUICK_SAVE_ON_BACK_ENABLED,
+        )
+
+    override val scrollbarEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SCROLLBAR_ENABLED,
+            flowName = "scrollbarEnabled",
+            default = PreferenceKeys.Defaults.SCROLLBAR_ENABLED,
+        )
+
+    override suspend fun updateHapticFeedbackEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.HAPTIC_FEEDBACK_ENABLED] = enabled }
+    }
+
+    override suspend fun updateShowInputHints(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SHOW_INPUT_HINTS] = enabled }
+    }
+
+    override suspend fun updateDoubleTapEditEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.DOUBLE_TAP_EDIT_ENABLED] = enabled }
+    }
+
+    override suspend fun updateFreeTextCopyEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.FREE_TEXT_COPY_ENABLED] = enabled }
+    }
+
+    override suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED] = enabled }
+    }
+
+    override suspend fun updateAutoOpenInputOnForeground(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.AUTO_OPEN_INPUT_ON_FOREGROUND] = enabled }
+    }
+
+    override suspend fun updateMemoActionOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_ORDER] = order }
+    }
+
+    override suspend fun updateMemoActionOrdersByScope(ordersByScope: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_ORDERS_BY_SCOPE] = ordersByScope }
+    }
+
+    override suspend fun updateInputToolbarToolOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.INPUT_TOOLBAR_TOOL_ORDER] = order }
+    }
+
+    override suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.QUICK_SAVE_ON_BACK_ENABLED] = enabled }
+    }
+
+    override suspend fun updateScrollbarEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SCROLLBAR_ENABLED] = enabled }
+    }
+}
+
+internal class SidebarTagOrderStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoSidebarTagOrderStore {
+    override val sidebarTagOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SIDEBAR_TAG_ORDER,
+            flowName = "sidebarTagOrder",
+            default = PreferenceKeys.Defaults.SIDEBAR_TAG_ORDER,
+        )
+
+    override suspend fun updateSidebarTagOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SIDEBAR_TAG_ORDER] = order }
+    }
+}
+
+internal class AppSecurityStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoAppSecurityStore {
+    override val checkUpdatesOnStartup: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.CHECK_UPDATES_ON_STARTUP,
+            flowName = "checkUpdatesOnStartup",
+            default = PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP,
+        )
+
+    override val appLockEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.APP_LOCK_ENABLED,
+            flowName = "appLockEnabled",
+            default = PreferenceKeys.Defaults.APP_LOCK_ENABLED,
+        )
+
+    override suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.CHECK_UPDATES_ON_STARTUP] = enabled }
+    }
+
+    override suspend fun updateAppLockEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.APP_LOCK_ENABLED] = enabled }
+    }
+}
+
+internal class LanSharePreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoLanSharePreferencesStore {
+    override val lanShareEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.LAN_SHARE_ENABLED,
+            flowName = "lanShareEnabled",
+            default = PreferenceKeys.Defaults.LAN_SHARE_ENABLED,
+        )
+
+    override val lanShareDeviceName: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.LAN_SHARE_DEVICE_NAME, "lanShareDeviceName")
+
+    override val shareCardShowTime: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SHARE_CARD_SHOW_TIME,
+            flowName = "shareCardShowTime",
+            default = PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME,
+        )
+
+    override val shareCardShowBrand: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SHARE_CARD_SHOW_BRAND,
+            flowName = "shareCardShowBrand",
+            default = PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
+        )
+
+    override val shareCardSignatureText: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SHARE_CARD_SIGNATURE_TEXT,
+            flowName = "shareCardSignatureText",
+            default = PreferenceKeys.Defaults.SHARE_CARD_SIGNATURE_TEXT,
+        )
+
+    override val syncInboxEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SYNC_INBOX_ENABLED,
+            flowName = "syncInboxEnabled",
+            default = PreferenceKeys.Defaults.SYNC_INBOX_ENABLED,
+        )
+
+    override suspend fun updateLanShareEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_ENABLED] = enabled }
+    }
+
+    override suspend fun updateLanShareDeviceName(name: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_DEVICE_NAME, name)
+    }
+
+    override suspend fun updateShareCardShowTime(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SHARE_CARD_SHOW_TIME] = enabled }
+    }
+
+    override suspend fun updateShareCardShowBrand(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SHARE_CARD_SHOW_BRAND] = enabled }
+    }
+
+    override suspend fun updateShareCardSignatureText(text: String) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.SHARE_CARD_SIGNATURE_TEXT, text)
+    }
+
+    override suspend fun updateSyncInboxEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
+    }
+}
+
+internal class DailyReviewSessionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoDailyReviewSessionStore {
+    override val dailyReviewSessionDate: Flow<String?> =
+        dataStore.nullableStringFlow(
+            key = LomoDataStoreKeys.DAILY_REVIEW_SESSION_DATE,
+            flowName = "dailyReviewSessionDate",
+        )
+
+    override val dailyReviewSessionSeed: Flow<Long?> =
+        dataStore.data
+            .map { prefs -> prefs[LomoDataStoreKeys.DAILY_REVIEW_SESSION_SEED] }
+            .catchOnlyIOException("dailyReviewSessionSeed", null)
+
+    override val dailyReviewSessionPageIndex: Flow<Int?> =
+        dataStore.data
+            .map { prefs -> prefs[LomoDataStoreKeys.DAILY_REVIEW_SESSION_PAGE_INDEX] }
+            .catchOnlyIOException("dailyReviewSessionPageIndex", null)
+
+    override suspend fun updateDailyReviewSession(
+        date: String?,
+        seed: Long?,
+        pageIndex: Int?,
+    ) {
+        dataStore.editPreferences {
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_DATE, date)
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_SEED, seed)
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_PAGE_INDEX, pageIndex)
+        }
+    }
+}
+
+internal fun normalizeMemoSnapshotMaxCount(value: Int): Int =
+    if (value in SnapshotPreferenceOptions.RETENTION_COUNT_OPTIONS) {
+        value
+    } else {
+        PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_COUNT
+    }
+
+internal fun normalizeMemoSnapshotMaxAgeDays(value: Int): Int =
+    if (value in SnapshotPreferenceOptions.RETENTION_DAY_OPTIONS) {
+        value
+    } else {
+        PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_AGE_DAYS
+    }
+
+internal class SnapshotPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoSnapshotPreferencesStore {
+    override val memoSnapshotsEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOTS_ENABLED,
+            flowName = "memoSnapshotsEnabled",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOTS_ENABLED,
+        )
+
+    override val memoSnapshotMaxCount: Flow<Int> =
+        dataStore.intFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_COUNT,
+            flowName = "memoSnapshotMaxCount",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_COUNT,
+            normalize = ::normalizeMemoSnapshotMaxCount,
+        )
+
+    override val memoSnapshotMaxAgeDays: Flow<Int> =
+        dataStore.intFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS,
+            flowName = "memoSnapshotMaxAgeDays",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_AGE_DAYS,
+            normalize = ::normalizeMemoSnapshotMaxAgeDays,
+        )
+
+    override suspend fun updateMemoSnapshotsEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_SNAPSHOTS_ENABLED] = enabled }
+    }
+
+    override suspend fun updateMemoSnapshotMaxCount(count: Int) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_COUNT] = normalizeMemoSnapshotMaxCount(count)
+        }
+    }
+
+    override suspend fun updateMemoSnapshotMaxAgeDays(days: Int) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS] = normalizeMemoSnapshotMaxAgeDays(days)
+        }
+    }
+}
+
+internal class AppVersionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoAppVersionStore {
+    override suspend fun updateLastAppVersion(version: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAST_APP_VERSION, version)
+    }
+
+    override suspend fun getLastAppVersionOnce(): String? =
+        dataStore.firstValue("getLastAppVersionOnce", null) { prefs ->
+            prefs[LomoDataStoreKeys.LAST_APP_VERSION]
+        }
+}
+
+internal class GitSyncBehaviorStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoGitSyncBehaviorStore {
+    override val gitSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.GIT_SYNC_ENABLED,
+            flowName = "gitSyncEnabled",
+            default = PreferenceKeys.Defaults.GIT_SYNC_ENABLED,
+        )
+
+    override val gitAutoSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.GIT_AUTO_SYNC_ENABLED,
+            flowName = "gitAutoSyncEnabled",
+            default = PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED,
+        )
+
+    override val gitAutoSyncInterval: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.GIT_AUTO_SYNC_INTERVAL,
+            flowName = "gitAutoSyncInterval",
+            default = PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL,
+        )
+
+    override val gitSyncOnRefresh: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.GIT_SYNC_ON_REFRESH,
+            flowName = "gitSyncOnRefresh",
+            default = PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH,
+        )
+
+    override val syncBackendType: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
+            flowName = "syncBackendType",
+            default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
+        )
+
+    override suspend fun updateGitSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateGitAutoSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTO_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateGitAutoSyncInterval(interval: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTO_SYNC_INTERVAL] = interval }
+    }
+
+    override suspend fun updateGitSyncOnRefresh(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_SYNC_ON_REFRESH] = enabled }
+    }
+
+    override suspend fun updateSyncBackendType(type: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = type }
+    }
+
+    override suspend fun setRemoteSyncBackendFlags(
+        backendType: String,
+        gitEnabled: Boolean,
+        webdavEnabled: Boolean,
+        s3Enabled: Boolean,
+    ) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = backendType
+            this[LomoDataStoreKeys.GIT_SYNC_ENABLED] = gitEnabled
+            this[LomoDataStoreKeys.WEBDAV_SYNC_ENABLED] = webdavEnabled
+            this[LomoDataStoreKeys.S3_SYNC_ENABLED] = s3Enabled
+        }
+    }
+}
+
+internal class GitIdentityStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoGitIdentityStore {
+    override val gitRemoteUrl: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.GIT_REMOTE_URL, "gitRemoteUrl")
+
+    override val gitAuthorName: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.GIT_AUTHOR_NAME,
+            flowName = "gitAuthorName",
+            default = PreferenceKeys.Defaults.GIT_AUTHOR_NAME,
+        )
+
+    override val gitAuthorEmail: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.GIT_AUTHOR_EMAIL,
+            flowName = "gitAuthorEmail",
+            default = PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL,
+        )
+
+    override suspend fun updateGitRemoteUrl(url: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.GIT_REMOTE_URL, url)
+    }
+
+    override suspend fun updateGitAuthorName(name: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTHOR_NAME] = name }
+    }
+
+    override suspend fun updateGitAuthorEmail(email: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTHOR_EMAIL] = email }
+    }
+}
+
+internal class GitSyncStatusStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoGitSyncStatusStore {
+    override val gitLastSyncTime: Flow<Long> =
+        dataStore.longFlow(
+            key = LomoDataStoreKeys.GIT_LAST_SYNC_TIME,
+            flowName = "gitLastSyncTime",
+            default = 0L,
+        )
+
+    override suspend fun updateGitLastSyncTime(timestamp: Long) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_LAST_SYNC_TIME] = timestamp }
+    }
+}
+
+internal class WebDavConnectionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoWebDavConnectionStore {
+    override val webDavSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.WEBDAV_SYNC_ENABLED,
+            flowName = "webDavSyncEnabled",
+            default = PreferenceKeys.Defaults.WEBDAV_SYNC_ENABLED,
+        )
+
+    override val webDavProvider: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.WEBDAV_PROVIDER,
+            flowName = "webDavProvider",
+            default = PreferenceKeys.Defaults.WEBDAV_PROVIDER,
+        )
+
+    override val webDavBaseUrl: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.WEBDAV_BASE_URL, "webDavBaseUrl")
+
+    override val webDavEndpointUrl: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.WEBDAV_ENDPOINT_URL, "webDavEndpointUrl")
+
+    override val webDavUsername: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.WEBDAV_USERNAME, "webDavUsername")
+
+    override suspend fun updateWebDavSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateWebDavProvider(provider: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_PROVIDER] = provider }
+    }
+
+    override suspend fun updateWebDavBaseUrl(url: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.WEBDAV_BASE_URL, url)
+    }
+
+    override suspend fun updateWebDavEndpointUrl(url: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.WEBDAV_ENDPOINT_URL, url)
+    }
+
+    override suspend fun updateWebDavUsername(username: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.WEBDAV_USERNAME, username)
+    }
+}
+
+internal class WebDavScheduleStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoWebDavScheduleStore {
+    override val webDavAutoSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.WEBDAV_AUTO_SYNC_ENABLED,
+            flowName = "webDavAutoSyncEnabled",
+            default = PreferenceKeys.Defaults.WEBDAV_AUTO_SYNC_ENABLED,
+        )
+
+    override val webDavAutoSyncInterval: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.WEBDAV_AUTO_SYNC_INTERVAL,
+            flowName = "webDavAutoSyncInterval",
+            default = PreferenceKeys.Defaults.WEBDAV_AUTO_SYNC_INTERVAL,
+        )
+
+    override val webDavLastSyncTime: Flow<Long> =
+        dataStore.longFlow(
+            key = LomoDataStoreKeys.WEBDAV_LAST_SYNC_TIME,
+            flowName = "webDavLastSyncTime",
+            default = 0L,
+        )
+
+    override val webDavSyncOnRefresh: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.WEBDAV_SYNC_ON_REFRESH,
+            flowName = "webDavSyncOnRefresh",
+            default = PreferenceKeys.Defaults.WEBDAV_SYNC_ON_REFRESH,
+        )
+
+    override suspend fun updateWebDavAutoSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_AUTO_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateWebDavAutoSyncInterval(interval: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_AUTO_SYNC_INTERVAL] = interval }
+    }
+
+    override suspend fun updateWebDavLastSyncTime(timestamp: Long) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_LAST_SYNC_TIME] = timestamp }
+    }
+
+    override suspend fun updateWebDavSyncOnRefresh(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_SYNC_ON_REFRESH] = enabled }
+    }
+}
+
+internal class S3ConnectionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoS3ConnectionStore {
+    override val s3SyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_SYNC_ENABLED,
+            flowName = "s3SyncEnabled",
+            default = PreferenceKeys.Defaults.S3_SYNC_ENABLED,
+        )
+
+    override val s3EndpointUrl: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_ENDPOINT_URL, "s3EndpointUrl")
+
+    override val s3Region: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_REGION, "s3Region")
+
+    override val s3Bucket: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_BUCKET, "s3Bucket")
+
+    override val s3Prefix: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_PREFIX, "s3Prefix")
+
+    override val s3LocalSyncDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_LOCAL_SYNC_DIRECTORY, "s3LocalSyncDirectory")
+
+    override val s3PathStyle: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_PATH_STYLE,
+            flowName = "s3PathStyle",
+            default = PreferenceKeys.Defaults.S3_PATH_STYLE,
+        )
+
+    override val s3EncryptionMode: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_ENCRYPTION_MODE,
+            flowName = "s3EncryptionMode",
+            default = PreferenceKeys.Defaults.S3_ENCRYPTION_MODE,
+        )
+
+    override val s3RcloneFilenameEncryption: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCRYPTION,
+            flowName = "s3RcloneFilenameEncryption",
+            default = PreferenceKeys.Defaults.S3_RCLONE_FILENAME_ENCRYPTION,
+        )
+
+    override val s3RcloneFilenameEncoding: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCODING,
+            flowName = "s3RcloneFilenameEncoding",
+            default = PreferenceKeys.Defaults.S3_RCLONE_FILENAME_ENCODING,
+        )
+
+    override val s3RcloneDirectoryNameEncryption: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
+            flowName = "s3RcloneDirectoryNameEncryption",
+            default = PreferenceKeys.Defaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
+        )
+
+    override val s3RcloneDataEncryptionEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
+            flowName = "s3RcloneDataEncryptionEnabled",
+            default = PreferenceKeys.Defaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
+        )
+
+    override val s3RcloneEncryptedSuffix: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_ENCRYPTED_SUFFIX,
+            flowName = "s3RcloneEncryptedSuffix",
+            default = PreferenceKeys.Defaults.S3_RCLONE_ENCRYPTED_SUFFIX,
+        )
+
+    override suspend fun updateS3SyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3EndpointUrl(url: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_ENDPOINT_URL, url)
+    }
+
+    override suspend fun updateS3Region(region: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_REGION, region)
+    }
+
+    override suspend fun updateS3Bucket(bucket: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_BUCKET, bucket)
+    }
+
+    override suspend fun updateS3Prefix(prefix: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_PREFIX, prefix)
+    }
+
+    override suspend fun updateS3LocalSyncDirectory(pathOrUri: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_LOCAL_SYNC_DIRECTORY, pathOrUri)
+    }
+
+    override suspend fun updateS3PathStyle(pathStyle: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_PATH_STYLE] = pathStyle }
+    }
+
+    override suspend fun updateS3EncryptionMode(mode: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_ENCRYPTION_MODE] = mode }
+    }
+
+    override suspend fun updateS3RcloneFilenameEncryption(mode: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCRYPTION] = mode }
+    }
+
+    override suspend fun updateS3RcloneFilenameEncoding(encoding: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCODING] = encoding }
+    }
+
+    override suspend fun updateS3RcloneDirectoryNameEncryption(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION] = enabled }
+    }
+
+    override suspend fun updateS3RcloneDataEncryptionEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_DATA_ENCRYPTION_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3RcloneEncryptedSuffix(suffix: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_ENCRYPTED_SUFFIX] = suffix }
+    }
+}
+
+internal class S3ScheduleStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoS3ScheduleStore {
+    override val s3AutoSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_AUTO_SYNC_ENABLED,
+            flowName = "s3AutoSyncEnabled",
+            default = PreferenceKeys.Defaults.S3_AUTO_SYNC_ENABLED,
+        )
+
+    override val s3AutoSyncInterval: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_AUTO_SYNC_INTERVAL,
+            flowName = "s3AutoSyncInterval",
+            default = PreferenceKeys.Defaults.S3_AUTO_SYNC_INTERVAL,
+        )
+
+    override val s3LastSyncTime: Flow<Long> =
+        dataStore.longFlow(
+            key = LomoDataStoreKeys.S3_LAST_SYNC_TIME,
+            flowName = "s3LastSyncTime",
+            default = 0L,
+        )
+
+    override val s3SyncOnRefresh: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_SYNC_ON_REFRESH,
+            flowName = "s3SyncOnRefresh",
+            default = PreferenceKeys.Defaults.S3_SYNC_ON_REFRESH,
+        )
+
+    override suspend fun updateS3AutoSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_AUTO_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3AutoSyncInterval(interval: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_AUTO_SYNC_INTERVAL] = interval }
+    }
+
+    override suspend fun updateS3LastSyncTime(timestamp: Long) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_LAST_SYNC_TIME] = timestamp }
+    }
+
+    override suspend fun updateS3SyncOnRefresh(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ON_REFRESH] = enabled }
+    }
+}
+
+internal class DraftStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoDraftStore {
+    override val draftText: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.DRAFT_TEXT,
+            flowName = "draftText",
+            default = "",
+        )
+
+    override suspend fun updateDraftText(text: String?) {
+        dataStore.editPreferences {
+            if (text.isNullOrEmpty()) {
+                remove(LomoDataStoreKeys.DRAFT_TEXT)
+            } else {
+                this[LomoDataStoreKeys.DRAFT_TEXT] = text
+            }
+        }
+    }
+}
+
+internal class MemoEditDraftStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoMemoEditDraftStore {
+    override val memoEditDraft: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.MEMO_EDIT_DRAFT, "memoEditDraft")
+
+    override suspend fun updateMemoEditDraft(payload: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.MEMO_EDIT_DRAFT, payload)
+    }
+}
+
+internal class TypographyPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoTypographyPreferencesStore {
+    override val fontSizeScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_FONT_SIZE_SCALE,
+            flowName = "typographyFontSizeScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_FONT_SIZE_SCALE,
+        )
+
+    override val lineHeightScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+            flowName = "typographyLineHeightScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+        )
+
+    override val letterSpacingScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_LETTER_SPACING_SCALE,
+            flowName = "typographyLetterSpacingScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_LETTER_SPACING_SCALE,
+        )
+
+    override val paragraphSpacingScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
+            flowName = "typographyParagraphSpacingScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
+        )
+
+    override suspend fun updateFontSizeScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_FONT_SIZE_SCALE] = scale }
+    }
+
+    override suspend fun updateLineHeightScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE] = scale }
+    }
+
+    override suspend fun updateLetterSpacingScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_LETTER_SPACING_SCALE] = scale }
+    }
+
+    override suspend fun updateParagraphSpacingScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE] = scale }
+    }
+}
