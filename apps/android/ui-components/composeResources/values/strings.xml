@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sidebar and Navigation -->
+    <string name="sidebar_memo">MEMO</string>
+    <string name="sidebar_tags">Tags</string>
+    <string name="sidebar_trash">Trash</string>
+    <string name="sidebar_daily_review">Random Walk</string>
+    <string name="sidebar_gallery">Gallery</string>
+    <string name="sidebar_tasks">Tasks</string>
+    <string name="sidebar_statistics">Statistics</string>
+    <string name="sidebar_settings">Settings</string>
+    
+    <!-- Stats -->
+    <string name="stat_memo">MEMO</string>
+    <string name="stat_tag">TAG</string>
+    <string name="stat_day">DAY</string>
+
+    <!-- Content Descriptions -->
+    <string name="cd_consume_touches">Consume touches</string>
+    <string name="cd_expand">Expand</string>
+    <string name="cd_collapse">Collapse</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_play_audio">Play audio</string>
+    <string name="cd_pause_audio">Pause audio</string>
+    <string name="cd_action_sheet_scroll_backward">Scroll memo actions backward</string>
+    <string name="cd_action_sheet_scroll_forward">Scroll memo actions forward</string>
+    <string name="markdown_image_content_description">Image</string>
+    <string name="markdown_image_load_failed">Image failed to load</string>
+    <string name="calendar_heatmap_date_format">MMM d</string>
+    <string name="calendar_heatmap_year_format">%1$d</string>
+    <plurals name="calendar_heatmap_memo_count">
+        <item quantity="one">%1$d memo</item>
+        <item quantity="other">%1$d memos</item>
+    </plurals>
+    <plurals name="period_report_memo_count">
+        <item quantity="one">%1$d memo</item>
+        <item quantity="other">%1$d memos</item>
+    </plurals>
+    <string name="period_report_daily_average">%1$.1f / day</string>
+
+    <!-- Memo Sheet -->
+    <string name="action_copy">Copy</string>
+    <string name="action_share">Image Share</string>
+    <string name="action_share_text">Text Share</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_lan_share">Send</string>
+    <string name="action_pin">Pin</string>
+    <string name="action_unpin">Unpin</string>
+    <string name="memo_pinned_badge">Pinned</string>
+    <string name="action_jump">Jump</string>
+    <string name="info_created">Created</string>
+    <string name="info_characters">Characters</string>
+    <string name="memo_info_characters_value">Characters: %1$d</string>
+    <string name="memo_info_created_value">Created: %1$s</string>
+    <string name="clipboard_label_memo">memo</string>
+    <string name="loading_message">Loading…</string>
+
+    <!-- Input Sheet -->
+    <string name="input_discard_title">Discard draft?</string>
+    <string name="input_discard_message">Your unsaved content will be lost.</string>
+    <string name="input_discard_confirm">Discard</string>
+    <string name="input_discard_cancel">Keep editing</string>
+    <string name="input_select_tag">Select Tag</string>
+    <string name="input_mode_edit">Edit</string>
+    <string name="input_mode_preview">Preview</string>
+    <string name="input_preview_empty">Nothing to preview yet</string>
+    <string name="input_preview_failed">Preview unavailable</string>
+    <string name="cd_send">Send</string>
+    <string name="recording_in_progress">Recording in progress</string>
+    <string name="cd_cancel_recording">Cancel recording</string>
+    <string name="cd_stop_recording">Stop recording</string>
+    <string name="action_history">History</string>
+    <string name="sync_conflict_title_standard">Resolve Sync Conflicts</string>
+    <string name="sync_conflict_title_initial_preview">Review First Sync Differences</string>
+    <string name="sync_conflict_title_inbox_review">Review Sync Inbox</string>
+    <string name="sync_conflict_choice_keep_all_local">Keep All Local</string>
+    <string name="sync_conflict_choice_keep_all_remote">Keep All Remote</string>
+    <string name="sync_conflict_choice_accept_suggestions">Accept Suggestions</string>
+    <string name="sync_conflict_choice_auto_resolve_safe">Auto-resolve Safe Conflicts</string>
+    <string name="sync_conflict_choice_skip_all">Skip All For Now</string>
+    <string name="sync_conflict_choice_merge">Merge</string>
+    <string name="sync_conflict_choice_skip">Skip</string>
+    <string name="sync_conflict_binary_file">Binary File</string>
+    <string name="sync_conflict_choice_local_short">Local</string>
+    <string name="sync_conflict_choice_remote_short">Remote</string>
+    <string name="sync_conflict_choice_current_short">Current</string>
+    <string name="sync_conflict_choice_inbox_short">Inbox</string>
+    <string name="sync_conflict_apply_resolution">Apply Resolution</string>
+    <string name="sync_conflict_resolving">Resolving conflicts…</string>
+    <string name="sync_conflict_no_text_diffs">No exact text differences found.</string>
+    <string name="sync_conflict_text_diff_too_large">Text diff is too large to display.</string>
+    <string name="sync_conflict_section_auto">Safe to Auto-resolve</string>
+    <string name="sync_conflict_section_manual">Manual Review Required</string>
+    <string name="sync_conflict_section_ready">Ready to Apply</string>
+    <string name="sync_conflict_section_attention">Needs Attention</string>
+    <string name="sync_conflict_merge_preview">Merge Preview</string>
+    <string name="sync_conflict_review_message">Cannot import yet: %1$s</string>
+    <string name="sync_conflict_backup_warning">Overwritten files will be backed up before changes are applied.</string>
+    <string name="sync_conflict_close">Close</string>
+    <string name="sync_conflict_expand">Expand</string>
+    <string name="sync_conflict_collapse">Collapse</string>
+    <!-- Picker -->
+    <string name="seconds_wheel_picker_content_description">Seconds picker</string>
+    <string name="seconds_wheel_picker_state_description">%1$s seconds selected</string>
+    <!-- Relative Time -->
+    <string name="relative_time_just_now">Just now</string>
+    <plurals name="relative_time_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="relative_time_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="relative_time_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="reminder_done">done</string>
+    <string name="memo_card_pending">saving…</string>
+</resources>
