@@ -1,6 +1,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Pinned rustup channel from rust/rust-toolchain.toml (evaluated when Justfile loads).
+# Pinned rustup channel from rust-toolchain.toml (evaluated when Justfile loads).
 rust_channel := `awk '
   /^\[toolchain\]/ { in_tc = 1; next }
   /^\[/ { in_tc = 0 }
@@ -9,11 +9,10 @@ rust_channel := `awk '
     print $3
     exit
   }
-' rust/rust-toolchain.toml`
+' rust-toolchain.toml`
 
-# RUSTUP_TOOLCHAIN is forced from the pin because this invocation runs from the repository root
-# (rustup would otherwise ignore rust/rust-toolchain.toml and use the host default).
-xtask := "RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path rust/Cargo.toml --locked -p lomo-xtask --"
+# The command and all child tool invocations use the repository's pinned Rust toolchain.
+xtask := "RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --"
 
 # Show the canonical Lomo command surface.
 default:
@@ -44,6 +43,18 @@ preflight mode="staged" remote="origin":
 # Run the iterative Rust + Kotlin quality gate.
 check:
     {{xtask}} check
+
+# Run the Linux host quality gate (independent host packages without Android/JNI dependencies).
+check-linux:
+    {{xtask}} check-linux
+
+# Build a generic Linux x86_64 TUI archive under build/dist/.
+package-linux:
+    {{xtask}} package-linux
+
+# Regenerate Kotlin bindings only.
+bindings:
+    {{xtask}} bindings
 
 # Generate release native libraries and canonical Kotlin bindings.
 native abi="arm64":
@@ -77,3 +88,15 @@ perf:
 # Audit or clean repository-owned generated state.
 cache mode="audit":
     {{xtask}} cache {{mode}}
+
+# Verify parity between Rust Store, StoreHandle FFI facade, and Kotlin StoreNativeBridge.
+ffi-parity:
+    {{xtask}} ffi-parity
+
+# Verify reachability of domain UseCases from UI/app presentation and production pipelines.
+usecase-reachability:
+    {{xtask}} usecase-reachability
+
+# Run cargo-mutants mutation testing on Rust storage and workspace core.
+mutants *flags:
+    {{xtask}} mutants {{flags}}

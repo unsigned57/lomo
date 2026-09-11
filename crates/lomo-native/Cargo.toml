@@ -1,0 +1,42 @@
+[package]
+name = "lomo-native"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# staticlib feeds BoltFFI Android JNI glue; rlib keeps host facade tests linked.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+boltffi.workspace = true
+lomo-core = { path = "../lomo-core" }
+lomo-workspace = { path = "../lomo-workspace" }
+lomo-store = { path = "../lomo-store" }
+lomo-application = { path = "../lomo-application" }
+lomo-media = { path = "../lomo-media" }
+# Production BoltFFI conversion surface for lomo-sync (post P5-13).
+lomo-sync = { path = "../lomo-sync" }
+# Sole git2 adapter composition at the conversion edge (not lomo-sync → lomo-git cycle).
+lomo-git = { path = "../lomo-git" }
+# Stage-6 LAN conversion surface. `lomo-lan` never depends on `lomo-sync`; both meet only here.
+lomo-lan = { path = "../lomo-lan" }
+serde_json.workspace = true
+
+[dev-dependencies]
+aws-lc-rs.workspace = true
+tempfile.workspace = true
+sha2.workspace = true
+git2.workspace = true
+lomo-workspace = { path = "../lomo-workspace" }
+lomo-media = { path = "../lomo-media" }
+lomo-sync = { path = "../lomo-sync" }
+lomo-git = { path = "../lomo-git" }
+lomo-lan = { path = "../lomo-lan" }
+lomo-platform-fs = { path = "../lomo-platform-fs" }
+lomo-core = { path = "../lomo-core" }
+
+[lints]
+workspace = true

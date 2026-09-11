@@ -1,0 +1,64 @@
+[package]
+name = "lomo-application"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+lomo-core = { path = "../lomo-core" }
+lomo-workspace = { path = "../lomo-workspace" }
+lomo-store = { path = "../lomo-store" }
+lomo-media = { path = "../lomo-media" }
+rustix = { workspace = true, features = ["fs", "rand"] }
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+pinyin.workspace = true
+
+[dev-dependencies]
+lomo-platform-fs = { path = "../lomo-platform-fs" }
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "calendar_contract"
+path = "tests/calendar_contract.rs"
+
+[[test]]
+name = "session_transaction_contract"
+path = "tests/session_transaction_contract.rs"
+
+
+[[test]]
+name = "session_recovery_audit_contract"
+path = "tests/session_recovery_audit_contract.rs"
+
+[[test]]
+name = "statistics_contract"
+path = "tests/statistics_contract.rs"
+
+[[test]]
+name = "search_task_query_contract"
+path = "tests/search_task_query_contract.rs"
+
+[[test]]
+name = "stats_review_contract"
+path = "tests/stats_review_contract.rs"
+
+[[test]]
+name = "history_trash_media_contract"
+path = "tests/history_trash_media_contract.rs"
+
+[[test]]
+name = "reminder_plan_contract"
+path = "tests/reminder_plan_contract.rs"
+
+[[test]]
+name = "workspace_interchange_contract"
+path = "tests/workspace_interchange_contract.rs"

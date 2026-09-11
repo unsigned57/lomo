@@ -1,0 +1,100 @@
+[package]
+name = "lomo-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "owner_identity_contract"
+path = "tests/owner_identity_contract.rs"
+
+[[test]]
+name = "open_schema_contract"
+path = "tests/open_schema_contract.rs"
+
+[[test]]
+name = "operation_lifecycle_contract"
+path = "tests/operation_lifecycle_contract.rs"
+
+[[test]]
+name = "direct_trash_record_contract"
+path = "tests/direct_trash_record_contract.rs"
+
+[[test]]
+name = "tokenizer_fts_contract"
+path = "tests/tokenizer_fts_contract.rs"
+
+[[test]]
+name = "query_cursor_contract"
+path = "tests/query_cursor_contract.rs"
+
+[[test]]
+name = "query_plan_contract"
+path = "tests/query_plan_contract.rs"
+
+[[test]]
+name = "read_projection_contract"
+path = "tests/read_projection_contract.rs"
+
+[[test]]
+name = "reader_contract"
+path = "tests/reader_contract.rs"
+
+[[test]]
+name = "lomo_format_contract"
+path = "tests/lomo_format_contract.rs"
+
+[[test]]
+name = "transaction_contract"
+path = "tests/transaction_contract.rs"
+
+[[test]]
+name = "received_create_contract"
+path = "tests/received_create_contract.rs"
+
+[[test]]
+name = "rebuild_contract"
+path = "tests/rebuild_contract.rs"
+
+[[test]]
+name = "saf_pending_create_contract"
+path = "tests/saf_pending_create_contract.rs"
+
+[[test]]
+name = "reminder_core_contract"
+path = "tests/reminder_core_contract.rs"
+
+[dependencies]
+lomo-core = { path = "../lomo-core" }
+lomo-workspace = { path = "../lomo-workspace" }
+lomo-media = { path = "../lomo-media" }
+rustix = { workspace = true, features = ["rand"] }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+zip.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+zip.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "archive_contract"
+path = "tests/archive_contract.rs"
+
+[[test]]
+name = "history_refs_contract"
+path = "tests/history_refs_contract.rs"
+
+[[test]]
+name = "sync_local_contract"
+path = "tests/sync_local_contract.rs"

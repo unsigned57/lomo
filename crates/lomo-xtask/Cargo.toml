@@ -1,0 +1,26 @@
+[package]
+name = "lomo-xtask"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "lomo_xtask"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lomo-xtask"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+lomo-feasibility = { path = "../lomo-feasibility" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,63 @@
+[package]
+name = "lomo-lan"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[test]]
+name = "batch_contract"
+path = "tests/batch_contract.rs"
+
+[[test]]
+name = "commit_contract"
+path = "tests/commit_contract.rs"
+
+[[test]]
+name = "frame_codec_contract"
+path = "tests/frame_codec_contract.rs"
+
+[[test]]
+name = "identity_pairing_contract"
+path = "tests/identity_pairing_contract.rs"
+
+[[test]]
+name = "journal_contract"
+path = "tests/journal_contract.rs"
+
+[[test]]
+name = "runtime_contract"
+path = "tests/runtime_contract.rs"
+
+[[test]]
+name = "pairing_runtime_contract"
+path = "tests/pairing_runtime_contract.rs"
+
+[[test]]
+name = "session_runtime_contract"
+path = "tests/session_runtime_contract.rs"
+
+[[test]]
+name = "session_crypto_contract"
+path = "tests/session_crypto_contract.rs"
+
+[[test]]
+name = "transport_contract"
+path = "tests/transport_contract.rs"
+
+[dependencies]
+lomo-core = { path = "../lomo-core" }
+# LAN crypto reuses the audited provider already linked for four ABIs through rustls: X25519
+# agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verification and the system CSPRNG.
+# A second (RustCrypto) generation would duplicate rand_core/cpufeatures and grow every ABI.
+aws-lc-rs.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

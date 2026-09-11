@@ -1,0 +1,169 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/lomo-architecture-tests",
+    "crates/boltffi-facade",
+    "crates/lomo-core",
+    "crates/lomo-feasibility",
+    "crates/lomo-lan",
+    "crates/lomo-media",
+    "crates/lomo-native",
+    "crates/lomo-store",
+    "crates/lomo-sync",
+    "crates/lomo-git",
+    "crates/lomo-workspace",
+    "crates/lomo-application",
+    "crates/lomo-platform-fs",
+    "crates/lomo-xtask",
+    "apps/tui",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+anyhow = "=1.0.103"
+camino = "=1.2.4"
+serde = { version = "=1.0.228", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
+sha2 = "=0.10.9"
+thiserror = "=2.0.18"
+# Stage-2 calendar / timezone primitives: pure Rust IANA database bundled offline.
+jiff = { version = "=0.2.31", default-features = false, features = ["alloc", "std", "tzdb-bundle-always"] }
+
+# Approved non-pure-Rust exception for stage-0 SQLite feasibility (bundled only).
+rusqlite = { version = "=0.40.1", default-features = false, features = ["bundled", "backup"] }
+pulldown-cmark = { version = "=0.13.4", default-features = false }
+# Network feasibility: Rustls only (no native TLS). Used by tooling probes, not production.
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking"] }
+rustls = { version = "=0.23.37", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls-pki-types = "=1.14.0"
+# Stage-5 dark S3 rclone crypt (P5-06): audited RustCrypto primitives only (no custom cipher).
+aes = { version = "=0.8.4", default-features = false }
+cipher = { version = "=0.4.4", default-features = false }
+scrypt = { version = "=0.11.0", default-features = false }
+# Successor of deprecated `xsalsa20poly1305` (RUSTSEC-2023-0037 rename).
+crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["alloc", "salsa20"] }
+# LAN (stage 6) crypto provider: already linked for four ABIs through rustls/reqwest. Supplies
+# X25519 agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verify and the system CSPRNG,
+# so `lomo-lan` adds no second crypto generation and no new native code.
+aws-lc-rs = { version = "=1.17.3", default-features = false, features = ["alloc", "aws-lc-sys"] }
+rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+# Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl + zlib-ng).
+# Android BoltFFI links a Rust staticlib into JNI and has no custom system-library hook; vendoring
+# zlib keeps the official pack path self-contained instead of intercepting the NDK linker.
+git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2", "https", "vendored-openssl", "zlib-ng-compat"] }
+# Production depends on the repository-owned `boltffi` facade (macros expand to
+# `::boltffi::__private`). The facade pins official `boltffi_core` with default
+# features disabled so unused url/uuid codecs stay out of the Android .so.
+# Formal tag v0.30.1 includes the JVM use-after-close guard (PR #663 /
+# 2de4597034e0e66dcdfd34191abbe9ae7de7b31e). Pin the tag tip SHA so CLI and
+# cargo share one exact revision (xtask tools.toml only accepts `rev=`).
+boltffi = { path = "crates/boltffi-facade" }
+boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2e6320a6d92cb591d22b908477f3a47da7ebc9bc", default-features = false }
+tempfile = "=3.27.0"
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "event"] }
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+pinyin = { version = "=0.10.0", default-features = false, features = ["plain"] }
+
+[workspace.lints.rust]
+warnings = "deny"
+unsafe_code = "deny"
+unused_must_use = "deny"
+# Small, low-noise correctness/hygiene lints (complement Clippy; no style wars).
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+non_ascii_idents = "deny"
+meta_variable_misuse = "deny"
+unused_qualifications = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+assertions_on_result_states = "deny"
+await_holding_lock = "deny"
+clone_on_ref_ptr = "deny"
+cognitive_complexity = "deny"
+dbg_macro = "deny"
+# Ensures clippy.toml disallowed-methods is enforced as deny (not only configured).
+disallowed_methods = "deny"
+drop_non_drop = "deny"
+enum_glob_use = "deny"
+excessive_nesting = "deny"
+exit = "deny"
+expect_used = "deny"
+fn_params_excessive_bools = "deny"
+get_unwrap = "deny"
+indexing_slicing = "deny"
+let_underscore_must_use = "deny"
+let_underscore_untyped = "deny"
+map_err_ignore = "deny"
+match_wildcard_for_single_variants = "deny"
+mem_forget = "deny"
+module_inception = "deny"
+mutex_integer = "deny"
+panic_in_result_fn = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+rc_buffer = "deny"
+rc_mutex = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+should_panic_without_expect = "deny"
+significant_drop_in_scrutinee = "deny"
+significant_drop_tightening = "deny"
+string_slice = "deny"
+struct_excessive_bools = "deny"
+tests_outside_test_module = "deny"
+todo = "deny"
+too_many_arguments = "deny"
+too_many_lines = "deny"
+type_complexity = "deny"
+undocumented_unsafe_blocks = "deny"
+unimplemented = "deny"
+unused_result_ok = "deny"
+unwrap_used = "deny"
+verbose_file_reads = "deny"
+wildcard_enum_match_arm = "deny"
+wildcard_imports = "deny"
+[profile.dev]
+opt-level = 0
+debug = 1
+split-debuginfo = "packed"
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Shipping Android JNI profile for `lomo-native` staticlib packaging. Size-first
+# (`opt-level = "z"`) while keeping fat LTO/codegen-units=1. xtask additionally
+# injects `-C force-unwind-tables=no`, `-C panic=immediate-abort`, and
+# `-Z build-std=std,panic_abort` so std backtrace/gimli never enter the final .so.
+[profile.release-android]
+inherits = "release"
+opt-level = "z"
+
+# PR / CI native verification profile. Keeps release optimizations that matter for
+# load/ELF contracts while avoiding fat-LTO wall-clock cost. Shipping APKs still
+# use `release-android` via `just android release` / local `just ci` native pack.
+[profile.release-ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+
+# tooling-only; already listed members below will be updated

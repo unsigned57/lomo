@@ -1,0 +1,50 @@
+[advisories]
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml NsReader is only used by wayland-scanner to parse trusted protocol XML at compile time, not untrusted runtime input" },
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml attribute duplicate check is only reached by wayland-scanner parsing trusted protocol XML at compile time, not untrusted runtime input" },
+    { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc-macro of ratatui 0.29; no runtime use and no ratatui release without it yet" },
+]
+
+[bans]
+multiple-versions = "deny"
+# Transitive dual versions forced by git2's older openssl-probe pin and (if present)
+# platform-specific crates pulled by TLS stacks. Prefer skip over graph forks.
+skip = [
+    { name = "openssl-probe", version = "0.1" },
+    # Windows-only transitive split: errno/winapi-util require 0.52 while tokio requires 0.61.
+    { name = "windows-sys", version = "0.52" },
+    # crossterm 0.28 still depends on rustix 0.38 while host crates use rustix 1.1.
+    { name = "rustix", version = "0.38" },
+    { name = "linux-raw-sys", version = "0.4" },
+    # ratatui/lru and wl-clipboard petgraph stay on hashbrown 0.15; indexmap uses 0.17.
+    { name = "hashbrown", version = "0.15" },
+    # unicode-truncate 1.1 still depends on unicode-width 0.1 while ratatui uses 0.2.
+    { name = "unicode-width", version = "0.1" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    # Boost license on arboard's Windows clipboard-win graph (present in the lockfile on Linux).
+    "BSL-1.0",
+    # Root certificate bundles pulled by reqwest's rustls platform verifier.
+    "CDLA-Permissive-2.0",
+    "GPL-3.0-only",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    # hashbrown 0.15 / foldhash (ratatui lru and wl-clipboard petgraph).
+    "Zlib",
+]
+
+[sources]
+unknown-git = "deny"
+unknown-registry = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Exact git pin for BoltFFI (formal tag tip SHA; see rust/tools.toml + workspace deps).
+allow-git = ["https://github.com/boltffi/boltffi"]
