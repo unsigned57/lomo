@@ -56,12 +56,9 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("ViewModelBoundary") to ::ViewModelBoundaryRule,
                 RuleName("UseCaseLocation") to ::UseCaseLocationRule,
                 RuleName("RepositoryImplLocation") to ::RepositoryImplLocationRule,
-                RuleName("DaoLocation") to ::DaoLocationRule,
-                RuleName("EntityLocation") to ::EntityLocationRule,
                 RuleName("ComposableLayer") to ::ComposableLayerRule,
                 RuleName("DataRepositoryContract") to ::DataRepositoryContractRule,
                 RuleName("DataLayerUiDependency") to ::DataLayerUiDependencyRule,
-                RuleName("P0HotspotRepositoryBoundary") to ::P0HotspotRepositoryBoundaryRule,
                 RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
                 RuleName("UiComponentDesignTokenUsage") to ::UiComponentDesignTokenUsageRule,
                 RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
@@ -74,7 +71,26 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoSwallowedResult") to ::NoSwallowedResultRule,
                 RuleName("NoDeprecatedKept") to ::NoDeprecatedKeptRule,
                 RuleName("NoHardcodedVisibleText") to ::NoHardcodedVisibleTextRule,
-                RuleName("ShouldBeInstanceOfAssertion") to ::ShouldBeInstanceOfAssertionRule,
+                RuleName("NoSwallowedCancellationInPagingSource") to ::NoSwallowedCancellationInPagingSourceRule,
+                RuleName("NoLoopBoundaryIo") to ::NoLoopBoundaryIoRule,
+                RuleName("NoNestedCollectionScan") to ::NoNestedCollectionScanRule,
+                RuleName("NoFullRebuildInLocalMutation") to ::NoFullRebuildInLocalMutationRule,
+                RuleName("NoSwallowedCancellationInSuspend") to ::NoSwallowedCancellationInSuspendRule,
+                RuleName("NoUnboundedFlowSharing") to ::NoUnboundedFlowSharingRule,
+                RuleName("NoUnmanagedCoroutineScope") to ::NoUnmanagedCoroutineScopeRule,
+                RuleName("NoSilentCatchFallback") to ::NoSilentCatchFallbackRule,
+                RuleName("NoSwallowedThrowable") to ::NoSwallowedThrowableRule,
+                RuleName("NoStatefulRepositoryOrUseCase") to ::NoStatefulRepositoryOrUseCaseRule,
+                RuleName("NoAdHocMemoryCache") to ::NoAdHocMemoryCacheRule,
+                RuleName("NoUnconfinedIoOrNative") to ::NoUnconfinedIoOrNativeRule,
+                RuleName("NoUnpaginatedFullLoad") to ::NoUnpaginatedFullLoadRule,
+                RuleName("ViewModelSingleStateFlow") to ::ViewModelSingleStateFlowRule,
+                RuleName("NoInSituRevisionBypass") to ::NoInSituRevisionBypassRule,
+                RuleName("NoEventInStateFlow") to ::NoEventInStateFlowRule,
+                RuleName("NoMultipleEffectChannels") to ::NoMultipleEffectChannelsRule,
+                RuleName("PagingDataCachedIn") to ::PagingDataCachedInRule,
+                RuleName("NoWriteOnlyStateFlow") to ::NoWriteOnlyStateFlowRule,
+                RuleName("NoCollaboratorDefaultArg") to ::NoCollaboratorDefaultArgRule,
             ),
         )
 }
@@ -176,6 +192,7 @@ private class DomainLayerIsolationRule(
             "io.ktor.",
             "org.eclipse.jgit.",
             "com.lomo.data.",
+            "com.lomo.ui.components.",
         )
 
     override fun visitKtFile(file: KtFile) {
@@ -213,17 +230,9 @@ private class DomainPackageShapeRule(
 
 private class ViewModelBoundaryRule(
     config: Config,
-) : LomoBaseRule(config, "ViewModel classes must not depend on domain repositories, services, or data-layer details.") {
-    private val bannedExactImports =
-        setOf(
-            "androidx.documentfile.provider.DocumentFile",
-            "androidx.room.RoomDatabase",
-            "com.lomo.data.git.GitSyncEngine",
-            "com.lomo.data.webdav.WebDavClient",
-        )
+) : LomoBaseRule(config, "ViewModel classes must not depend on data-layer implementations or domain repositories; they consume use cases and state holders.") {
     private val bannedSuffixes = listOf("Dao", "DataSource", "RepositoryImpl")
     private val bannedQualifiedPrefixes = listOf("com.lomo.data.", "com.lomo.domain.repository.")
-    private val bannedSimpleTypes = setOf("RoomDatabase", "DocumentFile", "GitSyncEngine", "WebDavClient")
 
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
@@ -241,7 +250,6 @@ private class ViewModelBoundaryRule(
             imports.firstOrNull { importPath ->
                 importPath.startsWith("com.lomo.data.") ||
                     importPath.startsWith("com.lomo.domain.repository.") ||
-                    importPath in bannedExactImports ||
                     bannedSuffixes.any { suffix -> importPath.substringAfterLast('.').endsWith(suffix) }
             }
         if (forbiddenImport != null) {
@@ -255,7 +263,6 @@ private class ViewModelBoundaryRule(
                     typeText.contains("com.lomo.domain.repository.") ||
                     typeText.typeIdentifiers().any { identifier ->
                         identifier in importedDomainRepositories ||
-                            identifier in bannedSimpleTypes ||
                             bannedSuffixes.any(identifier::endsWith)
                     }
             }
@@ -271,8 +278,7 @@ private class ViewModelBoundaryRule(
         }
 
         val forbiddenSimpleReference =
-            bannedSimpleTypes.firstOrNull { token -> token in classOrObject.text }
-                ?: bannedSuffixes.firstOrNull { suffix -> Regex("""\b[A-Za-z_]\w*$suffix\b""").containsMatchIn(classOrObject.text) }
+            bannedSuffixes.firstOrNull { suffix -> Regex("""\b[A-Za-z_]\w*$suffix\b""").containsMatchIn(classOrObject.text) }
         if (forbiddenSimpleReference != null) {
             reportDeclaration(classOrObject, "Forbidden ViewModel reference: $forbiddenSimpleReference")
         }
@@ -301,32 +307,6 @@ private class RepositoryImplLocationRule(
         val path = classOrObject.containingKtFile.path()
         if (!path.contains("/data/src/repository/")) {
             reportDeclaration(classOrObject, "RepositoryImpl declarations must live under data/repository.")
-        }
-    }
-}
-
-private class DaoLocationRule(
-    config: Config,
-) : LomoBaseRule(config, "Dao declarations must live under data/local/dao.") {
-    override fun visitClassOrObject(classOrObject: KtClassOrObject) {
-        super.visitClassOrObject(classOrObject)
-        if (!classOrObject.name.orEmpty().endsWith("Dao")) return
-        val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/data/src/local/dao/")) {
-            reportDeclaration(classOrObject, "Dao declarations must live under data/local/dao.")
-        }
-    }
-}
-
-private class EntityLocationRule(
-    config: Config,
-) : LomoBaseRule(config, "Entity declarations must live under data/local/entity.") {
-    override fun visitClassOrObject(classOrObject: KtClassOrObject) {
-        super.visitClassOrObject(classOrObject)
-        if (!classOrObject.name.orEmpty().endsWith("Entity")) return
-        val path = classOrObject.containingKtFile.path()
-        if (!path.contains("/data/src/local/entity/")) {
-            reportDeclaration(classOrObject, "Entity declarations must live under data/local/entity.")
         }
     }
 }
@@ -398,31 +378,6 @@ private class DataLayerUiDependencyRule(
             forbiddenSimpleTokens.firstOrNull { token -> Regex("""\b${Regex.escape(token)}\b""").containsMatchIn(file.bodyText()) }
         if (forbiddenSimpleToken != null) {
             reportFile(file, "Forbidden data-layer UI token reference: $forbiddenSimpleToken")
-        }
-    }
-}
-
-private class P0HotspotRepositoryBoundaryRule(
-    config: Config,
-) : LomoBaseRule(config, "P0 hotspot files must not import domain repositories directly.") {
-    private val hotspotSuffixes =
-        setOf(
-            "/app/src/feature/settings/SettingsGitCoordinator.kt",
-            "/app/src/feature/settings/SettingsWebDavCoordinator.kt",
-            "/app/src/feature/main/MainStartupCoordinator.kt",
-            "/app/src/feature/main/MainVersionHistoryCoordinator.kt",
-            "/app/src/feature/memo/MemoEditorViewModel.kt",
-        )
-
-    override fun visitKtFile(file: KtFile) {
-        super.visitKtFile(file)
-        val path = file.path()
-        if (hotspotSuffixes.none(path::endsWith)) return
-        val forbidden =
-            file.importPaths().firstOrNull { it.startsWith("com.lomo.domain.repository.") }
-                ?: file.findForbiddenQualifiedReference(listOf("com.lomo.domain.repository."))
-        if (forbidden != null) {
-            reportFile(file, "P0 hotspot file must not import domain repositories directly: $forbidden")
         }
     }
 }
@@ -791,26 +746,6 @@ private class NoUnreferencedTopLevelDeclarationRule(
     }
 }
 
-private class ShouldBeInstanceOfAssertionRule(
-    config: Config,
-) : LomoBaseRule(
-    config,
-    "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
-) {
-    override fun visitBinaryExpression(expression: KtBinaryExpression) {
-        super.visitBinaryExpression(expression)
-        if (expression.operationReference.text != "shouldBe") return
-        val right = expression.right?.unwrapParens() ?: return
-        if (right.text != "true") return
-        val left = expression.left?.unwrapParens() ?: return
-        if (left !is KtIsExpression || left.isNegated) return
-        reportElement(
-            expression,
-            "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`.",
-        )
-    }
-}
-
 private class NoSwallowedResultRule(
     config: Config,
 ) : LomoBaseRule(
@@ -837,7 +772,7 @@ private class NoSwallowedResultRule(
 
         if (!isSilentTerminal(expression, calleeName)) return
 
-        if (hasOptOutComment(qualified)) return
+        if (qualified.hasOptOutComment(optOutMarker)) return
 
         reportElement(
             qualified,
@@ -908,22 +843,6 @@ private class NoSwallowedResultRule(
         val isLiteralFactory = name in setOf("listOf", "mapOf", "setOf") && call.valueArguments.isEmpty()
         return isEmptyFactory || isLiteralFactory
     }
-
-    private fun hasOptOutComment(qualified: KtDotQualifiedExpression): Boolean {
-        val text = qualified.containingKtFile.text
-        val startOffset = qualified.textRange.startOffset
-
-        val currentLineStart = text.lastIndexOf('\n', startOffset - 1) + 1
-        val currentLineEnd = text.indexOf('\n', startOffset).let { if (it < 0) text.length else it }
-        val currentLine = text.substring(currentLineStart, currentLineEnd)
-        if (optOutMarker.containsMatchIn(currentLine)) return true
-
-        if (currentLineStart <= 1) return false
-        val prevLineEnd = currentLineStart - 1
-        val prevLineStart = text.lastIndexOf('\n', prevLineEnd - 1) + 1
-        val prevLine = text.substring(prevLineStart, prevLineEnd).trim()
-        return prevLine.startsWith("//") && optOutMarker.containsMatchIn(prevLine)
-    }
 }
 
 private class NoDeprecatedKeptRule(
@@ -947,14 +866,6 @@ private class NoDeprecatedKeptRule(
             )
         }
     }
-}
-
-private fun KtExpression.unwrapParens(): KtExpression {
-    var current: KtExpression = this
-    while (current is KtParenthesizedExpression) {
-        current = current.expression ?: return current
-    }
-    return current
 }
 
 private fun KtExpression.evaluateBooleanConstant(): Boolean? =

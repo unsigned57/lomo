@@ -5,11 +5,6 @@ config:
 
 lomo-test-style:
   active: true
-  excludes:
-    - "**/test@android/**"
-    - "**/data/test/**"
-    - "**/domain/test/**"
-    - "**/ui-components/test/**"
   NoPerTestInitBlock:
     active: true
   ForbiddenTestStackImports:
@@ -30,4 +25,8 @@ lomo-test-style:
     active: true
     maxEveryStubbingCount: 5
   NoSourceStringBehaviorTest:
+    active: true
+  NoAssertionlessTest:
+    active: true
+  ShouldBeInstanceOfAssertion:
     active: true

@@ -2,9 +2,16 @@ package com.lomo.detektrules
 
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
+import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
+import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtLambdaExpression
+import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtProperty
 
 internal class NoRelaxedMockkRule(
@@ -109,7 +116,7 @@ internal class NoInteractionOnlyTestRule(
         val callee = expression.calleeExpression?.text ?: return
         if (callee != "test") return
 
-        val bodyText = expression.text
+        val bodyText = expression.testScenarioBodyText() ?: return
         if (!VERIFY_REGEX.containsMatchIn(bodyText)) return
         if (ASSERTION_TOKENS.any { token -> token in bodyText }) return
 
@@ -136,6 +143,41 @@ internal class NoInteractionOnlyTestRule(
                 "assertSoftly",
                 "awaitItem() should",
             )
+    }
+}
+
+internal class NoAssertionlessTestRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "Tests must contain at least one observable assertion (e.g. shouldBe, assertTrue, awaitItem, fail).",
+) {
+    override fun visitCallExpression(expression: KtCallExpression) {
+        super.visitCallExpression(expression)
+        val file = expression.containingKtFile
+        if (!file.isTestFile()) return
+        val callee = expression.calleeExpression?.text ?: return
+        if (callee != "test" && callee != "it") return
+
+        val bodyText = expression.testScenarioBodyText() ?: return
+
+        // Delegate tests that contain mock verifications to NoInteractionOnlyTestRule
+        if (VERIFY_REGEX.containsMatchIn(bodyText)) return
+
+        if (!ASSERTION_REGEX.containsMatchIn(bodyText)) {
+            reportElement(
+                expression,
+                "Assertionless test detected. A test must assert observable state or behavior (e.g. shouldBe, assertTrue, awaitItem).",
+            )
+        }
+    }
+
+    private companion object {
+        val VERIFY_REGEX = Regex("""\b(?:coVerify|verify)(?:Order|Sequence|All)?\b""")
+        val ASSERTION_REGEX = Regex(
+            """\b(?:should\w*|assert\w*|expect\w*|await\w*|fail|checkNotNull)\b""",
+            RegexOption.IGNORE_CASE,
+        )
     }
 }
 
@@ -190,10 +232,48 @@ internal class ExcessiveMockStubbingRule(
         super.visitCallExpression(expression)
         if (!expression.containingKtFile.isTestFile()) return
         val calleeText = expression.calleeExpression?.text
-        if (calleeText == "every" || calleeText == "coEvery") {
-            everyCount++
+        if (calleeText != "every" && calleeText != "coEvery") return
+        val ownerName =
+            generateSequence(expression.parent) { it.parent }
+                .filterIsInstance<KtClassOrObject>()
+                .mapNotNull { it.name }
+                .firstOrNull()
+                .orEmpty()
+        if (ownerName.isTestHarnessType()) return
+        everyCount++
+    }
+}
+
+private fun String.isTestHarnessType(): Boolean =
+    endsWith("Fixture") || endsWith("Harness") || endsWith("Fake") || startsWith("Fake")
+
+/**
+ * Kotest migration kept scenario bodies in same-file helpers invoked as `test("name") { `name`() }`.
+ * Assertion and verify tokens live in that helper; scan it when the lambda is a single call.
+ */
+private fun KtCallExpression.testScenarioBodyText(): String? {
+    val lambda =
+        lambdaArguments.firstOrNull()?.getLambdaExpression()
+            ?: (valueArguments.lastOrNull()?.getArgumentExpression() as? KtLambdaExpression)
+            ?: return null
+    val statements = lambda.bodyExpression?.statements.orEmpty()
+    if (statements.size == 1) {
+        val call = statements.single() as? KtCallExpression
+        val calleeName = call?.calleeExpression?.text?.trim('`')
+        if (!calleeName.isNullOrBlank()) {
+            val owner =
+                generateSequence(parent) { it.parent }
+                    .filterIsInstance<KtClassOrObject>()
+                    .firstOrNull()
+            val helpers =
+                buildList {
+                    owner?.declarations?.filterIsInstance<KtNamedFunction>()?.let(::addAll)
+                    containingKtFile.declarations.filterIsInstance<KtNamedFunction>().let(::addAll)
+                }
+            helpers.firstOrNull { function -> function.name == calleeName }?.text?.let { return it }
         }
     }
+    return lambda.text
 }
 
 internal class NoSourceStringBehaviorTestRule(
@@ -223,4 +303,32 @@ internal class NoSourceStringBehaviorTestRule(
             )
         }
     }
+}
+
+internal class ShouldBeInstanceOfAssertionRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
+) {
+    override fun visitBinaryExpression(expression: KtBinaryExpression) {
+        super.visitBinaryExpression(expression)
+        if (expression.operationReference.text != "shouldBe") return
+        val right = expression.right?.unwrapParens() ?: return
+        if (right.text != "true") return
+        val left = expression.left?.unwrapParens() ?: return
+        if (left !is KtIsExpression || left.isNegated) return
+        reportElement(
+            expression,
+            "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`.",
+        )
+    }
+}
+
+internal fun KtExpression.unwrapParens(): KtExpression {
+    var current: KtExpression = this
+    while (current is KtParenthesizedExpression) {
+        current = current.expression ?: return current
+    }
+    return current
 }

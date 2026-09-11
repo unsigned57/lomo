@@ -53,7 +53,7 @@ import kotlin.io.path.writeText
  */
 class ShouldBeInstanceOfAssertionRuleTest : FunSpec({
     test("registers the shouldBeInstanceOf assertion guard") {
-        val rules = LomoArchitectureRuleSetProvider().instance().rules
+        val rules = LomoTestStyleRuleSetProvider().instance().rules
 
         rules[RuleName("ShouldBeInstanceOfAssertion")].shouldNotBeNull()
     }
@@ -99,7 +99,7 @@ private fun rule(
     name: String,
     config: Config = Config.empty,
 ): Rule =
-    checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
+    checkNotNull(LomoTestStyleRuleSetProvider().instance().rules[RuleName(name)]) {
         "Expected rule '$name' to be registered."
     }.invoke(config)
 

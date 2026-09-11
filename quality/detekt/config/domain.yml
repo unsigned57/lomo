@@ -79,6 +79,7 @@ style:
       - io.ktor.*
       - org.eclipse.jgit.*
       - com.lomo.data.*
+      - com.lomo.ui.components.*
   NullableBooleanCheck:
     active: true
   CanBeNonNullable:
@@ -134,4 +135,58 @@ lomo-architecture:
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:
+    active: true
+  NoLoopBoundaryIo:
+    active: true
+  NoNestedCollectionScan:
+    active: true
+  NoFullRebuildInLocalMutation:
+    active: true
+  NoSwallowedCancellationInSuspend:
+    active: true
+  NoUnmanagedCoroutineScope:
+    active: true
+  NoSilentCatchFallback:
+    active: true
+  NoSwallowedThrowable:
+    active: true
+  NoStatefulRepositoryOrUseCase:
+    active: true
+  NoAdHocMemoryCache:
+    active: true
+  NoUnconfinedIoOrNative:
+    active: true
+  NoUnpaginatedFullLoad:
+    active: true
+  ViewModelSingleStateFlow:
+    active: true
+  NoInSituRevisionBypass:
+    active: true
+  NoEventInStateFlow:
+    active: true
+  NoMultipleEffectChannels:
+    active: true
+  AppSourceBoundary:
+    active: true
+  AppBuildDependencyBoundary:
+    active: true
+  ViewModelBoundary:
+    active: true
+  RepositoryImplLocation:
+    active: true
+  ComposableLayer:
+    active: true
+  DataRepositoryContract:
+    active: true
+  DataLayerUiDependency:
+    active: true
+  UiComponentsLayerBoundary:
+    active: true
+  UiComponentDesignTokenUsage:
+    active: true
+  NoHardcodedVisibleText:
+    active: true
+  NoSwallowedCancellationInPagingSource:
+    active: true
+  NoUnboundedFlowSharing:
     active: true

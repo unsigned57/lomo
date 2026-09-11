@@ -146,3 +146,55 @@ lomo-architecture:
     active: true
   NoHardcodedVisibleText:
     active: true
+  NoLoopBoundaryIo:
+    active: true
+  NoNestedCollectionScan:
+    active: true
+  NoFullRebuildInLocalMutation:
+    active: true
+  NoSwallowedCancellationInSuspend:
+    active: true
+  NoUnmanagedCoroutineScope:
+    active: true
+  NoSilentCatchFallback:
+    active: true
+  NoSwallowedThrowable:
+    active: true
+  NoStatefulRepositoryOrUseCase:
+    active: true
+  NoAdHocMemoryCache:
+    active: true
+  NoUnconfinedIoOrNative:
+    active: true
+  NoUnpaginatedFullLoad:
+    active: true
+  ViewModelSingleStateFlow:
+    active: true
+  NoInSituRevisionBypass:
+    active: true
+  NoEventInStateFlow:
+    active: true
+  NoMultipleEffectChannels:
+    active: true
+  AppBuildDependencyBoundary:
+    active: true
+  DomainLayerIsolation:
+    active: true
+  DomainPackageShape:
+    active: true
+  ViewModelBoundary:
+    active: true
+  UseCaseLocation:
+    active: true
+  RepositoryImplLocation:
+    active: true
+  ComposableLayer:
+    active: true
+  DataRepositoryContract:
+    active: true
+  DataLayerUiDependency:
+    active: true
+  NoSwallowedCancellationInPagingSource:
+    active: true
+  NoUnboundedFlowSharing:
+    active: true

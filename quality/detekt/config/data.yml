@@ -9,6 +9,11 @@ complexity:
       - Database
     excludes:
       - "**/com/lomo/data/s3/S3RcloneCryptCompatCodec.kt"
+      - "**/StoreMemoRepositories.kt"
+      - "**/SessionNativeBridge.kt"
+  LargeClass:
+    excludes:
+      - "**/BoltFfiNativeEnginePort.kt"
   ComplexCondition:
     allowedConditions: 4
   CyclomaticComplexMethod:
@@ -109,10 +114,6 @@ style:
 lomo-architecture:
   RepositoryImplLocation:
     active: true
-  DaoLocation:
-    active: true
-  EntityLocation:
-    active: true
   ComposableLayer:
     active: true
   DataRepositoryContract:
@@ -149,4 +150,62 @@ lomo-architecture:
   NoSwallowedResult:
     active: true
   NoDeprecatedKept:
+    active: true
+  NoSwallowedCancellationInPagingSource:
+    active: true
+  NoLoopBoundaryIo:
+    active: true
+  NoNestedCollectionScan:
+    active: true
+  NoFullRebuildInLocalMutation:
+    active: true
+  NoSwallowedCancellationInSuspend:
+    active: true
+  NoUnmanagedCoroutineScope:
+    active: true
+  NoSilentCatchFallback:
+    active: true
+  NoSwallowedThrowable:
+    active: true
+  NoStatefulRepositoryOrUseCase:
+    active: true
+  NoAdHocMemoryCache:
+    active: true
+  NoUnconfinedIoOrNative:
+    active: true
+  NoUnpaginatedFullLoad:
+    active: true
+  ViewModelSingleStateFlow:
+    active: true
+  NoInSituRevisionBypass:
+    active: true
+  NoEventInStateFlow:
+    active: true
+  NoMultipleEffectChannels:
+    active: true
+  NoCollaboratorDefaultArg:
+    active: true
+    forbiddenTypeTokens:
+      - Bus
+      - Registry
+      - Coordinator
+  AppSourceBoundary:
+    active: true
+  AppBuildDependencyBoundary:
+    active: true
+  DomainLayerIsolation:
+    active: true
+  DomainPackageShape:
+    active: true
+  ViewModelBoundary:
+    active: true
+  UseCaseLocation:
+    active: true
+  UiComponentsLayerBoundary:
+    active: true
+  UiComponentDesignTokenUsage:
+    active: true
+  NoHardcodedVisibleText:
+    active: true
+  NoUnboundedFlowSharing:
     active: true

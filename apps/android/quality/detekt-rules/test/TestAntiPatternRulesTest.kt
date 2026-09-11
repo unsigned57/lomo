@@ -65,6 +65,7 @@ class TestAntiPatternRulesTest : FunSpec({
         rules[RuleName("NoFlowFirstForStateSequence")].shouldNotBeNull()
         rules[RuleName("ExcessiveMockStubbing")].shouldNotBeNull()
         rules[RuleName("NoSourceStringBehaviorTest")].shouldNotBeNull()
+        rules[RuleName("NoAssertionlessTest")].shouldNotBeNull()
     }
 
     test("flags relaxed MockK for stateful collaborators") {
@@ -296,6 +297,137 @@ class TestAntiPatternRulesTest : FunSpec({
                         }
                     }
                     """,
+            )
+
+        findings shouldBe emptyList()
+    }
+
+    test("flags test with no assertions and no verify") {
+        val findings =
+            rule("NoAssertionlessTest").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+
+                class SampleTest : FunSpec({
+                    test("does work without assertion") {
+                        val x = 1 + 1
+                    }
+                })
+                """,
+            )
+
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "Assertionless test detected"
+    }
+
+    test("allows test with Kotest should assertion") {
+        val findings =
+            rule("NoAssertionlessTest").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+                import io.kotest.matchers.shouldBe
+
+                class SampleTest : FunSpec({
+                    test("verifies calculation") {
+                        (1 + 1) shouldBe 2
+                    }
+                })
+                """,
+            )
+
+        findings shouldBe emptyList()
+    }
+
+    test("allows test with assert or fail call") {
+        val findings =
+            rule("NoAssertionlessTest").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+
+                class SampleTest : FunSpec({
+                    test("verifies condition") {
+                        assertTrue(true)
+                    }
+                })
+                """,
+            )
+
+        findings shouldBe emptyList()
+    }
+
+    test("delegates test with verify calls to interaction-only rule without flagging here") {
+        val findings =
+            rule("NoAssertionlessTest").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+                import io.mockk.verify
+
+                class SampleTest : FunSpec({
+                    test("only verifies mock") {
+                        verify { mock.call() }
+                    }
+                })
+                """,
+            )
+
+        findings shouldBe emptyList()
+    }
+
+    test("allows a test that delegates assertions to a same-file scenario helper") {
+        val findings =
+            rule("NoAssertionlessTest").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.kotest.core.spec.style.FunSpec
+                import io.kotest.matchers.shouldBe
+
+                class SampleTest : FunSpec() {
+                    init {
+                        test("delegates to helper") { `delegates to helper`() }
+                    }
+
+                    private fun `delegates to helper`() {
+                        (1 + 1) shouldBe 2
+                    }
+                }
+                """,
+            )
+
+        findings shouldBe emptyList()
+    }
+
+    test("allows mock stubbings inside a named Fixture harness") {
+        val findings =
+            rule("ExcessiveMockStubbing").findingsForTestSource(
+                """
+                package com.lomo.sample
+
+                import io.mockk.every
+                import io.mockk.mockk
+
+                private class ResolverFixture {
+                    val mockRepo = mockk<MutableList<String>>()
+                    fun setup() {
+                        every { mockRepo[0] } returns "a"
+                        every { mockRepo[1] } returns "b"
+                        every { mockRepo[2] } returns "c"
+                        every { mockRepo[3] } returns "d"
+                        every { mockRepo[4] } returns "e"
+                        every { mockRepo[5] } returns "f"
+                    }
+                }
+
+                class SampleTest
+                """,
             )
 
         findings shouldBe emptyList()
