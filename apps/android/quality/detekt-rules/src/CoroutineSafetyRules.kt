@@ -5,6 +5,7 @@ import dev.detekt.api.Entity
 import dev.detekt.api.Finding
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtCatchClause
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
@@ -40,11 +41,10 @@ internal class NoSwallowedCancellationInSuspendRule(
 
         if (!isBroadCatch) return
 
-        val catchBody = catchClause.catchBody ?: return
-        val bodyText = catchBody.text
-
-        val hasCancellationRethrow = bodyText.contains("CancellationException") &&
-            (bodyText.contains("throw") || bodyText.contains("rethrow"))
+        val catchBody = catchClause.catchBody as? KtBlockExpression ?: return
+        val parameterName = parameter?.name
+        val hasCancellationRethrow = parameterName != null &&
+            catchBody.preservesCaughtCancellation(parameterName)
 
         if (!hasCancellationRethrow) {
             if (catchClause.hasOptOutComment(optOutMarker)) return

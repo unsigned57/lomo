@@ -1,17 +1,24 @@
 package com.lomo.detektrules
 
 import dev.detekt.api.Config
+import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
+import org.jetbrains.kotlin.psi.KtBreakExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCatchClause
+import org.jetbrains.kotlin.psi.KtContinueExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtIfExpression
 import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
+import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
+import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
 
 internal class NoSwallowedCancellationInPagingSourceRule(
     config: Config,
@@ -49,23 +56,45 @@ internal class NoSwallowedCancellationInPagingSourceRule(
 
 private data class FailureBoundary(val parameter: String, val body: KtBlockExpression) {
     fun rethrowsBefore(conversion: KtExpression): Boolean =
-        body.statements.takeWhile { it.textRange.startOffset < conversion.textRange.startOffset }.any { statement ->
-            if (statement.rethrows(parameter)) return@any true
-            val guard = statement as? KtIfExpression ?: return@any false
-            val condition = guard.condition as? KtIsExpression ?: return@any false
-            !condition.isNegated &&
-                condition.leftHandSide.text == parameter &&
-                condition.typeReference?.text?.substringAfterLast('.') == "CancellationException" &&
-                guard.then?.rethrows(parameter) == true
-        }
+        body.statements.firstOrNull()?.let { first ->
+            first.textRange.startOffset < conversion.textRange.startOffset && first.rethrowsCancellation(parameter)
+        } == true
+}
+
+internal fun KtExpression.rethrowsCancellation(parameter: String): Boolean {
+    if (rethrows(parameter)) return true
+    val guard = this as? KtIfExpression ?: return false
+    return guard.condition?.coversCancellation(parameter) == true &&
+        guard.then?.rethrows(parameter) == true
+}
+
+internal fun KtBlockExpression.preservesCaughtCancellation(parameter: String): Boolean =
+    statements.firstOrNull()?.rethrowsCancellation(parameter) == true || rethrows(parameter)
+
+private fun KtExpression.coversCancellation(parameter: String): Boolean = when (this) {
+    is KtParenthesizedExpression -> expression?.coversCancellation(parameter) == true
+    is KtIsExpression -> !isNegated && leftHandSide.text == parameter &&
+        typeReference?.text?.let { containingKtFile.importedName(it).substringAfterLast('.') } == "CancellationException"
+    is KtBinaryExpression -> when (operationToken) {
+        KtTokens.OROR -> left?.coversCancellation(parameter) == true || right?.coversCancellation(parameter) == true
+        KtTokens.ANDAND -> left?.coversCancellation(parameter) == true && right?.coversCancellation(parameter) == true
+        else -> false
+    }
+    else -> false
 }
 
 private fun KtExpression.rethrows(parameter: String): Boolean =
     when (this) {
         is KtThrowExpression -> thrownExpression?.text == parameter
-        is KtBlockExpression -> statements.lastOrNull()?.rethrows(parameter) == true
+        is KtBlockExpression -> statements.lastOrNull()?.rethrows(parameter) == true &&
+            statements.dropLast(1).none { it.canExitBeforeRethrow() }
         else -> false
     }
+
+private fun KtExpression.canExitBeforeRethrow(): Boolean =
+    this is KtReturnExpression || this is KtBreakExpression || this is KtContinueExpression ||
+        anyDescendantOfType<KtReturnExpression>() || anyDescendantOfType<KtBreakExpression>() ||
+        anyDescendantOfType<KtContinueExpression>()
 
 private fun KtCatchClause.cancellationBoundary(): FailureBoundary? {
     val parameter = catchParameter ?: return null

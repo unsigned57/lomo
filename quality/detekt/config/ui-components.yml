@@ -104,6 +104,11 @@ style:
     excludeLabeled: true
     excludeGuardClauses: true
 lomo-architecture:
+  active: true
+  NoHandwrittenNativeDeclaration:
+    active: true
+  NoMutableFlowExposure:
+    active: true
   AppSourceBoundary:
     active: true
   UiComponentsLayerBoundary:
@@ -112,9 +117,6 @@ lomo-architecture:
     active: true
   NoSourceSuppressions:
     active: true
-    excludes:
-      - "ui-components/src/component/input/InputSheetFocusEffects.kt"
-      - "ui-components/src/component/input/MemoInputEditTextBridge.kt"
   NoPlaceholderImplementation:
     active: true
   NoConstantBranchCondition:
@@ -176,7 +178,7 @@ lomo-architecture:
     active: true
   NoMultipleEffectChannels:
     active: true
-  AppBuildDependencyBoundary:
+  AppManifestBoundary:
     active: true
   DomainLayerIsolation:
     active: true

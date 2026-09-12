@@ -112,6 +112,11 @@ style:
     excludeLabeled: true
     excludeGuardClauses: true
 lomo-architecture:
+  active: true
+  NoHandwrittenNativeDeclaration:
+    active: true
+  NoMutableFlowExposure:
+    active: true
   RepositoryImplLocation:
     active: true
   ComposableLayer:
@@ -191,7 +196,7 @@ lomo-architecture:
       - Coordinator
   AppSourceBoundary:
     active: true
-  AppBuildDependencyBoundary:
+  AppManifestBoundary:
     active: true
   DomainLayerIsolation:
     active: true

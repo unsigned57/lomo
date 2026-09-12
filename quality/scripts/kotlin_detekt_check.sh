@@ -10,12 +10,20 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 build_dir="${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/toolchain-build/shared}"
 
-report_root="$repo_root/build/reports/detekt"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+report_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
+case "$report_root" in
+  /*) ;;
+  *) report_root="$repo_root/$report_root" ;;
+esac
+report_root="$report_root/reports/detekt"
 mkdir -p "$report_root"
 
 echo "kotlin-detekt-check: building custom detekt-rules"
 "${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
   build --module detekt-rules --build-dir "$build_dir"
+
+bash "$script_dir/test/detekt_activation_contract_test.sh"
 
 declare -A module_config=(
   [app]="quality/detekt/config/app.yml"
@@ -34,6 +42,11 @@ for module in app domain data ui-components; do
   fi
   config="${module_config[$module]}"
   baseline="apps/android/$module/detekt-baseline.xml"
+  if [ -f "$baseline" ]; then
+    echo "kotlin-detekt-check: baselines cannot exempt architecture violations: $baseline" >&2
+    failed=1
+    continue
+  fi
   report="$report_root/${module}.html"
 
   echo "kotlin-detekt-check: analyzing $module ($input)"
@@ -43,10 +56,6 @@ for module in app domain data ui-components; do
     --build-upon-default-config
     --report "html:$report"
   )
-  if [ -f "$baseline" ]; then
-    args+=(--baseline "$baseline")
-  fi
-
   if ! lomo_detekt_run "${args[@]}"; then
     echo "kotlin-detekt-check: $module failed" >&2
     failed=1

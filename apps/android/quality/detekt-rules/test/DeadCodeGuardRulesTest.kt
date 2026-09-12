@@ -143,7 +143,7 @@ class DeadCodeGuardRulesTest : FunSpec() {
         findings shouldBe emptyList()
     }
 
-    test("allows configured no-source-suppressions path exceptions") {
+    test("a configured source path cannot exempt the ban on suppressions") {
         val findings =
             rule(
                 name = "NoSourceSuppressions",
@@ -162,7 +162,7 @@ class DeadCodeGuardRulesTest : FunSpec() {
                 """,
             )
 
-        findings shouldBe emptyList()
+        findings.shouldHaveSize(1)
     }
 
     test("still reports no-source-suppressions outside configured exceptions") {

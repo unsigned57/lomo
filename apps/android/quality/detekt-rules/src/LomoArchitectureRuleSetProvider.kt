@@ -50,7 +50,7 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
             ruleSetId,
             mapOf(
                 RuleName("AppSourceBoundary") to ::AppSourceBoundaryRule,
-                RuleName("AppBuildDependencyBoundary") to ::AppBuildDependencyBoundaryRule,
+                RuleName("AppManifestBoundary") to ::AppManifestBoundaryRule,
                 RuleName("DomainLayerIsolation") to ::DomainLayerIsolationRule,
                 RuleName("DomainPackageShape") to ::DomainPackageShapeRule,
                 RuleName("ViewModelBoundary") to ::ViewModelBoundaryRule,
@@ -62,6 +62,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
                 RuleName("UiComponentDesignTokenUsage") to ::UiComponentDesignTokenUsageRule,
                 RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
+                RuleName("NoHandwrittenNativeDeclaration") to ::NoHandwrittenNativeDeclarationRule,
+                RuleName("NoMutableFlowExposure") to ::NoMutableFlowExposureRule,
                 RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
                 RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
                 RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
@@ -97,7 +99,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
 
 private class AppSourceBoundaryRule(
     config: Config,
-) : LomoBaseRule(config, "App and ui-components must not reference data-layer implementations directly.") {
+) : LomoBaseRule(config, "App and ui-components must not reference data implementations or generated native bindings.") {
+    private val forbiddenPrefixes = listOf("com.lomo.data.", "com.lomo.nativebridge.")
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
@@ -106,75 +109,12 @@ private class AppSourceBoundaryRule(
         if (!isAppSource && !isUiSource) return
 
         val forbidden =
-            file.importPaths().firstOrNull { it.startsWith("com.lomo.data.") }
-                ?: Regex("""\bcom\.lomo\.data\.[A-Za-z_]\w*""")
-                    .find(
-                        file.text
-                            .lineSequence()
-                            .filterNot { it.trimStart().startsWith("import ") || it.trimStart().startsWith("package ") }
-                            .joinToString("\n"),
-                    )?.value
+            file.importPaths().firstOrNull { candidate -> forbiddenPrefixes.any(candidate::startsWith) }
+                ?: file.findForbiddenQualifiedReference(forbiddenPrefixes)
 
         if (forbidden != null) {
-            reportFile(file, "Forbidden app/ui-components reference to data layer: $forbidden")
+            reportFile(file, "Forbidden app/ui-components reference to data or native bindings: $forbidden")
         }
-    }
-}
-
-private class AppBuildDependencyBoundaryRule(
-    config: Config,
-) : LomoBaseRule(config, "app module and manifest must not declare compile-time data-layer edges.") {
-    private val allowedManifestDataComponents =
-        config.valueOrDefault("allowedManifestDataComponents", emptyList<String>())
-            .toSet()
-    private val checkedModuleFiles = mutableSetOf<String>()
-    private val dataDependencyPattern = Regex("""(?m)^\s*-\s*//data(?::\s*([A-Za-z-]+))?\s*$""")
-    private val manifestDataComponentPattern =
-        Regex("""android:name\s*=\s*["'](com\.lomo\.data\.[^"']+)["']""")
-
-    override fun visitKtFile(file: KtFile) {
-        super.visitKtFile(file)
-        val path = file.path()
-        if (!path.contains("/app/src/") && !path.contains("/app/test/")) return
-        val moduleFile = appModuleFile(path) ?: return
-        if (!checkedModuleFiles.add(moduleFile.toString())) return
-
-        val moduleText = Files.readString(moduleFile)
-        dataDependencyPattern
-            .findAll(moduleText)
-            .filterNot { dependency -> dependency.groupValues.getOrNull(1) == "runtime-only" }
-            .forEach { dependency ->
-                reportFile(
-                    file,
-                    "app/module.yaml must keep //data runtime-only; compile data dependency found: ${dependency.value.trim()}",
-                )
-            }
-
-        appManifestDataComponents(moduleFile)
-            .filterNot { component -> component in allowedManifestDataComponents }
-            .forEach { component ->
-                reportFile(
-                    file,
-                    "app AndroidManifest.xml must not directly name data-layer component: $component",
-                )
-            }
-    }
-
-    private fun appModuleFile(sourceFilePath: String): Path? {
-        val appRoot = sourceFilePath.substringBefore("/app/", missingDelimiterValue = "") + "/app"
-        if (appRoot == "/app") return null
-        val moduleFile = Path.of(appRoot, "module.yaml")
-        return moduleFile.takeIf(Files::isRegularFile)
-    }
-
-    private fun appManifestDataComponents(moduleFile: Path): List<String> {
-        val appRoot = moduleFile.parent ?: return emptyList()
-        val manifestPath = appRoot.resolve(Path.of("src", "AndroidManifest.xml"))
-        if (!Files.isRegularFile(manifestPath)) return emptyList()
-        return manifestDataComponentPattern
-            .findAll(Files.readString(manifestPath))
-            .map { match -> match.groupValues[1] }
-            .toList()
     }
 }
 
@@ -189,9 +129,12 @@ private class DomainLayerIsolationRule(
             "androidx.room.",
             "dagger.",
             "javax.inject.",
+            "org.koin.",
             "io.ktor.",
             "org.eclipse.jgit.",
             "com.lomo.data.",
+            "com.lomo.nativebridge.",
+            "com.lomo.app.",
             "com.lomo.ui.components.",
         )
 
@@ -355,7 +298,6 @@ private class DataLayerUiDependencyRule(
             "androidx.compose.",
             "androidx.lifecycle.",
         )
-    private val forbiddenSimpleTokens = setOf("ViewModel", "UiState")
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
@@ -374,11 +316,6 @@ private class DataLayerUiDependencyRule(
             return
         }
 
-        val forbiddenSimpleToken =
-            forbiddenSimpleTokens.firstOrNull { token -> Regex("""\b${Regex.escape(token)}\b""").containsMatchIn(file.bodyText()) }
-        if (forbiddenSimpleToken != null) {
-            reportFile(file, "Forbidden data-layer UI token reference: $forbiddenSimpleToken")
-        }
     }
 }
 
@@ -389,6 +326,7 @@ private class UiComponentsLayerBoundaryRule(
         listOf(
             "com.lomo.app.",
             "com.lomo.data.",
+            "com.lomo.nativebridge.",
             "com.lomo.domain.repository.",
             "com.lomo.domain.usecase.",
         )
@@ -469,17 +407,16 @@ private class UiComponentDesignTokenUsageRule(
 
 private val staticVisualConstantPattern = Regex("""\b[A-Z][A-Z0-9_]*\b""")
 
-private class NoSourceSuppressionsRule(
+internal class NoSourceSuppressionsRule(
     config: Config,
 ) : LomoBaseRule(config, "Production source must not use @Suppress to bypass static checks.") {
     override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
-        if (!file.path().contains("/src/")) return
-        if (file.isPathExcluded()) return
+        if (!file.isProductionSource()) return
 
-        val shortName = annotationEntry.shortName?.asString()
-        if (shortName == "Suppress" || shortName == "SuppressWarnings") {
+        val shortName = annotationEntry.shortName?.asString()?.let(file::importedName)?.substringAfterLast('.')
+        if (shortName in setOf("Suppress", "SuppressWarnings", "SuppressLint")) {
             report(
                 Finding(
                     Entity.from(annotationEntry),

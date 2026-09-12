@@ -3,14 +3,23 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtBlockExpression
+import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtExpression
+import org.jetbrains.kotlin.psi.KtIfExpression
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtParameter
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtPrimaryConstructor
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtSecondaryConstructor
-import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
+import org.jetbrains.kotlin.psi.KtWhenExpression
+import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
+import org.jetbrains.kotlin.psi.psiUtil.parents
 
 internal class PagingDataCachedInRule(
     config: Config,
@@ -31,9 +40,8 @@ internal class PagingDataCachedInRule(
         val typeText = property.typeReference?.text ?: return
         if (!typeText.contains("PagingData") || !typeText.contains("Flow<")) return
         val initializer = property.initializer ?: return
-        if (initializer.text.contains("cachedIn")) return
-        if (initializer.isPurePassThrough()) return
-        if (property.hasOptOutComment(uncachedPagingMarker)) return
+        if (initializer.isCachedPagingValue()) return
+        if (property.hasModifier(KtTokens.PRIVATE_KEYWORD) && property.hasOptOutComment(uncachedPagingMarker)) return
 
         reportElement(
             property,
@@ -55,8 +63,12 @@ internal class PagingDataCachedInRule(
         val returnTypeText = function.typeReference?.text ?: return
         if (!returnTypeText.contains("PagingData") || !returnTypeText.contains("Flow<")) return
         val body = function.bodyExpression ?: return
-        if (body.text.contains("cachedIn")) return
-        if (body.isPurePassThrough()) return
+        val results = if (body is KtBlockExpression) {
+            body.collectDescendantsOfType<KtReturnExpression>()
+                .filter { it.getTargetLabel() == null && it.parents.filterIsInstance<KtNamedFunction>().firstOrNull() == function }
+                .mapNotNull { it.returnedExpression }
+        } else listOf(body)
+        if (results.isNotEmpty() && results.all { it.isCachedPagingValue() }) return
 
         reportElement(
             function,
@@ -66,7 +78,28 @@ internal class PagingDataCachedInRule(
         )
     }
 
-    private fun KtExpression.isPurePassThrough(): Boolean = !anyDescendantOfType<KtCallExpression>()
+    private fun KtExpression.isCachedPagingValue(): Boolean = when (this) {
+        is KtParenthesizedExpression -> expression?.isCachedPagingValue() == true
+        is KtIfExpression -> then?.isCachedPagingValue() == true && `else`?.isCachedPagingValue() == true
+        is KtWhenExpression -> entries.isNotEmpty() && entries.all { it.expression?.isCachedPagingValue() == true }
+        is KtBlockExpression -> statements.lastOrNull()?.isCachedPagingValue() == true
+        is KtDotQualifiedExpression -> hasCachedPagingReceiver() || isPurePassThrough()
+        is KtNameReferenceExpression -> true
+        else -> false
+    }
+
+    private fun KtDotQualifiedExpression.hasCachedPagingReceiver(): Boolean {
+        val call = selectorExpression as? KtCallExpression ?: return false
+        if (call.canonicalCalleeName() == "cachedIn") return true
+        return call.canonicalCalleeName() in setOf("stateIn", "shareIn") &&
+            (receiverExpression as? KtDotQualifiedExpression)?.hasCachedPagingReceiver() == true
+    }
+
+    private fun KtExpression.isPurePassThrough(): Boolean = when (this) {
+        is KtNameReferenceExpression -> true
+        is KtDotQualifiedExpression -> receiverExpression.isPurePassThrough() && selectorExpression is KtNameReferenceExpression
+        else -> false
+    }
 }
 
 internal class NoWriteOnlyStateFlowRule(
@@ -116,26 +149,21 @@ internal class NoWriteOnlyStateFlowRule(
         name: String,
         excluding: KtProperty,
     ): List<FlowOccurrence> {
-        val classStart = textRange.startOffset
-        val classText = text
-        val declarationStart = excluding.textRange.startOffset - classStart
-        val declarationEnd = excluding.textRange.endOffset - classStart
-        val occurrencePattern = Regex("""\b${Regex.escape(name)}\b""")
-
-        return occurrencePattern.findAll(classText)
-            .filter { match -> match.range.first !in declarationStart..declarationEnd }
-            .map { match ->
-                val after = classText.substring(match.range.last + 1).take(32)
-                FlowOccurrence(isWrite = writeAfterPattern.containsMatchIn(after))
-            }
-            .toList()
+        return collectDescendantsOfType<KtNameReferenceExpression>()
+            .filter { it.getReferencedName() == name && !excluding.textRange.contains(it.textRange) }
+            .map { FlowOccurrence(isWrite = it.isStateWrite()) }
     }
 
     private data class FlowOccurrence(val isWrite: Boolean)
 
-    private companion object {
-        private val writeAfterPattern =
-            Regex("""^\s*\.\s*value\s*(?:(?!=)=|\+=|-=|\*=|/=|\+\+|--)|^\s*\.\s*update\s*[({]""")
+    private fun KtNameReferenceExpression.isStateWrite(): Boolean {
+        val qualified = parent as? KtDotQualifiedExpression ?: return false
+        if (qualified.receiverExpression != this) return false
+        val selector = qualified.selectorExpression
+        if ((selector as? KtCallExpression)?.canonicalCalleeName() == "update") return true
+        if ((selector as? KtNameReferenceExpression)?.getReferencedName() != "value") return false
+        val assignment = qualified.parent as? KtBinaryExpression ?: return false
+        return assignment.left == qualified && assignment.operationToken in KtTokens.ALL_ASSIGNMENTS
     }
 }
 

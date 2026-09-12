@@ -1,6 +1,5 @@
 package com.lomo.detektrules
 
-import com.intellij.psi.PsiElement
 import dev.detekt.api.Config
 import dev.detekt.api.Entity
 import dev.detekt.api.Finding
@@ -32,12 +31,6 @@ internal abstract class LomoBaseRule(
         return normalizedPath.contains("/test/") || normalizedPath.contains("/test@android/")
     }
 
-    protected fun KtFile.isPathExcluded(): Boolean =
-        config.valueOrDefault("excludes", emptyList<String>()).any { exclusion ->
-            val normalizedExclusion = exclusion.replace('\\', '/')
-            path().endsWith(normalizedExclusion) || path().contains(normalizedExclusion)
-        }
-
     protected fun KtFile.bodyText(): String =
         text
             .lineSequence()
@@ -47,17 +40,14 @@ internal abstract class LomoBaseRule(
             }.joinToString("\n")
 
     protected fun KtFile.importPaths(): List<String> =
-        text
-            .lineSequence()
-            .map(String::trim)
-            .filter { it.startsWith("import ") }
-            .map { it.removePrefix("import ").substringBefore(" as ").trim() }
-            .toList()
+        importDirectives.mapNotNull { directive ->
+            directive.importedFqName?.asString()?.let { name ->
+                if (directive.isAllUnder) "$name.*" else name
+            }
+        }
 
     protected fun KtFile.findForbiddenQualifiedReference(prefixes: List<String>): String? =
-        prefixes.firstOrNull { prefix ->
-            Regex("""\b${Regex.escape(prefix)}[A-Za-z_]\w*""").containsMatchIn(bodyText())
-        }
+        forbiddenCodeReference(prefixes)
 
     protected fun KtFile.moduleRoot(): String? =
         path().substringBefore("/src/", missingDelimiterValue = "").ifBlank { null }
@@ -88,47 +78,7 @@ internal abstract class LomoBaseRule(
             .map { it.value }
             .toSet()
 
-    /**
-     * Whether the element carries a `// behavior-contract: <marker>: <reason>` opt-out comment:
-     * anywhere within the element's own text (including the line above it), or on the start line
-     * / the line above the start line of any enclosing expression or declaration up to the file.
-     */
-    protected fun KtElement.hasOptOutComment(marker: Regex): Boolean {
-        val text = containingKtFile.text
-
-        val startOffset = textRange.startOffset
-        if (startOffset > 0) {
-            val lineStart = text.lastIndexOf('\n', startOffset - 1) + 1
-            val lineEnd = text.indexOf('\n', startOffset).let { if (it < 0) text.length else it }
-            val windowStart = if (lineStart <= 1) lineStart else text.lastIndexOf('\n', lineStart - 2) + 1
-            val windowEnd = maxOf(textRange.endOffset, lineEnd).coerceAtMost(text.length)
-            if (marker.containsMatchIn(text.substring(windowStart, windowEnd))) return true
-        }
-
-        var current: PsiElement = parent ?: return false
-        while (current !is KtFile) {
-            val ancestorStart = current.textRange.startOffset
-            if (ancestorStart > 0 && current.hasMarkerOnStartLineOrAbove(text, marker)) return true
-            current = current.parent ?: return false
-        }
-        return false
-    }
-
-    private fun PsiElement.hasMarkerOnStartLineOrAbove(
-        text: String,
-        marker: Regex,
-    ): Boolean {
-        val startOffset = textRange.startOffset
-        val currentLineStart = text.lastIndexOf('\n', startOffset - 1) + 1
-        val currentLineEnd = text.indexOf('\n', startOffset).let { if (it < 0) text.length else it }
-        if (marker.containsMatchIn(text.substring(currentLineStart, currentLineEnd))) return true
-
-        if (currentLineStart <= 1) return false
-        val prevLineEnd = currentLineStart - 1
-        val prevLineStart = text.lastIndexOf('\n', prevLineEnd - 1) + 1
-        val prevLine = text.substring(prevLineStart, prevLineEnd).trim()
-        return prevLine.startsWith("//") && marker.containsMatchIn(prevLine)
-    }
+    protected fun KtElement.hasOptOutComment(marker: Regex): Boolean = hasBehaviorContractException(marker)
 
     protected fun reportFile(file: KtFile, message: String) {
         report(Finding(Entity.from(file), message))

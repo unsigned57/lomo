@@ -2,13 +2,11 @@ package com.lomo.detektrules
 
 import dev.detekt.api.Config
 import dev.detekt.api.Finding
-import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
 import dev.detekt.test.lint
 import dev.detekt.test.utils.compileForTest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -16,158 +14,84 @@ import kotlin.io.path.writeText
 
 /*
  * Behavior Contract:
- * - Unit under test: AppBuildDependencyBoundary Detekt rule.
- * - Owning layer: quality.
- * - Priority tier: P1.
- * - Capability: detect app-layer build and manifest edges that point directly at the data layer.
- *
+ * - Unit under test: AppManifestBoundary through the registered Detekt provider.
+ * - Owning layer: quality; priority P0.
+ * - Capability: app manifests cannot instantiate data-layer components.
  * Scenarios:
- * - Given app module.yaml adds //data as a compile dependency,
- *   when architecture Detekt runs, then the app->data compile edge is reported.
- * - Given app module.yaml adds //data as runtime-only,
- *   when architecture Detekt runs, then the app runtime composition edge is allowed.
- * - Given app AndroidManifest.xml names a com.lomo.data component,
- *   when architecture Detekt runs from the app build file, then the manifest boundary violation is reported.
- * - Given a currently known migration exception is listed in config,
- *   when architecture Detekt runs, then only that exact known edge is allowed.
- *
- * Observable outcomes:
- * - Detekt finding counts and messages name the violating build dependency or manifest component.
- *
- * TDD proof:
- * - RED, 2026-05-22:
- *   `./kotlin test --include-module detekt-rules --platform jvm
- *   --include-classes 'com.lomo.detektrules.AppBoundaryArchitectureRuleTest'`
- *   failed `reports app Android variant and custom implementation data dependencies` at
- *   `AppBoundaryArchitectureRuleTest.kt:126`; `8 tests completed, 1 failed`.
- * - GREEN, 2026-05-22:
- *   the same command completed with `BUILD SUCCESSFUL`; `:detekt-rules:test` passed after
- *   AppBuildDependencyBoundary matched variant/custom implementation configuration names.
- *
- * Excludes:
- * - production dependency migration, Android manifest merger behavior, and semantic Toolchain model resolution.
- 
+ * - Given a data component, when parsed under any Android namespace prefix, then it is rejected.
+ * - Given comments or app-owned components, when parsed, then they create no forbidden edge.
+ * - Given malformed XML or a document type, when checked, then invalid input is surfaced.
+ * Observable outcomes: Detekt findings identify component names or invalid manifest input.
+ * TDD proof: the previous regex failed both comment and namespace-prefix scenarios (7 run, 2 failed).
+ * Excludes: manifest merging, product implementation, and dependency direction (owned by the
+ * Rust architecture tests using parsed Amper YAML).
  * Test Change Justification:
- * - Reason category: mechanical layout path update.
- * - Old behavior/assertion being replaced: fixture relativePath strings used maven-like or com/lomo-rooted source paths.
- * - Why old assertion is no longer correct: product modules omit the common package root on disk under Amper src/test roots.
- * - Coverage preserved by: same Detekt finding contracts and assertion messages.
- * - Why this is not fitting the test to the implementation: only path fixtures changed; rule behavior is unchanged.
-*/
+ * - Reason category: replace a text heuristic with structural parsing and one dependency owner.
+ * - Old assertion: fake module.yaml strings were scanned by an app-only regex in Detekt.
+ * - Why no longer correct: those fixtures were not valid YAML and ignored alternate YAML syntax.
+ * - Coverage preserved by: policy_contracts::kotlin_runtime_composition_cannot_become_a_compile_dependency
+ *   and binding_capability_cannot_escape_through_an_exported_dependency cover real module input.
+ * - Not implementation fitting: the original forbidden component assertion remains; two observed
+ *   false-positive/false-negative cases and malformed-input cases add stronger behavior locks.
+ */
 class AppBoundaryArchitectureRuleTest : FunSpec({
-    test("reports app compile data dependency") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                  - //domain
-                  - //data
-                  - //ui-components
-                }
-                """,
-            )
-
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "- //data"
+    test("reports an app manifest data component") {
+        manifestFindings("""
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application><receiver android:name="com.lomo.data.reminder.ReminderAlarmReceiver" /></application>
+            </manifest>
+        """).single().message shouldContain "com.lomo.data.reminder.ReminderAlarmReceiver"
     }
 
-    test("reports app non-runtime data scope") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                  - //domain
-                  - //data: compile-only
-                  - //ui-components
-                }
-                """,
-            )
-
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "- //data: compile-only"
+    test("app-owned components stay legal") {
+        manifestFindings("""
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application><activity android:name="com.lomo.app.MainActivity" /></application>
+            </manifest>
+        """).shouldHaveSize(0)
     }
 
-    test("allows app build dependencies that stay out of data") {
-        val findings =
-            rule().findingsForAppBuild(
-                """
-                dependencies {
-                  - //domain
-                  - //ui-components
-                }
-                """,
-            )
-
-        findings shouldBe emptyList()
+    test("manifest comments do not instantiate data components") {
+        manifestFindings("""
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <!-- <receiver android:name="com.lomo.data.OldReceiver" /> -->
+              <application />
+            </manifest>
+        """).shouldHaveSize(0)
     }
 
-    test("reports app manifest data component names") {
-        val findings =
-            rule().findingsForAppBuild(
-                moduleSpec =
-                    """
-                    dependencies {
-                      - //domain
-                      - //ui-components
-                    }
-                    """,
-                manifest =
-                    """
-                    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-                        <application>
-                            <receiver android:name="com.lomo.data.reminder.ReminderAlarmReceiver" />
-                        </application>
-                    </manifest>
-                    """,
-            )
-
-        findings.shouldHaveSize(1)
-        findings.single().message shouldContain "com.lomo.data.reminder.ReminderAlarmReceiver"
+    test("changing the Android XML namespace prefix cannot hide a component") {
+        manifestFindings("""
+            <manifest xmlns:host="http://schemas.android.com/apk/res/android">
+              <application><receiver host:name="com.lomo.data.HiddenReceiver" /></application>
+            </manifest>
+        """).single().message shouldContain "com.lomo.data.HiddenReceiver"
     }
 
-    test("allows runtime-only data module for app composition") {
-        val findings =
-            rule().findingsForAppBuild(
-                moduleSpec =
-                    """
-                    dependencies {
-                      - //domain
-                      - //data: runtime-only
-                      - //ui-components
-                    }
-                    """,
-            )
+    test("invalid XML fails closed") {
+        manifestFindings("<manifest><application>").single().message shouldContain "Invalid app AndroidManifest.xml"
+    }
 
-        findings shouldBe emptyList()
+    test("a manifest cannot obtain its policy facts from external entities") {
+        manifestFindings("""
+            <!DOCTYPE manifest SYSTEM "file:///not-a-policy-input">
+            <manifest><application /></manifest>
+        """).single().message shouldContain "Invalid app AndroidManifest.xml"
     }
 })
 
-private fun rule(config: Config = Config.empty): Rule =
-    checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("AppBuildDependencyBoundary")]) {
-        "Expected AppBuildDependencyBoundary to be registered."
-    }.invoke(config)
-
-private fun Rule.findingsForAppBuild(
-    moduleSpec: String,
-    manifest: String? = null,
-): List<Finding> {
-    val tempDir = Files.createTempDirectory("lomo-detekt-rule-test")
-    val buildFile = tempDir.resolve("app/module.yaml")
-    buildFile.parent.createDirectories()
-    buildFile.writeText(moduleSpec.trimIndent())
-    if (manifest != null) {
-        val manifestFile = tempDir.resolve("app/src/AndroidManifest.xml")
-        manifestFile.parent.createDirectories()
-        manifestFile.writeText(manifest.trimIndent())
+private fun manifestFindings(manifest: String): List<Finding> {
+    val rule = checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName("AppManifestBoundary")]) {
+        "AppManifestBoundary must be registered"
+    }.invoke(Config.empty)
+    val root = Files.createTempDirectory("lomo-manifest-rule")
+    try {
+        val source = root.resolve("app/src/Fixture.kt")
+        source.parent.createDirectories()
+        source.writeText("package com.lomo.app\nclass Fixture")
+        source.parent.resolve("AndroidManifest.xml").writeText(manifest.trimIndent())
+        return rule.lint(compileForTest(source))
+    } finally {
+        check(root.toFile().deleteRecursively()) { "Cannot clean fixture $root" }
     }
-    val sourceFile = tempDir.resolve("app/src/Fixture.kt")
-    sourceFile.parent.createDirectories()
-    sourceFile.writeText(
-        """
-        package com.lomo.app
-
-        class Fixture
-        """.trimIndent(),
-    )
-    return lint(compileForTest(sourceFile))
 }
