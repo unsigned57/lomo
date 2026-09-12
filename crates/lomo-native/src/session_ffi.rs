@@ -20,10 +20,6 @@ use lomo_core::{
 use lomo_store::SafProjectionCommitResult;
 use lomo_workspace::{MemoId, WorkspaceRootId};
 
-use crate::media_ffi::{MediaPromotePlanDto, pending_promotes_from_ffi};
-use crate::store_ffi::{
-    decode_cursor, encode_cursor, memo_query_from_ffi, scope_name, summary_to_ffi,
-};
 use crate::{
     ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineError, ExpectedFingerprint,
     LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionOutput,
@@ -32,7 +28,14 @@ use crate::{
     StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan, StoreSidebarDateCount,
     StoreSidebarProjection, StoreSidebarTagCount, VerifiedAbsence, artifact_from_ffi,
     artifact_to_ffi, batch_to_ffi, evidence_from_ffi, evidence_to_ffi, failure_from_core,
-    failure_to_core, result_from_ffi, target_from_ffi, target_to_ffi,
+    failure_to_core,
+    media_ffi::{MediaPromotePlanDto, pending_promotes_from_ffi},
+    result_from_ffi,
+    store_ffi::{
+        decode_cursor, encode_cursor, ffi_query_start, memo_page_to_ffi, memo_query_from_ffi,
+        scope_name, summary_to_ffi,
+    },
+    target_from_ffi, target_to_ffi,
 };
 
 struct HostedExecutor {
@@ -477,6 +480,7 @@ impl LomoEngine {
             .map(|cursor| decode_cursor(&cursor.encoded))
             .transpose()?;
         let inner = SearchRequest {
+            filters: lomo_application::MemoFilters::default(),
             query_epoch: request.query_epoch,
             mode: match request.mode {
                 SessionSearchMode::Fulltext => SearchMode::Fulltext,
@@ -1025,24 +1029,25 @@ pub fn session_query_memos(
     query: StoreMemoQuery,
     cursor: Option<StorePageCursor>,
     page_size: u32,
+    start_memo_id: Option<String>,
+    backward: bool,
 ) -> Result<StoreMemoPage, EngineError> {
     let page_size = PageSize::new(page_size).map_err(EngineError::from)?;
     let decoded_cursor = cursor
         .as_ref()
         .map(|cursor| decode_cursor(&cursor.encoded))
         .transpose()?;
+    let start_memo_id = start_memo_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let start = ffi_query_start(decoded_cursor.as_ref(), start_memo_id, backward)
+        .map_err(EngineError::from)?;
     let (mq, boundary) = memo_query_from_ffi(query);
     with_session(engine, |session| {
-        session.query_memos_page(&mq, boundary.as_ref(), decoded_cursor.as_ref(), page_size)
+        session.query_memos_starting_at(&mq, boundary.as_ref(), start, page_size)
     })
-    .map(|page| StoreMemoPage {
-        items: page.items.into_iter().map(summary_to_ffi).collect(),
-        next_cursor: page.next_cursor.map(|cursor| StorePageCursor {
-            encoded: encode_cursor(&cursor),
-        }),
-        high_water_revision: page.high_water_revision,
-        query_fingerprint: page.query_fingerprint,
-    })
+    .map(memo_page_to_ffi)
 }
 
 pub fn session_query_count(engine: &LomoEngine, query: StoreMemoQuery) -> Result<u64, EngineError> {

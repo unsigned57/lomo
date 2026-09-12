@@ -23,6 +23,8 @@
 //!   `session_owns_document_writes` fails closed.
 //! - Given multi-memo pages with `page_size=1`, when the next cursor is reused, then the second
 //!   page is disjoint; given a malformed cursor, when decoded, then `invalid_page_cursor`.
+//! - Given a memo identity start, when `query_memos` runs, then the page is inclusive at that id
+//!   with `items_before`/`items_after`; mixing identity with a cursor fails `invalid_page_start`.
 //! - Given `MarkDone` / `RecordFired` / `ClearSnooze` with full fields, when applied, then replacement
 //!   tokens or snooze-only flags match store rules; missing required fields fail closed.
 //! - Given zone transitions on the reminder query, when planned, then the plan succeeds without
@@ -43,7 +45,7 @@
 //! trash rebuild page, or restore/permanent-delete mapping.
 //! TDD proof: RED on 2026-08-17 because SAF bodies lived only in the process-local `saf_bodies`
 //! map, so reopening a valid projection returned `saf_store_body_unavailable`.
-//! Excludes: production DI cutover (P3-10), Room deletion, device smoke.
+//! Excludes: production DI cutover (P3-10), Room deletion.
 
 #[cfg(test)]
 mod support;
@@ -172,8 +174,14 @@ mod tests {
                 },
                 None,
                 32,
+                None,
+                false,
             )
             .test_ok("query");
+        assert_eq!(page.items_before, 0);
+        assert_eq!(page.items_after, 0);
+        assert!(page.prev_cursor.is_none());
+        assert!(page.next_cursor.is_none());
         assert!(
             page.items.iter().any(|m| m.memo_id == "m-ffi-1"),
             "page={:?}",
@@ -233,7 +241,7 @@ mod tests {
             vec!["device".to_owned()],
         );
         let page = engine
-            .query_memos(StoreMemoQuery::default(), None, 10)
+            .query_memos(StoreMemoQuery::default(), None, 10, None, false)
             .test_ok("query SAF projection");
         let memo = engine
             .get_memo("2026-08-02_19:30:00_0".to_owned())
@@ -422,6 +430,8 @@ mod tests {
                 },
                 None,
                 10,
+                None,
+                false,
             )
             .test_ok("query SAF trash");
         assert_eq!(trash.items.len(), 1);
@@ -446,7 +456,7 @@ mod tests {
             .test_ok("SAF restore");
         assert!(
             engine
-                .query_memos(StoreMemoQuery::default(), None, 10)
+                .query_memos(StoreMemoQuery::default(), None, 10, None, false)
                 .test_ok("query restored memo")
                 .items
                 .iter()
@@ -871,6 +881,8 @@ mod tests {
                 },
                 None,
                 1,
+                None,
+                false,
             )
             .test_ok("page1");
         assert_eq!(first.items.len(), 1);
@@ -895,6 +907,8 @@ mod tests {
                 },
                 Some(cursor),
                 1,
+                None,
+                false,
             )
             .test_ok("page2");
         assert_eq!(second.items.len(), 1);
@@ -920,6 +934,8 @@ mod tests {
                 },
                 None,
                 1,
+                None,
+                false,
             )
             .test_ok("FTS page1");
         let fts_cursor = fts_first.next_cursor.test_ok("FTS must page");
@@ -934,6 +950,8 @@ mod tests {
                 },
                 Some(fts_cursor),
                 1,
+                None,
+                false,
             )
             .test_ok("FTS page2");
         assert_eq!(fts_second.items.len(), 1);
@@ -954,6 +972,8 @@ mod tests {
                     encoded: "not|a|valid".to_owned(),
                 }),
                 1,
+                None,
+                false,
             )
             .test_err("malformed cursor");
         assert_eq!(bad.code(), "invalid_page_cursor");
@@ -970,6 +990,8 @@ mod tests {
                     encoded: "fp|none|0|not-i64|1|id|1|1".to_owned(),
                 }),
                 1,
+                None,
+                false,
             )
             .test_err("non-i64 sort");
         assert_eq!(bad_num.code(), "invalid_page_cursor");
@@ -995,10 +1017,58 @@ mod tests {
                         encoded: bad.to_owned(),
                     }),
                     1,
+                    None,
+                    false,
                 )
                 .test_err(bad);
             assert_eq!(err.code(), "invalid_page_cursor", "cursor={bad}");
         }
+    }
+
+    #[test]
+    fn query_memos_identity_start_reports_rank_and_rejects_mixed_start() {
+        let (_tmp, workspace, engine) = open_engine();
+        for id in ["pos-a", "pos-b", "pos-c", "pos-d", "pos-e"] {
+            seed_markdown(&workspace, id, id);
+        }
+        index_workspace(&engine);
+        let query = StoreMemoQuery {
+            search_text: None,
+            filters: StoreMemoFilters::default(),
+            sort: StoreMemoSort::default(),
+            boundary: None,
+        };
+        let ordered = engine
+            .query_memos(query.clone(), None, 10, None, false)
+            .test_ok("full order");
+        assert_eq!(ordered.items.len(), 5);
+        assert_eq!(ordered.items_before, 0);
+        assert_eq!(ordered.items_after, 0);
+
+        let start_id = ordered
+            .items
+            .get(2)
+            .map(|memo| memo.memo_id.clone())
+            .test_ok("third row");
+        let from_identity = engine
+            .query_memos(query.clone(), None, 2, Some(start_id.clone()), false)
+            .test_ok("identity start");
+        assert_eq!(
+            from_identity
+                .items
+                .first()
+                .map(|memo| memo.memo_id.as_str()),
+            Some(start_id.as_str())
+        );
+        assert_eq!(from_identity.items_before, 2);
+        assert_eq!(from_identity.items_after, 1);
+        assert!(from_identity.prev_cursor.is_some());
+        assert!(from_identity.next_cursor.is_some());
+
+        let mixed = engine
+            .query_memos(query, from_identity.next_cursor, 2, Some(start_id), false)
+            .test_err("cursor plus identity");
+        assert_eq!(mixed.code(), "invalid_page_start");
     }
 
     #[test]
@@ -1026,6 +1096,8 @@ mod tests {
                 },
                 None,
                 10,
+                None,
+                false,
             )
             .test_ok("query tag subtree");
         let ids = page

@@ -35,10 +35,12 @@
     reason = "contract tests fail closed with panics and index fixture pages of known size"
 )]
 mod tests {
-    use aws_lc_rs::agreement;
-    use aws_lc_rs::encoding::AsBigEndian;
-    use aws_lc_rs::rand::SystemRandom;
-    use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
+    use aws_lc_rs::{
+        agreement,
+        encoding::AsBigEndian,
+        rand::SystemRandom,
+        signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair},
+    };
     use lomo_native::{
         LanPairingTranscriptDto, LanSendItemDto, lan_approval_is_valid, lan_approve_receive,
         lan_confirm_pairing, lan_list_peers, lan_pairing_short_code, lan_prepare_send,

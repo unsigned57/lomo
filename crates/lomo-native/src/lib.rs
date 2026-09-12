@@ -1,19 +1,16 @@
 #![deny(unsafe_code)]
-// BoltFFI `#[export]` expands through underscore-prefixed helpers for class method dispatch.
-#![allow(
-    clippy::used_underscore_items,
-    reason = "BoltFFI export expansion uses underscore-prefixed dispatch items"
-)]
 // EngineError embeds EngineFailure by value because BoltFFI cannot encode Box in #[error] yet.
-#![allow(
+#![expect(
     clippy::result_large_err,
     reason = "BoltFFI #[error] variants cannot box EngineFailure; wire type stays inline"
 )]
 
-use std::fmt;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::{
+    fmt,
+    path::PathBuf,
+    sync::{Arc, Mutex, MutexGuard},
+    time::Duration,
+};
 
 use boltffi::{UnexpectedFfiCallbackError, data, error, export};
 use lomo_core as core;
@@ -2124,11 +2121,21 @@ impl LomoEngine {
         query: StoreMemoQuery,
         cursor: Option<StorePageCursor>,
         page_size: u32,
+        start_memo_id: Option<String>,
+        backward: bool,
     ) -> Result<StoreMemoPage, EngineError> {
         if session_ffi::session_is_open(self)? {
-            return session_ffi::session_query_memos(self, query, cursor, page_size);
+            return session_ffi::session_query_memos(
+                self,
+                query,
+                cursor,
+                page_size,
+                start_memo_id,
+                backward,
+            );
         }
-        self.active_store()?.query_memos(query, cursor, page_size)
+        self.active_store()?
+            .query_memos(query, cursor, page_size, start_memo_id, backward)
     }
 
     /// Counts the rows accepted by the same predicate as `query_memos` without transferring them.

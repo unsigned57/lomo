@@ -35,9 +35,13 @@ mod support;
 )]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use std::fs;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        fs,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
 
     use lomo_native::{
         ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,

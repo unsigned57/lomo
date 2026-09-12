@@ -3,26 +3,27 @@
 //! Conversion-only mapping between `BoltFFI` DTOs and `lomo-store`. Business rules stay in
 //! `lomo-store`.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::{
-    Condvar, Mutex, RwLock,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{
+        Condvar, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
 };
-use std::time::{Duration, Instant};
 
 use boltffi::data;
 use lomo_core::{ErrorCategory, ExchangeToken, LomoError, OperationId, PageSize, RetryDisposition};
 use lomo_store::{
     self as store, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, MemoQueryBoundary,
-    PageCursor, ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore, Store,
-    StoreReader, TimeZoneContext, ZoneTransition,
+    MemoQueryStart, PageCursor, ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore,
+    Store, StoreReader, TimeZoneContext, ZoneTransition,
 };
 
-use crate::EngineError;
-use crate::media_ffi::MediaPromotePlanDto;
+use crate::{EngineError, media_ffi::MediaPromotePlanDto};
 
 static NEXT_SAF_REBUILD_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -191,6 +192,9 @@ pub struct StoreMemoSummary {
 pub struct StoreMemoPage {
     pub items: Vec<StoreMemoSummary>,
     pub next_cursor: Option<StorePageCursor>,
+    pub prev_cursor: Option<StorePageCursor>,
+    pub items_before: u64,
+    pub items_after: u64,
     pub high_water_revision: u64,
     pub query_fingerprint: String,
 }
@@ -962,6 +966,10 @@ impl StoreHandle {
 
     /// See plan `query_memos`.
     ///
+    /// `start_memo_id` and `backward` select the page start together with `cursor`:
+    /// head (no cursor), exclusive after, exclusive before, or inclusive identity.
+    /// Combining more than one start encoding fails closed.
+    ///
     /// # Errors
     ///
     /// Store query / cursor validation errors.
@@ -974,28 +982,26 @@ impl StoreHandle {
         query: StoreMemoQuery,
         cursor: Option<StorePageCursor>,
         page_size: u32,
+        start_memo_id: Option<String>,
+        backward: bool,
     ) -> Result<StoreMemoPage, EngineError> {
         let page_size = PageSize::new(page_size).map_err(EngineError::from)?;
         let decoded_cursor = cursor
             .as_ref()
-            .map(|c| decode_cursor(&c.encoded))
+            .map(|cursor| decode_cursor(&cursor.encoded))
             .transpose()?;
-        let (mq, boundary) = memo_query_from_ffi(query);
-        let page = self.with_reader(|reader| {
-            reader.query_memos_with_boundary(
-                &mq,
-                boundary.as_ref(),
-                decoded_cursor.as_ref(),
-                page_size,
-            )
-        })?;
-        Ok(StoreMemoPage {
-            items: page.items.into_iter().map(summary_to_ffi).collect(),
-            next_cursor: page.next_cursor.map(|c| StorePageCursor {
-                encoded: encode_cursor(&c),
-            }),
-            high_water_revision: page.high_water_revision,
-            query_fingerprint: page.query_fingerprint,
+        let start_memo_id = start_memo_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned);
+        self.with_reader(|reader| {
+            let start =
+                ffi_query_start(decoded_cursor.as_ref(), start_memo_id.as_deref(), backward)?;
+            let (mq, boundary) = memo_query_from_ffi(query);
+            reader
+                .query_memos_starting_at(&mq, boundary.as_ref(), start, page_size)
+                .map(memo_page_to_ffi)
         })
     }
 
@@ -2329,6 +2335,39 @@ pub fn decode_cursor(encoded: &str) -> Result<PageCursor, EngineError> {
         high_water_revision: high_water,
         tokenizer_version,
     })
+}
+
+pub fn ffi_query_start<'a>(
+    cursor: Option<&'a PageCursor>,
+    start_memo_id: Option<&'a str>,
+    backward: bool,
+) -> Result<MemoQueryStart<'a>, LomoError> {
+    match (cursor, start_memo_id, backward) {
+        (None, None, false) => Ok(MemoQueryStart::Head),
+        (Some(cursor), None, false) => Ok(MemoQueryStart::After(cursor)),
+        (Some(cursor), None, true) => Ok(MemoQueryStart::Before(cursor)),
+        (None, Some(id), false) => Ok(MemoQueryStart::AtMemo(id)),
+        _ => Err(boundary_err(
+            "invalid_page_start",
+            "page start must be exactly one of head, exclusive cursor, exclusive backward cursor, or memo identity",
+        )),
+    }
+}
+
+pub fn memo_page_to_ffi(page: store::MemoPage) -> StoreMemoPage {
+    StoreMemoPage {
+        items: page.items.into_iter().map(summary_to_ffi).collect(),
+        next_cursor: page.next_cursor.map(|cursor| StorePageCursor {
+            encoded: encode_cursor(&cursor),
+        }),
+        prev_cursor: page.prev_cursor.map(|cursor| StorePageCursor {
+            encoded: encode_cursor(&cursor),
+        }),
+        items_before: page.items_before,
+        items_after: page.items_after,
+        high_water_revision: page.high_water_revision,
+        query_fingerprint: page.query_fingerprint,
+    }
 }
 
 /// Converts the wire query into the store query (single conversion point for count + page reads).

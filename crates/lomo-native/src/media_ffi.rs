@@ -4,8 +4,10 @@
 //! export/inspect/import/activate. No full media-byte FFI. Business rules stay in
 //! `lomo-media` / `lomo-store`. Not wired into production Kotlin DI.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use boltffi::data;
 use lomo_core::LomoError;
@@ -20,8 +22,7 @@ use lomo_store::{
     archive_inspect,
 };
 
-use crate::EngineError;
-use crate::store_ffi::StoreRebuildResult;
+use crate::{EngineError, store_ffi::StoreRebuildResult};
 
 fn boundary_err(code: &str, diagnostic: &str) -> LomoError {
     match LomoError::from_platform_boundary(

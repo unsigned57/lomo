@@ -23,8 +23,7 @@ mod support;
 
 #[cfg(test)]
 mod tests {
-    use super::support::ResultTestExt;
-    use super::*;
+    use super::{support::ResultTestExt, *};
 
     fn digest() -> String {
         "a".repeat(64)

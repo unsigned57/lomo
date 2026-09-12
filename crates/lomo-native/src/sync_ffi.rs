@@ -5,8 +5,10 @@
 //! construction happens here so `lomo-sync` never depends on `lomo-git` (no crate cycle with
 //! git2).
 
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use boltffi::{data, export};
 use lomo_core::{

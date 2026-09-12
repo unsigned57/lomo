@@ -30,8 +30,10 @@ mod support;
 #[cfg(test)]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_native::{
@@ -207,6 +209,8 @@ mod tests {
                 },
                 None,
                 32,
+                None,
+                false,
             )
             .test_ok("engine query prefers session");
         assert!(

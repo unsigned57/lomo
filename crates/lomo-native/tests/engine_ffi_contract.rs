@@ -23,9 +23,7 @@ mod support;
 #[cfg(test)]
 mod tests {
     use super::support::ResultTestExt;
-    use std::fs;
-    use std::sync::mpsc;
-    use std::time::Duration;
+    use std::{fs, sync::mpsc, time::Duration};
 
     use lomo_native::{
         ActionEvidence, ActionOutcome, ActionResult, CancelOutcome, CoreEvent, CoreEventListener,

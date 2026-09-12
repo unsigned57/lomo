@@ -32,8 +32,7 @@ mod support;
 )]
 mod tests {
     use super::support::ResultTestExt;
-    use std::fs;
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_media::write_bytes_for_tests;

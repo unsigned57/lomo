@@ -29,10 +29,14 @@ mod support;
 #[cfg(test)]
 mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
-    use aws_lc_rs::encoding::AsBigEndian;
-    use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
-    use std::fs;
-    use std::net::{SocketAddr, TcpListener};
+    use aws_lc_rs::{
+        encoding::AsBigEndian,
+        signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair},
+    };
+    use std::{
+        fs,
+        net::{SocketAddr, TcpListener},
+    };
 
     use lomo_native::{
         EngineConfig, LanBindCandidateDto, LanDeviceIdentityDto, LanDiscoveredPeerDto,
