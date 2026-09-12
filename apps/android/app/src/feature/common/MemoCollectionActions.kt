@@ -12,8 +12,6 @@ import com.lomo.domain.usecase.SaveImageResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 sealed interface MemoCollectionCapabilities {
@@ -43,7 +41,6 @@ class MemoCollectionActions internal constructor(
         MemoEditorSubmissionStateMachine(),
     private val capabilities: MemoCollectionCapabilities,
     private val scope: CoroutineScope,
-    private val onMemoContentReplaced: ((Memo, String) -> Unit)?,
     private val mapToUiModel: suspend (Memo) -> MemoUiModel,
 ) {
     fun delete(
@@ -70,7 +67,6 @@ class MemoCollectionActions internal constructor(
         launchMutation(fallbackMessage = "Failed to update memo") {
             val editable = capabilities.editable("update memo")
             editable.updateMemo(memo, newContent)
-            onMemoContentReplaced?.invoke(memo, newContent)
         }
     }
 
@@ -86,7 +82,6 @@ class MemoCollectionActions internal constructor(
         ) {
             val editable = capabilities.editable("update memo")
             editable.updateMemo(memo, newContent)
-            onMemoContentReplaced?.invoke(memo, newContent)
         }
         return editorSubmissionStateMachine.await(submissionId)
     }
@@ -96,9 +91,7 @@ class MemoCollectionActions internal constructor(
         actionSpan: MarkdownSourceSpan,
     ) {
         launchMutation(fallbackMessage = "Failed to update todo") {
-            val toggleTodo = capabilities.toggleTodo("toggle todo")
-            val newContent = toggleTodo(memo, actionSpan)
-            onMemoContentReplaced?.invoke(memo, newContent)
+            capabilities.toggleTodo("toggle todo")(memo, actionSpan)
         }
     }
 

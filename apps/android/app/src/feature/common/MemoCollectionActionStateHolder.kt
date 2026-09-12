@@ -9,8 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
-
 import kotlinx.coroutines.flow.map
 
 class MemoCollectionActionStateHolder(
@@ -31,8 +29,6 @@ class MemoCollectionActionStateHolder(
     private val editorSubmissionStateMachine = MemoEditorSubmissionStateMachine()
     val editorSubmissionState = editorSubmissionStateMachine.state
 
-    val visibleContentReplacements = MutableStateFlow<Map<String, MemoVisibleContentReplacement>>(emptyMap())
-
     val uiState: StateFlow<MemoCollectionUiState> =
         combine(deletingMemoIds, errorMessage) { deletingIds, error ->
             MemoCollectionUiState(
@@ -48,22 +44,6 @@ class MemoCollectionActionStateHolder(
             editorSubmissionStateMachine = editorSubmissionStateMachine,
             capabilities = capabilities,
             scope = scope,
-            onMemoContentReplaced = ::replaceVisibleMemoContent,
             mapToUiModel = mapToUiModel,
         )
-
-
-    private fun replaceVisibleMemoContent(
-        memo: Memo,
-        newContent: String,
-    ) {
-        visibleContentReplacements.update { replacements ->
-            replacements +
-                (memo.id to
-                    MemoVisibleContentReplacement(
-                        previousContent = memo.content,
-                        replacementContent = newContent,
-                    ))
-        }
-    }
 }

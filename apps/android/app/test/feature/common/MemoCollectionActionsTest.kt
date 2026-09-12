@@ -11,7 +11,7 @@
  * - Given deletePermanently action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given clearTrash action, when mapToUiModel throws exception, then exception is caught and reported to errors.
  * - Given an editor update, when the durable mutation is pending, then submit awaits it and reports
- *   success only after content replacement is committed.
+ *   success only after the collection capability has committed the new content.
  *
  * Observable outcomes:
  * - Errors state is updated with mapping failure without throwing an exception to the caller thread.
@@ -23,11 +23,15 @@
  * - DB operations, UI rendering.
  *
  * Test Change Justification:
- * - Reason category: API contract migration.
- * - Old behavior/assertion being replaced: clearTrash test setup passed a raw Triple of id, memo, and anchor.
- * - Why old assertion is no longer correct: clearTrash now accepts DeleteAnimationItem so the delete snapshot and anchor are modeled by one typed command.
- * - Coverage preserved by: the clearTrash scenario still asserts the observable mapping failure message.
- * - Why this is not fitting the test to the implementation: the assertion remains error reporting at the collection action boundary; only the input command shape changed.
+ * - Reason category: dead UI self-patch channel removed (audit-04 RF4).
+ * - Old behavior/assertion being replaced: editor submit observed an `onMemoContentReplaced`
+ *   callback that accumulated into an unread `visibleContentReplacements` flow.
+ * - Why old assertion is no longer correct: that flow had zero collectors; list content is
+ *   rebuilt from projection invalidation, so the durable capability is the observable commit.
+ * - Coverage preserved by: submit still waits for the pending mutation and reports success
+ *   only after `updateMemo` has accepted the new content.
+ * - Why this is not fitting the test to the implementation: the user-visible outcome remains
+ *   "submit returns true after the write finishes", not a parallel UI patch map.
  */
 
 package com.lomo.app.feature.common
@@ -62,7 +66,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
                 )
 
@@ -95,7 +98,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
                 )
 
@@ -128,7 +130,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
                 )
 
@@ -161,7 +162,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
                 )
 
@@ -202,7 +202,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = {
                         MemoUiModel(
                             memo = it,
@@ -241,7 +240,6 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     errors = errors,
                     capabilities = capabilities,
                     scope = this,
-                    onMemoContentReplaced = null,
                     mapToUiModel = {
                         MemoUiModel(
                             memo = it,
@@ -278,7 +276,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         rawContent = "old",
                         dateKey = "2026_08_09",
                     )
-                var replacement: String? = null
+                var committedContent: String? = null
                 val actions =
                     MemoCollectionActions(
                         exitAnimationRegistry = ExitAnimationRegistry(),
@@ -286,12 +284,14 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         capabilities =
                             MemoCollectionCapabilities.Editable(
                                 deleteMemo = {},
-                                updateMemo = { _, _ -> gate.await() },
+                                updateMemo = { _, content ->
+                                    gate.await()
+                                    committedContent = content
+                                },
                                 toggleTodo = { _, _ -> "updated" },
                                 saveImage = { error("not used") },
                             ),
                         scope = this,
-                        onMemoContentReplaced = { _, content -> replacement = content },
                         mapToUiModel = { error("not used") },
                     )
 
@@ -306,11 +306,11 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 runCurrent()
 
                 result.isCompleted shouldBe false
-                replacement shouldBe null
+                committedContent shouldBe null
 
                 gate.complete(Unit)
                 result.await() shouldBe true
-                replacement shouldBe "committed"
+                committedContent shouldBe "committed"
                 errorMessage.value shouldBe null
             }
         }
