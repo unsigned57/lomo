@@ -3,8 +3,7 @@
 //! `workspace.package.rust-version` must equal the channel's major.minor (MSRV line).
 //! Bootstrap, cargo `+channel` installs, and version checks read this module only.
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 
@@ -20,11 +19,14 @@ pub struct RustPin {
 }
 
 impl RustPin {
+    /// rustup `+channel` selector for this pin.
+    #[must_use]
     pub fn cargo_plus_toolchain(&self) -> String {
         format!("+{}", self.channel)
     }
 
     /// Whether a `rustc --version` line satisfies this pin.
+    #[must_use]
     pub fn matches_rustc_version_line(&self, version_line: &str) -> bool {
         version_line
             .split_whitespace()
@@ -52,6 +54,11 @@ pub fn load(workspace: &Workspace) -> Result<RustPin> {
 }
 
 /// Parse and validate a user-supplied channel for bump (no Cargo.toml check).
+///
+/// # Errors
+///
+/// Returns an error when the channel is empty, a floating name (`stable`/`beta`/`nightly`),
+/// or not an `x.y` / `x.y.z` pin.
 pub fn parse_channel(channel: &str) -> Result<RustPin> {
     let channel = channel.trim();
     if channel.is_empty() {
@@ -186,7 +193,12 @@ fn replace_pin_mentions(text: &str, old: &RustPin, new: &RustPin) -> String {
     result
 }
 
-fn replace_toml_assignment(text: &str, key: &str, value: &str) -> Result<String> {
+/// Rewrite `key = "value"` in a TOML snippet; other keys stay intact.
+///
+/// # Errors
+///
+/// Returns an error when the key assignment is missing or unterminated.
+pub fn replace_toml_assignment(text: &str, key: &str, value: &str) -> Result<String> {
     let prefix = format!("{key} = \"");
     let Some(start) = text.find(&prefix) else {
         bail!("missing `{key} = \"...\"` assignment");
@@ -289,46 +301,4 @@ fn version_token_matches_pin(token: &str, channel: &str, msrv: &str) -> bool {
     }
     // Exact patch pin: require full match.
     token == channel
-}
-
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    reason = "unit tests for pin parsing"
-)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_rejects_floating_channels() {
-        for name in ["stable", "nightly", "beta", "nightly-2026-01-01"] {
-            assert!(parse_channel(name).is_err(), "{name}");
-        }
-    }
-
-    #[test]
-    fn parse_accepts_minor_and_patch() {
-        let minor = parse_channel("1.96").expect("minor");
-        assert_eq!(minor.channel, "1.96");
-        assert_eq!(minor.msrv, "1.96");
-        let patch = parse_channel("1.96.1").expect("patch");
-        assert_eq!(patch.channel, "1.96.1");
-        assert_eq!(patch.msrv, "1.96");
-    }
-
-    #[test]
-    fn rustc_line_matches_minor_pin() {
-        let pin = parse_channel("1.96").unwrap();
-        assert!(pin.matches_rustc_version_line("rustc 1.96.1 (31fca3adb 2026-06-26)"));
-        assert!(!pin.matches_rustc_version_line("rustc 1.97.0 (deadbeef 2026-07-01)"));
-    }
-
-    #[test]
-    fn replace_toml_channel() {
-        let text = "[toolchain]\nchannel = \"1.96\"\nprofile = \"minimal\"\n";
-        let next = replace_toml_assignment(text, "channel", "1.97").unwrap();
-        assert!(next.contains("channel = \"1.97\""));
-        assert!(next.contains("profile = \"minimal\""));
-    }
 }

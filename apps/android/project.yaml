@@ -2,7 +2,6 @@ modules:
   - app
   - data
   - domain
-  - native-smoke
   - quality/detekt-rules
   - native-bindings
   - ui-components

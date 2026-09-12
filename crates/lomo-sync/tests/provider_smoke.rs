@@ -21,8 +21,8 @@
 //! stay in the hermetic contracts; this target only proves the real-wire provider round trip.
 //!
 //! **TDD proof:** every test is `#[ignore]`d, so `just check` / `just ci` never execute or "pass"
-//! them. `just sync-provider-smoke` resolves credentials first and only then runs the matching
-//! `--ignored --exact` test; unresolved lines stay `OPEN / pending_env`.
+//! them. Run with credentials via
+//! `cargo test -p lomo-sync --test provider_smoke -- --ignored --exact <test_name>`.
 
 #![deny(unsafe_code)]
 
@@ -49,7 +49,7 @@ mod tests {
     /// Reads a required smoke credential, failing closed on missing or blank values.
     fn required_env(key: &str) -> String {
         let value = std::env::var(key).unwrap_or_else(|_| {
-            panic!("provider smoke requires {key}; run via `just sync-provider-smoke`")
+            panic!("provider smoke requires {key}; export credentials and run cargo test -p lomo-sync --test provider_smoke -- --ignored")
         });
         assert!(
             !value.trim().is_empty(),
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke nutstore`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-sync --test provider_smoke -- --ignored"]
     fn nutstore_webdav_round_trip_publishes_verifies_and_deletes() {
         webdav_round_trip(
             "LOMO_SMOKE_NUTSTORE_URL",
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke nextcloud`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-sync --test provider_smoke -- --ignored"]
     fn nextcloud_webdav_round_trip_publishes_verifies_and_deletes() {
         webdav_round_trip(
             "LOMO_SMOKE_NEXTCLOUD_URL",
@@ -304,13 +304,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke aws-s3`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-sync --test provider_smoke -- --ignored"]
     fn aws_s3_round_trip_publishes_verifies_and_deletes() {
         s3_round_trip("LOMO_SMOKE_AWS");
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke cloudflare-r2`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-sync --test provider_smoke -- --ignored"]
     fn cloudflare_r2_round_trip_publishes_verifies_and_deletes() {
         s3_round_trip("LOMO_SMOKE_R2");
     }

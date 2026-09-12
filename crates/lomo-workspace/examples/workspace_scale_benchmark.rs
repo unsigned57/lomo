@@ -126,7 +126,7 @@ struct BenchmarkOptions {
 
 impl BenchmarkOptions {
     fn parse(arguments: &[String]) -> Result<Self, Box<dyn Error>> {
-        let mut corpus = PathBuf::from("build/corpora/scale-perf");
+        let mut corpus = PathBuf::from("target/lomo/corpora/scale-perf");
         let mut full_samples = 5_usize;
         let mut warm_samples = 21_usize;
         let mut index = 0;

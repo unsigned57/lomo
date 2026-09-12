@@ -92,19 +92,14 @@ Mandatory minimum after production or test code changes:
      and the relevant `cargo test -p <crate> … --locked`.
    - Kotlin production/tests: `./kotlin test --include-module=<module> --include-classes='…'`
      for the changed specs, or the module suite when the change is broad.
-   - Native/FFI/device: regenerate/pack as required, then `just device-smoke` when engine, lock,
-     packaging, or smoke surface changed and a device/emulator is available.
+   - Native/FFI: regenerate/pack as required when engine, lock, or packaging surface changed.
 3. **Path-aware pre-push gate (automatic)**: pre-push runs `just preflight push`; only surfaces
    touched by pushed commits run (Rust-only pushes skip the Kotlin gate). A missing remote base
    falls back to the full iterative surface. Run `just check` before push/handoff when the full
    gate is wanted.
 4. **Full handoff gate before merge / shared-branch delivery**: `just ci`.
-5. **Device when applicable**: `just device-smoke` on attached **API ≥ 26** with a packaged ABI.
-   Stage-1/2 entry hard device gate is API ≥ 26 arm64 when that is the available device line; a
-   fixed API 26 x86_64 AVD is optional `pending_env`/non-claim and must not be marked GREEN without
-   a real run. Product `minSdk`/NDK API 26 remains mandatory.
 
-If a required gate cannot run (no device, missing secret, tool outage), say so explicitly, keep the
+If a required gate cannot run (missing secret, tool outage), say so explicitly, keep the
 package **open**, and do not mark STAGE evidence GREEN for that gate.
 
 Do **not**:
@@ -123,7 +118,7 @@ Do **not**:
   (also the pre-push hook) for the pushed surface; manual preflight is never the final handoff
 - **Iterative Check**: `just check` (full local iterative validation before handoff)
 - **Full Gate**: `just ci` (coverage + fat-LTO release native; PR/merge handoff and local confirmation)
-- **Device Smoke**: `just device-smoke`
+- **Linux TUI**: `just tui` (forwards extra args to `lomo-tui`)
 - **Android Build**: `just android debug` or `just android release`
 - **Commit Rule**: pre-commit stays cheap (fmt + contracts); pre-push runs `just preflight push`
   (path-aware); before merge or shared-branch handoff run `just ci` (GitHub Actions enforces the

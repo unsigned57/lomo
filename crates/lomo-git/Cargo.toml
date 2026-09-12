@@ -12,7 +12,7 @@ name = "git_adapter_contract"
 path = "tests/git_adapter_contract.rs"
 
 # Credential-gated real provider lines. Every test is `#[ignore]`d, so `just check` / `just ci`
-# never run them; `just sync-provider-smoke` resolves credentials and then runs `--ignored --exact`.
+# never run them. With credentials: cargo test -p lomo-git --test provider_smoke -- --ignored
 [[test]]
 name = "provider_smoke"
 path = "tests/provider_smoke.rs"

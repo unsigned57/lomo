@@ -24,8 +24,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::fs;
+    use std::{env, fs};
 
     use anyhow::{Result, bail};
     use lomo_xtask::validate_ndk_directory;

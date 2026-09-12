@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import fnmatch
+import os
 import struct
 import zipfile
 from collections import Counter
@@ -45,9 +46,15 @@ def parse_args() -> argparse.Namespace:
     output_default = Path("apps/android/app/src/main/baselineProfiles/generated.txt")
     parser.add_argument("--rules-file", default=rules_default, type=Path)
     parser.add_argument("--output", default=output_default, type=Path)
+    generated_root = Path(
+        os.environ["LOMO_GENERATED_ROOT"]
+        if os.environ.get("LOMO_GENERATED_ROOT")
+        else str(Path(os.environ.get("CARGO_TARGET_DIR") or "target") / "lomo")
+    )
     parser.add_argument(
         "--report",
-        default=Path("build/reports/ai/static-baseline-profile/static-baseline-profile-report.txt"),
+        default=generated_root
+        / "reports/ai/static-baseline-profile/static-baseline-profile-report.txt",
         type=Path,
     )
     parser.add_argument("--max-total-entries", type=int)

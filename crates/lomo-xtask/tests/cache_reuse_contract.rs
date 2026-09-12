@@ -23,8 +23,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use std::process::Command;
+    use std::{path::Path, process::Command};
 
     use anyhow::{Context, Result, bail, ensure};
 
@@ -62,6 +61,7 @@ mod tests {
             "kotlin_cli_cache=/tmp/lomo-cache-reuse-contract/kotlin-cli",
             "gradle_user_home=/tmp/lomo-cache-reuse-contract/gradle",
             "cargo_target=/tmp/lomo-cache-reuse-contract/cargo-target",
+            "lomo_output=/tmp/lomo-cache-reuse-contract/cargo-target/lomo",
             "kotlin_build=/tmp/lomo-cache-reuse-contract/kotlin-build",
         ] {
             ensure!(

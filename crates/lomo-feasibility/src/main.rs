@@ -59,7 +59,7 @@ fn run(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
     reason = "CLI scale bench parser and measurement loop stay in one command path"
 )]
 fn scale_markdown_bench(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
-    let mut corpus = PathBuf::from("build/corpora/scale-perf");
+    let mut corpus = PathBuf::from("target/lomo/corpora/scale-perf");
     let mut full_samples = 3_usize;
     let mut warm_samples = 21_usize;
     let mut index = 0;
@@ -253,7 +253,7 @@ fn read_peak_rss_bytes() -> Option<u64> {
 fn generate(arguments: &[String]) -> Result<(), FeasibilityExitCode> {
     let mut seed = 1_u64;
     let mut mode = CorpusMode::Quick;
-    let mut output = PathBuf::from("build/corpora/quick");
+    let mut output = PathBuf::from("target/lomo/corpora/quick");
     let mut fixture_root = PathBuf::from("fixtures");
     let mut index = 0;
     while index < arguments.len() {

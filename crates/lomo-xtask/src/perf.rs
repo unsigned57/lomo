@@ -1,9 +1,11 @@
-use std::cmp::Reverse;
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, Instant, SystemTime};
+use std::{
+    cmp::Reverse,
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    time::{Duration, Instant, SystemTime},
+};
 
 use anyhow::{Context, Result, bail};
 use lomo_feasibility::{
@@ -14,10 +16,12 @@ use lomo_feasibility::{
     redact_sensitive_text, reset_http_probe_state, run_local_git_probe, run_sqlite_probe,
 };
 
-use crate::native::{self, Abi, NativeProfile};
-use crate::tools;
-use crate::util::{cargo, run, text_output};
-use crate::workspace::{self, Workspace};
+use crate::{
+    native::{self, Abi, NativeProfile},
+    tools,
+    util::{cargo, run, text_output},
+    workspace::{self, Workspace},
+};
 
 const SAMPLE_COUNT: usize = 21;
 const WARMUP: usize = 3;
@@ -57,7 +61,7 @@ pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
 }
 
 fn emit_quick_corpus(workspace: &Workspace) -> Result<()> {
-    let output_dir = workspace.root.join("build/corpora/quick");
+    let output_dir = workspace.corpora_dir().join("quick");
     let request = GenerateRequest {
         seed: 1,
         mode: CorpusMode::Quick,
@@ -91,7 +95,7 @@ fn report_native_so_sizes(workspace: &Workspace) -> Result<()> {
 }
 
 fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
-    let report_dir = workspace.root.join("build/reports/feasibility");
+    let report_dir = workspace.reports_dir().join("feasibility");
     fs::create_dir_all(&report_dir)
         .with_context(|| format!("failed to create {}", report_dir.display()))?;
 
@@ -159,22 +163,21 @@ fn write_performance_report(report: &BaselineReportV1, report_dir: &Path) -> Res
         "description": "Current workspace/store/sync performance measurements from `just perf`.",
         "measurement_notes": [
             "liblomo_native_jni.so sizes are from production app/jniLibs BoltFFI packaging.",
-            "native-smoke/jniLibs reuses the same formal engine library after FeasibilityProbe deletion.",
             "Debug universal APK size is environment-specific and recorded as a relative host baseline only.",
             "Time metrics are relative host (and optional attached device) measurements — not product SLA on absolute hardware.",
             "markdown scale runs the production lomo-workspace owner in an isolated process; peak_rss_bytes is that process VmHWM.",
             "Scale metric records result_count (files), memo/node counts from owned IR, byte-stable serialize verification, and warm_path_p50_ms.",
             "Other metrics omit peak_rss_bytes unless isolated; xtask /proc/self HWM is not product evidence.",
             "Hard gate: final compressed universal APK <= debug_universal_compressed_bytes * 1.15.",
-            "Required non-scale host metrics use quiet two-round measurement (no optional HTTPS/git/device cold-start interleaved) so I/O noise cannot exclude product gates.",
+            "Required non-scale host metrics use quiet two-round measurement (no optional HTTPS/git interleaved) so I/O noise cannot exclude product gates.",
             "Markdown scale is measured in consecutive isolated owner processes after non-scale required rounds.",
             "Scale uses more full-corpus samples per process and up to one extra dual-round attempt under the same 10% p50 gate (never invents Pass from a noisy pair).",
-            "Optional I/O metrics (HTTPS, git bare, device cold start) stabilize separately and never invent a Pass when required metrics are missing.",
+            "Optional I/O metrics (HTTPS, git bare) stabilize separately and never invent a Pass when required metrics are missing.",
             "Two measurement rounds: exclude metric if |p50_a-p50_b| > max(10% of max p50, 1ms).",
             "Pass requires every required metric to be established with its required fields.",
             "just perf exits non-zero on Inconclusive/Fail so recipe exit 0 means product-pass of required metrics.",
             "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
-            "Required metrics are current owner workloads; optional provider and device diagnostics never establish a pass."
+            "Required metrics are current owner workloads; optional provider diagnostics never establish a pass."
         ],
         "native": {
             "liblomo_native_jni_so_bytes": report.sizes.abi_so_bytes,
@@ -202,7 +205,7 @@ fn write_performance_report(report: &BaselineReportV1, report_dir: &Path) -> Res
                 "kind": report.device.kind
             },
             "metrics": metrics,
-            "policy": "Relative host/device baselines; device cold start is optional diagnostics."
+            "policy": "Relative host/device baselines; optional HTTPS/git diagnostics never establish a pass."
         }
     });
     let pretty = serde_json::to_string_pretty(&document)
@@ -331,13 +334,7 @@ fn measure_required_non_scale_metrics(workspace: &Workspace) -> Result<Vec<Basel
 
 /// Optional noisy I/O / device probes. Exclusion never invents Pass.
 fn measure_optional_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
-    let mut metrics = Vec::new();
-    metrics.push(measure_http_metric()?);
-    metrics.push(measure_git_metric(workspace)?);
-    if let Some(metric) = measure_device_smoke_cold_start()? {
-        metrics.push(metric);
-    }
-    Ok(metrics)
+    Ok(vec![measure_http_metric()?, measure_git_metric(workspace)?])
 }
 
 /// Measure the 100k scale owner in consecutive isolated processes (no other metrics between
@@ -504,9 +501,7 @@ const fn hard_gate_max_bytes(apk_compressed_bytes: u64) -> u64 {
 }
 
 fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
-    let root = workspace
-        .root
-        .join("build/reports/feasibility/measure-sqlite");
+    let root = workspace.reports_dir().join("feasibility/measure-sqlite");
     fs::create_dir_all(&root)?;
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
     for index in 0..(WARMUP + SAMPLE_COUNT) {
@@ -537,7 +532,7 @@ fn measure_sqlite_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
 }
 
 fn measure_markdown_scale_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
-    let output_dir = workspace.root.join("build/corpora/scale-perf");
+    let output_dir = workspace.corpora_dir().join("scale-perf");
     let request = GenerateRequest {
         seed: 1,
         mode: CorpusMode::Scale,
@@ -745,7 +740,7 @@ fn measure_http_metric() -> Result<BaselineMetricV1> {
 }
 
 fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
-    let root = workspace.root.join("build/reports/feasibility/measure-git");
+    let root = workspace.reports_dir().join("feasibility/measure-git");
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
     for index in 0..(WARMUP + SAMPLE_COUNT) {
         let path = root.join(format!("round-{index}"));
@@ -772,69 +767,6 @@ fn measure_git_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
     })
 }
 
-fn measure_device_smoke_cold_start() -> Result<Option<BaselineMetricV1>> {
-    if !adb_has_device() {
-        crate::util::emit_stderr(format_args!(
-            "xtask: no adb device; skipping native-smoke cold-start metric"
-        ));
-        return Ok(None);
-    }
-    if !adb_package_installed("com.lomo.nativesmoke") {
-        crate::util::emit_stderr(format_args!(
-            "xtask: native-smoke not installed; skipping cold-start metric"
-        ));
-        return Ok(None);
-    }
-
-    let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    // warm launch (discard failures so missing UI readiness does not abort host baselines)
-    if let Err(error) = force_stop_and_start() {
-        crate::util::emit_stderr(format_args!(
-            "xtask: warm native-smoke launch skipped: {error}"
-        ));
-    }
-    for _ in 0..SAMPLE_COUNT {
-        samples.push(force_stop_and_start()?);
-    }
-    let (p50, p95) = percentiles_ms(&mut samples);
-    Ok(Some(BaselineMetricV1 {
-        name: "native_smoke_cold_start_wait_ms".to_owned(),
-        unit: "ms".to_owned(),
-        p50,
-        p95,
-        peak_rss_bytes: None,
-        network_request_count: None,
-        samples: Some(u32::try_from(SAMPLE_COUNT).unwrap_or(u32::MAX)),
-        workload_summary: "am_start_W_com.lomo.nativesmoke/.NativeSmokeActivity".to_owned(),
-        result_count: None,
-        warm_path_p50_ms: None,
-    }))
-}
-
-fn force_stop_and_start() -> Result<f64> {
-    let mut stop = Command::new("adb");
-    stop.args(["shell", "am", "force-stop", "com.lomo.nativesmoke"]);
-    run(&mut stop)?;
-    std::thread::sleep(Duration::from_millis(200));
-    let mut start = Command::new("adb");
-    start.args([
-        "shell",
-        "am",
-        "start",
-        "-W",
-        "-n",
-        "com.lomo.nativesmoke/.NativeSmokeActivity",
-    ]);
-    let output = text_output(&mut start)?;
-    for line in output.lines() {
-        if let Some(value) = line.strip_prefix("WaitTime:") {
-            let wait: f64 = value.trim().parse().context("WaitTime parse")?;
-            return Ok(wait);
-        }
-    }
-    bail!("am start -W did not report WaitTime:\n{output}");
-}
-
 fn adb_has_device() -> bool {
     let mut command = Command::new("adb");
     command.arg("devices");
@@ -846,12 +778,6 @@ fn adb_has_device() -> bool {
         matches!(parts.next(), Some(serial) if !serial.is_empty() && serial != "List")
             && parts.next() == Some("device")
     })
-}
-
-fn adb_package_installed(package: &str) -> bool {
-    let mut command = Command::new("adb");
-    command.args(["shell", "pm", "path", package]);
-    text_output(&mut command).is_ok_and(|value| !value.trim().is_empty())
 }
 
 fn adb_getprop(key: &str) -> Option<String> {

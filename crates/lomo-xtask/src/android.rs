@@ -1,15 +1,17 @@
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 
-use crate::native::{self, Abi, NativeProfile};
-use crate::util::{find_files, kotlin, output, run, text_output};
-use crate::workspace::{self, Workspace};
+use crate::{
+    native::{self, Abi, NativeProfile},
+    util::{find_files, kotlin, output, run, text_output},
+    workspace::Workspace,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AndroidVariant {
@@ -26,20 +28,7 @@ impl AndroidVariant {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ApkModule {
-    App,
-    NativeSmoke,
-}
-
-impl ApkModule {
-    const fn task_prefix(self) -> &'static str {
-        match self {
-            Self::App => "_app_buildAndroid",
-            Self::NativeSmoke => "_native-smoke_buildAndroid",
-        }
-    }
-}
+const APP_APK_TASK_PREFIX: &str = "_app_buildAndroid";
 
 pub fn abi_tag_name(abis: &[Abi]) -> String {
     if abis.len() == Abi::ALL.len() && Abi::ALL.iter().all(|abi| abis.contains(abi)) {
@@ -89,7 +78,6 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Re
         &build_dir,
         variant == AndroidVariant::Release,
         abis,
-        ApkModule::App,
     )?;
     if let Some(signing) = signing {
         let output = publish_path(workspace, variant.name(), &abi_tag)?;
@@ -99,7 +87,7 @@ pub fn build(workspace: &Workspace, variant: AndroidVariant, abis: &[Abi]) -> Re
     }
 }
 
-/// Copy a validated APK to the canonical `build/apk/<variant>` directory using the
+/// Copy a validated APK to the canonical `target/lomo/apk/<variant>` directory using the
 /// `<app-name>-<versionName>-<abi>.apk` naming contract (e.g. `Lomo-1.6.2-arm64-v8a.apk`).
 pub fn publish_apk(
     workspace: &Workspace,
@@ -135,10 +123,9 @@ pub fn validate_built_apk(
     build_dir: impl AsRef<Path>,
     release: bool,
     expected_abis: &[Abi],
-    module: ApkModule,
 ) -> Result<PathBuf> {
     let build_dir = workspace.root.join(build_dir.as_ref());
-    let apk = find_apk(&build_dir, release, module)?;
+    let apk = find_apk(&build_dir, release)?;
     let entries = apk_entries(&apk)?;
     for &abi in expected_abis {
         let expected = format!("lib/{}/{}", abi.android_name(), native::NATIVE_LIBRARY);
@@ -199,140 +186,6 @@ pub fn validate_built_apk(
     }
     crate::util::emit_stderr(format_args!("xtask: validated {}", apk.display()));
     Ok(apk)
-}
-
-pub fn device_smoke(workspace: &Workspace) -> Result<()> {
-    native::generate_all(workspace, NativeProfile::Dev)?;
-    let build_dir = workspace.kotlin_build.clone();
-    let mut build = kotlin(workspace)?;
-    build.args([
-        "build",
-        "--module",
-        "native-smoke",
-        "--platform",
-        "android",
-        "--variant",
-        "debug",
-        "--build-dir",
-        build_dir.to_string_lossy().as_ref(),
-    ]);
-    run(&mut build)?;
-    // Fail closed before install: stale Amper/Gradle jni merge can produce a dex-only APK that
-    // boots then dies with UnsatisfiedLinkError (not authentic smoke GREEN).
-    let apk = validate_built_apk(
-        workspace,
-        &build_dir,
-        false,
-        &Abi::ALL,
-        ApkModule::NativeSmoke,
-    )?;
-    let adb = adb(workspace);
-
-    let mut devices = Command::new(&adb);
-    devices.arg("devices");
-    let device_list = text_output(&mut devices)?;
-    if !device_list.lines().any(|line| line.ends_with("\tdevice")) {
-        bail!("no ready adb device; start an API 26 x86_64 emulator");
-    }
-    require_device_api_and_abi(&adb)?;
-
-    let mut clear = Command::new(&adb);
-    clear.args(["logcat", "-c"]);
-    run(&mut clear)?;
-    let mut install = Command::new(&adb);
-    install.args(["install", "-r"]).arg(&apk);
-    run(&mut install)?;
-    // Clear app data so durable journal recovery starts from a clean seed phase.
-    let mut clear_data = Command::new(&adb);
-    clear_data.args(["shell", "pm", "clear", "com.lomo.nativesmoke"]);
-    run(&mut clear_data)
-        .context("pm clear com.lomo.nativesmoke must succeed for hermetic journal")?;
-
-    launch_native_smoke(&adb)?;
-
-    // Each crash-window phase asks xtask to force-stop and relaunch the process externally.
-    let mut restart_count = 0_u32;
-    let mut seen_restart_marker = 0_u32;
-    let mut pass_seen_at = None;
-    for _ in 0..180 {
-        let mut logs = Command::new(&adb);
-        logs.args(["logcat", "-d", "-s", "LomoNativeSmoke:I", "*:S"]);
-        let logs = text_output(&mut logs)?;
-        if logs.contains("FAIL") {
-            bail!("device smoke reported failure:\n{logs}");
-        }
-        if logs.contains("PASS") {
-            let observed_at = pass_seen_at.get_or_insert_with(Instant::now);
-            if observed_at.elapsed() >= Duration::from_secs(2) {
-                crate::util::emit_stderr(format_args!("xtask: device smoke passed"));
-                return Ok(());
-            }
-        }
-        let restart_markers =
-            u32::try_from(logs.matches("RESTART_REQUIRED").count()).unwrap_or(u32::MAX);
-        if restart_markers > seen_restart_marker && restart_count < 4 {
-            seen_restart_marker = restart_markers;
-            restart_count += 1;
-            crate::util::emit_stderr(format_args!(
-                "xtask: externally stopping and relaunching native-smoke for durable recovery (restart {restart_count})"
-            ));
-            thread::sleep(Duration::from_millis(500));
-            force_stop_native_smoke(&adb)?;
-            launch_native_smoke(&adb)?;
-        }
-        thread::sleep(Duration::from_millis(250));
-    }
-    bail!("device smoke did not report PASS within 45 seconds")
-}
-
-fn force_stop_native_smoke(adb: &Path) -> Result<()> {
-    let mut stop = Command::new(adb);
-    stop.args(["shell", "am", "force-stop", "com.lomo.nativesmoke"]);
-    run(&mut stop).context("adb force-stop native-smoke must succeed")
-}
-
-fn launch_native_smoke(adb: &Path) -> Result<()> {
-    let mut launch = Command::new(adb);
-    launch.args([
-        "shell",
-        "am",
-        "start",
-        "-W",
-        "-n",
-        "com.lomo.nativesmoke/.NativeSmokeActivity",
-    ]);
-    run(&mut launch)
-}
-
-/// Stage-1 device smoke requires API >= 26 and an ABI we package (prefer `x86_64` emulator).
-fn require_device_api_and_abi(adb: &Path) -> Result<()> {
-    let api = adb_shell_getprop(adb, "ro.build.version.sdk")?;
-    let api_level: u32 = api
-        .trim()
-        .parse()
-        .with_context(|| format!("device API level is not a number: {api:?}"))?;
-    if api_level < workspace::ANDROID_API {
-        bail!(
-            "device API {api_level} is below required {}",
-            workspace::ANDROID_API
-        );
-    }
-    let abi = adb_shell_getprop(adb, "ro.product.cpu.abi")?;
-    let abi = abi.trim();
-    let supported = matches!(abi, "x86_64" | "arm64-v8a" | "x86" | "armeabi-v7a");
-    if !supported {
-        bail!("device ABI {abi:?} is not a packaged Android ABI");
-    }
-    crate::util::emit_stderr(format_args!(
-        "xtask: device smoke target API {api_level} abi {abi}"
-    ));
-    Ok(())
-}
-
-fn adb_shell_getprop(adb: &Path, key: &str) -> Result<String> {
-    let mut command = Command::new(adb);
-    command.args(["shell", "getprop", key]);
-    text_output(&mut command).map(|value| value.trim().to_owned())
 }
 
 fn validate_apk_elf(workspace: &Workspace, apk: &Path, entry: &str, abi: Abi) -> Result<()> {
@@ -441,7 +294,7 @@ fn read_version_name(module_yaml: &str) -> Result<String> {
     bail!("apps/android/app/module.yaml is missing versionName")
 }
 
-fn find_apk(build_dir: &Path, release: bool, module: ApkModule) -> Result<PathBuf> {
+fn find_apk(build_dir: &Path, release: bool) -> Result<PathBuf> {
     let mut apks = find_files(build_dir, "apk")?;
     apks.retain(|path| {
         let value = path.to_string_lossy();
@@ -455,7 +308,7 @@ fn find_apk(build_dir: &Path, release: bool, module: ApkModule) -> Result<PathBu
                 component
                     .as_os_str()
                     .to_string_lossy()
-                    .starts_with(module.task_prefix())
+                    .starts_with(APP_APK_TASK_PREFIX)
             })
     });
     apks.sort_by_key(|path| path.components().count());
@@ -544,15 +397,6 @@ fn apksigner(workspace: &Workspace) -> Result<PathBuf> {
     candidates
         .pop()
         .with_context(|| format!("apksigner is missing under {}", root.display()))
-}
-
-fn adb(workspace: &Workspace) -> PathBuf {
-    let local = workspace.android_sdk.join("platform-tools/adb");
-    if local.is_file() {
-        local
-    } else {
-        PathBuf::from("adb")
-    }
 }
 
 struct SigningConfig {

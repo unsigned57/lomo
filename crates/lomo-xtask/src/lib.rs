@@ -8,7 +8,6 @@ mod ffi_parity;
 mod native;
 pub mod package;
 mod perf;
-mod provider_smoke;
 mod quality;
 mod rust_pin;
 mod tools;
@@ -16,7 +15,55 @@ mod usecase_reachability;
 mod util;
 mod workspace;
 
+use std::{collections::BTreeSet, path::PathBuf};
+
+pub use ffi_parity::{
+    camel_to_snake, contains_method_call, extract_kotlin_bridge_methods,
+    find_transitive_production_caller, snake_to_camel, strip_comments_and_strings,
+};
+pub use native::canonicalize_binding;
+pub use rust_pin::{RustPin, parse_channel, replace_toml_assignment};
 pub use usecase_reachability::check_usecase_reachability;
+
+/// Canonical repository root discovered the same way as the xtask CLI.
+///
+/// # Errors
+///
+/// Returns an error when the repository root cannot be canonicalized.
+pub fn repository_root() -> anyhow::Result<PathBuf> {
+    Ok(workspace::Workspace::discover()?.root)
+}
+
+/// Verifies generated Lomo artifacts stay namespaced under `target/lomo`.
+///
+/// # Errors
+///
+/// Returns an error when discovery fails or a derived path escapes the `lomo` namespace.
+pub fn check_generated_artifact_layout() -> anyhow::Result<()> {
+    workspace::Workspace::discover()?.check_generated_artifact_layout()
+}
+
+/// Runs store/FFI/Kotlin bridge method-name parity on the discovered workspace.
+///
+/// # Errors
+///
+/// Returns an error when a required source file is missing or method names diverge.
+pub fn check_ffi_parity() -> anyhow::Result<()> {
+    let workspace = workspace::Workspace::discover()?;
+    ffi_parity::check_ffi_parity(&workspace)
+}
+
+/// Verifies each Kotlin native-bridge method has a production caller.
+///
+/// # Errors
+///
+/// Returns an error when a method has zero production callers.
+pub fn check_kotlin_bridge_reachability(
+    kotlin_bridge_methods: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let workspace = workspace::Workspace::discover()?;
+    ffi_parity::check_kotlin_bridge_reachability(&workspace, kotlin_bridge_methods)
+}
 
 /// Runs the `lomo-xtask` command line interface with the discovered workspace.
 ///

@@ -12,8 +12,14 @@ cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
 cache_dir="${LOMO_JACOCO_CACHE_DIR:-$cache_root/lomo/jacoco}"
 agent_jar="$cache_dir/jacocoagent-${JACOCO_VERSION}.jar"
 cli_jar="$cache_dir/jacococli-${JACOCO_VERSION}.jar"
-work_dir="$repo_root/build/jacoco"
-report_dir="$repo_root/build/reports/kover"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+generated_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
+case "$generated_root" in
+  /*) ;;
+  *) generated_root="$repo_root/$generated_root" ;;
+esac
+work_dir="$generated_root/tmp/jacoco"
+report_dir="$generated_root/reports/kover"
 exec_file="$work_dir/jacoco.exec"
 xml_report="$report_dir/coverage.xml"
 html_report="$report_dir/html"

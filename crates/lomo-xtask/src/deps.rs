@@ -1,8 +1,10 @@
 use anyhow::{Result, bail};
 
-use crate::tools;
-use crate::util::{cargo, run};
-use crate::workspace::Workspace;
+use crate::{
+    tools,
+    util::{cargo, run},
+    workspace::Workspace,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DependencyMode {

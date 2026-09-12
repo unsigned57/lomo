@@ -1,13 +1,17 @@
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::path::Path;
-use std::process::Command;
+use std::{
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    path::Path,
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 
-use crate::native::{self, NativeProfile};
-use crate::tools;
-use crate::util::{cargo, kotlin, policy_script, repository_command, run, text_output};
-use crate::workspace::Workspace;
+use crate::{
+    native::{self, NativeProfile},
+    tools,
+    util::{cargo, kotlin, policy_script, repository_command, run, text_output},
+    workspace::Workspace,
+};
 
 const TEST_MODULES: [&str; 5] = ["app", "data", "detekt-rules", "domain", "ui-components"];
 const HOST_PACKAGES: [&str; 9] = [
@@ -112,6 +116,9 @@ pub fn preflight(workspace: &Workspace, source: ChangeSource) -> Result<()> {
     {
         contract_violations.push(err.to_string());
     }
+    if let Err(err) = workspace.check_generated_artifact_layout() {
+        contract_violations.push(err.to_string());
+    }
     if !contract_violations.is_empty() {
         bail!("{}", contract_violations.join("\n\n"));
     }
@@ -149,6 +156,9 @@ fn check_architecture_contracts(workspace: &Workspace) -> Result<()> {
         violations.push(err.to_string());
     }
     if let Err(err) = crate::usecase_reachability::check_usecase_reachability(&workspace.root) {
+        violations.push(err.to_string());
+    }
+    if let Err(err) = workspace.check_generated_artifact_layout() {
         violations.push(err.to_string());
     }
     if !violations.is_empty() {
@@ -190,7 +200,6 @@ pub fn ci(workspace: &Workspace) -> Result<()> {
         &workspace.kotlin_build,
         false,
         &native::Abi::ALL,
-        crate::android::ApkModule::App,
     )?;
     crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     crate::util::emit_stderr(format_args!("xtask: ci complete"));
@@ -220,7 +229,6 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
         &workspace.kotlin_build,
         false,
         &native::Abi::ALL,
-        crate::android::ApkModule::App,
     )?;
     crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     Ok(())
@@ -766,7 +774,6 @@ fn is_rust_path(path: &str) -> bool {
         || path == "rustfmt.toml"
         || path == "clippy.toml"
         || path.starts_with("apps/android/native-bindings/")
-        || path.starts_with("apps/android/native-smoke/")
 }
 
 fn is_kotlin_path(path: &str) -> bool {
@@ -787,7 +794,6 @@ fn is_native_path(path: &str) -> bool {
         || path.starts_with("crates/lomo-xtask/src/native.rs")
         || path.starts_with("crates/lomo-xtask/src/android.rs")
         || path.starts_with("crates/lomo-xtask/src/tools.rs")
-        || path.starts_with("apps/android/native-smoke/")
         || path.starts_with("apps/android/native-bindings/")
 }
 

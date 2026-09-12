@@ -5,7 +5,9 @@
 //! - Given user `RUSTFLAGS` include host-CPU tuning and personal prefixes, when generic flags are
 //!   composed, then native-CPU tokens are removed and `--remap-path-prefix` hides personal paths.
 //! - Given extra CLI arguments, when `package-linux` runs, then the command fails closed.
-//! - Given `--help`, when xtask prints commands, then `package-linux` is listed.
+//! - Given `--help`, when xtask prints commands, then `tui`, `check-linux`, and `package-linux`
+//!   are listed and retired smoke recipes are absent.
+//! - Given `device-smoke` or `sync-provider-smoke`, when xtask runs, then the command is unknown.
 //!
 //! Observable outcomes: staged files, cleaned flag strings, CLI error text, help text.
 //! TDD proof: `package-linux` was absent from Justfile/xtask before this package.
@@ -17,16 +19,15 @@
     reason = "contract tests fail closed on missing package facts"
 )]
 mod tests {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::Path;
-    use std::process::Command;
+    use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
-    use lomo_xtask::package::{
-        BINARY_REL, CONFIG_REL, README_REL, generic_rustflags, stage_linux_package,
-        strip_native_cpu_from_encoded, strip_native_cpu_from_space_separated,
+    use lomo_xtask::{
+        package::{
+            BINARY_REL, CONFIG_REL, README_REL, generic_rustflags, stage_linux_package,
+            strip_native_cpu_from_encoded, strip_native_cpu_from_space_separated,
+        },
+        run_cli,
     };
-    use lomo_xtask::run_cli;
     use tempfile::tempdir;
 
     #[test]
@@ -110,16 +111,40 @@ mod tests {
     }
 
     #[test]
-    fn help_lists_package_linux() {
+    fn help_lists_linux_tui_surface_and_omits_retired_smoke() {
         let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
             .arg("help")
             .output()
             .expect("xtask help");
         assert!(output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("package-linux"),
-            "help must list package-linux, got {stderr}"
-        );
+        for required in ["tui", "check-linux", "package-linux"] {
+            assert!(
+                stderr.contains(required),
+                "help must list {required}, got {stderr}"
+            );
+        }
+        for retired in ["device-smoke", "sync-provider-smoke"] {
+            assert!(
+                !stderr.contains(retired),
+                "help must not list retired {retired}, got {stderr}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_rejects_retired_smoke_commands() {
+        for command in ["device-smoke", "sync-provider-smoke"] {
+            match run_cli(&[command.to_owned()]) {
+                Ok(()) => panic!("{command} must be unknown"),
+                Err(error) => {
+                    let message = error.to_string();
+                    assert!(
+                        message.contains("unknown xtask command"),
+                        "{command} got {message}"
+                    );
+                }
+            }
+        }
     }
 }

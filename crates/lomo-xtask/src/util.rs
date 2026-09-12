@@ -1,8 +1,10 @@
-use std::ffi::OsStr;
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::{
+    ffi::OsStr,
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+    process::{Command, Output},
+};
 
 use anyhow::{Context, Result, bail};
 
@@ -106,6 +108,7 @@ pub fn policy_script(workspace: &Workspace, relative: &str) -> Command {
         .env("GRADLE_USER_HOME", &workspace.gradle_home)
         .env("LOMO_KOTLIN_ANDROID_SDK", &workspace.android_sdk)
         .env("LOMO_KOTLIN_WRAPPER", workspace.root.join("kotlin"))
+        .env("LOMO_GENERATED_ROOT", workspace.lomo_output_dir())
         .env(
             "LOMO_KOTLIN_TEST_MODULE_ARGS",
             "--include-module=app --include-module=data --include-module=detekt-rules --include-module=domain --include-module=ui-components",

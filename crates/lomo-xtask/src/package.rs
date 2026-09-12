@@ -1,14 +1,17 @@
 //! Generic Linux `x86_64` TUI archive. Strips `target-cpu=native`; no personal toolchain paths.
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 
-use crate::util::{cargo, emit_stderr, remove_if_exists, run};
-use crate::workspace::Workspace;
+use crate::{
+    util::{cargo, emit_stderr, remove_if_exists, run},
+    workspace::Workspace,
+};
 
 pub const ARCHIVE_NAME: &str = "lomo-linux-x86_64.tar.gz";
 pub const BINARY_REL: &str = "bin/lomo";
@@ -146,7 +149,7 @@ pub fn verify_staged_layout(stage_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Builds `lomo-tui` in release and writes `build/dist/lomo-linux-x86_64.tar.gz`.
+/// Builds `lomo-tui` in release and writes `target/lomo/dist/lomo-linux-x86_64.tar.gz`.
 ///
 /// # Errors
 /// Non-`x86_64` Linux host, missing `tar`, cargo build failure, or archive I/O failure.
@@ -157,7 +160,7 @@ pub fn package_linux(workspace: &Workspace) -> Result<()> {
     ensure_tar_available()?;
     build_generic_tui(workspace)?;
     let binary = workspace.rust_target().join("release").join("lomo");
-    let dist = workspace.root.join("build").join("dist");
+    let dist = workspace.linux_dist_dir();
     let stage = dist.join("linux-x86_64-stage");
     let archive = dist_archive_path(workspace);
     fs::create_dir_all(&dist).with_context(|| format!("failed to create {}", dist.display()))?;
@@ -266,5 +269,5 @@ fn rustup_home_path() -> PathBuf {
 
 #[must_use]
 pub fn dist_archive_path(workspace: &Workspace) -> PathBuf {
-    workspace.root.join("build").join("dist").join(ARCHIVE_NAME)
+    workspace.linux_dist_dir().join(ARCHIVE_NAME)
 }

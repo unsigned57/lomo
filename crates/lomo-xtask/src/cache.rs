@@ -1,10 +1,11 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 
-use crate::util::remove_if_exists;
-use crate::workspace::Workspace;
+use crate::{util::remove_if_exists, workspace::Workspace};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CacheMode {
@@ -34,6 +35,7 @@ pub fn parse_mode(value: &str) -> Result<CacheMode> {
 }
 
 fn paths(workspace: &Workspace) {
+    let lomo_output = workspace.lomo_output_dir();
     for (name, path) in [
         ("home", &workspace.kotlin_home),
         ("xdg_cache", &workspace.kotlin_cache),
@@ -44,6 +46,7 @@ fn paths(workspace: &Workspace) {
         ("gradle_user_home", &workspace.gradle_home),
         ("cargo_home", &workspace.cargo_home),
         ("cargo_target", &workspace.rust_target),
+        ("lomo_output", &lomo_output),
         ("cargo_tools", &workspace.tool_root),
         ("kotlin_build", &workspace.kotlin_build),
     ] {
@@ -59,11 +62,9 @@ fn audit(workspace: &Workspace) -> Result<()> {
         ".kotlin",
         ".kotlin-cli",
         ".android-sdk",
-        "build/reports",
         "target",
         "apps/android/app/jniLibs",
         "apps/android/native-bindings/src",
-        "apps/android/native-smoke/jniLibs",
     ] {
         let path = workspace.root.join(relative);
         if path.exists() {
@@ -78,12 +79,20 @@ fn audit(workspace: &Workspace) -> Result<()> {
 fn clean(workspace: &Workspace) -> Result<()> {
     for relative in [
         ".kotlin/toolchain-build",
+        "build/apk",
+        "build/dist",
         "build/reports",
+        "build/corpora",
         "build/jacoco",
+        "target/apk",
+        "target/dist",
+        "target/reports",
+        "target/corpora",
+        "target/xtask",
+        "target/boltffi-tmp",
         "target",
         "apps/android/app/jniLibs",
         "apps/android/native-bindings/src",
-        "apps/android/native-smoke/jniLibs",
         ".cache/native",
     ] {
         let path = workspace.root.join(relative);

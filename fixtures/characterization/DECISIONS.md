@@ -18,7 +18,7 @@ that must not be golden-locked as product truth.
 | room schema-surface inventory | **internal inventory only** | entity/DAO/`@Query` names for developers; **not** the P0-04 golden exit |
 | storage double-parse stability | **external contract** | second parse keeps id/content/tags/spans |
 | unedited write-back (open-file bytes) | **external contract (P0-07)** | identity rewrite preserves BOM + CRLF/LF bytes |
-| SAF DocumentsProvider in native-smoke | **tooling-only** | create/read/replace/rename/**move**/delete |
+| SAF DocumentsProvider (removed native-smoke host) | **historical tooling** | create/read/replace/rename/**move**/delete was proven there; production SAF is owned by `apps/android/data` |
 | `markdown/*` UI plain-text colon tokens + wiki | **stage-2 decision (P2-03)** | JetBrains tokenizer drops `:` as a non-text token and treats `[[wiki]]` as a short reference link. Rust `RenderDocumentV1` preserves colon characters in plain text and projects `[[target]]` as typed `WikiReference` (plain text = target). `semantic-ui` fingerprints/link counts updated under this decision; storage goldens unchanged. SoftBreak projects as `\n` (pulldown), not raw CRLF white-space tokens. |
 | `semantic-ui/dst-edge.json` plain fingerprint | **stage-2 decision (P2-03)** | Recomputed from the same block/plain algorithm as the rest of the corpus (`list` item inlines joined by `\n`, SoftBreak = `\n`). Prior fingerprint did not match any JetBrains-compatible projection of the current `dst-edge.md` bytes; updated to the deterministic Rust/UI-compatible value without changing block kinds/counts. |
 

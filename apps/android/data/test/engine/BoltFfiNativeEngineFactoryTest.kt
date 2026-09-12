@@ -26,7 +26,7 @@ package com.lomo.data.engine
  *   deleted root materialised an empty workspace instead of failing closed into Recovery.
  *
  * Excludes:
- * - Live LomoEngine.open (requires packaged native library; covered by native-smoke / device).
+ * - Live LomoEngine.open (requires packaged native library).
  *
  * Test Change Justification:
  * - Reason category: SAF identity/capability contract correction; Direct selection purity.

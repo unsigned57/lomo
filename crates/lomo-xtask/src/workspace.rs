@@ -1,8 +1,9 @@
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 pub const ANDROID_API: u32 = 26;
 pub const NDK_VERSION: &str = "29.0.14206865";
@@ -172,16 +173,29 @@ impl Workspace {
         self.root.join("apps/android/app/jniLibs")
     }
 
-    pub fn smoke_jni_libs(&self) -> PathBuf {
-        self.root.join("apps/android/native-smoke/jniLibs")
+    /// Lomo-owned artifacts, namespaced away from Cargo `debug`/`release` graphs.
+    pub fn lomo_output_dir(&self) -> PathBuf {
+        self.rust_target.join("lomo")
+    }
+
+    pub fn linux_dist_dir(&self) -> PathBuf {
+        self.lomo_output_dir().join("dist")
+    }
+
+    pub fn reports_dir(&self) -> PathBuf {
+        self.lomo_output_dir().join("reports")
+    }
+
+    pub fn corpora_dir(&self) -> PathBuf {
+        self.lomo_output_dir().join("corpora")
     }
 
     pub fn apk_output_dir(&self, variant: &str) -> PathBuf {
-        self.root.join("build").join("apk").join(variant)
+        self.lomo_output_dir().join("apk").join(variant)
     }
 
     pub fn temp_dir(&self, name: &str) -> Result<PathBuf> {
-        let directory = self.rust_target().join("xtask").join(name);
+        let directory = self.lomo_output_dir().join("tmp").join(name);
         if directory.exists() {
             fs::remove_dir_all(&directory)
                 .with_context(|| format!("failed to reset {}", directory.display()))?;
@@ -189,6 +203,51 @@ impl Workspace {
         fs::create_dir_all(&directory)
             .with_context(|| format!("failed to create {}", directory.display()))?;
         Ok(directory)
+    }
+
+    /// Fail closed when a derived artifact path would escape `target/lomo`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a generated path is not under the cargo target `lomo`
+    /// namespace or would sit in a repository-root `build/` tree.
+    pub fn check_generated_artifact_layout(&self) -> Result<()> {
+        let lomo = self.lomo_output_dir();
+        ensure!(
+            lomo == self.rust_target.join("lomo"),
+            "Lomo outputs must be namespaced under target/lomo"
+        );
+        for generated in [
+            self.apk_output_dir("debug"),
+            self.apk_output_dir("release"),
+            self.linux_dist_dir(),
+            self.reports_dir(),
+            self.corpora_dir(),
+            self.lomo_output_dir().join("tmp").join("layout-probe"),
+        ] {
+            ensure!(
+                generated.starts_with(&lomo),
+                "{} must live under {}",
+                generated.display(),
+                lomo.display()
+            );
+            let relative = generated
+                .strip_prefix(&self.rust_target)
+                .with_context(|| format!("{} must be under cargo target", generated.display()))?;
+            ensure!(
+                relative.starts_with("lomo"),
+                "{} must not sit beside Cargo debug/release",
+                generated.display()
+            );
+            ensure!(
+                !generated
+                    .strip_prefix(&self.root)
+                    .is_ok_and(|path| path.starts_with("build")),
+                "{} must not use a second repository-root build/ tree",
+                generated.display()
+            );
+        }
+        Ok(())
     }
 }
 

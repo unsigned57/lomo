@@ -1,7 +1,7 @@
 # Quality Tooling
 
 `Justfile` is the human command menu. Every public recipe delegates to the Rust `lomo-xtask`, so
-local development, hooks, pull requests, releases, and device smoke tests share one build graph.
+local development, hooks, pull requests, and releases share one build graph.
 The remaining scripts in `quality/scripts/` are single-purpose Kotlin policy checks invoked by
 xtask; they are not public quality orchestrators.
 
@@ -15,12 +15,11 @@ xtask; they are not public quality orchestrators.
 | Path-aware iterative gate (manual / pre-push) | `just preflight staged`, `just preflight push` |
 | Iterative repository gate (handoff) | `just check` |
 | Linux host quality gate (independent host crates without Android/JNI dependencies) | `just check-linux` |
-| Generic Linux x86_64 TUI archive (`bin/lomo`, config template, docs) | `just package-linux` |
+| Run the Linux TUI (extra args go to `lomo-tui`) | `just tui` |
+| Generic Linux x86_64 TUI archive (`bin/lomo`, config template, docs) under `target/lomo/dist/` | `just package-linux` |
 | Generate four-ABI release native outputs and bindings | `just native` |
 | Build Android debug or signed release APK | `just android debug`, `just android release` |
 | Full local handoff gate | `just ci` |
-| Real API ≥ 26 device native load/engine smoke (arm64 or x86_64) | `just device-smoke` |
-| Real remote provider round trip (credential-gated) | `just sync-provider-smoke [line]` |
 | Check or update dependencies | `just deps check`, `just deps update` |
 | Workspace/store/sync performance diagnostics | `just perf` |
 | Show, audit, or clean generated state | `just cache paths`, `just cache audit`, `just cache clean` |
@@ -35,28 +34,28 @@ configuration through `apps/android/app/keystore.properties` or `KEYSTORE_FILE`,
 | Gate | Includes | Intentionally omits |
 | --- | --- | --- |
 | pre-commit hook | `just fmt staged`, staged meaningful-test contracts | all compile/test/native gates (so multi-commit stacks stay cheap) |
-| `just preflight staged` | Path-aware subset for manual iteration: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add matching native generation and Kotlin surfaces | coverage, fat-LTO, device smoke; not attached to every commit |
-| `just preflight push` | Path-aware subset of pushed commits vs the remote base (runs on pre-push): rust-only pushes skip the Kotlin surface; a missing remote base falls back to the full iterative surface | coverage, fat-LTO, device smoke |
+| `just preflight staged` | Path-aware subset for manual iteration: Rust-only staged changes run the Rust fast gate; Kotlin/native/quality-infra changes add matching native generation and Kotlin surfaces | coverage, fat-LTO; not attached to every commit |
+| `just preflight push` | Path-aware subset of pushed commits vs the remote base (runs on pre-push): rust-only pushes skip the Kotlin surface; a missing remote base falls back to the full iterative surface | coverage, fat-LTO |
 | `just test` | Cargo nextest + doc tests; Kotlin host tests | static analysis, coverage, native/APK validation |
-| `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK/device smoke |
-| `just check-linux` | Host dependency closure purity assertion (zero Android/JNI deps in host packages), host Clippy, architecture tests, and host unit/integration tests | Kotlin, Android SDK/NDK, Gradle, device smoke |
-| `just package-linux` | Release `lomo-tui` plus a generic `lomo-linux-x86_64.tar.gz` (strips `-C target-cpu=native`; no personal toolchain paths) | Android APK, coverage, device smoke |
+| `just check` | Rust fmt, strict Clippy, nextest/doc tests, architecture tests, machete; generated dev bindings/native graph; Kotlin model/build, Detekt, test style, Android Lint, shell contracts, host tests | cargo-deny, Rust/Kotlin coverage, Compose static, fat-LTO release native, APK install |
+| `just check-linux` | Host dependency closure purity assertion (zero Android/JNI deps in host packages), host Clippy, architecture tests, and host unit/integration tests | Kotlin, Android SDK/NDK, Gradle |
+| `just tui` | `cargo run --locked -p lomo-tui` with forwarded arguments | packaging, quality gates |
+| `just package-linux` | Release `lomo-tui` plus a generic `target/lomo/dist/lomo-linux-x86_64.tar.gz` (strips `-C target-cpu=native`; no personal toolchain paths) | Android APK, coverage |
 | `just ci` | `check` surface plus cargo-deny, Rust LLVM coverage, Kotlin JaCoCo coverage, Compose static, four ABI fat-LTO release native generation, APK contents/ELF/dependency validation | device execution |
-| `just device-smoke` | Builds a minimal smoke APK, installs it on an attached API ≥ 26 device with a packaged ABI (`arm64-v8a` or `x86_64`), loads `liblomo_native_jni.so`, and exercises the formal engine/planner smoke surface. Stage-1 hard gate on this line is arm64 API ≥ 26; API 26 AVD is optional non-claim | the rest of the quality gate |
-| `just sync-provider-smoke` | Six locked Stage-5 provider lines (Nutstore, Nextcloud, AWS S3, Cloudflare R2, GitHub, GitLab). Each line resolves its `LOMO_SMOKE_*` credentials, then drives the production remote port through an isolated snapshot → publish → verify → conditional delete → verify-absent round trip. Lines without credentials stay `OPEN / pending_env` and the command exits non-zero | everything else; never invoked by `just check` / `just ci` (the smoke targets are `#[ignore]`d so a credential-less run can never report a provider pass) |
 
 ### Format corpora
 
 Small golden **format** fixtures live under repository-root `fixtures/` (not under `quality/`,
 which only owns gates and scripts). Large seeded corpora are generated into gitignored
-`build/corpora/` via:
+`target/lomo/corpora/` via:
 
 ```bash
 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- perf
 ```
 
-`just perf` measures only current workspace, store and sync owners. Provider networking and device
-cold start are optional diagnostics.
+`just perf` measures only current workspace, store and sync owners. Provider networking is an
+optional diagnostic (`cargo test -p lomo-sync --test provider_smoke -- --ignored`, and the
+matching `lomo-git` target).
 
 ### Local hooks
 
@@ -79,9 +78,9 @@ optional step:
 | --- | --- |
 | Single Rust crate behavior | `cargo clippy -p <crate> --all-targets --locked -- -D warnings` + targeted `cargo test -p <crate> … --locked` |
 | Single Kotlin module behavior | targeted `./kotlin test --include-module=<module> --include-classes='…'` (or module suite) |
-| Native / engine / packaging | package surface above + `just device-smoke` when a device is available |
+| Native / engine / packaging | package surface above |
 | Anything leaving the working tree for push/review | `just check` |
-| Merge / shared-branch handoff | `just ci` (+ device-smoke when stage evidence requires it) |
+| Merge / shared-branch handoff | `just ci` |
 
 `just preflight` is only for manual mid-iteration speed. It does **not** close a package, a PR, or
 Gate evidence. If a gate cannot run, leave the work open and record the blocker; do not invent
@@ -89,7 +88,7 @@ GREEN.
 
 ### GitHub Actions PR surface
 
-- Path filter decides which of Rust host, four-ABI native, Android/Kotlin, and API 26 smoke must run.
+- Path filter decides which of Rust host, four-ABI native, and Android/Kotlin must run.
 - PR native builds use the thin-LTO `release-ci` profile (`ci-native release-ci <abi>`).
 - PR Rust/Android gates use `ci-rust fast` / `ci-android fast` (no instrumented coverage).
 - Shipping APKs still use fat `release` via `just android release` / local `just ci`.
@@ -123,7 +122,7 @@ is a quality input.
 dual stack, compatibility alias, or UniFFI fallback is permitted.
 
 `Cargo.lock`, `tools.toml`, `rust-toolchain.toml`, and source/configuration files are
-versioned facts. `apps/android/native-bindings/src`, `apps/android/app/jniLibs`, and `apps/android/native-smoke/jniLibs` are ignored outputs
+versioned facts. `apps/android/native-bindings/src` and `apps/android/app/jniLibs` are ignored outputs
 regenerated by xtask. A clean checkout is therefore the expected build input.
 
 ## Rust Governance
@@ -162,9 +161,11 @@ gradient script.
 
 ## Generated State
 
-Source-specific generated state lives under the configured Cargo target directory, the configured
-shared Kotlin build directory, `.kotlin/artifacts`, `native-bindings/src`, `app/jniLibs`, and
-`native-smoke/jniLibs`. Dependency caches stay in the caller's standard Cargo, Gradle, Kotlin, and
+Source-specific generated state lives under `target/lomo/` inside the configured Cargo target
+directory (`apk/`, `dist/`, `reports/`, `corpora/`, `tmp/`), the configured shared Kotlin build
+directory, `.kotlin/artifacts`, `native-bindings/src`, and `app/jniLibs`. Cargo's own `debug/` and
+`release/` graphs stay beside that namespace. Dependency caches stay in the
+caller's standard Cargo, Gradle, Kotlin, and
 XDG homes so successive gates and checkouts can reuse them. `just cache paths` reports the resolved
 paths. `just cache clean` removes only allowlisted repository outputs and never deletes caller-owned
 global caches.

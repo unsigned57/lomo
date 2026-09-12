@@ -1,12 +1,12 @@
-use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::{fs, path::PathBuf, process::Command};
 
 use anyhow::{Context, Result, bail};
 
-use crate::rust_pin;
-use crate::util::{repository_command, run, text_output};
-use crate::workspace::{NDK_VERSION, Workspace};
+use crate::{
+    rust_pin,
+    util::{repository_command, run, text_output},
+    workspace::{NDK_VERSION, Workspace},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Tool {

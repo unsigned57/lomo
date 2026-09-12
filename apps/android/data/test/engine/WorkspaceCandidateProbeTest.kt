@@ -17,7 +17,7 @@ package com.lomo.data.engine
  *
  * Observable outcomes: exception vs success.
  * TDD proof: fails before production probe exists (blank-only default) and before canWrite check.
- * Excludes: live SAF grant matrix (device-smoke).
+ * Excludes: live SAF grant matrix.
  *
  * Test Change Justification:
  * - Reason category: SAF permission boundary correction.

@@ -39,13 +39,13 @@ xtask performs the following as one graph:
    `liblomo_native.so`, ELF architecture and dependencies, and embedded baseline profile assets;
 6. signs with `apksigner` using environment-backed passwords and verifies the signature.
 
-The final artifacts are `build/apk/release/Lomo-<version>-<abi>.apk` for release and
-`build/apk/debug/Lomo-<version>-<abi>.apk` for debug, where `<version>` is the app `versionName`
+The final artifacts are `target/lomo/apk/release/Lomo-<version>-<abi>.apk` for release and
+`target/lomo/apk/debug/Lomo-<version>-<abi>.apk` for debug, where `<version>` is the app `versionName`
 from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), for example
 `Lomo-1.6.2-arm64-v8a.apk`. Build intermediates stay in the single configured shared
 Kotlin build directory.
 
-Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes all split and universal release artifacts (`build/apk/release/Lomo-*.apk`). It must not grow a second native, Kotlin, signing, or APK validation implementation.
+Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes all split and universal release artifacts (`target/lomo/apk/release/Lomo-*.apk`). It must not grow a second native, Kotlin, signing, or APK validation implementation.
 
 ## Resource Review
 

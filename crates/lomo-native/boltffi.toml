@@ -37,11 +37,11 @@ desktop_loader = "none"
 api_style = "top_level"
 factory_style = "companion_methods"
 # Temporary output only; xtask canonicalizes and publishes to apps/android/native-bindings/src.
-output = "../../target/boltffi-tmp/kotlin"
+output = "../../target/lomo/tmp/boltffi/kotlin"
 
 [targets.android.pack]
-# Temporary output only; xtask publishes into apps/android/app/jniLibs and apps/android/native-smoke/jniLibs.
-output = "../../target/boltffi-tmp/jniLibs"
+# Temporary output only; xtask publishes into apps/android/app/jniLibs.
+output = "../../target/lomo/tmp/boltffi/jniLibs"
 
 [targets.android.header]
-output = "../../target/boltffi-tmp/include"
+output = "../../target/lomo/tmp/boltffi/include"

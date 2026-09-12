@@ -49,9 +49,21 @@ for file in \
 done
 
 require_text Justfile 'cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --'
-for command in bootstrap fmt test preflight check check-linux native android ci device-smoke deps perf cache rust-toolchain-bump; do
+for command in bootstrap fmt test preflight check check-linux tui package-linux native android ci deps perf cache rust-toolchain-bump; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
+if grep -Eq '^(device-smoke|sync-provider-smoke)([[:space:]].*)?:$' Justfile; then
+  fail "retired smoke recipes remain in Justfile"
+fi
+if grep -Fq 'native-smoke' Justfile apps/android/project.yaml .gitignore; then
+  fail "native-smoke composition root remains in the public command or module surface"
+fi
+reject_path apps/android/native-smoke
+if rg -n --glob '!quality/scripts/test/kotlin_quality_check_contract_test.sh' \
+  --glob '!target/**' --glob '!.git/**' \
+  'repo_root/build/(reports|jacoco|apk|dist|corpora)' quality/scripts >/dev/null; then
+  fail "Kotlin policy scripts still write generated reports under repository-root build/"
+fi
 
 channel="$(
   awk '
@@ -86,6 +98,7 @@ if grep -Eq 'command\.args\(\[[[:space:]]*"\+[0-9]' crates/lomo-xtask/src/tools.
   fail "crates/lomo-xtask/src/tools.rs must not hard-code cargo +channel literals"
 fi
 require_text crates/lomo-xtask/src/workspace.rs '29.0.14206865'
+require_text crates/lomo-xtask/src/workspace.rs 'fn lomo_output_dir'
 require_text crates/lomo-xtask/src/native.rs 'liblomo_native_jni.so'
 require_text crates/lomo-xtask/src/native.rs 'Abi::ALL'
 require_text crates/lomo-xtask/src/native.rs 'ReleaseCi'

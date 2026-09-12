@@ -23,8 +23,8 @@
 //! No force push, no reset, no user worktree checkout is reachable from this target.
 //!
 //! **TDD proof:** every test is `#[ignore]`d, so `just check` / `just ci` never execute or "pass"
-//! them. `just sync-provider-smoke` resolves credentials first and only then runs the matching
-//! `--ignored --exact` test; unresolved lines stay `OPEN / pending_env`.
+//! them. Run with credentials via
+//! `cargo test -p lomo-git --test provider_smoke -- --ignored --exact <test_name>`.
 
 #![deny(unsafe_code)]
 
@@ -52,7 +52,7 @@ mod tests {
     /// Reads a required smoke credential, failing closed on missing or blank values.
     fn required_env(key: &str) -> String {
         let value = std::env::var(key).unwrap_or_else(|_| {
-            panic!("provider smoke requires {key}; run via `just sync-provider-smoke`")
+            panic!("provider smoke requires {key}; export credentials and run cargo test -p lomo-git --test provider_smoke -- --ignored")
         });
         assert!(
             !value.trim().is_empty(),
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke github`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-git --test provider_smoke -- --ignored"]
     fn github_https_round_trip_publishes_verifies_and_deletes() {
         git_round_trip(
             "LOMO_SMOKE_GITHUB_URL",
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "real provider credentials; run via `just sync-provider-smoke gitlab`"]
+    #[ignore = "real provider credentials; cargo test -p lomo-git --test provider_smoke -- --ignored"]
     fn gitlab_https_round_trip_publishes_verifies_and_deletes() {
         git_round_trip(
             "LOMO_SMOKE_GITLAB_URL",

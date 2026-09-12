@@ -1,14 +1,14 @@
 use anyhow::{Result, bail};
 
-use crate::android::{self, AndroidVariant};
-use crate::cache;
-use crate::deps;
-use crate::native::{self, Abi, NativeProfile};
-use crate::perf;
-use crate::provider_smoke;
-use crate::quality::{self, CoverageMode, FormatMode};
-use crate::tools;
-use crate::workspace::Workspace;
+use crate::{
+    android::{self, AndroidVariant},
+    cache, deps,
+    native::{self, Abi, NativeProfile},
+    perf,
+    quality::{self, CoverageMode, FormatMode},
+    tools,
+    workspace::Workspace,
+};
 
 pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     let Some((command, rest)) = arguments.split_first() else {
@@ -22,13 +22,12 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "preflight" => preflight(workspace, rest),
         "check" => no_args(rest, || quality::check(workspace)),
         "check-linux" => no_args(rest, || quality::check_linux(workspace)),
+        "tui" => tui_command(workspace, rest),
         "package-linux" => no_args(rest, || crate::package::package_linux(workspace)),
         "bindings" => no_args(rest, || native::generate_bindings(workspace)),
         "native" => native_command(workspace, rest),
         "android" => android_command(workspace, rest),
         "ci" => no_args(rest, || quality::ci(workspace)),
-        "device-smoke" => no_args(rest, || android::device_smoke(workspace)),
-        "sync-provider-smoke" => sync_provider_smoke(workspace, rest),
         "deps" => deps_command(workspace, rest),
         "ffi-parity" => no_args(rest, || crate::ffi_parity::check_ffi_parity(workspace)),
         "usecase-reachability" => no_args(rest, || {
@@ -128,17 +127,11 @@ fn deps_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     deps::run_dependencies(workspace, mode)
 }
 
-/// Runs the six locked Stage-5 provider lines, or a single selected line.
-///
-/// Lines without credentials stay `OPEN / pending_env` and the command exits non-zero.
-fn sync_provider_smoke(workspace: &Workspace, arguments: &[String]) -> Result<()> {
-    match arguments {
-        [] => provider_smoke::run(workspace, None),
-        [selector] => provider_smoke::run(workspace, Some(selector)),
-        _ => bail!(
-            "usage: just sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]"
-        ),
-    }
+fn tui_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    let mut command = crate::util::cargo(workspace);
+    command.args(["run", "--locked", "-p", "lomo-tui", "--"]);
+    command.args(arguments);
+    crate::util::run(&mut command)
 }
 
 fn cache_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
@@ -205,6 +198,6 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 
 fn print_help() {
     crate::util::emit_stderr(format_args!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  check-linux\n  package-linux\n  bindings\n  native\n  android [debug|release]\n  ci\n  device-smoke\n  sync-provider-smoke [all|nutstore|nextcloud|aws-s3|cloudflare-r2|github|gitlab]\n  deps [check|update]\n  ffi-parity\n  usecase-reachability\n  mutants\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  check-linux\n  tui\n  package-linux\n  bindings\n  native\n  android [debug|release]\n  ci\n  deps [check|update]\n  ffi-parity\n  usecase-reachability\n  mutants\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
     ));
 }

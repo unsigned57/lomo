@@ -1,13 +1,17 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Instant;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+    time::Instant,
+};
 
 use anyhow::{Context, Result, bail};
 
-use crate::tools;
-use crate::util::{remove_if_exists, repository_command, run, text_output};
-use crate::workspace::Workspace;
+use crate::{
+    tools,
+    util::{remove_if_exists, repository_command, run, text_output},
+    workspace::Workspace,
+};
 
 /// Final Android library stem produced by `BoltFFI` packaging for this repository.
 pub const NATIVE_LIBRARY: &str = "liblomo_native_jni.so";
@@ -198,7 +202,6 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
     ensure_ndk(workspace)?;
     tools::ensure_boltffi(workspace)?;
     remove_selected_abis(workspace, abis)?;
-    remove_smoke_abis(workspace, abis)?;
 
     let temporary = workspace.temp_dir("boltffi-android")?;
     let pack_root = temporary.join("pack");
@@ -208,12 +211,8 @@ pub fn generate_android(workspace: &Workspace, profile: NativeProfile, abis: &[A
 
     let jni_source = locate_jni_libs(&pack_root)?;
     let production_jni = workspace.jni_libs();
-    let smoke_jni = workspace.smoke_jni_libs();
     publish_selected_abis(&jni_source, &production_jni, abis)?;
-    // Formal engine surface is shared: production and smoke use the same library (hardlinked).
-    publish_selected_abis(&production_jni, &smoke_jni, abis)?;
     verify_native_tree(workspace, abis, profile)?;
-    verify_smoke_native_tree(workspace, abis)?;
     crate::util::emit_stderr(format_args!(
         "xtask: packaged {NATIVE_LIBRARY} for {} ABI(s) in {elapsed_ms} ms",
         abis.len()
@@ -536,18 +535,6 @@ fn find_native_library(abi_dir: &Path) -> Result<PathBuf> {
     }
 }
 
-fn verify_smoke_native_tree(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
-    let readelf = ndk_tool(workspace, "llvm-readelf")?;
-    for &abi in abis {
-        let path = workspace
-            .smoke_jni_libs()
-            .join(abi.android_name())
-            .join(NATIVE_LIBRARY);
-        verify_one_library(&readelf, abi, &path, false)?;
-    }
-    Ok(())
-}
-
 pub fn verify_native_tree(
     workspace: &Workspace,
     abis: &[Abi],
@@ -678,7 +665,6 @@ fn ensure_generated_not_tracked(workspace: &Workspace) -> Result<()> {
         "--",
         "apps/android/native-bindings/src",
         "apps/android/app/jniLibs",
-        "apps/android/native-smoke/jniLibs",
     ]);
     let tracked = text_output(&mut command)?;
     if !tracked.trim().is_empty() {
@@ -707,15 +693,12 @@ fn remove_selected_abis(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
     Ok(())
 }
 
-fn remove_smoke_abis(workspace: &Workspace, abis: &[Abi]) -> Result<()> {
-    for abi in abis {
-        let path = workspace.smoke_jni_libs().join(abi.android_name());
-        remove_if_exists(&path)?;
-    }
-    Ok(())
-}
-
 /// Normalize generated Kotlin: drop suppressions, reject unchecked helper leakage, enforce package.
+///
+/// # Errors
+///
+/// Returns an error when the package line is missing or not `com.lomo.nativebridge`,
+/// suppression annotations remain, or an unchecked cast helper is still referenced.
 pub fn canonicalize_binding(text: &str) -> Result<String> {
     let package = text
         .lines()
@@ -957,83 +940,5 @@ impl Drop for AbiStashGuard {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fmt::Display;
-
-    use super::canonicalize_binding;
-
-    trait ResultTestExt<T> {
-        fn test_ok(self, context: &str) -> T;
-        fn test_error(self, context: &str) -> String;
-    }
-
-    impl<T, E: Display> ResultTestExt<T> for Result<T, E> {
-        fn test_ok(self, context: &str) -> T {
-            self.unwrap_or_else(|error| panic!("{context}: {error}"))
-        }
-
-        fn test_error(self, context: &str) -> String {
-            match self {
-                Ok(_value) => panic!("{context}: expected an error"),
-                Err(error) => error.to_string(),
-            }
-        }
-    }
-
-    #[test]
-    fn canonicalize_rejects_wrong_package() {
-        let error = canonicalize_binding("package com.lomo.rust\nclass X\n")
-            .test_error("wrong package must fail");
-        assert!(error.contains("com.lomo.nativebridge"));
-    }
-
-    #[test]
-    fn canonicalize_strips_suppression_and_unused_helper() {
-        let input = r#"
-package com.lomo.nativebridge
-
-@file:Suppress("UNCHECKED_CAST")
-@Suppress("UNUSED")
-class Demo
-
-@Suppress("UNCHECKED_CAST")
-internal fun boltffiUnsafeCast(value: Any?): Any? = value as Any?
-"#;
-        let out = canonicalize_binding(input).test_ok("canonical suppression removal");
-        assert!(out.contains("package com.lomo.nativebridge"));
-        assert!(out.contains("class Demo"));
-        assert!(!out.contains("@Suppress"));
-        assert!(!out.contains("boltffiUnsafeCast"));
-    }
-
-    #[test]
-    fn canonicalize_removes_redundant_string_sequence_size_conversion() {
-        let input = r"
-package com.lomo.nativebridge
-
-fun wireSize(values: List<String>): Int =
-    values.sumOf { value -> (4 + Utf8Codec.maxBytes(value)).toInt() }
-";
-
-        let out = canonicalize_binding(input).test_ok("canonical wire size");
-
-        assert!(out.contains("values.sumOf { value -> (4 + Utf8Codec.maxBytes(value)) }"));
-        assert!(!out.contains("Utf8Codec.maxBytes(value)).toInt()"));
-    }
-
-    #[test]
-    fn canonicalize_rejects_referenced_unsafe_cast_helper() {
-        let input = r"
-package com.lomo.nativebridge
-
-fun use(): Any? = boltffiUnsafeCast(1)
-internal fun boltffiUnsafeCast(value: Any?): Any? = value as Any?
-";
-        let error = canonicalize_binding(input).test_error("referenced helper must fail");
-        assert!(error.contains("unchecked cast helper"));
     }
 }

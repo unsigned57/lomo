@@ -23,7 +23,13 @@ if [ ! -x "$lint_bin" ]; then
   exit 1
 fi
 
-report_root="$repo_root/build/reports/android-lint"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+report_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
+case "$report_root" in
+  /*) ;;
+  *) report_root="$repo_root/$report_root" ;;
+esac
+report_root="$report_root/reports/android-lint"
 mkdir -p "$report_root"
 project_xml="$report_root/project.xml"
 report_xml="$report_root/lint-report.xml"

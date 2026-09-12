@@ -48,7 +48,11 @@ check:
 check-linux:
     {{xtask}} check-linux
 
-# Build a generic Linux x86_64 TUI archive under build/dist/.
+# Run the Linux TUI. Extra arguments are forwarded to lomo-tui (workspace path, --help, --version).
+tui *args:
+    {{xtask}} tui {{args}}
+
+# Build a generic Linux x86_64 TUI archive under target/lomo/dist/.
 package-linux:
     {{xtask}} package-linux
 
@@ -67,15 +71,6 @@ android variant="debug" abi="arm64":
 # Run the complete local/CI quality gate (coverage + fat-LTO release native).
 ci:
     {{xtask}} ci
-
-# Install and execute the native planner smoke app on an attached API 26 x86_64 device.
-device-smoke:
-    {{xtask}} device-smoke
-
-# Run the six locked real remote provider lines. Lines without credentials stay OPEN / pending_env
-# and this command exits non-zero; it is never part of `just check` or `just ci`.
-sync-provider-smoke line="all":
-    {{xtask}} sync-provider-smoke {{line}}
 
 # Check or explicitly update dependencies.
 deps mode="check":

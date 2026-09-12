@@ -30,8 +30,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     use anyhow::{Context, Result, bail, ensure};
     use lomo_xtask::check_usecase_reachability;

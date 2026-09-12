@@ -10,7 +10,13 @@ build_dir="${LOMO_COMPOSE_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin
 cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
 compose_lint_cache_dir="${LOMO_COMPOSE_LINT_CACHE_DIR:-$cache_root/lomo/lint-checks}"
 
-report_root="$repo_root/build/reports/compose-compiler"
+cargo_target="${CARGO_TARGET_DIR:-$repo_root/target}"
+report_root="${LOMO_GENERATED_ROOT:-$cargo_target/lomo}"
+case "$report_root" in
+  /*) ;;
+  *) report_root="$repo_root/$report_root" ;;
+esac
+report_root="$report_root/reports/compose-compiler"
 mkdir -p "$report_root"
 
 # Ensure Compose modules compile (cheap when already built by prior gate stages).
