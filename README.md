@@ -97,10 +97,12 @@ I wanted a Memos / Flomo-style lightweight, timestamped capture flow — but **s
 
 **Linux (x86_64 TUI)**
 
-1. Build a generic archive from this repository with `just package-linux` (writes `build/dist/lomo-linux-x86_64.tar.gz`)
+1. Build a generic archive from this repository with `just package-linux` (writes `target/lomo/dist/lomo-linux-x86_64.tar.gz`). Run the TUI from a checkout with `just tui` (optional workspace path: `just tui /path/to/notes`).
 2. Extract it. First run writes `$XDG_CONFIG_HOME/lomo/config.toml` (usually `~/.config/lomo/config.toml`) with `workspace` set to `$HOME/Notes`. Pass a directory on the command line to bind that folder instead: `lomo /path/to/notes`. You can still start from `config/config.toml.example`.
 3. Set `workspace` to your notes directory. Editor priority is that config, then `$VISUAL`, then `$EDITOR` (never a vim default)
 4. `$XDG_RUNTIME_DIR` is required. Missing clipboard or player fails closed instead of pretending success
+
+The home screen is a centered, single-column memo body feed. Enter opens full text and Esc restores the reading position. Use `n` for a recoverable multiline draft, `Ctrl+S` to save, and `Ctrl+E` for external draft editing; `e` edits an existing memo externally. `/`, `t`, and `c` combine search, tag, and date filters. `Ctrl+P` opens the searchable function menu; `.` opens memo actions. Supported terminals render images in full text.
 
 Linux built-in Git/WebDAV/S3 sync and LAN sharing are not in this first round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
 
@@ -137,8 +139,9 @@ just bootstrap
 # Build and validate Debug APK
 just android debug
 
-# Linux host gate (no Android toolchain) and generic TUI archive
+# Linux host gate (no Android toolchain), TUI, and generic archive
 just check-linux
+just tui
 just package-linux
 
 # Run Rust and Kotlin host tests

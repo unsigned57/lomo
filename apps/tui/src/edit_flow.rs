@@ -1,162 +1,125 @@
-use lomo_workspace::MemoId;
-
-use crate::drafts::{remove_draft, write_conflict_evidence, write_draft};
-use crate::editor::{
-    CommandRunner, CommitDecision, EditBaseline, EditKind, decide_commit, draft_path,
-    resolve_editor, run_editor,
-};
-use crate::error::TuiError;
-use crate::model::{AppModel, Overlay};
-use crate::ops::{
-    TuiRuntime, create_from_editor, document_fingerprint, mint_operation_id, reload_screen,
-    update_from_editor,
+//! The external editor owns its terminal; durable commits return to the application worker.
+use crate::{
+    drafts::{remove_draft, write_draft},
+    editor::{CommandRunner, draft_path, resolve_editor, run_editor},
+    effects::{EditTarget, EditedMemo, Effect, RuntimeMessage},
+    error::TuiError,
+    input::TextBuffer,
+    model::{AppModel, InputMode, SaveState},
+    ops::{TuiRuntime, mint_operation_id},
 };
 
-/// Inputs for one external-editor round trip.
-pub struct EditRequest<'a> {
-    pub kind: EditKind,
-    pub initial: &'a str,
-    pub baseline: Option<String>,
-    pub visual: Option<&'a str>,
-    pub editor_env: Option<&'a str>,
-}
-
-/// Runs the editor and commits through `lomo-application`. Caller must suspend/restore the TTY.
-///
 /// # Errors
-/// Editor, IO, or session failures. Missing editor is recorded on the model, not panicked.
+/// Tool failures and conflicts retain the exact private draft and original version baseline.
 pub fn complete_edit<R: CommandRunner>(
     runtime: &TuiRuntime,
     model: &mut AppModel,
     runner: &R,
-    request: EditRequest<'_>,
-) -> Result<(), TuiError> {
-    let argv = match resolve_editor(
-        runtime.config.editor.as_deref(),
-        request.visual,
-        request.editor_env,
-    ) {
-        Ok(argv) => argv,
-        Err(error) => {
-            model.set_status(&error.to_string());
-            return Ok(());
-        }
-    };
-    let op = mint_operation_id()?;
-    let path = draft_path(&runtime.paths.drafts_dir, op.as_str());
-    let draft = match run_editor(runner, &argv, &path, request.initial) {
-        Ok(text) => text,
-        Err(error) => {
-            model.set_status(&error.to_string());
-            return Ok(());
-        }
-    };
-    let memo_id = match &request.kind {
-        EditKind::Create => None,
-        EditKind::Update { memo_id } => Some(memo_id.as_str()),
-    };
-    let disk = document_fingerprint(runtime, memo_id)?;
-    apply_decision(
-        runtime,
-        model,
-        request,
-        &path,
-        op.as_str(),
-        &draft,
-        disk.as_deref(),
-    )
-}
-
-/// Loads the selected memo and runs [`complete_edit`] for update.
-///
-/// # Errors
-/// Session read or editor failures.
-pub fn edit_selection<R: CommandRunner>(
-    runtime: &TuiRuntime,
-    model: &mut AppModel,
-    runner: &R,
+    target: &EditTarget,
     visual: Option<&str>,
     editor_env: Option<&str>,
-) -> Result<(), TuiError> {
-    let Some(id) = model.selected_id().map(ToOwned::to_owned) else {
-        model.set_status("no memo selected");
-        return Ok(());
-    };
-    let Some(memo) = runtime.session.get_memo(&MemoId::parse(&id)?)? else {
-        model.set_status("memo disappeared");
-        return Ok(());
-    };
-    complete_edit(
-        runtime,
-        model,
-        runner,
-        EditRequest {
-            kind: EditKind::Update { memo_id: id },
-            initial: &memo.body,
-            baseline: Some(memo.file_fingerprint),
-            visual,
-            editor_env,
-        },
-    )
-}
-
-fn apply_decision(
-    runtime: &TuiRuntime,
-    model: &mut AppModel,
-    request: EditRequest<'_>,
-    path: &std::path::Path,
-    operation_id: &str,
-    draft: &str,
-    disk: Option<&str>,
-) -> Result<(), TuiError> {
-    match decide_commit(
-        &request.kind,
-        request.initial,
-        draft,
-        &EditBaseline {
-            fingerprint: request.baseline,
-        },
-        disk,
-    ) {
-        CommitDecision::CancelledEmpty => {
-            remove_draft(path)?;
-            model.set_status("empty create cancelled");
-        }
-        CommitDecision::Unchanged => {
-            remove_draft(path)?;
-            model.set_status("unchanged");
-        }
-        CommitDecision::Submit { content } => {
-            match request.kind {
-                EditKind::Create => {
-                    create_from_editor(runtime, &content)?;
-                }
-                EditKind::Update { memo_id } => {
-                    update_from_editor(runtime, &memo_id, &content)?;
-                }
-            }
-            remove_draft(path)?;
-            model.set_status("saved");
-            reload_screen(runtime, model)?;
-        }
-        CommitDecision::Conflict {
-            draft_content,
-            baseline,
-            disk,
+) -> Result<Option<Effect>, TuiError> {
+    let argv = resolve_editor(runtime.config.editor.as_deref(), visual, editor_env)?;
+    let operation = mint_operation_id()?;
+    let path = draft_path(&runtime.paths.drafts_dir, operation.as_str());
+    let initial = match target {
+        EditTarget::Capture => model.draft.text.text(),
+        EditTarget::Memo {
+            id,
+            fingerprint,
+            body,
         } => {
-            write_draft(path, &draft_content)?;
-            write_conflict_evidence(
-                &runtime.paths.drafts_dir,
-                operation_id,
-                &baseline,
-                &disk,
-                &draft_content,
-            )?;
-            model.overlay = Overlay::Alert {
-                title: "Edit conflict".to_owned(),
-                body: format!("draft kept at {}", path.display()),
-            };
+            let evidence = serde_json::json!({"memo_id": id.as_str(), "baseline": fingerprint,
+                "operation_id": operation.as_str(), "workspace": runtime.workspace});
+            write_draft(&path.with_extension("json"), &evidence.to_string())?;
+            body
+        }
+    };
+    let draft = match run_editor(runner, &argv, &path, initial) {
+        Ok(draft) => draft,
+        Err(error) => {
+            model.present_notice(
+                crate::i18n::UiStrings::detect()
+                    .text("Draft retained", "草稿已保留")
+                    .to_owned(),
+                vec![error.to_string(), path.display().to_string()],
+            );
+            if matches!(target, EditTarget::Capture) {
+                let content = std::fs::read_to_string(&path)?;
+                set_capture(model, content);
+                return Ok(Some(Effect::PersistDraft {
+                    revision: model.draft.revision,
+                    content: model.draft.text.text().to_owned(),
+                }));
+            }
+            return Ok(None);
+        }
+    };
+    match target {
+        EditTarget::Capture => {
+            set_capture(model, draft.clone());
+            Ok(Some(Effect::CaptureEdited {
+                revision: model.draft.revision,
+                content: draft,
+                draft_path: path,
+            }))
+        }
+        EditTarget::Memo {
+            id,
+            body,
+            fingerprint,
+        } => {
+            if &draft == body {
+                remove_edit(&path)?;
+                return Ok(None);
+            }
+            Ok(Some(Effect::CommitEdit(EditedMemo {
+                operation_id: operation,
+                id: id.clone(),
+                fingerprint: fingerprint.clone(),
+                content: draft,
+                draft_path: path,
+            })))
         }
     }
-    Ok(())
+}
+
+fn set_capture(model: &mut AppModel, content: String) {
+    model.draft.text = TextBuffer::new(content);
+    model.draft.revision = model.draft.revision.saturating_add(1);
+    model.draft.save = SaveState::Editing;
+    model.input = InputMode::Compose;
+}
+
+/// # Errors
+/// Private evidence cleanup failures are visible; application conflicts retain the draft.
+pub fn commit_edit(runtime: &TuiRuntime, edit: &EditedMemo) -> Result<RuntimeMessage, TuiError> {
+    let result = runtime
+        .session
+        .update_memo(lomo_application::UpdateMemoRequest {
+            operation_id: edit.operation_id.clone(),
+            memo_id: edit.id.clone(),
+            content: edit.content.clone(),
+            expected_document_fingerprint: edit.fingerprint.clone(),
+            pending_promotes: Vec::new(),
+        });
+    if let Err(error) = result {
+        return Ok(RuntimeMessage::Message {
+            title: crate::i18n::UiStrings::detect()
+                .text("Draft retained", "草稿已保留")
+                .to_owned(),
+            lines: vec![error.to_string(), edit.draft_path.display().to_string()],
+        });
+    }
+    remove_edit(&edit.draft_path)?;
+    Ok(RuntimeMessage::Changed(
+        crate::i18n::UiStrings::detect()
+            .text("Saved", "已保存")
+            .to_owned(),
+    ))
+}
+
+fn remove_edit(path: &std::path::Path) -> Result<(), TuiError> {
+    remove_draft(path)?;
+    remove_draft(&path.with_extension("json"))
 }

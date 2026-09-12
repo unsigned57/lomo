@@ -97,10 +97,12 @@ Lomo 的 S3 同步兼容 Obsidian 的 Remotely Save 插件。该插件已经很�
 
 **Linux（x86_64 TUI）**
 
-1. 在本仓库执行 `just package-linux`，生成 `build/dist/lomo-linux-x86_64.tar.gz`
+1. 在本仓库执行 `just package-linux`，生成 `target/lomo/dist/lomo-linux-x86_64.tar.gz`。从源码运行 TUI：`just tui`（可选工作区路径：`just tui /path/to/notes`）。
 2. 解压后首次运行会写入 `$XDG_CONFIG_HOME/lomo/config.toml`（通常是 `~/.config/lomo/config.toml`），默认 `workspace` 为 `~/Notes`。也可启动时指定目录：`lomo /path/to/notes`。仍可从 `config/config.toml.example` 复制后自行修改。
 3. 将 `workspace` 指到笔记目录。编辑器优先级为该配置，其次 `$VISUAL`，再次 `$EDITOR`（绝不默认 vim）
 4. 必须设置 `$XDG_RUNTIME_DIR`。缺少剪贴板或播放器时失败封闭，不伪造成功
+
+主界面是居中的单列正文流。Enter 阅读全文，Esc 恢复阅读位置；`n` 展开可恢复的多行速记，`Ctrl+S` 保存，`Ctrl+E` 将草稿交给外部编辑器，`e` 在外部编辑器修改已有记录。`/`、`t`、`c` 组合关键词、标签和日期筛选。`Ctrl+P` 打开可搜索的功能菜单，`.` 打开记录操作。支持图片协议的终端可在全文页显示图片。
 
 本轮 Linux 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区（含 `.lomo`）或使用外部文件同步。
 
@@ -138,6 +140,7 @@ just android debug
 
 # Linux 宿主门禁（不调用 Android 工具链）与通用 TUI 归档
 just check-linux
+just tui
 just package-linux
 
 # 运行 Rust 与 Kotlin host tests

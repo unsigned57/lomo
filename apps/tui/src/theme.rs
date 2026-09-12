@@ -1,4 +1,4 @@
-//! Think-compatible panel chrome: rounded borders and per-view colors.
+//! Panel chrome retained by the auxiliary statistics view.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
@@ -21,7 +21,7 @@ pub const fn theme_color(screen: Screen, search_open: bool) -> Color {
     }
 }
 
-/// Rounded titled panel used by Think's list, preview, and overlays.
+/// Rounded titled panel for auxiliary summaries.
 #[must_use]
 pub fn panel(title: String, color: Color) -> Block<'static> {
     Block::default()

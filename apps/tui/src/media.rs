@@ -17,7 +17,7 @@ pub enum GraphicsProtocol {
     Sixel,
 }
 
-/// Image vs audio attachment for preview/player routing.
+/// Image vs audio attachment for terminal display and external player routing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MediaKind {
     Image,
@@ -95,20 +95,6 @@ pub fn image_placeholder(path: &str) -> String {
 #[must_use]
 pub fn audio_placeholder(path: &str) -> String {
     format!("[Audio: {path}]")
-}
-
-/// Preview line for one attachment under the current protocol capability.
-#[must_use]
-pub fn preview_media_line(path: &str, kind: MediaKind, graphics: GraphicsProtocol) -> String {
-    match kind {
-        MediaKind::Audio => audio_placeholder(path),
-        MediaKind::Image => match graphics {
-            GraphicsProtocol::None => image_placeholder(path),
-            GraphicsProtocol::Kitty => format!("[ImageProtocol:kitty:{path}]"),
-            GraphicsProtocol::ITerm2 => format!("[ImageProtocol:iterm2:{path}]"),
-            GraphicsProtocol::Sixel => format!("[ImageProtocol:sixel:{path}]"),
-        },
-    }
 }
 
 /// Classifies a relative attachment path as image or audio by extension.

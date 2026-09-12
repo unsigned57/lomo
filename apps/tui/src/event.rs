@@ -1,432 +1,266 @@
+//! Contextual key translation. Input modes consume characters before browsing shortcuts.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use lomo_core::RelativeWorkspacePath;
 
-use crate::model::{Overlay, Screen, SearchSession};
+use crate::model::{AppModel, InputMode, Screen};
 
-/// User-level command after key translation. Search never becomes a body editor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextEdit {
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    Backspace,
+    Delete,
+    Undo,
+    Redo,
+    Newline,
+    Complete,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Quit,
-    HelpToggle,
-    PaletteToggle,
-    FocusNext,
-    MoveUp,
-    MoveDown,
-    OpenSearch,
-    SearchChar(char),
-    SearchBackspace,
-    SearchSubmit,
-    SearchCancel,
-    ToggleSearchMode,
-    NewMemo,
-    EditMemo,
-    ToggleTask,
-    ConfirmYes,
-    ConfirmNo,
-    Cancel,
-    Goto(Screen),
-    ToggleNavDrawer,
-    PlayAttachment,
-    ImportClipboard,
-    PinSelected,
-    DeleteSelected,
-    RestoreSelected,
-    ShowHistory,
-    None,
-}
-
-/// Overlay class used for key routing without carrying overlay payloads.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OverlayKind {
-    None,
     Help,
-    Palette,
-    Alert,
-    Confirm,
-    Overdue,
+    Functions,
+    Actions,
+    Back,
+    Accept,
+    Compose,
+    Commit,
+    ExternalEdit,
+    Search,
+    Tags,
+    Date,
+    CustomDate,
+    RemoveKeyword,
+    RemoveDate,
+    ShowNotice,
+    ToggleSearchMode,
+    ToggleTagScope,
+    ClearFilters,
+    DiscardDraft,
+    Type(String),
+    Edit(TextEdit),
+    Move(i32),
+    Scroll(i32),
+    Page(i32),
+    First,
+    Last,
+    Goto(Screen),
+    SelectTag(Option<String>),
+    SetDate(String),
+    Pin,
+    Delete,
+    Restore,
     History,
+    ToggleTask,
+    ImportClipboard,
+    Attachments,
+    OpenAttachment(RelativeWorkspacePath),
+    Refresh,
+    ShowCreated,
+    Click(u16, u16),
 }
 
-/// Key-routing context derived from the current model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InputContext {
-    pub overlay: OverlayKind,
-    pub search_open: bool,
+pub enum MemoAction {
+    Read,
+    Edit,
+    Pin,
+    Delete,
+    Restore,
+    History,
+    Attachments,
 }
 
-impl InputContext {
+impl Command {
     #[must_use]
-    pub const fn from_model(overlay: &Overlay, search: &SearchSession) -> Self {
-        Self {
-            overlay: overlay_kind(overlay),
-            search_open: matches!(search, SearchSession::Open { .. }),
+    pub const fn memo_action(&self) -> Option<MemoAction> {
+        match self {
+            Self::Accept => Some(MemoAction::Read),
+            Self::ExternalEdit => Some(MemoAction::Edit),
+            Self::Pin => Some(MemoAction::Pin),
+            Self::Delete => Some(MemoAction::Delete),
+            Self::Restore => Some(MemoAction::Restore),
+            Self::History => Some(MemoAction::History),
+            Self::Attachments => Some(MemoAction::Attachments),
+            Self::Quit
+            | Self::Help
+            | Self::Functions
+            | Self::Actions
+            | Self::Back
+            | Self::Compose
+            | Self::Commit
+            | Self::Search
+            | Self::Tags
+            | Self::Date
+            | Self::CustomDate
+            | Self::RemoveKeyword
+            | Self::RemoveDate
+            | Self::ShowNotice
+            | Self::ToggleSearchMode
+            | Self::ToggleTagScope
+            | Self::ClearFilters
+            | Self::DiscardDraft
+            | Self::Type(_)
+            | Self::Edit(_)
+            | Self::Move(_)
+            | Self::Scroll(_)
+            | Self::Page(_)
+            | Self::First
+            | Self::Last
+            | Self::Goto(_)
+            | Self::SelectTag(_)
+            | Self::SetDate(_)
+            | Self::ToggleTask
+            | Self::ImportClipboard
+            | Self::OpenAttachment(_)
+            | Self::Refresh
+            | Self::ShowCreated
+            | Self::Click(..) => None,
         }
     }
 }
 
-/// Maps one crossterm key into a command. Repeat/release events are ignored.
 #[must_use]
-pub fn command_from_key(key: KeyEvent, ctx: InputContext) -> Command {
-    if key.kind != KeyEventKind::Press {
-        return Command::None;
+pub fn command_from_key(key: KeyEvent, model: &AppModel) -> Option<Command> {
+    if key.kind == KeyEventKind::Release {
+        return None;
     }
-    match ctx.overlay {
-        OverlayKind::None if ctx.search_open => search_keys(key),
-        OverlayKind::None => idle_keys(key),
-        OverlayKind::Help => help_keys(key),
-        OverlayKind::Palette => palette_keys(key),
-        OverlayKind::Confirm => confirm_keys(key),
-        OverlayKind::Alert | OverlayKind::Overdue | OverlayKind::History => dismiss_keys(key),
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        return Some(Command::Quit);
     }
-}
-
-/// Palette rows in display order. Indices are the command contract.
-pub const PALETTE_LABELS: [&str; 11] = [
-    "Timeline",
-    "Tasks & reminders",
-    "Daily review",
-    "Statistics",
-    "Attachments",
-    "Trash",
-    "Settings",
-    "New memo",
-    "Edit memo",
-    "Toggle search mode",
-    "Quit",
-];
-
-/// Resolves a selected palette row into a command.
-#[must_use]
-pub const fn palette_command(index: usize) -> Command {
-    match index {
-        0 => Command::Goto(Screen::Timeline),
-        1 => Command::Goto(Screen::Tasks),
-        2 => Command::Goto(Screen::Review),
-        3 => Command::Goto(Screen::Statistics),
-        4 => Command::Goto(Screen::Attachments),
-        5 => Command::Goto(Screen::Trash),
-        6 => Command::Goto(Screen::Settings),
-        7 => Command::NewMemo,
-        8 => Command::EditMemo,
-        9 => Command::ToggleSearchMode,
-        10 => Command::Quit,
-        _ => Command::None,
+    match &model.input {
+        InputMode::Browse => browse_key(key),
+        InputMode::Compose => compose_key(key),
+        InputMode::Search { .. } | InputMode::Date { .. } | InputMode::Picker(_) => field_key(key),
+        InputMode::Confirm(_) => confirm_key(key),
+        InputMode::Message { .. } | InputMode::Help { .. } => message_key(key),
     }
 }
-
-#[must_use]
-pub const fn nav_screen(focus_row: usize) -> Option<Screen> {
-    match focus_row {
-        0 => Some(Screen::Timeline),
-        1 => Some(Screen::Tasks),
-        2 => Some(Screen::Review),
-        3 => Some(Screen::Statistics),
-        4 => Some(Screen::Attachments),
-        5 => Some(Screen::Trash),
-        6 => Some(Screen::Settings),
+const fn browse_key(key: KeyEvent) -> Option<Command> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return match key.code {
+            KeyCode::Char('p') => Some(Command::Functions),
+            KeyCode::Char('f') => Some(Command::ToggleSearchMode),
+            KeyCode::Char('d') => Some(Command::Page(1)),
+            KeyCode::Char('u') => Some(Command::Page(-1)),
+            KeyCode::Backspace
+            | KeyCode::Enter
+            | KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Delete
+            | KeyCode::Insert
+            | KeyCode::F(_)
+            | KeyCode::Char(_)
+            | KeyCode::Null
+            | KeyCode::Esc
+            | KeyCode::CapsLock
+            | KeyCode::ScrollLock
+            | KeyCode::NumLock
+            | KeyCode::PrintScreen
+            | KeyCode::Pause
+            | KeyCode::Menu
+            | KeyCode::KeypadBegin
+            | KeyCode::Media(_)
+            | KeyCode::Modifier(_) => None,
+        };
+    }
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('q'), _) => Some(Command::Quit),
+        (KeyCode::Char('?'), _) => Some(Command::Help),
+        (KeyCode::Char('/'), _) => Some(Command::Search),
+        (KeyCode::Char('n'), _) => Some(Command::Compose),
+        (KeyCode::Char('e'), _) => Some(Command::ExternalEdit),
+        (KeyCode::Char('t'), _) => Some(Command::Tags),
+        (KeyCode::Char('c'), _) => Some(Command::Date),
+        (KeyCode::Char('.'), _) => Some(Command::Actions),
+        (KeyCode::Char('j') | KeyCode::Down, _) => Some(Command::Move(1)),
+        (KeyCode::Char('k') | KeyCode::Up, _) => Some(Command::Move(-1)),
+        (KeyCode::PageDown, _) => Some(Command::Page(1)),
+        (KeyCode::PageUp, _) => Some(Command::Page(-1)),
+        (KeyCode::Home | KeyCode::Char('g'), _) => Some(Command::First),
+        (KeyCode::End | KeyCode::Char('G'), _) => Some(Command::Last),
+        (KeyCode::Enter, _) => Some(Command::Accept),
+        (KeyCode::Esc, _) => Some(Command::Back),
+        (KeyCode::Char('m'), _) => Some(Command::Pin),
+        (KeyCode::Char('d'), _) => Some(Command::Delete),
+        (KeyCode::Char('r'), _) => Some(Command::Restore),
+        (KeyCode::Char('h'), _) => Some(Command::History),
+        (KeyCode::Char('p'), _) => Some(Command::ImportClipboard),
+        (KeyCode::Char('a'), _) => Some(Command::Attachments),
+        (KeyCode::Char('x' | ' '), _) => Some(Command::ToggleTask),
+        (KeyCode::F(5), _) => Some(Command::Refresh),
         _ => None,
     }
 }
-
-#[must_use]
-pub const fn screen_row(screen: Screen) -> usize {
-    match screen {
-        Screen::Timeline => 0,
-        Screen::Tasks => 1,
-        Screen::Review => 2,
-        Screen::Statistics => 3,
-        Screen::Attachments => 4,
-        Screen::Trash => 5,
-        Screen::Settings => 6,
-    }
-}
-
-#[must_use]
-pub const fn nav_row_count() -> usize {
-    7
-}
-
-const fn overlay_kind(overlay: &Overlay) -> OverlayKind {
-    match overlay {
-        Overlay::None => OverlayKind::None,
-        Overlay::Help => OverlayKind::Help,
-        Overlay::Palette { .. } => OverlayKind::Palette,
-        Overlay::Alert { .. } => OverlayKind::Alert,
-        Overlay::Confirm { .. } => OverlayKind::Confirm,
-        Overlay::Overdue { .. } => OverlayKind::Overdue,
-        Overlay::History { .. } => OverlayKind::History,
-    }
-}
-
-const fn idle_keys(key: KeyEvent) -> Command {
+fn compose_key(key: KeyEvent) -> Option<Command> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return match key.code {
-            KeyCode::Char('p') => Command::PaletteToggle,
-            KeyCode::Char('f') => Command::ToggleSearchMode,
-            KeyCode::Char('c') => Command::Quit,
-            KeyCode::Char(_)
-            | KeyCode::Backspace
-            | KeyCode::Enter
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Up
-            | KeyCode::Down
-            | KeyCode::Home
-            | KeyCode::End
-            | KeyCode::PageUp
-            | KeyCode::PageDown
-            | KeyCode::Tab
-            | KeyCode::BackTab
-            | KeyCode::Delete
-            | KeyCode::Insert
-            | KeyCode::F(_)
-            | KeyCode::Null
-            | KeyCode::Esc
-            | KeyCode::CapsLock
-            | KeyCode::ScrollLock
-            | KeyCode::NumLock
-            | KeyCode::PrintScreen
-            | KeyCode::Pause
-            | KeyCode::Menu
-            | KeyCode::KeypadBegin
-            | KeyCode::Media(_)
-            | KeyCode::Modifier(_) => Command::None,
+        return match (key.code, key.modifiers) {
+            (KeyCode::Char('s'), _) => Some(Command::Commit),
+            (KeyCode::Char('e'), _) => Some(Command::ExternalEdit),
+            (KeyCode::Char('z'), _) => Some(Command::Edit(TextEdit::Undo)),
+            (KeyCode::Char('y'), _) => Some(Command::Edit(TextEdit::Redo)),
+            _ => None,
         };
     }
-    match key.code {
-        KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char('?') => Command::HelpToggle,
-        KeyCode::Char('/') => Command::OpenSearch,
-        KeyCode::Char('n') => Command::NewMemo,
-        KeyCode::Char('e') => Command::EditMemo,
-        KeyCode::Char(' ' | 'x') => Command::ToggleTask,
-        KeyCode::Char('j') | KeyCode::Down => Command::MoveDown,
-        KeyCode::Char('k') | KeyCode::Up => Command::MoveUp,
-        KeyCode::Char('[') => Command::ToggleNavDrawer,
-        KeyCode::Char('p') => Command::ImportClipboard,
-        KeyCode::Char('a') => Command::PlayAttachment,
-        KeyCode::Char('m') => Command::PinSelected,
-        KeyCode::Char('d') => Command::DeleteSelected,
-        KeyCode::Char('r') => Command::RestoreSelected,
-        KeyCode::Char('h') => Command::ShowHistory,
-        KeyCode::Tab => Command::FocusNext,
-        KeyCode::Esc => Command::Cancel,
-        KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Enter
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
+    if key.code == KeyCode::Enter {
+        return Some(Command::Edit(TextEdit::Newline));
     }
+    if key.code == KeyCode::Tab {
+        return Some(Command::Edit(TextEdit::Complete));
+    }
+    if key.code == KeyCode::Up {
+        return Some(Command::Edit(TextEdit::Up));
+    }
+    if key.code == KeyCode::Down {
+        return Some(Command::Edit(TextEdit::Down));
+    }
+    field_key(key)
 }
-
-const fn search_keys(key: KeyEvent) -> Command {
+fn field_key(key: KeyEvent) -> Option<Command> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return match key.code {
-            KeyCode::Char('f') => Command::ToggleSearchMode,
-            KeyCode::Char('p') => Command::PaletteToggle,
-            KeyCode::Char(_)
-            | KeyCode::Backspace
-            | KeyCode::Enter
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Up
-            | KeyCode::Down
-            | KeyCode::Home
-            | KeyCode::End
-            | KeyCode::PageUp
-            | KeyCode::PageDown
-            | KeyCode::Tab
-            | KeyCode::BackTab
-            | KeyCode::Delete
-            | KeyCode::Insert
-            | KeyCode::F(_)
-            | KeyCode::Null
-            | KeyCode::Esc
-            | KeyCode::CapsLock
-            | KeyCode::ScrollLock
-            | KeyCode::NumLock
-            | KeyCode::PrintScreen
-            | KeyCode::Pause
-            | KeyCode::Menu
-            | KeyCode::KeypadBegin
-            | KeyCode::Media(_)
-            | KeyCode::Modifier(_) => Command::None,
-        };
+        return (key.code == KeyCode::Char('f')).then_some(Command::ToggleSearchMode);
     }
-    match key.code {
-        KeyCode::Esc => Command::SearchCancel,
-        KeyCode::Enter => Command::SearchSubmit,
-        KeyCode::Backspace => Command::SearchBackspace,
-        KeyCode::Char(ch) => Command::SearchChar(ch),
-        KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Tab
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
+    match (key.code, key.modifiers) {
+        (KeyCode::Char(ch), _) => Some(Command::Type(ch.to_string())),
+        (KeyCode::Esc, _) => Some(Command::Back),
+        (KeyCode::Enter, _) => Some(Command::Accept),
+        (KeyCode::Up, _) => Some(Command::Move(-1)),
+        (KeyCode::Down, _) => Some(Command::Move(1)),
+        (KeyCode::Left, _) => Some(Command::Edit(TextEdit::Left)),
+        (KeyCode::Right, _) => Some(Command::Edit(TextEdit::Right)),
+        (KeyCode::Home, _) => Some(Command::Edit(TextEdit::Home)),
+        (KeyCode::End, _) => Some(Command::Edit(TextEdit::End)),
+        (KeyCode::Backspace, _) => Some(Command::Edit(TextEdit::Backspace)),
+        (KeyCode::Delete, _) => Some(Command::Edit(TextEdit::Delete)),
+        _ => None,
     }
 }
-
-const fn help_keys(key: KeyEvent) -> Command {
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('?') => Command::HelpToggle,
-        KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Enter
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Tab
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
+const fn confirm_key(key: KeyEvent) -> Option<Command> {
+    match (key.code, key.modifiers) {
+        (KeyCode::Enter | KeyCode::Char('y'), _) => Some(Command::Accept),
+        (KeyCode::Esc | KeyCode::Char('n'), _) => Some(Command::Back),
+        _ => None,
     }
 }
-
-const fn palette_keys(key: KeyEvent) -> Command {
-    match key.code {
-        KeyCode::Esc => Command::Cancel,
-        KeyCode::Enter => Command::ConfirmYes,
-        KeyCode::Char('j') | KeyCode::Down => Command::MoveDown,
-        KeyCode::Char('k') | KeyCode::Up => Command::MoveUp,
-        KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Tab
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
-    }
-}
-
-const fn confirm_keys(key: KeyEvent) -> Command {
-    match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => Command::ConfirmYes,
-        KeyCode::Char('n') | KeyCode::Esc => Command::ConfirmNo,
-        KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Tab
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
-    }
-}
-
-const fn dismiss_keys(key: KeyEvent) -> Command {
-    match key.code {
-        KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ') => Command::Cancel,
-        KeyCode::Char('q') => Command::Quit,
-        KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::Tab
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => Command::None,
+const fn message_key(key: KeyEvent) -> Option<Command> {
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?'), _) => Some(Command::Back),
+        (KeyCode::Up | KeyCode::Char('k'), _) => Some(Command::Scroll(-1)),
+        (KeyCode::Down | KeyCode::Char('j'), _) => Some(Command::Scroll(1)),
+        (KeyCode::PageDown, _) => Some(Command::Scroll(10)),
+        (KeyCode::PageUp, _) => Some(Command::Scroll(-10)),
+        _ => None,
     }
 }

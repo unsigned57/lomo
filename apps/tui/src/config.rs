@@ -211,13 +211,14 @@ Usage:
   lomo [--help|--version] [workspace]
 
 Keys:
-  j/k or arrows   move
-  Tab             cycle focus (nav / list / preview)
-  /               search (not a body editor)
-  Ctrl+f          toggle fulltext / fuzzy search
-  n / e           new / edit via external editor
-  Ctrl+p          command palette
-  Esc             back
-  ?               help
-  q               quit
+  j/k or arrows   select a memo / scroll full text
+  Enter / Esc     read / return
+  n               quick capture (Enter inserts a newline)
+  Ctrl+s          submit capture
+  Ctrl+e / e      edit capture / existing memo in external editor
+  / t c           search / tags / date
+  Ctrl+f          toggle fulltext / fuzzy and pinyin
+  Ctrl+p / .      searchable functions / memo actions
+  PageUp/PageDown scroll a page
+  ? / q           help / quit (drafts are retained)
 ";

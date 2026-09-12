@@ -1,481 +1,319 @@
 //! Behavior Contract
-//! Capability: key routing and TEA command/effect transitions without session IO.
-//! Scenarios: idle/search/help/palette/confirm/dismiss keys; search `n` is not `NewMemo`; resize hides nav only in single mode.
-//! Observable outcomes: `Command`, `Effect`, overlay, focus, selection, search session.
-//! TDD proof: TEA dispatch existed without exhaustive overlay/key contracts.
-//! Excludes: Ratatui drawing and `lomo-application` writes.
+//! Capability: exactly one input receiver and identity-bound actions in the TEA state machine.
+//! Scenarios: text modes consume shortcut characters; confirmations retain `MemoId`; search cancel restores context;
+//! clickable header controls and searchable menus reach every auxiliary screen.
+//! Observable outcomes: typed commands, input state, retained selection and memo-targeted effects.
+//! TDD proof: header mouse clicks are ignored and moving a search cursor needlessly reloads its results.
+//! Excludes: session IO. Old pane focus and generic row assertions are replaced by typed views and inputs.
 
 #[cfg(test)]
+pub mod support;
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "Test fixtures and application effects must succeed before state assertions"
+)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-    use lomo_tui::event::{
-        Command, InputContext, OverlayKind, command_from_key, nav_screen, palette_command,
-        screen_row,
+    use super::support::{feed, model_with_memos};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use lomo_tui::{
+        effects::Effect,
+        event::{Command, TextEdit, command_from_key},
+        input::TextBuffer,
+        model::{AppModel, InputMode, Picker, PickerKind, Screen},
+        update::apply_command,
     };
-    use lomo_tui::layout::{Focus, NavPresence};
-    use lomo_tui::model::{AppModel, ConfirmAction, ListRow, Overlay, Screen, SearchSession};
-    use lomo_tui::update::{Effect, apply_command, apply_resize, request_confirm};
 
-    fn ctx(overlay: OverlayKind, search_open: bool) -> InputContext {
-        InputContext {
-            overlay,
-            search_open,
+    #[test]
+    fn character_shortcuts_belong_to_the_active_text_input() {
+        let mut model = AppModel::new(80, 24);
+        for input in [
+            InputMode::Compose,
+            InputMode::Picker(Picker {
+                kind: PickerKind::Functions,
+                text: TextBuffer::default(),
+                selected: 0,
+            }),
+            InputMode::Date {
+                ticket: 0,
+                text: TextBuffer::default(),
+                error: None,
+            },
+        ] {
+            model.input = input;
+            for ch in ['n', 'e', 'q', '/', '.', 'j', 'k', '中'] {
+                assert_eq!(
+                    command_from_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE), &model),
+                    Some(Command::Type(ch.to_string()))
+                );
+            }
         }
-    }
-
-    fn press(overlay: OverlayKind, search_open: bool, code: KeyCode) -> Command {
-        command_from_key(
-            KeyEvent::new(code, KeyModifiers::NONE),
-            ctx(overlay, search_open),
-        )
-    }
-
-    fn press_mods(
-        overlay: OverlayKind,
-        search_open: bool,
-        code: KeyCode,
-        modifiers: KeyModifiers,
-    ) -> Command {
-        command_from_key(KeyEvent::new(code, modifiers), ctx(overlay, search_open))
-    }
-
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        clippy::cognitive_complexity,
-        reason = "idle key table is the routing contract"
-    )]
-    fn idle_keys_map_navigation_and_never_treat_repeat_as_press() {
+        model.input = InputMode::Compose;
         assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('q')),
-            Command::Quit
+            command_from_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &model),
+            Some(Command::Edit(TextEdit::Newline))
         );
         assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('?')),
-            Command::HelpToggle
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('/')),
-            Command::OpenSearch
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('n')),
-            Command::NewMemo
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('e')),
-            Command::EditMemo
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char(' ')),
-            Command::ToggleTask
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('x')),
-            Command::ToggleTask
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('j')),
-            Command::MoveDown
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Down),
-            Command::MoveDown
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('k')),
-            Command::MoveUp
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Up),
-            Command::MoveUp
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('[')),
-            Command::ToggleNavDrawer
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('p')),
-            Command::ImportClipboard
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('a')),
-            Command::PlayAttachment
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('m')),
-            Command::PinSelected
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('d')),
-            Command::DeleteSelected
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('r')),
-            Command::RestoreSelected
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('h')),
-            Command::ShowHistory
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Tab),
-            Command::FocusNext
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Esc),
-            Command::Cancel
-        );
-        assert_eq!(
-            press(OverlayKind::None, false, KeyCode::Char('z')),
-            Command::None
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                false,
-                KeyCode::Char('p'),
-                KeyModifiers::CONTROL
+            command_from_key(
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+                &model
             ),
-            Command::PaletteToggle
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                false,
-                KeyCode::Char('f'),
-                KeyModifiers::CONTROL
-            ),
-            Command::ToggleSearchMode
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                false,
-                KeyCode::Char('c'),
-                KeyModifiers::CONTROL
-            ),
-            Command::Quit
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                false,
-                KeyCode::Char('q'),
-                KeyModifiers::CONTROL
-            ),
-            Command::None
-        );
-        let mut repeat = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
-        repeat.kind = KeyEventKind::Repeat;
-        assert_eq!(
-            command_from_key(repeat, ctx(OverlayKind::None, false)),
-            Command::None
+            Some(Command::Commit)
         );
     }
 
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        clippy::cognitive_complexity,
-        reason = "overlay key table is the routing contract"
-    )]
-    fn overlay_and_search_keys_are_isolated_from_body_editing() {
+    fn header_mouse_action_matches_the_keyboard_action() {
+        let mut model = model_with_memos(2, 120, 24).expect("fixture and operation must succeed");
+        let s = lomo_tui::i18n::UiStrings::detect();
+        let controls =
+            lomo_tui::overlays::header_controls(lomo_tui::ui::layout_for(&model).header, &s);
+        let (rect, _, _) = controls
+            .iter()
+            .find(|(_, _, command)| command == &Command::Compose)
+            .ok_or("capture control")
+            .expect("fixture and operation must succeed");
         assert_eq!(
-            press(OverlayKind::None, true, KeyCode::Char('n')),
-            Command::SearchChar('n')
+            apply_command(&mut model, Command::Click(rect.x, rect.y)),
+            Some(Effect::Tags)
         );
-        assert_eq!(
-            press(OverlayKind::None, true, KeyCode::Backspace),
-            Command::SearchBackspace
-        );
-        assert_eq!(
-            press(OverlayKind::None, true, KeyCode::Enter),
-            Command::SearchSubmit
-        );
-        assert_eq!(
-            press(OverlayKind::None, true, KeyCode::Esc),
-            Command::SearchCancel
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                true,
-                KeyCode::Char('f'),
-                KeyModifiers::CONTROL
-            ),
-            Command::ToggleSearchMode
-        );
-        assert_eq!(
-            press_mods(
-                OverlayKind::None,
-                true,
-                KeyCode::Char('p'),
-                KeyModifiers::CONTROL
-            ),
-            Command::PaletteToggle
-        );
-        assert_eq!(
-            press(OverlayKind::Help, false, KeyCode::Char('?')),
-            Command::HelpToggle
-        );
-        assert_eq!(
-            press(OverlayKind::Help, false, KeyCode::Esc),
-            Command::HelpToggle
-        );
-        assert_eq!(
-            press(OverlayKind::Help, false, KeyCode::Char('q')),
-            Command::Quit
-        );
-        assert_eq!(
-            press(OverlayKind::Palette, false, KeyCode::Esc),
-            Command::Cancel
-        );
-        assert_eq!(
-            press(OverlayKind::Palette, false, KeyCode::Enter),
-            Command::ConfirmYes
-        );
-        assert_eq!(
-            press(OverlayKind::Palette, false, KeyCode::Char('j')),
-            Command::MoveDown
-        );
-        assert_eq!(
-            press(OverlayKind::Palette, false, KeyCode::Char('k')),
-            Command::MoveUp
-        );
-        assert_eq!(
-            press(OverlayKind::Confirm, false, KeyCode::Char('y')),
-            Command::ConfirmYes
-        );
-        assert_eq!(
-            press(OverlayKind::Confirm, false, KeyCode::Char('n')),
-            Command::ConfirmNo
-        );
-        assert_eq!(
-            press(OverlayKind::Alert, false, KeyCode::Esc),
-            Command::Cancel
-        );
-        assert_eq!(
-            press(OverlayKind::Overdue, false, KeyCode::Enter),
-            Command::Cancel
-        );
-        assert_eq!(
-            press(OverlayKind::History, false, KeyCode::Char(' ')),
-            Command::Cancel
-        );
-        assert_eq!(
-            press(OverlayKind::History, false, KeyCode::Char('q')),
-            Command::Quit
-        );
-        assert_eq!(palette_command(7), Command::NewMemo);
-        assert_eq!(palette_command(11), Command::None);
-        assert_eq!(nav_screen(2), Some(Screen::Review));
-        assert_eq!(nav_screen(9), None);
-        assert_eq!(screen_row(Screen::Trash), 5);
-        let search = SearchSession::Closed;
-        assert_eq!(
-            InputContext::from_model(&Overlay::Help, &search).overlay,
-            OverlayKind::Help
-        );
-        assert_eq!(
-            InputContext::from_model(&Overlay::Palette { index: 0 }, &search).overlay,
-            OverlayKind::Palette
-        );
-        assert_eq!(
-            InputContext::from_model(
-                &Overlay::Alert {
-                    title: "t".to_owned(),
-                    body: "b".to_owned(),
-                },
-                &search
-            )
-            .overlay,
-            OverlayKind::Alert
-        );
-        assert_eq!(
-            InputContext::from_model(
-                &Overlay::Confirm {
-                    title: "t".to_owned(),
-                    body: "b".to_owned(),
-                    action: ConfirmAction::Delete,
-                },
-                &search
-            )
-            .overlay,
-            OverlayKind::Confirm
-        );
-        assert_eq!(
-            InputContext::from_model(&Overlay::Overdue { lines: Vec::new() }, &search).overlay,
-            OverlayKind::Overdue
-        );
-        assert_eq!(
-            InputContext::from_model(&Overlay::History { lines: Vec::new() }, &search).overlay,
-            OverlayKind::History
-        );
-    }
-
-    fn seeded_model() -> AppModel {
-        let mut model = AppModel::new(140, 40);
-        model.items = vec![ListRow::new("a", "alpha"), ListRow::new("b", "beta")];
-        model
+        assert_eq!(model.input, InputMode::Compose);
     }
 
     #[test]
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "effect table is the idle TEA contract"
-    )]
-    fn idle_commands_request_session_effects_and_preserve_search_as_filter() {
-        let mut model = seeded_model();
-        assert_eq!(apply_command(&mut model, Command::Quit), Effect::Quit);
-        assert_eq!(apply_command(&mut model, Command::HelpToggle), Effect::None);
-        assert_eq!(model.overlay, Overlay::Help);
-        model.overlay = Overlay::None;
-        assert_eq!(
-            apply_command(&mut model, Command::PaletteToggle),
-            Effect::None
-        );
-        assert!(matches!(model.overlay, Overlay::Palette { .. }));
-        model.overlay = Overlay::None;
-        assert_eq!(
-            apply_command(&mut model, Command::MoveDown),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.selected, 1);
-        assert_eq!(
-            apply_command(&mut model, Command::MoveUp),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.selected, 0);
-        assert_eq!(apply_command(&mut model, Command::NewMemo), Effect::NewMemo);
-        assert_eq!(
-            apply_command(&mut model, Command::EditMemo),
-            Effect::EditMemo
+    fn confirmation_retains_its_memo_even_if_a_refresh_changes_selection() {
+        let mut model = model_with_memos(2, 80, 24).expect("fixture and operation must succeed");
+        let id = model
+            .selected_memo()
+            .ok_or("selected")
+            .expect("fixture and operation must succeed")
+            .id
+            .clone();
+        assert_eq!(apply_command(&mut model, Command::Delete), None);
+        super::support::feed_mut(&mut model)
+            .expect("fixture and operation must succeed")
+            .selected = Some(
+            lomo_workspace::MemoId::parse("memo-1").expect("fixture and operation must succeed"),
         );
         assert_eq!(
-            apply_command(&mut model, Command::ToggleTask),
-            Effect::ToggleTask
+            apply_command(&mut model, Command::Accept),
+            Some(Effect::Delete {
+                id,
+                fingerprint: "version-1".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn cancelling_search_restores_the_reading_context_and_cursor_moves_do_not_query() {
+        let mut model = model_with_memos(20, 80, 24).expect("fixture and operation must succeed");
+        assert_eq!(apply_command(&mut model, Command::Move(12)), None);
+        let before = feed(&model)
+            .expect("fixture and operation must succeed")
+            .clone();
+        assert_eq!(apply_command(&mut model, Command::Search), None);
+        assert!(matches!(
+            apply_command(&mut model, Command::Type("term".to_owned())),
+            Some(Effect::Query(_))
+        ));
+        assert_eq!(
+            apply_command(&mut model, Command::Edit(TextEdit::Left)),
+            None
+        );
+        assert_eq!(apply_command(&mut model, Command::Back), None);
+        assert_eq!(
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .selected,
+            before.selected
         );
         assert_eq!(
-            apply_command(&mut model, Command::PlayAttachment),
-            Effect::PlayAttachment
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .anchor,
+            before.anchor
         );
         assert_eq!(
-            apply_command(&mut model, Command::ImportClipboard),
-            Effect::ImportClipboard
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .epoch,
+            model.epoch
+        );
+    }
+
+    #[test]
+    fn searchable_function_menu_retains_all_seven_pages() {
+        let model = AppModel::new(80, 24);
+        let mut picker = Picker {
+            kind: PickerKind::Functions,
+            text: TextBuffer::default(),
+            selected: 0,
+        };
+        let entries = lomo_tui::menu::entries(&model.tags, &picker);
+        for screen in [
+            Screen::Timeline,
+            Screen::Tasks,
+            Screen::Review,
+            Screen::Statistics,
+            Screen::Attachments,
+            Screen::Trash,
+            Screen::Settings,
+        ] {
+            assert!(
+                entries
+                    .iter()
+                    .any(|entry| entry.command == Command::Goto(screen))
+            );
+        }
+        picker.text = TextBuffer::new(
+            lomo_tui::i18n::UiStrings::detect()
+                .screen_title(Screen::Statistics)
+                .to_owned(),
+        );
+        assert_eq!(lomo_tui::menu::entries(&model.tags, &picker).len(), 1);
+    }
+
+    #[test]
+    fn date_opens_a_searchable_picker_and_menu_rows_accept_mouse_selection() {
+        let mut model = model_with_memos(1, 80, 24).expect("fixture and operation must succeed");
+        assert_eq!(apply_command(&mut model, Command::Date), None);
+        assert!(matches!(model.input, InputMode::Picker(_)));
+        assert_eq!(apply_command(&mut model, Command::Back), None);
+        assert_eq!(apply_command(&mut model, Command::Functions), None);
+        let area = lomo_tui::overlays::overlay_area(&model);
+        let effect = apply_command(&mut model, Command::Click(area.x + 1, area.y + 3));
+        assert!(matches!(
+            effect,
+            Some(Effect::Navigate {
+                screen: Screen::Timeline,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn memo_action_menu_retains_the_memo_it_was_opened_for() {
+        let mut model = model_with_memos(2, 80, 24).expect("fixture and operation must succeed");
+        let original = model
+            .selected_memo()
+            .ok_or("memo")
+            .expect("fixture and operation must succeed")
+            .id
+            .clone();
+        assert_eq!(apply_command(&mut model, Command::Actions), None);
+        let InputMode::Picker(picker) = &model.input else {
+            panic!("picker");
+        };
+        let pin = lomo_tui::menu::entries(&model.tags, picker)
+            .iter()
+            .position(|entry| entry.command == Command::Pin)
+            .ok_or("pin action")
+            .expect("fixture and operation must succeed");
+        assert_eq!(
+            apply_command(
+                &mut model,
+                Command::Move(i32::try_from(pin).expect("fixture and operation must succeed"))
+            ),
+            None
+        );
+        super::support::feed_mut(&mut model)
+            .expect("fixture and operation must succeed")
+            .selected = Some(
+            lomo_workspace::MemoId::parse("memo-1").expect("fixture and operation must succeed"),
         );
         assert_eq!(
-            apply_command(&mut model, Command::PinSelected),
-            Effect::PinSelected
+            apply_command(&mut model, Command::Accept),
+            Some(Effect::Pin {
+                id: original,
+                pinned: true
+            })
         );
+    }
+
+    #[test]
+    fn cancelling_search_opened_from_a_reader_restores_that_reader() {
+        let mut model = model_with_memos(2, 80, 24).expect("fixture and operation must succeed");
+        assert_eq!(apply_command(&mut model, Command::Accept), None);
+        let before = model.view.clone();
+        let _effect = apply_command(&mut model, Command::Search);
+        let _effect = apply_command(&mut model, Command::Type("term".to_owned()));
+        let _effect = apply_command(&mut model, Command::Back);
+        assert_eq!(model.view, before);
+    }
+
+    #[test]
+    fn tag_scope_is_chosen_in_the_picker_without_losing_the_reading_context() {
+        let mut model = model_with_memos(20, 80, 24).expect("feed");
+        model.tags = vec!["reading/book".to_owned()];
+        assert_eq!(apply_command(&mut model, Command::Move(12)), None);
+        let before = feed(&model).expect("feed").clone();
+        let _effect = apply_command(&mut model, Command::Tags);
+        let InputMode::Picker(picker) = &model.input else {
+            panic!("tag picker");
+        };
+        let scope = lomo_tui::menu::entries(&model.tags, picker)
+            .iter()
+            .position(|entry| entry.command == Command::ToggleTagScope)
+            .expect("scope entry");
         assert_eq!(
-            apply_command(&mut model, Command::DeleteSelected),
-            Effect::ConfirmDelete
+            apply_command(
+                &mut model,
+                Command::Move(i32::try_from(scope).expect("menu index"))
+            ),
+            None
         );
-        assert_eq!(
-            apply_command(&mut model, Command::RestoreSelected),
-            Effect::ConfirmRestore
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::ShowHistory),
-            Effect::ShowHistory
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::ToggleNavDrawer),
-            Effect::None
-        );
-        assert_eq!(model.nav, NavPresence::Shown);
-        assert_eq!(
-            apply_command(&mut model, Command::Goto(Screen::Settings)),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.screen, Screen::Settings);
-        assert_eq!(apply_command(&mut model, Command::OpenSearch), Effect::None);
-        assert_eq!(
-            apply_command(&mut model, Command::SearchChar('q')),
-            Effect::None
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::SearchBackspace),
-            Effect::None
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::ToggleSearchMode),
-            Effect::None
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::SearchSubmit),
-            Effect::Search
-        );
-        assert_eq!(
-            apply_command(&mut model, Command::SearchCancel),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.search, SearchSession::Closed);
-        assert_eq!(
-            apply_command(&mut model, Command::ToggleSearchMode),
-            Effect::None
-        );
+        assert_eq!(apply_command(&mut model, Command::Accept), None);
+        assert!(matches!(model.input, InputMode::Picker(_)));
+        assert_eq!(feed(&model).expect("feed").selected, before.selected);
+        assert_eq!(feed(&model).expect("feed").query, before.query);
+    }
+
+    #[test]
+    fn tag_picker_includes_parent_scopes_of_observed_child_tags() {
+        let mut model = model_with_memos(1, 80, 24).expect("feed");
+        model.tags = vec!["reading/book".to_owned()];
+        let _effect = apply_command(&mut model, Command::Tags);
+        let InputMode::Picker(picker) = &model.input else {
+            panic!("tag picker");
+        };
+        let entries = lomo_tui::menu::entries(&model.tags, picker);
         assert!(
-            model.status.contains("fuzzy")
-                || model.status.contains("fulltext")
-                || model.status.contains("模糊")
-                || model.status.contains("全文")
+            entries
+                .iter()
+                .any(|entry| entry.command == Command::SelectTag(Some("reading".to_owned())))
         );
     }
 
     #[test]
-    fn overlays_consume_keys_until_dismissed_and_confirm_emits_delete_or_restore() {
-        let mut model = seeded_model();
-        model.overlay = Overlay::Help;
-        assert_eq!(apply_command(&mut model, Command::Cancel), Effect::None);
-        assert_eq!(model.overlay, Overlay::None);
-        model.overlay = Overlay::Palette { index: 0 };
-        assert_eq!(apply_command(&mut model, Command::MoveDown), Effect::None);
-        assert_eq!(
-            apply_command(&mut model, Command::ConfirmYes),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.screen, Screen::Tasks);
-        model.overlay = Overlay::Alert {
-            title: "t".to_owned(),
-            body: "b".to_owned(),
-        };
-        assert_eq!(apply_command(&mut model, Command::Cancel), Effect::None);
-        request_confirm(&mut model, ConfirmAction::Delete);
-        assert_eq!(
-            apply_command(&mut model, Command::ConfirmYes),
-            Effect::DeleteSelected
-        );
-        request_confirm(&mut model, ConfirmAction::Restore);
-        assert_eq!(apply_command(&mut model, Command::ConfirmNo), Effect::None);
-        request_confirm(&mut model, ConfirmAction::Restore);
-        assert_eq!(
-            apply_command(&mut model, Command::ConfirmYes),
-            Effect::RestoreSelected
-        );
-        model.overlay = Overlay::History {
-            lines: vec!["r1".to_owned()],
-        };
-        assert_eq!(apply_command(&mut model, Command::Quit), Effect::Quit);
-        model.overlay = Overlay::None;
-        model.focus = Focus::Navigation;
-        model.nav_selected = 0;
-        assert_eq!(
-            apply_command(&mut model, Command::MoveDown),
-            Effect::LoadScreen
-        );
-        assert_eq!(model.screen, Screen::Tasks);
-        apply_resize(&mut model, 100, 24);
-        assert_eq!(model.width, 100);
-        apply_resize(&mut model, 70, 20);
-        assert_eq!(model.nav, NavPresence::Hidden);
-        model.items.clear();
-        model.clamp_selection();
-        assert_eq!(model.selected_id(), None);
-        assert_eq!(
-            apply_command(&mut model, Command::MoveDown),
-            Effect::LoadScreen
+    fn menu_selection_is_bounded_before_moving_back_from_the_last_item() {
+        let mut model = AppModel::new(80, 24);
+        assert_eq!(apply_command(&mut model, Command::Functions), None);
+        assert_eq!(apply_command(&mut model, Command::Move(i32::MAX)), None);
+        assert_eq!(apply_command(&mut model, Command::Move(-1)), None);
+        assert_eq!(apply_command(&mut model, Command::Accept), None);
+        assert!(matches!(model.input, InputMode::Help { .. }));
+    }
+
+    #[test]
+    fn removing_the_last_search_character_restores_the_original_reading_context() {
+        let mut model = model_with_memos(20, 80, 24).expect("feed");
+        assert_eq!(apply_command(&mut model, Command::Move(12)), None);
+        let before = feed(&model).expect("feed").clone();
+        let _effect = apply_command(&mut model, Command::Search);
+        let _effect = apply_command(&mut model, Command::Type("x".to_owned()));
+        let _effect = apply_command(&mut model, Command::Edit(TextEdit::Backspace));
+        assert_eq!(feed(&model).expect("feed").selected, before.selected);
+        assert_eq!(feed(&model).expect("feed").anchor, before.anchor);
+    }
+
+    #[test]
+    fn changing_search_mode_requeries_the_same_keyword() {
+        let mut model = model_with_memos(2, 80, 24).expect("feed");
+        let _effect = apply_command(&mut model, Command::Search);
+        let _effect = apply_command(&mut model, Command::Type("keyword".to_owned()));
+        let effect = apply_command(&mut model, Command::ToggleSearchMode);
+        assert!(
+            matches!(effect, Some(Effect::Query(ref request)) if request.query.mode == lomo_application::SearchMode::Fuzzy && request.query.text == "keyword")
         );
     }
 }

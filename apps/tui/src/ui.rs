@@ -1,404 +1,394 @@
-use ratatui::Frame;
-use ratatui::layout::{Alignment, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
+//! One reading surface; rendering never performs IO.
+use crate::feed_layout::{feed_lines, top_row};
+use crate::i18n::UiStrings;
+use crate::layout::{ReadingLayout, reading_layout};
+use crate::model::{AppModel, InputMode, LoadStatus, View};
+use crate::text_layout::{cursor_position, plain_lines, wrap_lines};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Clear, Paragraph},
 };
 
-use crate::event::PALETTE_LABELS;
-use crate::i18n::UiStrings;
-use crate::layout::{LayoutRequest, Pane, layout_mode, split_panes};
-use crate::markdown_view::styled_preview;
-use crate::media::GraphicsProtocol;
-use crate::model::{AppModel, ListRow, Overlay, Screen, SearchSession};
-use crate::stats_draw::draw_stats;
-use crate::theme::{list_highlight, panel, theme_color, todo_highlight};
-
-/// Draws the responsive shell and any overlay using Think panel chrome.
 pub fn draw(frame: &mut Frame, model: &AppModel) {
-    let i18n = UiStrings::detect();
-    let area = frame.area();
-    frame.render_widget(Clear, area);
-    let search_open = matches!(model.search, SearchSession::Open { .. });
-    if !search_open && model.screen == Screen::Statistics {
-        if let Some(stats) = &model.stats {
-            draw_stats(frame, area, stats, &i18n);
-        } else {
-            draw_message(frame, &i18n.header_stats, &i18n.hint_empty, Color::Cyan);
+    frame.render_widget(Clear, frame.area());
+    let s = UiStrings::detect();
+    let layout = layout_for(model);
+    draw_header(frame, layout.header, &s);
+    draw_filters(frame, model, layout.filters, &s);
+    if matches!(model.input, InputMode::Compose) {
+        draw_composer(frame, model, layout.composer, &s);
+    }
+    match &model.view {
+        View::Feed(feed) => draw_feed(frame, feed, layout.content, &s),
+        View::Reader { memo, anchor } => {
+            draw_reader(frame, model, memo, *anchor, layout.content, &s);
         }
-    } else if !search_open && model.screen == Screen::Tasks {
-        draw_todo(frame, model, area, &i18n);
-    } else {
-        draw_shell(frame, model, area, &i18n, search_open);
-    }
-    draw_overlay(frame, model, &i18n);
-}
-
-fn draw_shell(
-    frame: &mut Frame,
-    model: &AppModel,
-    area: Rect,
-    i18n: &UiStrings,
-    search_open: bool,
-) {
-    let color = theme_color(model.screen, search_open);
-    let panes = split_panes(
-        Pane {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height,
-        },
-        LayoutRequest {
-            mode: layout_mode(model.width),
-            focus: model.focus,
-            nav: model.nav,
-            search_open,
-        },
-    );
-    if let Some(pane) = panes.navigation {
-        draw_nav(frame, model, to_rect(pane), i18n, color);
-    }
-    if let Some(pane) = panes.list {
-        draw_list(frame, model, to_rect(pane), i18n, color, search_open);
-    }
-    if let Some(pane) = panes.preview {
-        draw_preview(frame, model, to_rect(pane), i18n, color);
-    }
-    if let Some(pane) = panes.search {
-        draw_search(frame, model, to_rect(pane), i18n, color);
-    }
-    draw_status(frame, model, to_rect(panes.status), i18n);
-}
-
-fn draw_nav(frame: &mut Frame, model: &AppModel, area: Rect, i18n: &UiStrings, color: Color) {
-    let items: Vec<ListItem> = i18n
-        .nav_labels
-        .into_iter()
-        .map(|label| ListItem::new(format!(" {label}")))
-        .collect();
-    let mut state = ListState::default();
-    state.select(Some(model.nav_selected));
-    frame.render_stateful_widget(
-        List::new(items)
-            .block(panel(format!(" [ {} ] ", i18n.title_nav), color))
-            .highlight_style(list_highlight())
-            .highlight_symbol("> "),
-        area,
-        &mut state,
-    );
-}
-
-fn draw_list(
-    frame: &mut Frame,
-    model: &AppModel,
-    area: Rect,
-    i18n: &UiStrings,
-    color: Color,
-    search_open: bool,
-) {
-    let title = if search_open {
-        i18n.search_list_title(model.items.len(), &model.status)
-    } else {
-        i18n.list_title(model.screen, model.items.len(), &model.status)
-    };
-    let items: Vec<ListItem> = model
-        .items
-        .iter()
-        .map(|row| list_item(row, color))
-        .collect();
-    let mut state = ListState::default();
-    if !model.items.is_empty() {
-        state.select(Some(model.selected));
-    }
-    frame.render_stateful_widget(
-        List::new(items)
-            .block(panel(title, color))
-            .highlight_style(list_highlight())
-            .highlight_symbol("> "),
-        area,
-        &mut state,
-    );
-}
-
-fn list_item(row: &ListRow, color: Color) -> ListItem<'static> {
-    if let Some(done) = row.done {
-        return todo_item(row, done);
-    }
-    let mut spans = Vec::new();
-    if !row.header.is_empty() {
-        spans.push(Span::styled(row.header.clone(), Style::default().fg(color)));
-    }
-    if !row.title.is_empty() {
-        spans.push(Span::raw(row.title.clone()));
-    }
-    if !row.subtitle.is_empty() {
-        spans.push(Span::styled(
-            format!("  {}", row.subtitle),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    if spans.is_empty() {
-        ListItem::new(" ")
-    } else {
-        ListItem::new(Line::from(spans))
-    }
-}
-
-fn todo_item(row: &ListRow, done: bool) -> ListItem<'static> {
-    let (symbol, color, modifier) = if done {
-        ("✓ ", Color::Green, Modifier::BOLD)
-    } else {
-        ("» ", Color::Yellow, Modifier::BOLD)
-    };
-    let content_style = if done {
-        Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::CROSSED_OUT)
-    } else {
-        Style::default().fg(Color::Reset)
-    };
-    ListItem::new(Line::from(vec![
-        Span::styled(symbol, Style::default().fg(color).add_modifier(modifier)),
-        Span::styled(row.title.clone(), content_style),
-        Span::styled(
-            format!("  ({})", row.subtitle),
-            Style::default().fg(Color::DarkGray),
+        View::Tasks(list) => draw_rows(
+            frame,
+            layout.content,
+            list.selected,
+            list.items
+                .iter()
+                .map(|row| {
+                    format!(
+                        "{} {}  {}",
+                        if row.done { "✓" } else { "□" },
+                        row.text,
+                        row.date
+                    )
+                })
+                .collect(),
         ),
-    ]))
-}
-
-fn draw_todo(frame: &mut Frame, model: &AppModel, area: Rect, i18n: &UiStrings) {
-    let items: Vec<ListItem> = model
-        .items
-        .iter()
-        .map(|row| todo_item(row, row.done.unwrap_or(false)))
-        .collect();
-    let mut state = ListState::default();
-    if !model.items.is_empty() {
-        state.select(Some(model.selected));
+        View::Attachments(list) => draw_rows(
+            frame,
+            layout.content,
+            list.selected,
+            list.items
+                .iter()
+                .map(|row| row.path.as_str().to_owned())
+                .collect(),
+        ),
+        View::Statistics(stats) => crate::stats_draw::draw_stats(frame, layout.content, stats, &s),
+        View::Settings(lines) => {
+            frame.render_widget(Paragraph::new(lines.join("\n")), layout.content);
+        }
+        View::Loading(_) => {
+            frame.render_widget(
+                Paragraph::new(s.text("Loading…", "加载中…")),
+                layout.content,
+            );
+        }
+        View::Failed { diagnostic, .. } => {
+            frame.render_widget(
+                Paragraph::new(diagnostic.as_str()).style(Style::default().fg(Color::Red)),
+                layout.content,
+            );
+        }
     }
-    let block = panel(
-        i18n.list_title(Screen::Tasks, model.items.len(), &model.status),
-        Color::Blue,
-    )
-    .padding(Padding::new(1, 1, 1, 1));
-    frame.render_stateful_widget(
-        List::new(items)
-            .block(block)
-            .highlight_style(todo_highlight())
-            .highlight_symbol(">> "),
-        area,
-        &mut state,
-    );
+    let hint = input_hint(model, &s);
     frame.render_widget(
-        Block::default()
-            .title(i18n.hint_toggle_todo.as_str())
-            .title_alignment(Alignment::Right)
-            .borders(Borders::NONE),
-        area,
+        Paragraph::new(model.status.as_deref().map_or(hint, |status| status))
+            .style(Style::default().fg(Color::DarkGray)),
+        layout.status,
     );
+    crate::overlays::draw(frame, model, &s);
 }
-
-fn draw_preview(frame: &mut Frame, model: &AppModel, area: Rect, i18n: &UiStrings, color: Color) {
-    let title = i18n.preview_title(model.screen);
-    let block = panel(title, color);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let body = if model.preview.is_empty() {
-        i18n.hint_empty.as_str()
+#[must_use]
+pub fn layout_for(model: &AppModel) -> ReadingLayout {
+    let area = Rect::new(0, 0, model.width, model.height);
+    let base = reading_layout(area, 0);
+    let compose = if matches!(model.input, InputMode::Compose) {
+        let width = base.content.width.saturating_sub(4);
+        let rows = wrap_lines(&plain_lines(model.draft.text.text()), width).len();
+        let cursor_rows = cursor_position(model.draft.text.before_cursor(), width).0 + 1;
+        u16::try_from(rows.max(cursor_rows).saturating_add(2).max(4)).unwrap_or(u16::MAX)
     } else {
-        model.preview.as_str()
+        0
     };
-    let lines = styled_preview(body, GraphicsProtocol::None, Color::Reset);
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+    reading_layout(area, compose)
 }
 
-fn draw_search(frame: &mut Frame, model: &AppModel, area: Rect, i18n: &UiStrings, color: Color) {
-    let (query, mode) = match &model.search {
-        SearchSession::Open { query, mode, .. } => (query.as_str(), *mode),
-        SearchSession::Closed => ("", model.search_mode),
-    };
-    let mode_label = match mode {
-        lomo_application::SearchMode::Fulltext => i18n.search_fulltext.as_str(),
-        lomo_application::SearchMode::Fuzzy => i18n.search_fuzzy.as_str(),
-    };
+fn draw_header(frame: &mut Frame, area: Rect, s: &UiStrings) {
     frame.render_widget(
-        Paragraph::new(query)
-            .block(panel(
-                format!("{} {mode_label}", i18n.search_input.trim()),
-                color,
-            ))
-            .style(Style::default().fg(Color::Reset)),
+        Paragraph::new(Span::styled(
+            "Lomo",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         area,
     );
-    if area.width > 2 {
-        let cursor_x = (area.x.saturating_add(1).saturating_add(display_cols(query)))
-            .min(area.x.saturating_add(area.width.saturating_sub(1)));
-        frame.set_cursor_position((cursor_x, area.y.saturating_add(1)));
+    for (rect, label, _) in crate::overlays::header_controls(area, s) {
+        frame.render_widget(
+            Paragraph::new(label).style(Style::default().fg(Color::DarkGray)),
+            rect,
+        );
     }
 }
-
-fn draw_status(frame: &mut Frame, model: &AppModel, area: Rect, i18n: &UiStrings) {
-    if area.height == 0 {
+fn draw_filters(frame: &mut Frame, model: &AppModel, area: Rect, s: &UiStrings) {
+    if let InputMode::Search { text, .. } = &model.input {
+        draw_field(frame, area, text);
+        let mode = if matches!(&model.view, View::Feed(feed) if feed.query.mode == lomo_application::SearchMode::Fuzzy)
+        {
+            s.text("Fuzzy / pinyin", "模糊／拼音")
+        } else {
+            s.text("Fulltext", "全文")
+        };
+        let hint = format!(
+            "{mode} · {}",
+            s.text(
+                "Enter browse · Esc cancel · Ctrl+F mode",
+                "Enter 浏览结果 · Esc 撤销 · Ctrl+F 切换"
+            )
+        );
+        frame.render_widget(
+            Paragraph::new(hint).style(Style::default().fg(Color::DarkGray)),
+            Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1).min(1),
+            ),
+        );
         return;
     }
-    let text = if model.status.is_empty() {
-        i18n.hint_keys.as_str()
-    } else {
-        model.status.as_str()
+    let label = match &model.view {
+        View::Feed(feed) => {
+            let mut labels = vec![s.screen_title(feed.kind.screen()).to_owned()];
+            if feed.query.mode == lomo_application::SearchMode::Fuzzy {
+                labels.push(s.text("fuzzy / pinyin", "模糊／拼音").to_owned());
+            }
+            let count = feed.total.map_or_else(
+                || format!("{} {}", feed.memos.len(), s.text("loaded", "条已加载")),
+                |total| {
+                    format!(
+                        "{} {} / {total} {}",
+                        feed.memos.len(),
+                        s.text("loaded", "已加载"),
+                        s.text("total", "总数")
+                    )
+                },
+            );
+            labels.push(count);
+            labels.join("  ·  ")
+        }
+        View::Reader { .. } => s
+            .text("Reading · Esc back", "阅读全文 · Esc 返回")
+            .to_owned(),
+        view @ (View::Tasks(_)
+        | View::Statistics(_)
+        | View::Attachments(_)
+        | View::Settings(_)
+        | View::Loading(_)
+        | View::Failed { .. }) => format!("{}  ·  Esc", s.screen_title(view.screen())),
     };
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::DarkGray)),
-        area,
+        Paragraph::new(label).style(Style::default().fg(Color::DarkGray)),
+        Rect {
+            height: area.height.min(1),
+            ..area
+        },
     );
-}
-
-fn draw_overlay(frame: &mut Frame, model: &AppModel, i18n: &UiStrings) {
-    match &model.overlay {
-        Overlay::None => {}
-        Overlay::Help => draw_help(frame, i18n),
-        Overlay::Palette { index } => draw_palette(frame, *index, i18n),
-        Overlay::Alert { title, body } => {
-            draw_dialog(frame, title, body, Color::Yellow);
-        }
-        Overlay::Confirm { title, body, .. } => {
-            draw_confirm(frame, title, body, Color::Yellow, i18n);
-        }
-        Overlay::Overdue { lines } => {
-            draw_lines(frame, &i18n.title_overdue, lines, Color::Yellow);
-        }
-        Overlay::History { lines } => {
-            draw_lines(frame, &i18n.title_history, lines, Color::Magenta);
-        }
+    for (rect, label, _) in crate::filter_controls::controls(model, area) {
+        let lines = wrap_lines(&plain_lines(&label), rect.width);
+        frame.render_widget(
+            Paragraph::new(lines.into_iter().map(|line| line.line).collect::<Vec<_>>())
+                .style(Style::default().fg(Color::Cyan)),
+            rect,
+        );
     }
 }
 
-fn draw_help(frame: &mut Frame, i18n: &UiStrings) {
-    let area = centered(frame.area(), 60, 18);
-    frame.render_widget(Clear, area);
-    let lines: Vec<Line> = i18n
-        .help_lines
-        .into_iter()
-        .map(|(key, desc)| {
-            Line::from(vec![
-                Span::styled(format!("  {key:<16}"), Style::default().fg(Color::Green)),
-                Span::raw(desc),
-            ])
-        })
-        .collect();
+fn draw_reader(
+    frame: &mut Frame,
+    model: &AppModel,
+    memo: &crate::model::MemoCard,
+    _anchor: crate::model::TextAnchor,
+    area: Rect,
+    _s: &UiStrings,
+) {
+    let title = format!("{}  {}", memo.date, memo.time);
     frame.render_widget(
-        Paragraph::new(lines).block(panel(i18n.title_help.clone(), Color::Cyan)),
-        area,
+        Paragraph::new(title).style(Style::default().fg(Color::DarkGray)),
+        Rect {
+            height: area.height.min(1),
+            ..area
+        },
     );
-}
-
-fn draw_palette(frame: &mut Frame, index: usize, i18n: &UiStrings) {
-    let area = centered(frame.area(), 40, 16);
-    frame.render_widget(Clear, area);
-    let items: Vec<ListItem> = i18n
-        .palette_labels
-        .into_iter()
-        .map(|label| ListItem::new(format!(" {label}")))
-        .collect();
-    let mut state = ListState::default();
-    state.select(Some(index.min(PALETTE_LABELS.len().saturating_sub(1))));
-    frame.render_stateful_widget(
-        List::new(items)
-            .block(panel(format!(" [ {} ] ", i18n.title_commands), Color::Cyan))
-            .highlight_style(list_highlight())
-            .highlight_symbol("> "),
-        area,
-        &mut state,
-    );
-}
-
-fn draw_confirm(frame: &mut Frame, title: &str, body: &str, color: Color, i18n: &UiStrings) {
-    let area = centered(frame.area(), 40, 10);
-    frame.render_widget(Clear, area);
-    let text = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            body.to_owned(),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                i18n.confirm_yes.clone(),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    if let Some(page) = crate::reader::page(model) {
+        let visible = page
+            .rows
+            .iter()
+            .skip(page.top)
+            .take(usize::from(page.area.height))
+            .map(|row| row.line.clone())
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(visible), page.area);
+        let progress = (page.top + usize::from(page.area.height)).min(page.rows.len()) * 100
+            / page.rows.len().max(1);
+        let label = format!("{progress}%");
+        let width = u16::try_from(label.len())
+            .unwrap_or(area.width)
+            .min(area.width);
+        frame.render_widget(
+            Paragraph::new(label).style(Style::default().fg(Color::DarkGray)),
+            Rect::new(
+                area.right().saturating_sub(width),
+                area.y,
+                width,
+                area.height.min(1),
             ),
-            Span::raw("          "),
-            Span::styled(i18n.confirm_no.clone(), Style::default().fg(Color::Green)),
-        ]),
-    ];
-    frame.render_widget(
-        Paragraph::new(text)
-            .block(panel(title.to_owned(), color))
-            .alignment(Alignment::Center),
-        area,
-    );
+        );
+    }
 }
 
-fn draw_dialog(frame: &mut Frame, title: &str, body: &str, color: Color) {
-    let area = centered(frame.area(), 50, 8);
-    frame.render_widget(Clear, area);
+fn draw_rows(frame: &mut Frame, area: Rect, selected: usize, rows: Vec<String>) {
+    let top = selected.saturating_sub(usize::from(area.height).saturating_sub(1));
+    let lines = rows
+        .into_iter()
+        .enumerate()
+        .skip(top)
+        .take(usize::from(area.height))
+        .map(|(index, row)| {
+            Line::styled(
+                format!("{} {row}", if index == selected { "▎" } else { " " }),
+                Style::default().fg(if index == selected {
+                    Color::Cyan
+                } else {
+                    Color::Reset
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(lines), area);
+}
+pub fn draw_field(frame: &mut Frame, area: Rect, text: &crate::input::TextBuffer) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let (row, col) = cursor_position(text.before_cursor(), area.width);
+    let lines = wrap_lines(&plain_lines(text.text()), area.width);
+    let line = lines
+        .get(row)
+        .map_or_else(Line::default, |row| row.line.clone());
+    frame.render_widget(Paragraph::new(line), area);
+    let col = u16::try_from(col)
+        .unwrap_or_else(|_| area.width.saturating_sub(1))
+        .min(area.width.saturating_sub(1));
+    frame.set_cursor_position((area.x + col, area.y));
+}
+fn draw_composer(frame: &mut Frame, model: &AppModel, area: Rect, s: &UiStrings) {
+    if area.height < 3 || area.width < 4 {
+        return;
+    }
+    let title = match model.draft.save {
+        crate::model::SaveState::Editing => s.text(
+            "New memo   Ctrl+S save · Ctrl+E editor · Esc keep draft",
+            "新记录   Ctrl+S 保存 · Ctrl+E 编辑器 · Esc 保留草稿",
+        ),
+        crate::model::SaveState::Submitting { .. } => s.text(
+            "Saving…   Esc return to reading",
+            "正在保存…   Esc 返回阅读",
+        ),
+        crate::model::SaveState::Failed { .. } => s.text(
+            "Save failed   Ctrl+S retry · Esc keep draft",
+            "保存失败   Ctrl+S 重试 · Esc 保留草稿",
+        ),
+    };
     frame.render_widget(
-        Paragraph::new(body.to_owned()).block(panel(title.to_owned(), color)),
-        area,
+        Paragraph::new(title).style(Style::default().fg(Color::Cyan)),
+        Rect { height: 1, ..area },
     );
+    let inner = Rect::new(
+        area.x + 2,
+        area.y + 1,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(2),
+    );
+    let (cursor_row, cursor_col) = cursor_position(model.draft.text.before_cursor(), inner.width);
+    let top = cursor_row.saturating_sub(usize::from(inner.height).saturating_sub(1));
+    let lines = wrap_lines(&plain_lines(model.draft.text.text()), inner.width);
+    frame.render_widget(
+        Paragraph::new(
+            lines
+                .iter()
+                .skip(top)
+                .take(usize::from(inner.height))
+                .map(|row| row.line.clone())
+                .collect::<Vec<_>>(),
+        ),
+        inner,
+    );
+    let row = u16::try_from(cursor_row.saturating_sub(top))
+        .unwrap_or(0)
+        .min(inner.height.saturating_sub(1));
+    let col = u16::try_from(cursor_col)
+        .unwrap_or(0)
+        .min(inner.width.saturating_sub(1));
+    if !matches!(model.draft.save, crate::model::SaveState::Submitting { .. }) {
+        frame.set_cursor_position((inner.x + col, inner.y + row));
+    }
+    if let Some((_, prefix)) = model.draft.text.tag_prefix() {
+        let candidates = model
+            .tags
+            .iter()
+            .filter(|tag| tag.starts_with(prefix))
+            .take(3)
+            .map(|tag| format!("#{tag}"))
+            .collect::<Vec<_>>();
+        if !candidates.is_empty() {
+            frame.render_widget(
+                Paragraph::new(format!("Tab  {}", candidates.join("  ")))
+                    .style(Style::default().fg(Color::Cyan)),
+                Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
+            );
+        }
+    }
 }
 
-fn draw_message(frame: &mut Frame, title: &str, body: &str, color: Color) {
-    frame.render_widget(
-        Paragraph::new(body.to_owned()).block(panel(title.to_owned(), color)),
-        frame.area(),
-    );
-}
-
-fn draw_lines(frame: &mut Frame, title: &str, lines: &[String], color: Color) {
-    let area = centered(frame.area(), 60, 12);
-    frame.render_widget(Clear, area);
-    let text: Vec<Line> = lines
+fn draw_feed(frame: &mut Frame, feed: &crate::model::FeedState, area: Rect, s: &UiStrings) {
+    let rows = feed_lines(feed, area.width);
+    let top = top_row(&rows, feed.anchor.as_ref());
+    let lines = rows
         .iter()
-        .map(|line| Line::from(Span::raw(line.clone())))
-        .collect();
-    frame.render_widget(
-        Paragraph::new(text).block(panel(title.to_owned(), color)),
-        area,
-    );
-}
-
-fn centered(area: Rect, width_pct: u16, height: u16) -> Rect {
-    let width = area.width.saturating_mul(width_pct) / 100;
-    let height = height.min(area.height);
-    let x = area.x.saturating_add(area.width.saturating_sub(width) / 2);
-    let y = area
-        .y
-        .saturating_add(area.height.saturating_sub(height) / 2);
-    Rect {
-        x,
-        y,
-        width,
-        height,
+        .skip(top)
+        .take(usize::from(area.height))
+        .map(|row| {
+            let active = feed.selected.as_ref() == Some(&row.id);
+            let mut spans = vec![Span::styled(
+                if active { "▎ " } else { "  " },
+                Style::default().fg(Color::Cyan),
+            )];
+            spans.extend(row.line.spans.clone());
+            Line::from(spans)
+        })
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        let text = match &feed.load {
+            LoadStatus::Loading | LoadStatus::Stale => s.text("Loading…", "加载中…"),
+            LoadStatus::Failed(error) => error,
+            LoadStatus::Ready if !feed.query.is_filtered() => {
+                s.text("Write a thought · n", "记下一个想法 · n")
+            }
+            LoadStatus::Ready => s.text(
+                "No matching memos · edit search or clear filters",
+                "没有匹配记录 · 调整搜索或清空筛选",
+            ),
+        };
+        frame.render_widget(Paragraph::new(text), area);
+    } else {
+        frame.render_widget(Paragraph::new(lines), area);
     }
 }
 
-const fn to_rect(pane: Pane) -> Rect {
-    Rect {
-        x: pane.x,
-        y: pane.y,
-        width: pane.width,
-        height: pane.height,
+const fn input_hint<'a>(model: &AppModel, s: &'a UiStrings) -> &'a str {
+    match &model.input {
+        InputMode::Compose => s.text(
+            "Enter newline  Ctrl+S save  Ctrl+E editor  Esc keep draft",
+            "Enter 换行  Ctrl+S 保存  Ctrl+E 编辑器  Esc 保留草稿",
+        ),
+        InputMode::Search { .. } => s.text(
+            "Enter browse results  Esc undo search  Ctrl+F mode",
+            "Enter 浏览结果  Esc 撤销搜索  Ctrl+F 切换模式",
+        ),
+        InputMode::Picker(_) => s.text(
+            "↑↓ choose  Enter confirm  Esc back",
+            "↑↓ 选择  Enter 确认  Esc 返回",
+        ),
+        InputMode::Date { .. } | InputMode::Confirm(_) => {
+            s.text("Enter confirm  Esc cancel", "Enter 确认  Esc 取消")
+        }
+        InputMode::Message { .. } | InputMode::Help { .. } => {
+            s.text("↑↓ scroll  Esc back", "↑↓ 滚动  Esc 返回")
+        }
+        InputMode::Browse if matches!(model.view, View::Reader { .. }) => s.text(
+            "↑↓ scroll  Esc back  e edit  a attachments  . actions",
+            "↑↓ 滚动  Esc 返回  e 编辑  a 附件  . 操作",
+        ),
+        InputMode::Browse => s.text(
+            "↑↓ select  Enter read  n capture  / search  ? help",
+            "↑↓ 选择  Enter 阅读  n 记录  / 搜索  ? 帮助",
+        ),
     }
-}
-
-fn display_cols(text: &str) -> u16 {
-    let mut width = 0_u16;
-    for ch in text.chars() {
-        let cols = if ch <= '\u{007f}' { 1 } else { 2 };
-        width = width.saturating_add(cols);
-    }
-    width
 }

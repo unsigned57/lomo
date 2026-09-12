@@ -1,54 +1,245 @@
 //! Behavior Contract
-//! Capability: TUI composition root writes only through `lomo-application`.
-//! Scenarios: pin/delete/restore/history/search/clipboard import/play; overdue catch-up overlay; editor update and fingerprint conflict keep the draft.
-//! Observable outcomes: Markdown bytes, `.lomo` pin/trash facts, overlay text, retained draft files, player errors.
-//! TDD proof: session effects other than task toggle were untested.
-//! Excludes: a real TTY, system clipboard, and Android SAF.
+//! Capability: memo mutations and external editor commits stay within application transactions.
+//! Scenarios: pin/delete/restore/history, deferred edit commit, concurrent file changes and capture editing.
+//! Observable outcomes: Markdown bytes, retained drafts, original fingerprint rejection and unchanged input context.
+//! TDD proof: editor commits block the foreground return; capture editing submits without Ctrl+S.
+//! Excludes: a real terminal, clipboard backend and network sync.
 
+#[cfg(test)]
+pub mod support;
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
-    reason = "session-backed contract tests fail closed on missing workspace facts"
+    reason = "Test fixtures and application effects must succeed before state assertions"
 )]
 mod tests {
-    use std::fs;
-    use std::os::unix::process::ExitStatusExt;
-    use std::path::Path;
-    use std::process::ExitStatus;
-
-    use lomo_application::{CreateMemoRequest, MemoFilters, MemoQuery, MemoSort};
-    use lomo_core::{OperationId, RelativeWorkspacePath};
-    use lomo_tui::config::AppConfig;
-    use lomo_tui::edit_flow::{EditRequest, complete_edit, edit_selection};
-    use lomo_tui::editor::{CommandRunner, EditKind};
-    use lomo_tui::error::TuiError;
-    use lomo_tui::media::{ClipboardError, GraphicsProtocol, ImageClipboard, rgba_to_png};
-    use lomo_tui::model::{AppModel, Overlay, Screen};
-    use lomo_tui::ops::{
-        apply_effect, bootstrap_model, import_from_clipboard, mint_operation_id, open_runtime,
-        play_selected, workspace_path,
+    use super::support::{RuntimeFixture, command, feed, run_effect};
+    use lomo_tui::{
+        edit_flow::complete_edit,
+        editor::CommandRunner,
+        effects::{EditTarget, Effect},
+        event::Command,
+        input::TextBuffer,
+        model::{AppModel, InputMode, SaveState, Screen},
+        ops::{bootstrap_model, execute},
     };
-    use lomo_tui::update::Effect;
-    use lomo_tui::xdg::RuntimePaths;
-    use lomo_workspace::MemoId;
-    use tempfile::tempdir;
+    use std::{fs, os::unix::process::ExitStatusExt, process::ExitStatus};
 
-    struct ScriptedEditor(&'static str);
-
-    impl CommandRunner for ScriptedEditor {
+    struct Editor {
+        body: &'static str,
+        concurrent_file: Option<std::path::PathBuf>,
+    }
+    impl CommandRunner for Editor {
         fn run_foreground(
             &self,
             _program: &str,
             args: &[String],
         ) -> Result<ExitStatus, std::io::Error> {
-            let path = args.last().ok_or_else(|| std::io::Error::other("draft"))?;
-            fs::write(path, self.0)?;
+            if let Some(path) = &self.concurrent_file {
+                fs::write(path, "- 10:00:00\nconcurrent change\n")?;
+            }
+            fs::write(
+                args.last().ok_or_else(|| std::io::Error::other("draft"))?,
+                self.body,
+            )?;
             Ok(ExitStatus::from_raw(0))
         }
     }
 
-    struct MissingPlayer;
+    fn edit_target(
+        fixture: &RuntimeFixture,
+        model: &AppModel,
+    ) -> Result<EditTarget, Box<dyn std::error::Error>> {
+        let id = model.selected_memo().ok_or("selected")?.id.clone();
+        let memo = lomo_tui::queries::load_body(&fixture.runtime, &id)?;
+        let lomo_tui::model::BodyState::Ready(body) = memo.body else {
+            return Err("body was not loaded".into());
+        };
+        Ok(EditTarget::Memo {
+            id,
+            fingerprint: memo.fingerprint,
+            body: body.as_str().to_owned(),
+        })
+    }
 
+    #[test]
+    fn pin_delete_restore_and_history_keep_their_data_contracts() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        fixture.seed(1).expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        let id = model
+            .selected_memo()
+            .ok_or("selected")
+            .expect("fixture and operation must succeed")
+            .id
+            .clone();
+        command(&fixture.runtime, &mut model, Command::Pin)
+            .expect("fixture and operation must succeed");
+        assert!(
+            model
+                .selected_memo()
+                .ok_or("pinned")
+                .expect("fixture and operation must succeed")
+                .pinned
+        );
+        let reply = execute(&fixture.runtime, &Effect::History(id.clone()))
+            .expect("fixture and operation must succeed");
+        assert!(matches!(
+            reply,
+            lomo_tui::effects::RuntimeMessage::Message { .. }
+        ));
+        command(&fixture.runtime, &mut model, Command::Delete)
+            .expect("fixture and operation must succeed");
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        command(&fixture.runtime, &mut model, Command::Goto(Screen::Trash))
+            .expect("fixture and operation must succeed");
+        assert_eq!(
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .memos
+                .first()
+                .map(|memo| &memo.id),
+            Some(&id)
+        );
+        command(&fixture.runtime, &mut model, Command::Restore)
+            .expect("fixture and operation must succeed");
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        assert!(
+            !fixture
+                .runtime
+                .session
+                .get_memo(&id)
+                .expect("fixture and operation must succeed")
+                .ok_or("restored")
+                .expect("fixture and operation must succeed")
+                .is_trashed
+        );
+    }
+
+    #[test]
+    fn editor_return_defers_the_version_bound_commit_to_the_worker() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        fixture.seed(1).expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        let target = edit_target(&fixture, &model).expect("fixture and operation must succeed");
+        let effect = complete_edit(
+            &fixture.runtime,
+            &mut model,
+            &Editor {
+                body: "edited body",
+                concurrent_file: None,
+            },
+            &target,
+            None,
+            None,
+        )
+        .expect("fixture and operation must succeed");
+        assert!(
+            fs::read_to_string(fixture.runtime.workspace.join("2026_09_11.md"))
+                .expect("fixture and operation must succeed")
+                .contains("needle")
+        );
+        run_effect(&fixture.runtime, &mut model, effect)
+            .expect("fixture and operation must succeed");
+        assert!(
+            fs::read_to_string(fixture.runtime.workspace.join("2026_09_11.md"))
+                .expect("fixture and operation must succeed")
+                .contains("edited body")
+        );
+    }
+
+    #[test]
+    fn concurrent_change_rejects_the_original_baseline_and_retains_the_editor_draft() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        fixture.seed(1).expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        let target = edit_target(&fixture, &model).expect("fixture and operation must succeed");
+        let path = fixture.runtime.workspace.join("2026_09_11.md");
+        let effect = complete_edit(
+            &fixture.runtime,
+            &mut model,
+            &Editor {
+                body: "my conflicting draft",
+                concurrent_file: Some(path.clone()),
+            },
+            &target,
+            None,
+            None,
+        )
+        .expect("fixture and operation must succeed");
+        run_effect(&fixture.runtime, &mut model, effect)
+            .expect("fixture and operation must succeed");
+        assert!(
+            fs::read_to_string(path)
+                .expect("fixture and operation must succeed")
+                .contains("concurrent change")
+        );
+        let retained = fs::read_dir(&fixture.runtime.paths.drafts_dir)
+            .expect("fixture and operation must succeed")
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fixture and operation must succeed");
+        assert!(retained.iter().any(|path| {
+            path.extension().is_some_and(|extension| extension == "md")
+                && fs::read_to_string(path).is_ok_and(|body| body == "my conflicting draft")
+        }));
+        assert!(matches!(model.input, InputMode::Message { .. }));
+    }
+
+    #[test]
+    fn external_capture_returns_to_the_draft_until_ctrl_s() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        model.input = InputMode::Compose;
+        model.draft.text = TextBuffer::new("draft before editor".to_owned());
+        let effect = complete_edit(
+            &fixture.runtime,
+            &mut model,
+            &Editor {
+                body: "expanded draft",
+                concurrent_file: None,
+            },
+            &EditTarget::Capture,
+            None,
+            None,
+        )
+        .expect("fixture and operation must succeed");
+        run_effect(&fixture.runtime, &mut model, effect)
+            .expect("fixture and operation must succeed");
+        assert_eq!(model.draft.text.text(), "expanded draft");
+        assert_eq!(model.input, InputMode::Compose);
+        assert_eq!(model.draft.save, SaveState::Editing);
+        assert!(
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .memos
+                .is_empty()
+        );
+        command(&fixture.runtime, &mut model, Command::Commit)
+            .expect("fixture and operation must succeed");
+        assert_eq!(
+            feed(&model)
+                .expect("fixture and operation must succeed")
+                .memos
+                .len(),
+            1
+        );
+    }
+
+    struct Clipboard(Result<Vec<u8>, lomo_tui::media::ClipboardError>);
+    impl lomo_tui::media::ImageClipboard for Clipboard {
+        fn read_png(&self) -> Result<Vec<u8>, lomo_tui::media::ClipboardError> {
+            self.0.clone()
+        }
+    }
+
+    struct MissingPlayer;
     impl CommandRunner for MissingPlayer {
         fn run_foreground(
             &self,
@@ -57,260 +248,54 @@ mod tests {
         ) -> Result<ExitStatus, std::io::Error> {
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "xdg-open: no such file",
+                "player missing",
             ))
         }
     }
 
-    struct PngClipboard(Vec<u8>);
-
-    impl ImageClipboard for PngClipboard {
-        fn read_png(&self) -> Result<Vec<u8>, ClipboardError> {
-            Ok(self.0.clone())
-        }
-    }
-
-    struct BrokenClipboard;
-
-    impl ImageClipboard for BrokenClipboard {
-        fn read_png(&self) -> Result<Vec<u8>, ClipboardError> {
-            Err(ClipboardError::Unavailable {
-                diagnostic: "no Display or Wayland session".to_owned(),
-            })
-        }
-    }
-
-    fn runtime_bundle(
-        editor: Option<Vec<String>>,
-    ) -> (tempfile::TempDir, lomo_tui::ops::TuiRuntime) {
-        let root = tempdir().expect("root");
-        let workspace = root.path().join("notes");
-        let state = root.path().join("state");
-        let cache = root.path().join("cache");
-        let runtime_dir = root.path().join("run");
-        fs::create_dir_all(&workspace).expect("ws");
-        let paths = RuntimePaths {
-            config_dir: root.path().join("cfg"),
-            drafts_dir: state.join("drafts"),
-            exchange_dir: state.join("exchange"),
-            state_dir: state,
-            cache_dir: cache,
-            runtime_dir,
-            default_workspace: None,
-        };
-        let config = AppConfig {
-            workspace,
-            time_zone: "UTC".to_owned(),
-            date_format: lomo_application::calendar::DateFormat::default(),
-            editor,
-            player: vec!["xdg-open".to_owned()],
-        };
-        let runtime = open_runtime(paths, config, GraphicsProtocol::None).expect("open");
-        (root, runtime)
-    }
-
-    fn create_body(runtime: &lomo_tui::ops::TuiRuntime, op: &str, body: &str) -> String {
-        runtime
-            .session
-            .create_memo(CreateMemoRequest {
-                operation_id: OperationId::parse(op).expect("op"),
-                relative_path: Some(RelativeWorkspacePath::parse("2026_09_11.md").expect("path")),
-                time_token: Some("10:00:00".to_owned()),
-                content: body.to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
-            .expect("create")
-            .memo_id
-            .as_str()
-            .to_owned()
-    }
-
     #[test]
-    fn pin_delete_restore_and_history_go_through_the_session() {
-        let (_root, runtime) = runtime_bundle(Some(vec!["scripted".to_owned()]));
-        let memo_id = create_body(&runtime, "op-pin", "keep this note");
-        let mut model = bootstrap_model(&runtime, AppModel::new(140, 40)).expect("boot");
-        apply_effect(&runtime, &mut model, Effect::PinSelected).expect("pin");
-        let pinned = runtime
-            .session
-            .list_memos(&MemoQuery {
-                search_text: None,
-                filters: MemoFilters {
-                    pinned_only: true,
-                    ..MemoFilters::default()
-                },
-                sort: MemoSort::default(),
-            })
-            .expect("list pinned");
-        let pinned_row = pinned.items.first().expect("one pinned memo");
-        assert_eq!(pinned_row.memo_id, memo_id);
-        apply_effect(&runtime, &mut model, Effect::ShowHistory).expect("history");
-        assert!(matches!(model.overlay, Overlay::History { .. }));
-        apply_effect(&runtime, &mut model, Effect::ConfirmDelete).expect("confirm");
-        assert!(matches!(model.overlay, Overlay::Confirm { .. }));
-        model.overlay = Overlay::None;
-        apply_effect(&runtime, &mut model, Effect::DeleteSelected).expect("delete");
-        model.screen = Screen::Trash;
-        apply_effect(&runtime, &mut model, Effect::LoadScreen).expect("trash");
-        assert!(
-            model.items.iter().any(|row| row.id == memo_id),
-            "trash={:?}",
-            model.items
-        );
-        apply_effect(&runtime, &mut model, Effect::RestoreSelected).expect("restore");
-        let restored = runtime
-            .session
-            .get_memo(&MemoId::parse(&memo_id).expect("id"))
-            .expect("get")
-            .expect("present");
-        assert!(!restored.is_trashed);
-        assert!(
-            mint_operation_id()
-                .expect("mint")
-                .as_str()
-                .starts_with("op-")
-        );
-        assert_eq!(workspace_path(&runtime), runtime.workspace.as_path());
-    }
-
-    #[test]
-    fn search_submit_filters_timeline_and_missing_editor_is_status_not_panic() {
-        let (_root, runtime) = runtime_bundle(None);
-        let _id = create_body(&runtime, "op-search", "unique-token-xyz");
-        let mut model = bootstrap_model(&runtime, AppModel::new(120, 30)).expect("boot");
-        model.search = lomo_tui::model::SearchSession::Open {
-            query: "unique-token-xyz".to_owned(),
-            mode: lomo_application::SearchMode::Fulltext,
-            epoch: 1,
-        };
-        apply_effect(&runtime, &mut model, Effect::Search).expect("search");
-        assert!(
-            model
-                .items
-                .iter()
-                .any(|row| row.title.contains("unique-token-xyz")),
-            "search={:?}",
-            model.items
-        );
-        complete_edit(
-            &runtime,
-            &mut model,
-            &ScriptedEditor("ignored"),
-            EditRequest {
-                kind: EditKind::Create,
-                initial: "",
-                baseline: None,
-                visual: None,
-                editor_env: None,
-            },
+    fn clipboard_import_promotes_real_bytes_and_keeps_backend_failures_visible() {
+        let fixture = RuntimeFixture::new().expect("runtime");
+        let png = lomo_tui::media::rgba_to_png(1, 1, &[255, 0, 0, 255]).expect("PNG");
+        let path = lomo_tui::mutations::import_from_clipboard(
+            &fixture.runtime,
+            &Clipboard(Ok(png.clone())),
         )
-        .expect("missing editor");
-        assert!(model.status.contains("not assumed"));
-    }
-
-    #[test]
-    fn editor_update_rewrites_body_and_conflict_keeps_draft() {
-        let (root, runtime) = runtime_bundle(Some(vec!["scripted".to_owned()]));
-        let memo_id = create_body(&runtime, "op-edit", "original body");
-        let mut model = bootstrap_model(&runtime, AppModel::new(140, 40)).expect("boot");
-        edit_selection(
-            &runtime,
-            &mut model,
-            &ScriptedEditor("updated via editor"),
-            None,
-            None,
-        )
-        .expect("edit");
-        assert_eq!(model.status, "saved");
-        let markdown = fs::read_to_string(runtime.workspace.join("2026_09_11.md")).expect("md");
-        assert!(
-            markdown.contains("updated via editor"),
-            "markdown={markdown}"
+        .expect("import");
+        assert_eq!(
+            fs::read(fixture.runtime.workspace.join(&path)).expect("promoted file"),
+            png
         );
-        complete_edit(
-            &runtime,
-            &mut model,
-            &ScriptedEditor("conflicting draft"),
-            EditRequest {
-                kind: EditKind::Update { memo_id },
-                initial: "updated via editor",
-                baseline: Some("stale-fingerprint".to_owned()),
-                visual: None,
-                editor_env: None,
-            },
-        )
-        .expect("conflict");
-        assert!(matches!(model.overlay, Overlay::Alert { .. }));
-        let mut retained = false;
-        for entry in fs::read_dir(root.path().join("state").join("drafts")).expect("drafts") {
-            let path = entry.expect("entry").path();
-            if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
-                retained = true;
-            }
-        }
-        assert!(retained, "conflict must keep a draft file");
-        model.items.clear();
-        edit_selection(&runtime, &mut model, &ScriptedEditor("x"), None, None).expect("no sel");
-        assert_eq!(model.status, "no memo selected");
-    }
-
-    #[test]
-    fn clipboard_import_and_player_failure_are_visible() {
-        let (_root, runtime) = runtime_bundle(Some(vec!["scripted".to_owned()]));
-        let _id = create_body(&runtime, "op-media", "host memo");
-        let mut model = bootstrap_model(&runtime, AppModel::new(140, 40)).expect("boot");
-        let png = rgba_to_png(1, 1, &[255, 0, 0, 255]).expect("png");
-        let relative =
-            import_from_clipboard(&runtime, &mut model, &PngClipboard(png)).expect("import");
-        assert!(relative.starts_with("media/"));
-        model.screen = Screen::Attachments;
-        apply_effect(&runtime, &mut model, Effect::LoadScreen).expect("attachments");
+        let attachment = lomo_core::RelativeWorkspacePath::parse(&path).expect("relative path");
         let error =
-            import_from_clipboard(&runtime, &mut model, &BrokenClipboard).expect_err("clip");
-        assert!(matches!(error, TuiError::Clipboard { .. }));
-        let player = play_selected(&runtime, &model, &MissingPlayer).expect_err("player");
-        assert!(matches!(player, TuiError::Player { .. }));
-        apply_effect(&runtime, &mut model, Effect::None).expect("noop");
-        apply_effect(&runtime, &mut model, Effect::PlayAttachment)
-            .expect("play effect is deferred");
-    }
-
-    #[test]
-    fn overdue_reminder_opens_catch_up_overlay_on_bootstrap() {
-        let (_root, runtime) = runtime_bundle(Some(vec!["scripted".to_owned()]));
-        runtime
-            .session
-            .create_memo(CreateMemoRequest {
-                operation_id: OperationId::parse("op-overdue").expect("op"),
-                relative_path: Some(RelativeWorkspacePath::parse("2026_07_20.md").expect("path")),
-                time_token: Some("10:45:00".to_owned()),
-                content: "pay rent @2026-07-20-10:45".to_owned(),
-                expected_document_fingerprint: None,
-                pinned: false,
-                pending_promotes: Vec::new(),
-                chronology_epoch_ms: None,
-            })
-            .expect("create");
-        let model = bootstrap_model(&runtime, AppModel::new(80, 24)).expect("boot");
-        match model.overlay {
-            Overlay::Overdue { lines } => {
-                assert!(
-                    lines.iter().any(|line| line.contains("overdue")),
-                    "lines={lines:?}"
-                );
+            lomo_tui::mutations::open_attachment(&fixture.runtime, &attachment, &MissingPlayer)
+                .expect_err("missing player");
+        assert!(matches!(error, lomo_tui::error::TuiError::Player { .. }));
+        let error = lomo_tui::mutations::import_from_clipboard(
+            &fixture.runtime,
+            &Clipboard(Err(lomo_tui::media::ClipboardError::Unavailable {
+                diagnostic: "no display".to_owned(),
+            })),
+        )
+        .expect_err("clipboard backend failure");
+        assert_eq!(
+            error,
+            lomo_tui::error::TuiError::Clipboard {
+                diagnostic: "no display".to_owned()
             }
-            Overlay::None
-            | Overlay::Help
-            | Overlay::Palette { .. }
-            | Overlay::Alert { .. }
-            | Overlay::Confirm { .. }
-            | Overlay::History { .. } => {
-                panic!("expected overdue overlay, got {:?}", model.overlay)
-            }
-        }
-        assert!(Path::new(&runtime.workspace).is_dir());
+        );
+        let query = lomo_application::MemoQuery {
+            search_text: None,
+            filters: lomo_application::MemoFilters::default(),
+            sort: lomo_application::MemoSort::default(),
+        };
+        assert_eq!(
+            fixture
+                .runtime
+                .session
+                .query_count(&query)
+                .expect("memo count"),
+            1
+        );
     }
 }

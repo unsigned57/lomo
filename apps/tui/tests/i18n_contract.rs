@@ -1,37 +1,40 @@
 //! Behavior Contract
-//! Capability: TUI chrome strings follow Think titles in English and zh-CN.
-//! Scenarios: both languages format timeline/search/preview titles and nav labels.
-//! Observable outcomes: formatted titles contain Think names, not generic `Nav`/`Timeline`.
-//! TDD proof: chrome strings were Debug-printed English pane names.
-//! Excludes: locale environment detection races.
+//! Capability: English and Simplified Chinese cover the same reading and auxiliary flows.
+//! Scenarios: seven page titles and current capture/reading help in both locales.
+//! Observable outcomes: localized titles and shortcuts without obsolete focus instructions.
+//! TDD proof: old pane-title assertions are superseded by the approved reading contract; behavior RED is in `reading_flow_contract`.
+//! Excludes: mutating process-global locale state.
 
 #[cfg(test)]
 mod tests {
-    use lomo_tui::i18n::{UiLanguage, UiStrings};
-    use lomo_tui::model::Screen;
+    use lomo_tui::{
+        i18n::{UiLanguage, UiStrings},
+        model::Screen,
+    };
 
     #[test]
-    fn english_and_chinese_titles_match_think_chrome() {
+    fn both_locales_cover_all_pages_and_current_capture_help() {
         let en = UiStrings::for_language(UiLanguage::English);
-        assert_eq!(en.screen_title(Screen::Timeline), "Thought Stream");
-        assert!(
-            en.list_title(Screen::Timeline, 3, "ready")
-                .contains("Thought Stream")
-        );
-        assert!(en.search_list_title(2, "").contains("Search"));
-        assert!(en.preview_title(Screen::Timeline).contains("Preview"));
-        assert!(en.list_title(Screen::Tasks, 1, "").contains("Todo"));
-        assert_eq!(en.nav_labels.first().copied(), Some("Thought Stream"));
-
         let zh = UiStrings::for_language(UiLanguage::ChineseSimplified);
-        assert_eq!(zh.screen_title(Screen::Timeline), "思维流");
-        assert!(zh.list_title(Screen::Timeline, 3, "").contains("思维流"));
-        assert!(zh.search_list_title(2, "ok").contains("全局搜索"));
-        assert!(zh.preview_title(Screen::Tasks).contains("预览"));
-        assert!(zh.list_title(Screen::Review, 1, "").contains("每日回顾"));
-        assert!(zh.list_title(Screen::Settings, 0, "").contains("设置"));
-        assert_eq!(zh.nav_labels.get(1).copied(), Some("待办事项"));
-        let detected = UiStrings::detect();
-        assert!(!detected.title_timeline.is_empty());
+        assert_eq!(en.screen_title(Screen::Timeline), "All memos");
+        assert_eq!(zh.screen_title(Screen::Timeline), "全部记录");
+        for screen in [
+            Screen::Timeline,
+            Screen::Tasks,
+            Screen::Review,
+            Screen::Statistics,
+            Screen::Attachments,
+            Screen::Trash,
+            Screen::Settings,
+        ] {
+            assert!(!en.screen_title(screen).is_empty());
+            assert!(!zh.screen_title(screen).is_empty());
+            assert_ne!(en.screen_title(screen), zh.screen_title(screen));
+        }
+        for locale in [&en, &zh] {
+            let help = lomo_tui::overlays::help(locale).join("\n");
+            assert!(help.contains("Ctrl+S") && help.contains("Enter") && help.contains("Esc"));
+            assert!(!help.contains("Cycle focus") && !help.contains("切换焦点"));
+        }
     }
 }

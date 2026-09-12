@@ -1,54 +1,72 @@
 //! Behavior Contract
-//! Capability: preview styling uses Think markers from the shared render IR.
-//! Scenarios: headings, task items, code, tags, and images become observable spans.
-//! Observable outcomes: styled lines contain ✓ / », heading text, and image placeholders.
-//! TDD proof: `markdown_view` was unused by the previous generic Paragraph preview.
-//! Excludes: terminal graphics protocol pixels.
+//! Capability: shared workspace Markdown retains its readable structure in the terminal.
+//! Scenarios: paragraphs and explicit line breaks; lists, tables, quotes, code and attachments.
+//! Observable outcomes: distinct display lines and text hierarchy with terminal-default body color.
+//! TDD proof: `markdown_view_contract` fails when hard breaks collapse and table rows merge.
+//! Excludes: parsing rules owned by lomo-workspace and terminal image bytes.
 
 #[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "Test fixtures and application effects must succeed before state assertions"
+)]
 mod tests {
-    use lomo_tui::markdown_view::styled_preview;
-    use lomo_tui::media::GraphicsProtocol;
-    use ratatui::style::Color;
+    use lomo_tui::content::MemoBody;
 
-    fn joined(body: &str) -> String {
-        styled_preview(body, GraphicsProtocol::None, Color::Reset)
-            .into_iter()
-            .flat_map(|line| line.spans.into_iter().map(|span| span.content.to_string()))
-            .collect()
+    fn lines(body: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Ok(MemoBody::parse(body.to_owned())?
+            .lines()
+            .iter()
+            .map(ToString::to_string)
+            .collect())
     }
 
     #[test]
-    fn styled_preview_marks_tasks_headers_code_tags_and_images() {
-        let text = joined(
-            "# Title\n\n**bold** *em* ~~strike~~ `code`\n\n- [x] Done Task\n- [ ] Open Task\n- plain\n\n1. numbered\n\n#tag\n\n![alt](pic.png)\n\n> quote\n\n---\n\n```\nfn main() {}\n```\n\n| h |\n| --- |\n| c |\n\n<div>html</div>\n",
-        );
-        assert!(text.contains("Title"), "text={text}");
+    fn preserves_paragraphs_and_explicit_line_breaks() {
+        let rendered = lines("first line  \nsecond line\n\nnew paragraph")
+            .expect("fixture and operation must succeed");
+        assert_eq!(rendered, ["first line", "second line", "", "new paragraph"]);
+    }
+
+    #[test]
+    fn table_rows_and_quote_hierarchy_remain_readable() {
+        let rendered = lines(
+            "| name | value |\n| --- | --- |\n| alpha | one |\n| beta | two |\n\n> quoted thought",
+        )
+        .expect("fixture and operation must succeed");
         assert!(
-            text.contains("✓ ") || text.contains("Done Task"),
-            "text={text}"
+            rendered.iter().any(|line| line.contains("alpha")
+                && line.contains("one")
+                && !line.contains("beta"))
         );
         assert!(
-            text.contains("» ") || text.contains("Open Task"),
-            "text={text}"
-        );
-        assert!(
-            text.contains("pic.png") || text.contains("[Image"),
-            "text={text}"
-        );
-        assert!(
-            text.contains("main") || text.contains("code") || text.contains("bold"),
-            "text={text}"
+            rendered
+                .iter()
+                .any(|line| line.starts_with("│ ") && line.contains("quoted thought"))
         );
     }
 
     #[test]
-    fn invalid_source_falls_back_to_raw_text() {
-        let text =
-            joined("just a paragraph with a link [a](https://example.com) and wiki [[Note]]");
-        assert!(
-            text.contains("paragraph") || text.contains("Note") || text.contains("example"),
-            "text={text}"
-        );
+    fn tasks_code_tags_and_attachments_keep_their_content() {
+        let rendered = lines(
+            "# Title\n\n- [x] completed\n- [ ] unfinished\n\n```rust\nlet x = 1;\n```\n\n#reading\n\n![photo](media/photo.png)",
+        ).expect("fixture and operation must succeed");
+        let text = rendered.join("\n");
+        for expected in [
+            "Title",
+            "✓ completed",
+            "□ unfinished",
+            "let x = 1;",
+            "#reading",
+            "media/photo.png",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+    }
+
+    #[test]
+    fn heading_levels_remain_distinguishable_in_terminal_text() {
+        let rendered = lines("# Title\n\n## Section").expect("headings");
+        assert_eq!(rendered, ["# Title", "", "## Section"]);
     }
 }

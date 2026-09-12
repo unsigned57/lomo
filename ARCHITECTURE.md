@@ -6,7 +6,7 @@ This document defines the immutable architecture and authority model for Lomo. I
 
 ### Applications
 - `apps/android`: Android composition root (Compose UI, SAF executor, WorkManager, JNI session adapter).
-- `apps/tui` (`lomo-tui`, binary `lomo`): Linux terminal composition root. Owns TEA state, responsive layout, key dispatch, external editor/process spawning, terminal graphics/clipboard/player capability reporting, and XDG private paths. It injects `lomo-platform-fs` into `lomo-application` and must not write workspace business files itself or embed a body editor.
+- `apps/tui` (`lomo-tui`, binary `lomo`): Linux terminal composition root. Owns TEA state, responsive layout, key dispatch, external editor/process spawning, terminal graphics/clipboard/player capability reporting, and XDG private paths. It injects `lomo-platform-fs` into `lomo-application` and owns lightweight multiline quick capture for new memos. Existing memo editing runs in an external editor. All durable memo writes go through `lomo-application`; the TUI must not write workspace business files itself.
 
 ### Kotlin Modules (`apps/android/`)
 - `domain`: Platform-neutral contracts, use cases, and pure models. Zero Android, persistence, network, DI, or FFI dependencies.

@@ -1,422 +1,446 @@
-use lomo_application::SearchMode;
+//! Pure state transitions. Every side effect carries its target rather than consulting later selection.
+pub use crate::effects::Effect;
+use crate::effects::{EditTarget, FeedRequest, PageIntent};
+use crate::event::{Command, MemoAction};
+use crate::input::TextBuffer;
+use crate::model::{
+    AppModel, BodyState, Confirmation, FeedKind, FeedState, InputMode, LoadStatus, Picker,
+    PickerKind, Screen, View,
+};
 
-use crate::event::{Command, PALETTE_LABELS, nav_screen, palette_command, screen_row};
-use crate::i18n::UiStrings;
-use crate::layout::{Focus, NavPresence, layout_mode, next_focus};
-use crate::model::{AppModel, ConfirmAction, Overlay, Screen, SearchSession};
-
-/// Session-side work requested by a key. The TEA loop performs these, not `apply_command`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Effect {
-    None,
-    Quit,
-    LoadScreen,
-    Search,
-    NewMemo,
-    EditMemo,
-    ToggleTask,
-    PinSelected,
-    DeleteSelected,
-    RestoreSelected,
-    ShowHistory,
-    ImportClipboard,
-    PlayAttachment,
-    ConfirmDelete,
-    ConfirmRestore,
+#[must_use]
+pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
+    if command == Command::Quit {
+        return Some(Effect::Quit);
+    }
+    if !matches!(model.input, InputMode::Browse) {
+        return crate::input_update::apply(model, &command);
+    }
+    match command {
+        Command::Compose => begin_input(model, InputStart::Compose),
+        Command::Search => open_search(model),
+        Command::Tags => begin_input(model, InputStart::Tags),
+        Command::Functions => begin_input(model, InputStart::Functions),
+        Command::Actions => begin_input(model, InputStart::Actions),
+        Command::Attachments => begin_input(model, InputStart::Attachments),
+        Command::Date => begin_input(model, InputStart::Date),
+        Command::CustomDate => begin_input(model, InputStart::CustomDate),
+        Command::SetDate(text) => Some(request_date(model, text)),
+        Command::RemoveKeyword | Command::RemoveDate => remove_filter(model, &command),
+        Command::ShowNotice => begin_input(model, InputStart::Notice),
+        Command::Help => begin_input(model, InputStart::Help),
+        Command::Back => go_back(model),
+        Command::Accept => crate::navigation::open_selected(model),
+        Command::Move(delta) => crate::navigation::move_selection(model, delta),
+        Command::Scroll(delta) => {
+            crate::navigation::scroll(model, delta);
+            request_more(model)
+        }
+        Command::Page(delta) => {
+            let height = crate::reader::page(model).map_or_else(
+                || crate::ui::layout_for(model).content.height,
+                |page| page.area.height,
+            );
+            let step = i32::from(height.saturating_sub(1).max(1));
+            crate::navigation::scroll(model, delta.saturating_mul(step));
+            request_more(model)
+        }
+        Command::First => {
+            crate::navigation::first(model);
+            None
+        }
+        Command::Last => {
+            crate::navigation::scroll(model, i32::MAX);
+            request_more(model)
+        }
+        Command::Click(column, row) => crate::navigation::click(model, column, row),
+        Command::Goto(screen) => Some(navigate(model, screen)),
+        Command::ToggleSearchMode => toggle_mode(model),
+        Command::SelectTag(tag) => change_tag(model, tag),
+        Command::ClearFilters => clear_filters(model),
+        Command::ExternalEdit => edit_selected(model),
+        Command::Pin | Command::Delete | Command::Restore | Command::History => apply_to_memo(
+            model,
+            &model.selected_memo()?.clone(),
+            command.memo_action()?,
+        ),
+        Command::ToggleTask => match &model.view {
+            View::Tasks(list) => list
+                .items
+                .get(list.selected)
+                .cloned()
+                .map(Effect::ToggleTask),
+            View::Feed(_)
+            | View::Reader { .. }
+            | View::Statistics(_)
+            | View::Attachments(_)
+            | View::Settings(_)
+            | View::Loading(_)
+            | View::Failed { .. } => None,
+        },
+        Command::ImportClipboard => Some(Effect::ImportClipboard),
+        Command::OpenAttachment(path) => Some(Effect::OpenAttachment(path)),
+        Command::DiscardDraft => {
+            model.input = InputMode::Confirm(Confirmation::DiscardDraft);
+            None
+        }
+        Command::Refresh => Some(Effect::Refresh),
+        Command::ShowCreated => show_created(model),
+        Command::ToggleTagScope
+        | Command::Quit
+        | Command::Commit
+        | Command::Type(_)
+        | Command::Edit(_) => None,
+    }
+}
+fn picker(model: &mut AppModel, kind: PickerKind) {
+    model.input = InputMode::Picker(Picker {
+        kind,
+        text: TextBuffer::default(),
+        selected: 0,
+    });
+}
+#[derive(Clone, Copy)]
+enum InputStart {
+    Compose,
+    Tags,
+    Functions,
+    Actions,
+    Attachments,
+    Date,
+    CustomDate,
+    Notice,
+    Help,
 }
 
-/// Applies a command to the model. Focus survives resize; IO is returned as an effect.
-#[must_use]
-pub fn apply_command(model: &mut AppModel, command: Command) -> Effect {
-    match &model.overlay {
-        Overlay::None => apply_idle(model, command),
-        Overlay::Help => apply_help(model, command),
-        Overlay::Palette { .. } => apply_palette(model, command),
-        Overlay::Alert { .. } | Overlay::Overdue { .. } | Overlay::History { .. } => {
-            apply_dismiss(model, command)
+fn begin_input(model: &mut AppModel, start: InputStart) -> Option<Effect> {
+    match start {
+        InputStart::Compose => {
+            model.input = InputMode::Compose;
+            return Some(Effect::Tags);
         }
-        Overlay::Confirm { .. } => apply_confirm(model, command),
+        InputStart::Tags => {
+            picker(
+                model,
+                PickerKind::Tags(timeline_context(model).query.filters.tag_selection),
+            );
+            return Some(Effect::Tags);
+        }
+        InputStart::Functions => picker(model, PickerKind::Functions),
+        InputStart::Actions => picker(
+            model,
+            PickerKind::Actions(Box::new(model.selected_memo()?.clone())),
+        ),
+        InputStart::Attachments => picker(
+            model,
+            PickerKind::Attachments(Box::new(model.selected_memo()?.clone())),
+        ),
+        InputStart::Date => picker(model, PickerKind::Dates),
+        InputStart::CustomDate => {
+            model.input = InputMode::Date {
+                ticket: model.next_ticket(),
+                text: TextBuffer::default(),
+                error: None,
+            }
+        }
+        InputStart::Notice => {
+            if let Some(notice) = &model.notice {
+                model.input = InputMode::Message {
+                    title: notice.title.clone(),
+                    lines: notice.lines.clone(),
+                    scroll: 0,
+                };
+            }
+        }
+        InputStart::Help => model.input = InputMode::Help { scroll: 0 },
+    }
+    None
+}
+
+fn request_date(model: &mut AppModel, text: String) -> Effect {
+    let ticket = model.next_ticket();
+    model.input = InputMode::Date {
+        ticket,
+        text: TextBuffer::new(text.clone()),
+        error: None,
+    };
+    Effect::Date { ticket, text }
+}
+
+fn open_search(model: &mut AppModel) -> Option<Effect> {
+    let before = Box::new(model.view.clone());
+    let feed = timeline_context(model);
+    let load = matches!(feed.load, LoadStatus::Loading | LoadStatus::Stale);
+    model.input = InputMode::Search {
+        text: TextBuffer::new(feed.query.text.clone()),
+        before,
+    };
+    model.view = View::Feed(feed);
+    if load { reload_feed(model) } else { None }
+}
+
+fn timeline_context(model: &AppModel) -> FeedState {
+    std::iter::once(&model.view)
+        .chain(model.history.iter().rev())
+        .find_map(|view| {
+            if let View::Feed(feed) = view
+                && feed.kind == FeedKind::Timeline
+            {
+                Some(feed.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| FeedState::new(FeedKind::Timeline))
+}
+
+pub fn ensure_feed(model: &mut AppModel) {
+    if !matches!(&model.view, View::Feed(feed) if feed.kind == FeedKind::Timeline) {
+        model.push_view(View::Feed(timeline_context(model)));
+    }
+}
+#[must_use]
+pub fn reload_feed(model: &mut AppModel) -> Option<Effect> {
+    if !matches!(model.view, View::Feed(_)) {
+        return None;
+    }
+    let epoch = model.next_epoch();
+    let View::Feed(feed) = &mut model.view else {
+        return None;
+    };
+    feed.epoch = epoch;
+    feed.load = LoadStatus::Loading;
+    let intent = if feed.memos.is_empty() {
+        PageIntent::Initial
+    } else {
+        PageIntent::Refresh {
+            loaded: feed.memos.len(),
+            anchors: feed
+                .selected
+                .iter()
+                .cloned()
+                .chain(feed.anchor.iter().map(|anchor| anchor.id.clone()))
+                .collect(),
+        }
+    };
+    Some(Effect::Query(FeedRequest {
+        epoch,
+        kind: feed.kind,
+        query: feed.query.clone(),
+        intent,
+    }))
+}
+#[must_use]
+pub fn search_changed(model: &mut AppModel) -> Option<Effect> {
+    let InputMode::Search { text, .. } = &model.input else {
+        return None;
+    };
+    let query = text.text().trim().to_owned();
+    if let View::Feed(feed) = &mut model.view {
+        if feed.query.text == query {
+            return None;
+        }
+        feed.remember_unfiltered();
+        feed.query.text = query;
+        feed.invalidate_results();
+    }
+    query_changed(model)
+}
+pub fn toggle_mode(model: &mut AppModel) -> Option<Effect> {
+    let View::Feed(feed) = &mut model.view else {
+        return None;
+    };
+    feed.query.mode = match feed.query.mode {
+        lomo_application::SearchMode::Fulltext => lomo_application::SearchMode::Fuzzy,
+        lomo_application::SearchMode::Fuzzy => lomo_application::SearchMode::Fulltext,
+    };
+    if feed.query.text.is_empty() {
+        return None;
+    }
+    feed.invalidate_results();
+    reload_feed(model)
+}
+fn navigate(model: &mut AppModel, screen: Screen) -> Effect {
+    let epoch = model.next_epoch();
+    model.push_view(View::Loading(screen));
+    Effect::Navigate { epoch, screen }
+}
+fn go_back(model: &mut AppModel) -> Option<Effect> {
+    if let Some(view) = model.history.pop() {
+        model.next_epoch();
+        model.view = view;
+        if let View::Feed(feed) = &mut model.view {
+            feed.epoch = model.epoch;
+            if feed.load == LoadStatus::Loading {
+                feed.load = LoadStatus::Ready;
+            }
+        }
+        if matches!(&model.view, View::Feed(feed) if feed.load == LoadStatus::Stale) {
+            return reload_feed(model);
+        }
+        return None;
+    }
+    if matches!(&model.view, View::Feed(feed) if feed.query.is_filtered()) {
+        return clear_filters(model);
+    }
+    None
+}
+fn change_tag(model: &mut AppModel, tag: Option<String>) -> Option<Effect> {
+    select_tag(
+        model,
+        tag.map(|name| crate::model::TagConstraint {
+            name,
+            scope: lomo_application::TagSelectionMode::Exact,
+        }),
+    )
+}
+
+pub fn select_tag(
+    model: &mut AppModel,
+    tag: Option<crate::model::TagConstraint>,
+) -> Option<Effect> {
+    ensure_feed(model);
+    if let View::Feed(feed) = &mut model.view {
+        feed.remember_unfiltered();
+        if let Some(tag) = tag {
+            feed.query.filters.tag = Some(tag.name);
+            feed.query.filters.tag_selection = tag.scope;
+        } else {
+            feed.query.filters.tag = None;
+            feed.query.filters.tag_selection = lomo_application::TagSelectionMode::Exact;
+        }
+        feed.invalidate_results();
+    }
+    query_changed(model)
+}
+fn clear_filters(model: &mut AppModel) -> Option<Effect> {
+    ensure_feed(model);
+    let epoch = model.next_epoch();
+    if let View::Feed(feed) = &mut model.view {
+        if let Some(original) = feed.unfiltered.take() {
+            *feed = *original;
+            feed.epoch = epoch;
+            if feed.load == LoadStatus::Stale {
+                return reload_feed(model);
+            }
+            return None;
+        }
+        feed.query = crate::model::FeedQuery::default();
+    }
+    reload_feed(model)
+}
+fn request_more(model: &mut AppModel) -> Option<Effect> {
+    if let View::Feed(feed) = &mut model.view {
+        crate::navigation::maybe_next_page(feed)
+    } else {
+        None
+    }
+}
+fn edit_selected(model: &mut AppModel) -> Option<Effect> {
+    editor_for_memo(model, &model.selected_memo()?.clone())
+}
+pub fn apply_to_memo(
+    model: &mut AppModel,
+    memo: &crate::model::MemoCard,
+    action: MemoAction,
+) -> Option<Effect> {
+    match action {
+        MemoAction::Read => {
+            model.push_view(View::Reader {
+                memo: memo.clone(),
+                anchor: crate::model::TextAnchor::default(),
+            });
+            None
+        }
+        MemoAction::Edit => editor_for_memo(model, memo),
+        MemoAction::Attachments => {
+            picker(model, PickerKind::Attachments(Box::new(memo.clone())));
+            None
+        }
+        MemoAction::Pin if !memo.trashed => Some(Effect::Pin {
+            id: memo.id.clone(),
+            pinned: !memo.pinned,
+        }),
+        MemoAction::History => Some(Effect::History(memo.id.clone())),
+        MemoAction::Delete if !memo.trashed => {
+            model.input = InputMode::Confirm(Confirmation::Delete {
+                id: memo.id.clone(),
+                fingerprint: memo.fingerprint.clone(),
+            });
+            None
+        }
+        MemoAction::Restore if memo.trashed => {
+            model.input = InputMode::Confirm(Confirmation::Restore(memo.id.clone()));
+            None
+        }
+        MemoAction::Pin | MemoAction::Delete | MemoAction::Restore => None,
     }
 }
 
-/// Records a new terminal size without changing focus.
+fn editor_for_memo(model: &mut AppModel, memo: &crate::model::MemoCard) -> Option<Effect> {
+    if memo.trashed {
+        return None;
+    }
+    match &memo.body {
+        BodyState::Ready(body) => Some(Effect::Edit(EditTarget::Memo {
+            id: memo.id.clone(),
+            fingerprint: memo.fingerprint.clone(),
+            body: body.as_str().to_owned(),
+        })),
+        BodyState::Failed(error) => {
+            model.set_status(error);
+            None
+        }
+        BodyState::Pending | BodyState::Loading { .. } => {
+            model.set_status(
+                crate::i18n::UiStrings::detect().text("Loading memo body…", "正在加载正文…"),
+            );
+            crate::navigation::hydrate_visible(model)
+        }
+    }
+}
+fn show_created(model: &mut AppModel) -> Option<Effect> {
+    let id = model.last_created.clone()?;
+    let epoch = model.next_epoch();
+    model.push_view(View::Loading(Screen::Timeline));
+    Some(Effect::ReadMemo { epoch, id })
+}
 pub fn apply_resize(model: &mut AppModel, width: u16, height: u16) {
     model.width = width;
     model.height = height;
-    if layout_mode(width) == crate::layout::LayoutMode::Single {
-        model.nav = NavPresence::Hidden;
+    model.images.clear();
+    let layout = crate::ui::layout_for(model);
+    if model.input == InputMode::Browse
+        && let View::Feed(feed) = &mut model.view
+    {
+        crate::feed_layout::ensure_selected_visible(
+            feed,
+            layout.content.width,
+            layout.content.height,
+        );
     }
 }
 
-fn apply_idle(model: &mut AppModel, command: Command) -> Effect {
-    if matches!(model.search, SearchSession::Open { .. }) {
-        return apply_search(model, command);
-    }
-    match command {
-        Command::Quit => Effect::Quit,
-        Command::HelpToggle => {
-            model.overlay = Overlay::Help;
-            Effect::None
-        }
-        Command::PaletteToggle => {
-            model.overlay = Overlay::Palette {
-                index: screen_row(model.screen),
-            };
-            Effect::None
-        }
-        Command::FocusNext => {
-            model.focus = next_focus(model.focus);
-            Effect::None
-        }
-        Command::MoveUp => {
-            move_list(model, -1);
-            Effect::LoadScreen
-        }
-        Command::MoveDown => {
-            move_list(model, 1);
-            Effect::LoadScreen
-        }
-        Command::OpenSearch => {
-            model.search_epoch = model.search_epoch.saturating_add(1);
-            model.search = SearchSession::Open {
-                query: String::new(),
-                mode: model.search_mode,
-                epoch: model.search_epoch,
-            };
-            Effect::None
-        }
-        Command::ToggleSearchMode => {
-            model.search_mode = toggle_mode(model.search_mode);
-            let i18n = UiStrings::detect();
-            let label = match model.search_mode {
-                SearchMode::Fulltext => i18n.search_fulltext.as_str(),
-                SearchMode::Fuzzy => i18n.search_fuzzy.as_str(),
-            };
-            model.set_status(&format!("search mode: {label}"));
-            Effect::None
-        }
-        Command::NewMemo => Effect::NewMemo,
-        Command::EditMemo => Effect::EditMemo,
-        Command::ToggleTask => Effect::ToggleTask,
-        Command::Goto(screen) => goto_screen(model, screen),
-        Command::ToggleNavDrawer => {
-            model.nav = match model.nav {
-                NavPresence::Hidden => NavPresence::Shown,
-                NavPresence::Shown => NavPresence::Hidden,
-            };
-            Effect::None
-        }
-        Command::PlayAttachment => Effect::PlayAttachment,
-        Command::ImportClipboard => Effect::ImportClipboard,
-        Command::PinSelected => Effect::PinSelected,
-        Command::DeleteSelected => Effect::ConfirmDelete,
-        Command::RestoreSelected => Effect::ConfirmRestore,
-        Command::ShowHistory => Effect::ShowHistory,
-        Command::Cancel
-        | Command::SearchChar(_)
-        | Command::SearchBackspace
-        | Command::SearchSubmit
-        | Command::SearchCancel
-        | Command::ConfirmYes
-        | Command::ConfirmNo
-        | Command::None => Effect::None,
-    }
-}
-
-fn apply_search(model: &mut AppModel, command: Command) -> Effect {
-    match command {
-        Command::SearchChar(ch) => {
-            if let SearchSession::Open { query, .. } = &mut model.search {
-                query.push(ch);
-            }
-            Effect::None
-        }
-        Command::SearchBackspace => {
-            if let SearchSession::Open { query, .. } = &mut model.search {
-                query.pop();
-            }
-            Effect::None
-        }
-        Command::SearchSubmit => {
-            bump_search_epoch(model);
-            Effect::Search
-        }
-        Command::SearchCancel => {
-            model.search = SearchSession::Closed;
-            Effect::LoadScreen
-        }
-        Command::ToggleSearchMode => {
-            if let SearchSession::Open { mode, .. } = &mut model.search {
-                *mode = toggle_mode(*mode);
-                model.search_mode = *mode;
-            }
-            Effect::None
-        }
-        Command::Quit => Effect::Quit,
-        Command::HelpToggle
-        | Command::PaletteToggle
-        | Command::FocusNext
-        | Command::MoveUp
-        | Command::MoveDown
-        | Command::OpenSearch
-        | Command::NewMemo
-        | Command::EditMemo
-        | Command::ToggleTask
-        | Command::ConfirmYes
-        | Command::ConfirmNo
-        | Command::Cancel
-        | Command::Goto(_)
-        | Command::ToggleNavDrawer
-        | Command::PlayAttachment
-        | Command::ImportClipboard
-        | Command::PinSelected
-        | Command::DeleteSelected
-        | Command::RestoreSelected
-        | Command::ShowHistory
-        | Command::None => Effect::None,
-    }
-}
-
-fn apply_help(model: &mut AppModel, command: Command) -> Effect {
-    match command {
-        Command::HelpToggle | Command::Cancel => {
-            model.overlay = Overlay::None;
-            Effect::None
-        }
-        Command::Quit => Effect::Quit,
-        Command::PaletteToggle
-        | Command::FocusNext
-        | Command::MoveUp
-        | Command::MoveDown
-        | Command::OpenSearch
-        | Command::SearchChar(_)
-        | Command::SearchBackspace
-        | Command::SearchSubmit
-        | Command::SearchCancel
-        | Command::ToggleSearchMode
-        | Command::NewMemo
-        | Command::EditMemo
-        | Command::ToggleTask
-        | Command::ConfirmYes
-        | Command::ConfirmNo
-        | Command::Goto(_)
-        | Command::ToggleNavDrawer
-        | Command::PlayAttachment
-        | Command::ImportClipboard
-        | Command::PinSelected
-        | Command::DeleteSelected
-        | Command::RestoreSelected
-        | Command::ShowHistory
-        | Command::None => Effect::None,
-    }
-}
-
-fn apply_palette(model: &mut AppModel, command: Command) -> Effect {
-    match command {
-        Command::Cancel => {
-            model.overlay = Overlay::None;
-            Effect::None
-        }
-        Command::MoveUp => {
-            shift_palette(model, -1);
-            Effect::None
-        }
-        Command::MoveDown => {
-            shift_palette(model, 1);
-            Effect::None
-        }
-        Command::ConfirmYes => take_palette(model),
-        Command::Quit => Effect::Quit,
-        Command::HelpToggle
-        | Command::PaletteToggle
-        | Command::FocusNext
-        | Command::OpenSearch
-        | Command::SearchChar(_)
-        | Command::SearchBackspace
-        | Command::SearchSubmit
-        | Command::SearchCancel
-        | Command::ToggleSearchMode
-        | Command::NewMemo
-        | Command::EditMemo
-        | Command::ToggleTask
-        | Command::ConfirmNo
-        | Command::Goto(_)
-        | Command::ToggleNavDrawer
-        | Command::PlayAttachment
-        | Command::ImportClipboard
-        | Command::PinSelected
-        | Command::DeleteSelected
-        | Command::RestoreSelected
-        | Command::ShowHistory
-        | Command::None => Effect::None,
-    }
-}
-
-fn apply_dismiss(model: &mut AppModel, command: Command) -> Effect {
-    match command {
-        Command::Cancel | Command::ConfirmYes | Command::ConfirmNo => {
-            model.overlay = Overlay::None;
-            Effect::None
-        }
-        Command::Quit => Effect::Quit,
-        Command::HelpToggle
-        | Command::PaletteToggle
-        | Command::FocusNext
-        | Command::MoveUp
-        | Command::MoveDown
-        | Command::OpenSearch
-        | Command::SearchChar(_)
-        | Command::SearchBackspace
-        | Command::SearchSubmit
-        | Command::SearchCancel
-        | Command::ToggleSearchMode
-        | Command::NewMemo
-        | Command::EditMemo
-        | Command::ToggleTask
-        | Command::Goto(_)
-        | Command::ToggleNavDrawer
-        | Command::PlayAttachment
-        | Command::ImportClipboard
-        | Command::PinSelected
-        | Command::DeleteSelected
-        | Command::RestoreSelected
-        | Command::ShowHistory
-        | Command::None => Effect::None,
-    }
-}
-
-fn apply_confirm(model: &mut AppModel, command: Command) -> Effect {
-    match command {
-        Command::ConfirmNo | Command::Cancel => {
-            model.overlay = Overlay::None;
-            Effect::None
-        }
-        Command::ConfirmYes => match model.overlay {
-            Overlay::Confirm {
-                action: ConfirmAction::Delete,
-                ..
-            } => {
-                model.overlay = Overlay::None;
-                Effect::DeleteSelected
-            }
-            Overlay::Confirm {
-                action: ConfirmAction::Restore,
-                ..
-            } => {
-                model.overlay = Overlay::None;
-                Effect::RestoreSelected
-            }
-            Overlay::None
-            | Overlay::Help
-            | Overlay::Palette { .. }
-            | Overlay::Alert { .. }
-            | Overlay::Overdue { .. }
-            | Overlay::History { .. } => Effect::None,
-        },
-        Command::Quit => Effect::Quit,
-        Command::HelpToggle
-        | Command::PaletteToggle
-        | Command::FocusNext
-        | Command::MoveUp
-        | Command::MoveDown
-        | Command::OpenSearch
-        | Command::SearchChar(_)
-        | Command::SearchBackspace
-        | Command::SearchSubmit
-        | Command::SearchCancel
-        | Command::ToggleSearchMode
-        | Command::NewMemo
-        | Command::EditMemo
-        | Command::ToggleTask
-        | Command::Goto(_)
-        | Command::ToggleNavDrawer
-        | Command::PlayAttachment
-        | Command::ImportClipboard
-        | Command::PinSelected
-        | Command::DeleteSelected
-        | Command::RestoreSelected
-        | Command::ShowHistory
-        | Command::None => Effect::None,
-    }
-}
-
-fn goto_screen(model: &mut AppModel, screen: Screen) -> Effect {
-    model.screen = screen;
-    model.nav_selected = screen_row(screen);
-    model.selected = 0;
-    model.focus = Focus::List;
-    model.overlay = Overlay::None;
-    Effect::LoadScreen
-}
-
-fn move_list(model: &mut AppModel, delta: i32) {
-    if model.focus == Focus::Navigation {
-        let count = crate::event::nav_row_count();
-        model.nav_selected = shift_index(model.nav_selected, count, delta);
-        if let Some(screen) = nav_screen(model.nav_selected) {
-            model.screen = screen;
-        }
-        return;
-    }
-    if model.items.is_empty() {
-        return;
-    }
-    model.selected = shift_index(model.selected, model.items.len(), delta);
-}
-
-const fn shift_palette(model: &mut AppModel, delta: i32) {
-    if let Overlay::Palette { index } = &mut model.overlay {
-        *index = shift_index(*index, PALETTE_LABELS.len(), delta);
-    }
-}
-
-fn take_palette(model: &mut AppModel) -> Effect {
-    let Overlay::Palette { index } = model.overlay else {
-        return Effect::None;
-    };
-    model.overlay = Overlay::None;
-    apply_idle(model, palette_command(index))
-}
-
-const fn bump_search_epoch(model: &mut AppModel) {
-    model.search_epoch = model.search_epoch.saturating_add(1);
-    if let SearchSession::Open { epoch, mode, .. } = &mut model.search {
-        *epoch = model.search_epoch;
-        model.search_mode = *mode;
-    }
-}
-
-const fn toggle_mode(mode: SearchMode) -> SearchMode {
-    match mode {
-        SearchMode::Fulltext => SearchMode::Fuzzy,
-        SearchMode::Fuzzy => SearchMode::Fulltext,
-    }
-}
-
-const fn shift_index(current: usize, len: usize, delta: i32) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    let last = len.saturating_sub(1);
-    if delta < 0 {
-        current.saturating_sub(1)
-    } else if current >= last {
-        last
+fn query_changed(model: &mut AppModel) -> Option<Effect> {
+    if matches!(&model.view, View::Feed(feed) if !feed.query.is_filtered() && feed.unfiltered.is_some())
+    {
+        clear_filters(model)
     } else {
-        current.saturating_add(1)
+        reload_feed(model)
     }
 }
 
-/// Opens a confirm overlay for delete/restore. Called by the TEA dispatcher.
-pub fn request_confirm(model: &mut AppModel, action: ConfirmAction) {
-    let i18n = UiStrings::detect();
-    let (title, body) = match action {
-        ConfirmAction::Delete => (i18n.confirm_delete_title, i18n.confirm_delete_query),
-        ConfirmAction::Restore => (i18n.confirm_restore_title, i18n.confirm_restore_query),
-    };
-    model.overlay = Overlay::Confirm {
-        title,
-        body,
-        action,
-    };
+fn remove_filter(model: &mut AppModel, command: &Command) -> Option<Effect> {
+    ensure_feed(model);
+    if let View::Feed(feed) = &mut model.view {
+        if command == &Command::RemoveKeyword {
+            feed.query.text.clear();
+        } else {
+            feed.query.filters.date_from_inclusive_ms = None;
+            feed.query.filters.date_until_exclusive_ms = None;
+            feed.query.date_label = None;
+        }
+        feed.invalidate_results();
+    }
+    query_changed(model)
 }

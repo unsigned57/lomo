@@ -4,34 +4,6 @@ use std::process::{Command, ExitStatus};
 
 use crate::error::TuiError;
 
-/// How an editor session will be committed.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EditKind {
-    Create,
-    Update { memo_id: String },
-}
-
-/// SHA-256 hex of the document bytes taken before the editor started.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EditBaseline {
-    pub fingerprint: Option<String>,
-}
-
-/// Observable three-way decision after the editor exits.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CommitDecision {
-    CancelledEmpty,
-    Unchanged,
-    Submit {
-        content: String,
-    },
-    Conflict {
-        draft_content: String,
-        baseline: String,
-        disk: String,
-    },
-}
-
 /// Resolved argv for an external editor. Never defaults to vim.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditorArgv {
@@ -88,34 +60,6 @@ pub fn resolve_editor(
     Err(TuiError::EditorNotConfigured)
 }
 
-/// Three-way commit law: empty create cancels; fingerprint mismatch keeps the draft.
-#[must_use]
-pub fn decide_commit(
-    kind: &EditKind,
-    initial: &str,
-    draft: &str,
-    baseline: &EditBaseline,
-    disk_fingerprint: Option<&str>,
-) -> CommitDecision {
-    if matches!(kind, EditKind::Create) && draft.trim().is_empty() {
-        return CommitDecision::CancelledEmpty;
-    }
-    if draft == initial {
-        return CommitDecision::Unchanged;
-    }
-    let baseline_fp = baseline.fingerprint.as_deref();
-    if baseline_fp != disk_fingerprint {
-        return CommitDecision::Conflict {
-            draft_content: draft.to_owned(),
-            baseline: baseline_fp.unwrap_or("absent").to_owned(),
-            disk: disk_fingerprint.unwrap_or("absent").to_owned(),
-        };
-    }
-    CommitDecision::Submit {
-        content: draft.to_owned(),
-    }
-}
-
 /// Writes `initial`, runs the editor against `draft_path`, then reads the draft back.
 ///
 /// # Errors
@@ -126,14 +70,17 @@ pub fn run_editor<R: CommandRunner>(
     draft_path: &Path,
     initial: &str,
 ) -> Result<String, TuiError> {
-    if let Some(parent) = draft_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(draft_path, initial)?;
+    crate::drafts::write_draft(draft_path, initial)?;
     let mut command_args = argv.args.clone();
     command_args.push(draft_path.display().to_string());
     match runner.run_foreground(&argv.program, &command_args) {
-        Ok(_status) => {}
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            return Err(TuiError::io(format!(
+                "editor exited {status}; draft kept at {}",
+                draft_path.display()
+            )));
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(TuiError::EditorNotConfigured);
         }
