@@ -1022,6 +1022,8 @@ private class FakeNativeEnginePort(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage = error("store query not expected")
 
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =

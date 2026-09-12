@@ -33,6 +33,8 @@ internal interface StoreNativeReadBridge {
         query: BridgeMemoQuery,
         cursor: BridgePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): BridgeMemoPage
 
     fun getMemo(memoId: String): BridgeMemoSnapshot?

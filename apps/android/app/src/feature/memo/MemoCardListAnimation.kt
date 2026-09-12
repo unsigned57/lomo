@@ -89,11 +89,9 @@ fun MemoCardList(
     val listContent: @Composable () -> Unit = {
         val totalItemCount = maxOf(snapshotStartIndex + exitState.renderList.size, pagedMemos.itemCount)
         val uniqueKeys = rememberUniqueExitRenderListKeys(
-            totalItemCount = totalItemCount,
             snapshotStartIndex = snapshotStartIndex,
             renderList = exitState.renderList,
             itemKey = { it.memo.id },
-            peekItem = { index -> pagedMemos.peek(index) },
             itemSnapshotList = pagedMemos.itemSnapshotList
         )
         LazyColumn(
@@ -104,7 +102,7 @@ fun MemoCardList(
         ) {
             items(
                 count = totalItemCount,
-                key = { index -> uniqueKeys.getOrElse(index) { "fallback-$index" } },
+                key = { index -> uniqueKeys.keyAt(index) },
             ) { index ->
                 if (index < pagedMemos.itemCount) {
                     pagedMemos[index]

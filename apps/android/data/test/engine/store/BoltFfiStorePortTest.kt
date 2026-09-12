@@ -14,6 +14,8 @@ package com.lomo.data.engine.store
  * Scenarios:
  * - Given a bridge page with one summary and next cursor, when queryMemos runs, then filters/search
  *   are forwarded and domain page fields are mapped (incl. ULong→Long revisions).
+ * - Given a start memo id and positional ranks, when queryMemos runs, then identity start is
+ *   forwarded and prev/itemsBefore/itemsAfter map.
  * - Given bridge getMemo returns null, when getMemo runs, then null is observed.
  * - Given bridge getMemo returns a snapshot, when getMemo runs, then body and summary map.
  * - Given each StoreMemoCommandKind without staged media, when applyMemoCommand runs, then the
@@ -45,7 +47,7 @@ package com.lomo.data.engine.store
  * - RED: BoltFfiStorePort untested / zero-hit under coverage before this host contract.
  *
  * Excludes:
- * - Real BoltFFI/JNI handle lifecycle (device-smoke / native contracts).
+ * - Real BoltFFI/JNI handle lifecycle (packaged native library / native contracts).
  *
  * Test Change Justification:
  * - Reason category: production media promote wiring on session memo commands.
@@ -97,6 +99,8 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
     var lastQuery: BridgeMemoQuery? = null
     var lastCursor: BridgePageCursor? = null
     var lastPageSize: UInt? = null
+    var lastStartMemoId: String? = null
+    var lastBackward: Boolean = false
     var lastGetMemoId: String? = null
     var lastCommand: BridgeMemoCommand? = null
     var lastSessionCreate: SessionCreateMemoRequest? = null
@@ -114,6 +118,9 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         BridgeMemoPage(
             items = emptyList(),
             nextCursor = null,
+            prevCursor = null,
+            itemsBefore = 0uL,
+            itemsAfter = 0uL,
             highWaterRevision = 0uL,
             queryFingerprint = "fp",
         )
@@ -151,10 +158,14 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         query: BridgeMemoQuery,
         cursor: BridgePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): BridgeMemoPage {
         lastQuery = query
         lastCursor = cursor
         lastPageSize = pageSize
+        lastStartMemoId = startMemoId
+        lastBackward = backward
         failure?.let { throw it }
         return page
     }
@@ -331,6 +342,9 @@ class BoltFfiStorePortTest : FunSpec({
                     BridgeMemoPage(
                         items = listOf(bridgeSummary()),
                         nextCursor = BridgePageCursor("c2"),
+                        prevCursor = null,
+                        itemsBefore = 0uL,
+                        itemsAfter = 4uL,
                         highWaterRevision = 11uL,
                         queryFingerprint = "q-fp",
                     )
@@ -361,6 +375,8 @@ class BoltFfiStorePortTest : FunSpec({
 
         bridge.lastPageSize shouldBe 30u
         bridge.lastCursor?.encoded shouldBe "c1"
+        bridge.lastStartMemoId.shouldBeNull()
+        bridge.lastBackward shouldBe false
         bridge.lastQuery?.searchText shouldBe "hi"
         bridge.lastQuery?.filters?.tag shouldBe "work"
         bridge.lastQuery?.filters?.tagSubtree shouldBe true
@@ -373,8 +389,42 @@ class BoltFfiStorePortTest : FunSpec({
         result.items[0].hasTodo shouldBe true
         result.items[0].isPinned shouldBe true
         result.nextCursor?.encoded shouldBe "c2"
+        result.prevCursor.shouldBeNull()
+        result.itemsBefore shouldBe 0L
+        result.itemsAfter shouldBe 4L
         result.highWaterRevision shouldBe 11L
         result.queryFingerprint shouldBe "q-fp"
+    }
+
+    test("queryMemos starts at memo identity and maps positional ranks") {
+        val bridge =
+            RecordingStoreNativeBridge().apply {
+                page =
+                    BridgeMemoPage(
+                        items = listOf(bridgeSummary()),
+                        nextCursor = BridgePageCursor("next"),
+                        prevCursor = BridgePageCursor("prev"),
+                        itemsBefore = 2uL,
+                        itemsAfter = 4uL,
+                        highWaterRevision = 11uL,
+                        queryFingerprint = "q-fp",
+                    )
+            }
+        val result =
+            storePort(bridge).queryMemos(
+                StoreMemoQuery(),
+                cursor = null,
+                pageSize = 30,
+                startMemoId = "m-mid",
+                backward = false,
+            )
+        bridge.lastStartMemoId shouldBe "m-mid"
+        bridge.lastCursor.shouldBeNull()
+        bridge.lastBackward shouldBe false
+        result.prevCursor?.encoded shouldBe "prev"
+        result.nextCursor?.encoded shouldBe "next"
+        result.itemsBefore shouldBe 2L
+        result.itemsAfter shouldBe 4L
     }
 
     test("getMemo returns null when bridge has no snapshot") {
@@ -681,6 +731,9 @@ class BoltFfiStorePortTest : FunSpec({
                     BridgeMemoPage(
                         items = listOf(bridgeSummary()),
                         nextCursor = null,
+                        prevCursor = null,
+                        itemsBefore = 0uL,
+                        itemsAfter = 0uL,
                         highWaterRevision = 1uL,
                         queryFingerprint = "fp",
                     )

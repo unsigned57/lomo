@@ -95,7 +95,7 @@ import com.lomo.domain.model.ProjectionFreshness
  * projection before authority commit, so a blocked provider scan prevented the root from switching.
  * TDD proof: RED on 2026-09-01 because SAF memo mutations with pendingPromotes were rejected with
  * IllegalArgumentException instead of executing the platform media transaction.
- * Excludes: live BoltFFI LomoEngine.open (device/native-smoke) and Compose recovery UI.
+ * Excludes: live BoltFFI LomoEngine.open and Compose recovery UI.
  *
  * Test Change Justification:
  * - Reason category: production memo persistence cutover from Room to lomo-store ports.
@@ -2219,6 +2219,8 @@ private class SessionFakeNativeEnginePort(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage {
         onQueryMemos?.also { callback ->
             onQueryMemos = null
@@ -2227,6 +2229,9 @@ private class SessionFakeNativeEnginePort(
         return com.lomo.nativebridge.StoreMemoPage(
             items = emptyList(),
             nextCursor = null,
+            prevCursor = null,
+            itemsBefore = 0uL,
+            itemsAfter = 0uL,
             highWaterRevision = projectionHighWaterRevision,
             queryFingerprint = "fake-query",
         )

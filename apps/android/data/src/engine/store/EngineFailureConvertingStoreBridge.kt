@@ -31,7 +31,12 @@ internal class EngineFailureConvertingStoreBridge(
         query: BridgeMemoQuery,
         cursor: BridgePageCursor?,
         pageSize: UInt,
-    ): BridgeMemoPage = withEngineFailureConversion { delegate.queryMemos(query, cursor, pageSize) }
+        startMemoId: String?,
+        backward: Boolean,
+    ): BridgeMemoPage =
+        withEngineFailureConversion {
+            delegate.queryMemos(query, cursor, pageSize, startMemoId, backward)
+        }
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? = withEngineFailureConversion { delegate.getMemo(memoId) }
 

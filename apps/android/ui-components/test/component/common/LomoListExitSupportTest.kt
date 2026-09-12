@@ -7,7 +7,8 @@ import kotlinx.collections.immutable.toImmutableList
 
 /*
  * Behavior Contract:
- * - Unit under test: ExitAnimationRegistry, resolveExitRenderList, uniqueMemoListRenderKeys, computeExitRenderListBaseKeys
+ * - Unit under test: ExitAnimationRegistry, resolveExitRenderList, uniqueMemoListRenderKeys, computeExitRenderKeyWindow
+
  * - Owning layer: ui-components common
  * - Priority tier: P1
  * - Capability: Merge active items with exiting items, positioning exiting items at their anchored slots, and guarantee unique render keys.
@@ -20,8 +21,8 @@ import kotlinx.collections.immutable.toImmutableList
  * - Given animation, mutation, and source absence complete in any order, when the last condition is marked, then the registry entry is removed.
  * - Given multiple concurrent deletes, when resolved, then the transitive order of exits is preserved.
  * - Given a base key list with duplicates, when uniqueMemoListRenderKeys is called, then it returns deduplicated keys preserving order.
- * - Given an exit render list and a paged peek list with overlapping items, when computeExitRenderListBaseKeys is called, then the resolved base keys contain duplicates.
- * - Given duplicate keys in base list, when uniqueMemoListRenderKeys is applied, then all keys in the final key list are unique.
+ * - Given an exit render list at a deep placeholder rank, when computeExitRenderKeyWindow is called, then only the window is unique-ified and unloaded ranks stay formulaic.
+ * - Given duplicate ids in the loaded window, when computeExitRenderKeyWindow is called, then keys stay unique without scanning placeholders.
  *
  * Observable outcomes:
  * - list of resolved entries with items, snapshot values, and exit phases.
@@ -36,11 +37,13 @@ import kotlinx.collections.immutable.toImmutableList
  * - UI rendering, layout animations, lazy list viewport boundaries.
  *
  * Test Change Justification:
- * - Reason category: API shape cleanup.
- * - Old behavior/assertion being replaced: ExitEntry test fixtures used positional constructor arguments.
- * - Why old assertion is no longer correct: ExitEntry now names item and anchoredAfterKey explicitly as the registry contract was simplified.
- * - Coverage preserved by: every ordering, anchor, snapshot, and duplicate-key assertion remains unchanged.
- * - Why this is not fitting the test to the implementation: fixture construction was updated while observable render-list expectations stayed the same.
+ * - Reason category: systemic behavior replacement.
+ * - Old behavior/assertion being replaced: O(totalItemCount) key lists that peeked unloaded ranks.
+ * - Why old assertion is no longer correct: placeholder-backed itemCount is the query total, so key
+ *   uniqueness must stay O(loaded window) and unloaded ranks use a formula.
+ * - Coverage preserved by: exit ordering, duplicate-key, and window-key assertions remain.
+ * - Why this is not fitting the test to the implementation: asserts the observable key list size and
+ *   placeholder formula, which LazyColumn consumes.
  */
 
 private data class TestItem(val id: String, val content: String = "")
@@ -281,7 +284,7 @@ class LomoListExitSupportTest : FunSpec({
         (result[4] == "b") shouldBe false
     }
 
-    test("computeExitRenderListBaseKeys computes base keys with potential duplicates") {
+    test("computeExitRenderKeyWindow unique-ifies only the loaded window") {
         val renderList = listOf(
             LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
             LomoListExitRenderEntry(
@@ -290,40 +293,36 @@ class LomoListExitSupportTest : FunSpec({
                 exitPhase = LomoListExitPhase.Exiting,
             )
         ).toImmutableList()
-        val pagedList = listOf(TestItem("ignored-0"), TestItem("ignored-1"), TestItem("c"))
 
-        val baseKeys = computeExitRenderListBaseKeys(
-            totalItemCount = 3,
-            snapshotStartIndex = 0,
+        val window = computeExitRenderKeyWindow(
+            snapshotStartIndex = 300,
             renderList = renderList,
             itemKey = ::testKey,
-            peekItem = { index -> pagedList.getOrNull(index) }
         )
 
-        baseKeys shouldContainExactly listOf("a", "b", "c")
+        window.keys.size shouldBe 2
+        window.keyAt(300) shouldBe "a"
+        window.keyAt(301) shouldBe "b"
+        window.keyAt(0) shouldBe "placeholder-0"
+        window.keyAt(500) shouldBe "placeholder-500"
     }
 
-    test("integration of base key computation and unique rendering key resolution") {
+    test("duplicate ids in the loaded window are unique without scanning placeholders") {
         val renderList = listOf(
             LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
-            LomoListExitRenderEntry(
-                item = TestItem("b"),
-                snapshotMemo = TestItem("b"),
-                exitPhase = LomoListExitPhase.Exiting,
-            )
+            LomoListExitRenderEntry(item = TestItem("b"), snapshotMemo = TestItem("b"), exitPhase = null),
+            LomoListExitRenderEntry(item = TestItem("a"), snapshotMemo = TestItem("a"), exitPhase = null),
         ).toImmutableList()
-        // Overlap: "b" is in both lists at different positions due to refresh offset shift
-        val pagedList = listOf(TestItem("ignored-0"), TestItem("ignored-1"), TestItem("b"))
 
-        val baseKeys = computeExitRenderListBaseKeys(
-            totalItemCount = 3,
-            snapshotStartIndex = 0,
+        val window = computeExitRenderKeyWindow(
+            snapshotStartIndex = 10,
             renderList = renderList,
             itemKey = ::testKey,
-            peekItem = { index -> pagedList.getOrNull(index) }
         )
 
-        val uniqueKeys = uniqueMemoListRenderKeys(baseKeys)
-        uniqueKeys.toSet().size shouldBe baseKeys.size
+        window.keys.size shouldBe 3
+        window.keys.toSet().size shouldBe 3
+        window.keyAt(10) shouldBe "a"
+        (window.keyAt(12) == "a") shouldBe false
     }
 })

@@ -23,7 +23,8 @@ import androidx.paging.compose.LazyPagingItems
  * - Given index is within loaded window, when resolving item or key, then the loaded item or its memo ID is returned.
  * - Given index is outside loaded window but within itemCount, when resolving item, then it peeks from paging items.
  * - Given index is outside loaded window, when resolving key, then a placeholder key "paging-placeholder-<index>" is returned.
- * - Given duplicate memo IDs exist in the render list, when generating render keys, then unique keys are resolved without changing original order.
+ * - Given a loaded window at a deep placeholder rank, when render keys are computed, then only the window is unique-ified and unloaded ranks stay formulaic.
+ * - Given placeholders before a loaded page, when materialized count is computed, then it is placeholdersBefore plus loaded size.
  * - Given an exiting item with a stale predecessor, when its exit anchor is refreshed, then the entry is dynamically re-anchored after the active predecessor.
  * - Given list items are being deleted, when filtered snapshot is computed, then deleting items are removed while order of remaining items is preserved.
  *
@@ -40,10 +41,10 @@ import androidx.paging.compose.LazyPagingItems
  *
  * Test Change Justification:
  * - Reason category: systemic behavior replacement.
- * - Old behavior/assertion being replaced: render-count stabilizer and retained-exit compensation scenarios.
- * - Why old assertion is no longer correct: placeholder-backed Paging itemCount now owns the absolute index space, so UI count compensation is removed.
+ * - Old behavior/assertion being replaced: O(itemCount) render-key lists and scrollbar drag across the full placeholder space.
+ * - Why old assertion is no longer correct: placeholder-backed itemCount is the query total; keys and drag targets must stay on the materialized window.
  * - Coverage preserved by: tests cover placeholder keys, loaded-window alignment, paging peeks, duplicate keys, and retained-exit placement.
- * - Why this is not fitting the test to the implementation: the assertions target list keys and resolved rows that LazyColumn consumes, which are the observable list contract.
+ * - Why this is not fitting the test to the implementation: the assertions target list keys and materialized counts that LazyColumn and the scrollbar consume.
  */
 class PagedMemoListMotionTddTest : FunSpec({
     test("given snapshot memos and deleting ids when filtered then deleted items are excluded and order is preserved") {
@@ -81,6 +82,38 @@ class PagedMemoListMotionTddTest : FunSpec({
         val uniqueKeys = uniqueMemoListRenderKeys(baseKeys)
 
         uniqueKeys shouldBe listOf("1", "2", "1\u0000dup-2", "3", "2\u0000dup-4")
+    }
+
+    test("render keys for a loaded window stay O(loaded) and placeholders stay formulaic") {
+        val window =
+            memoListRenderKeyWindow(
+                startIndex = 300,
+                windowItemKeys = listOf("a", "b"),
+            )
+
+        window.keys.size shouldBe 2
+        window.keyAt(300) shouldBe "a"
+        window.keyAt(301) shouldBe "b"
+        window.keyAt(0) shouldBe "paging-placeholder-0"
+        window.keyAt(500) shouldBe "paging-placeholder-500"
+    }
+
+    test("duplicate ids in the loaded window are unique without scanning placeholders") {
+        val window =
+            memoListRenderKeyWindow(
+                startIndex = 10,
+                windowItemKeys = listOf("a", "b", "a"),
+            )
+
+        window.keys.size shouldBe 3
+        window.keys.toSet().size shouldBe 3
+        window.keyAt(10) shouldBe "a"
+        (window.keyAt(12) == "a") shouldBe false
+    }
+
+    test("materialized scrollbar clamp is placeholders before plus loaded size") {
+        materializedMemoListItemCount(placeholdersBefore = 300, loadedCount = 60) shouldBe 360
+        materializedMemoListItemCount(placeholdersBefore = 0, loadedCount = 20) shouldBe 20
     }
 
 

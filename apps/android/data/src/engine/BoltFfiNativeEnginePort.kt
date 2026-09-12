@@ -484,8 +484,12 @@ internal class BoltFfiNativeEnginePort(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage =
-        withReadLease { engine -> engine.queryMemos(query, cursor, pageSize) }
+        withReadLease { engine ->
+            engine.queryMemos(query, cursor, pageSize, startMemoId, backward)
+        }
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withReadLease { engine -> engine.getMemo(memoId) }

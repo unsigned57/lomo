@@ -82,6 +82,9 @@ data class StoreMemoPage(
     val nextCursor: StorePageCursor?,
     val highWaterRevision: Long,
     val queryFingerprint: String,
+    val prevCursor: StorePageCursor? = null,
+    val itemsBefore: Long = 0,
+    val itemsAfter: Long = 0,
 )
 
 data class StoreMemoSnapshot(
@@ -297,6 +300,8 @@ interface StoreReadPort {
         query: StoreMemoQuery,
         cursor: StorePageCursor?,
         pageSize: Int,
+        startMemoId: String? = null,
+        backward: Boolean = false,
     ): StoreMemoPage
 
     fun getMemo(memoId: String): StoreMemoSnapshot?

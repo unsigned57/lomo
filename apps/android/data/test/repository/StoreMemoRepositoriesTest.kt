@@ -165,6 +165,8 @@ private class RecordingStorePort : StorePort {
         query: StoreMemoQuery,
         cursor: StorePageCursor?,
         pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
     ): StoreMemoPage {
         queryCount += 1
         queries += query

@@ -13,7 +13,8 @@ import java.time.format.DateTimeFormatter
 /**
  * Paging3 source over the production [StorePort] (promoted from P3-09 dark-build).
  *
- * Key is the opaque Rust page-cursor encoding. Does not open SQLite from Kotlin.
+ * Refresh keys are memo identities in the current query order. Append/Prepend keys are exclusive
+ * publication-coupled cursors. Does not open SQLite from Kotlin.
  */
 class StorePagingSource(
     private val port: StorePort,
@@ -31,12 +32,23 @@ class StorePagingSource(
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val cursor = params.key?.let { StorePageCursor(encoded = it) }
-                val page = port.queryMemos(query, cursor, pageSize.coerceAtLeast(params.loadSize))
+                val page = loadStorePage(params)
+                val itemsBefore = page.itemsBefore.toPagingPlaceholderCount("items_before")
+                val itemsAfter = page.itemsAfter.toPagingPlaceholderCount("items_after")
                 LoadResult.Page(
                     data = page.items.map(mapItem),
-                    prevKey = null,
+                    prevKey = page.prevCursor?.encoded,
                     nextKey = page.nextCursor?.encoded,
+                    itemsBefore =
+                        when (params) {
+                            is LoadParams.Append -> LoadResult.Page.COUNT_UNDEFINED
+                            else -> itemsBefore
+                        },
+                    itemsAfter =
+                        when (params) {
+                            is LoadParams.Prepend -> LoadResult.Page.COUNT_UNDEFINED
+                            else -> itemsAfter
+                        },
                 )
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -44,7 +56,55 @@ class StorePagingSource(
             }
         }
 
-    override fun getRefreshKey(state: PagingState<String, Memo>): String? = null
+    override fun getRefreshKey(state: PagingState<String, Memo>): String? {
+        val anchor = state.anchorPosition ?: return null
+        if (anchor == 0) {
+            return null
+        }
+        return state.closestItemToPosition(anchor)?.id
+    }
+
+    private fun loadStorePage(params: LoadParams<String>): StoreMemoPage {
+        val loadSize = pageSize.coerceAtLeast(params.loadSize)
+        return when (params) {
+            is LoadParams.Refresh ->
+                port.queryMemos(
+                    query = query,
+                    cursor = null,
+                    pageSize = loadSize,
+                    startMemoId = params.key,
+                    backward = false,
+                )
+            is LoadParams.Append ->
+                port.queryMemos(
+                    query = query,
+                    cursor = StorePageCursor(encoded = requirePagingCursor(params.key, "append")),
+                    pageSize = loadSize,
+                    startMemoId = null,
+                    backward = false,
+                )
+            is LoadParams.Prepend ->
+                port.queryMemos(
+                    query = query,
+                    cursor = StorePageCursor(encoded = requirePagingCursor(params.key, "prepend")),
+                    pageSize = loadSize,
+                    startMemoId = null,
+                    backward = true,
+                )
+        }
+    }
+}
+
+private fun requirePagingCursor(key: String?, direction: String): String {
+    require(!key.isNullOrBlank()) { "$direction requires a page cursor" }
+    return key
+}
+
+private fun Long.toPagingPlaceholderCount(field: String): Int {
+    require(this in 0..Int.MAX_VALUE.toLong()) {
+        "$field $this does not fit paging placeholder count"
+    }
+    return toInt()
 }
 
 private val FALLBACK_DATE_KEY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy_MM_dd")

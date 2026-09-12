@@ -309,11 +309,9 @@ private fun TrashMemoList(
 ) {
     val totalItemCount = maxOf(snapshotStartIndex + renderList.size, pagedItems.itemCount)
     val uniqueKeys = rememberUniqueExitRenderListKeys(
-        totalItemCount = totalItemCount,
         snapshotStartIndex = snapshotStartIndex,
         renderList = renderList,
         itemKey = { it.memo.id },
-        peekItem = { index -> pagedItems.peek(index) },
         itemSnapshotList = pagedItems.itemSnapshotList
     )
     LazyColumn(
@@ -324,7 +322,7 @@ private fun TrashMemoList(
     ) {
         items(
             count = totalItemCount,
-            key = { index -> uniqueKeys.getOrElse(index) { "fallback-$index" } },
+            key = { index -> uniqueKeys.keyAt(index) },
         ) { index ->
             if (index < pagedItems.itemCount) {
                 pagedItems[index]

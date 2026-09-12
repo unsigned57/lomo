@@ -204,16 +204,22 @@ private fun MemoPagedListColumn(
     val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
     val deletingIds = remember(activeExits) { activeExits.keys.toPersistentSet() }
 
-    val renderedItemCount = pagedMemos.itemCount
-    val scrollbarItemCount = pagedMemos.itemCount
+    val listItemCount = pagedMemos.itemCount
+    val scrollbarItemCount = listItemCount
+    val materializedItemCount =
+        materializedMemoListItemCount(
+            placeholdersBefore = snapshotStartIndex,
+            loadedCount = visiblePagedMemos.size,
+        )
 
     PagedMemoLazyColumn(
         pagedMemos = pagedMemos,
         visiblePagedMemos = visiblePagedMemos,
         renderList = exitState.renderList,
         snapshotStartIndex = snapshotStartIndex,
-        renderedItemCount = renderedItemCount,
+        renderedItemCount = listItemCount,
         scrollbarItemCount = scrollbarItemCount,
+        scrollTargetItemCount = materializedItemCount,
         expandedMemoIds = expandedMemoIds,
         listState = listState,
         scrollbarEnabled = scrollbarEnabled,
@@ -255,7 +261,6 @@ private fun MemoPagedLazyColumn(
     val horizontalContentPadding = resolveMemoListHorizontalContentPadding(scrollbarEnabled)
     val renderKeys =
         rememberMemoListRenderKeys(
-            renderedItemCount = renderedItemCount,
             visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
             visiblePagedMemos = visiblePagedMemos,
             pagedMemos = pagedMemos,
@@ -277,16 +282,7 @@ private fun MemoPagedLazyColumn(
     ) {
         items(
             count = renderedItemCount,
-            key = { index ->
-                renderKeys.getOrElse(index) {
-                    memoListItemKey(
-                        index = index,
-                        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
-                        visiblePagedMemos = visiblePagedMemos,
-                        pagedMemos = pagedMemos,
-                    )
-                }
-            },
+            key = { index -> renderKeys.keyAt(index) },
             contentType = { index ->
                 memoListItemContentType(
                     index = index,
@@ -434,6 +430,7 @@ private fun PagedMemoLazyColumn(
     snapshotStartIndex: Int,
     renderedItemCount: Int,
     scrollbarItemCount: Int,
+    scrollTargetItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
     listState: LazyListState,
     scrollbarEnabled: Boolean,
@@ -483,7 +480,7 @@ private fun PagedMemoLazyColumn(
         enabled = scrollbarEnabled,
         contentGeneration = scrollbarContentGeneration,
         totalItemsCountOverride = scrollbarItemCount,
-        scrollTargetItemsCountOverride = renderedItemCount,
+        scrollTargetItemsCountOverride = scrollTargetItemCount,
     ) {
         MemoPagedLazyColumn(
             pagedMemos = pagedMemos,

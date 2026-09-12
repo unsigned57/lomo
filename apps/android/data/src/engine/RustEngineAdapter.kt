@@ -295,7 +295,10 @@ internal class RustEngineAdapter private constructor(
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
-    ): com.lomo.nativebridge.StoreMemoPage = native.queryMemos(query, cursor, pageSize)
+        startMemoId: String?,
+        backward: Boolean,
+    ): com.lomo.nativebridge.StoreMemoPage =
+        native.queryMemos(query, cursor, pageSize, startMemoId, backward)
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? = native.getMemo(memoId)
 
@@ -867,4 +870,6 @@ internal fun WorkspaceNativeAdapter.storeProjectionRevision(): ULong =
             ),
         cursor = null,
         pageSize = 1u,
+        startMemoId = null,
+        backward = false,
     ).highWaterRevision

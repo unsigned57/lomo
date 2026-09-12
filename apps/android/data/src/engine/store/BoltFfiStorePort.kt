@@ -49,6 +49,8 @@ internal class BoltFfiStorePort(
         query: StoreMemoQuery,
         cursor: StorePageCursor?,
         pageSize: Int,
+        startMemoId: String?,
+        backward: Boolean,
     ): StoreMemoPage {
         val page =
             bridge.queryMemos(
@@ -92,12 +94,17 @@ internal class BoltFfiStorePort(
                 ),
                 cursor?.let { BridgePageCursor(encoded = it.encoded) },
                 pageSize.toUInt(),
+                startMemoId,
+                backward,
             )
         return StoreMemoPage(
             items = page.items.map { it.toSummary() },
             nextCursor = page.nextCursor?.let { StorePageCursor(encoded = it.encoded) },
             highWaterRevision = page.highWaterRevision.toLong(),
             queryFingerprint = page.queryFingerprint,
+            prevCursor = page.prevCursor?.let { StorePageCursor(encoded = it.encoded) },
+            itemsBefore = page.itemsBefore.toStoreLong("items_before"),
+            itemsAfter = page.itemsAfter.toStoreLong("items_after"),
         )
     }
 

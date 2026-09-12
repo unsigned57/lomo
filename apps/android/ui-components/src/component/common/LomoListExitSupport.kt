@@ -195,35 +195,44 @@ fun uniqueMemoListRenderKeys(baseKeys: List<String>): List<String> =
         }
     }
 
-fun <T> computeExitRenderListBaseKeys(
-    totalItemCount: Int,
+/**
+ * Unique LazyColumn keys for the materialized window only. Unloaded ranks use a formula keyed by
+ * absolute index, so placeholder-backed `itemCount` never allocates an O(library) key list.
+ */
+data class ExitRenderKeyWindow(
+    val startIndex: Int,
+    val keys: ImmutableList<String>,
+) {
+    fun keyAt(index: Int): String =
+        keys.getOrNull(index - startIndex) ?: "placeholder-$index"
+}
+
+fun <T> computeExitRenderKeyWindow(
     snapshotStartIndex: Int,
     renderList: ImmutableList<LomoListExitRenderEntry<T>>,
     itemKey: (T) -> String,
-    peekItem: (Int) -> T?
-): List<String> = List(totalItemCount) { index ->
-    val entry = renderList.getOrNull(index - snapshotStartIndex)
-    entry?.snapshotMemo?.let { itemKey(it) }
-        ?: peekItem(index)?.let { itemKey(it) }
-        ?: "placeholder-$index"
+): ExitRenderKeyWindow {
+    require(snapshotStartIndex >= 0) { "snapshotStartIndex must be non-negative" }
+    return ExitRenderKeyWindow(
+        startIndex = snapshotStartIndex,
+        keys =
+            uniqueMemoListRenderKeys(
+                List(renderList.size) { offset -> itemKey(renderList[offset].snapshotMemo) },
+            ).toImmutableList(),
+    )
 }
 
 @Composable
 fun <T> rememberUniqueExitRenderListKeys(
-    totalItemCount: Int,
     snapshotStartIndex: Int,
     renderList: ImmutableList<LomoListExitRenderEntry<T>>,
     itemKey: (T) -> String,
-    peekItem: (Int) -> T?,
     itemSnapshotList: Any?,
-): ImmutableList<String> = remember(totalItemCount, snapshotStartIndex, renderList, itemSnapshotList) {
-    uniqueMemoListRenderKeys(
-        computeExitRenderListBaseKeys(
-            totalItemCount = totalItemCount,
+): ExitRenderKeyWindow =
+    remember(snapshotStartIndex, renderList, itemSnapshotList) {
+        computeExitRenderKeyWindow(
             snapshotStartIndex = snapshotStartIndex,
             renderList = renderList,
             itemKey = itemKey,
-            peekItem = peekItem,
         )
-    ).toImmutableList()
-}
+    }

@@ -304,8 +304,12 @@ internal abstract class ManagedEngineCapabilities :
         query: com.lomo.nativebridge.StoreMemoQuery,
         cursor: com.lomo.nativebridge.StorePageCursor?,
         pageSize: UInt,
+        startMemoId: String?,
+        backward: Boolean,
     ): com.lomo.nativebridge.StoreMemoPage =
-        withActiveWorkspaceAdapter { adapter -> adapter.queryMemos(query, cursor, pageSize) }
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.queryMemos(query, cursor, pageSize, startMemoId, backward)
+        }
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         withActiveWorkspaceAdapter { adapter -> adapter.getMemo(memoId) }

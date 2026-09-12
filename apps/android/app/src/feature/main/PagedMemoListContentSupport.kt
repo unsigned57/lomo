@@ -5,7 +5,6 @@ import androidx.compose.runtime.remember
 import androidx.paging.compose.LazyPagingItems
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import com.lomo.ui.component.common.uniqueMemoListRenderKeys
 
@@ -51,28 +50,57 @@ internal fun memoListItemAt(
     visiblePagedMemos.getOrNull(index - visiblePagedMemoStartIndex)
         ?: if (index < pagedMemos.itemCount) pagedMemos.peek(index) else null
 
+internal data class MemoListRenderKeyWindow(
+    val startIndex: Int,
+    val keys: ImmutableList<String>,
+) {
+    fun keyAt(index: Int): String =
+        keys.getOrNull(index - startIndex) ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
+}
+
+internal fun memoListRenderKeyWindow(
+    startIndex: Int,
+    windowItemKeys: List<String>,
+): MemoListRenderKeyWindow {
+    require(startIndex >= 0) { "startIndex must be non-negative" }
+    return MemoListRenderKeyWindow(
+        startIndex = startIndex,
+        keys = uniqueMemoListRenderKeys(windowItemKeys).toPersistentList(),
+    )
+}
+
+internal fun materializedMemoListItemCount(
+    placeholdersBefore: Int,
+    loadedCount: Int,
+): Int {
+    require(placeholdersBefore >= 0) { "placeholdersBefore must be non-negative" }
+    require(loadedCount >= 0) { "loadedCount must be non-negative" }
+    return placeholdersBefore + loadedCount
+}
+
 /**
- * Precomputes the globally unique LazyColumn item keys for the whole rendered range so a duplicate
- * memo id can never reach `items(key = ...)` and crash Compose during fast scroll / paging refresh.
+ * Unique LazyColumn keys for the materialized window. Unloaded ranks stay formulaic so a
+ * placeholder-backed `itemCount` never allocates an O(library) key list.
  */
 @Composable
 internal fun rememberMemoListRenderKeys(
-    renderedItemCount: Int,
     visiblePagedMemoStartIndex: Int,
     visiblePagedMemos: ImmutableList<MemoUiModel>,
     pagedMemos: LazyPagingItems<MemoUiModel>,
-): ImmutableList<String> =
-    remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList, renderedItemCount) {
-        uniqueMemoListRenderKeys(
-            List(renderedItemCount) { index ->
-                memoListItemKey(
-                    index = index,
-                    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
-                    visiblePagedMemos = visiblePagedMemos,
-                    pagedMemos = pagedMemos,
-                )
-            },
-        ).toPersistentList()
+): MemoListRenderKeyWindow =
+    remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList) {
+        memoListRenderKeyWindow(
+            startIndex = visiblePagedMemoStartIndex,
+            windowItemKeys =
+                List(visiblePagedMemos.size) { offset ->
+                    memoListItemKey(
+                        index = visiblePagedMemoStartIndex + offset,
+                        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                        visiblePagedMemos = visiblePagedMemos,
+                        pagedMemos = pagedMemos,
+                    )
+                },
+        )
     }
 
 @Composable
