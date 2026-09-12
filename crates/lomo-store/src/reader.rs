@@ -11,11 +11,11 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path};
 use crate::{
-    HistoryAttachmentRef, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoSnapshot,
-    MemoStatisticsRow, MemoSummary, PageCursor, SidebarProjection, StoreStats, get_memo,
-    get_memo_projection, get_projected_memo, list_history_attachment_refs, list_memo_history,
-    query_count, query_memo_statistics_rows, query_memos_with_boundary, query_sidebar_projection,
-    query_stats, source_document_fingerprint,
+    HistoryAttachmentRef, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
+    MemoSnapshot, MemoStatisticsRow, MemoSummary, PageCursor, SidebarProjection, StoreStats,
+    get_memo, get_memo_projection, get_projected_memo, list_history_attachment_refs,
+    list_memo_history, query_count, query_memo_statistics_rows, query_memos_starting_at,
+    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 use lomo_core::{LomoError, PageSize};
 
@@ -131,6 +131,23 @@ impl StoreReader {
     ) -> Result<MemoPage, LomoError> {
         self.snapshot(|connection, revision| {
             query_memos_with_boundary(connection, query, boundary, cursor, page_size, revision)
+        })
+    }
+
+    /// Bounded memo query from an explicit start in the current query order.
+    ///
+    /// # Errors
+    ///
+    /// Returns cursor/boundary validation or projection storage errors.
+    pub fn query_memos_starting_at(
+        &self,
+        query: &MemoQuery,
+        boundary: Option<&MemoQueryBoundary>,
+        start: MemoQueryStart<'_>,
+        page_size: PageSize,
+    ) -> Result<MemoPage, LomoError> {
+        self.snapshot(|connection, revision| {
+            query_memos_starting_at(connection, query, boundary, start, page_size, revision)
         })
     }
 

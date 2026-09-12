@@ -51,11 +51,12 @@ pub use lomo_format::{
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use publication::{DocumentPublication, ProjectionClock};
 pub use query::{
-    MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoSnapshot, MemoSort, MemoSortField,
-    MemoStatisticsRow, MemoSummary, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection,
-    SidebarTagCount, SortDirection, StoreStats, TagSelectionMode, get_memo, get_memo_projection,
-    get_projected_memo, query_count, query_memo_statistics_rows, query_memos,
-    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
+    MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoSort,
+    MemoSortField, MemoStatisticsRow, MemoSummary, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount,
+    SidebarProjection, SidebarTagCount, SortDirection, StoreStats, TagSelectionMode, get_memo,
+    get_memo_projection, get_projected_memo, query_count, query_memo_statistics_rows, query_memos,
+    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
+    source_document_fingerprint,
 };
 pub use reader::StoreReader;
 pub use rebuild::{
@@ -435,6 +436,28 @@ impl Store {
             query,
             boundary,
             cursor,
+            page_size,
+            self.high_water_revision,
+        )
+    }
+
+    /// Bounded memo query from an explicit start in the current query order.
+    ///
+    /// # Errors
+    ///
+    /// See [`query_memos_starting_at`].
+    pub fn query_memos_starting_at(
+        &self,
+        query: &MemoQuery,
+        boundary: Option<&MemoQueryBoundary>,
+        start: MemoQueryStart<'_>,
+        page_size: PageSize,
+    ) -> Result<MemoPage, LomoError> {
+        query_memos_starting_at(
+            &self.opened.connection,
+            query,
+            boundary,
+            start,
             page_size,
             self.high_water_revision,
         )

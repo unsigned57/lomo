@@ -14,8 +14,12 @@
 //!   four orderings are honored and the cursor remains coupled to that sort identity.
 //! - Given a tag path, exact matching returns only that tag while subtree matching also returns
 //!   slash-delimited descendants and never prefix siblings.
+//! - Given a bounded query, when a page is loaded from head, after a cursor, at a memo identity,
+//!   or exclusively before a cursor, then `items_before`/`items_after` are the ranks around that
+//!   window and `AtMemo` missing identity falls back to head.
 //!
-//! Observable outcomes: page items, `next_cursor`, stats, structured `stale_cursor` errors.
+//! Observable outcomes: page items, `next_cursor`, `prev_cursor`, rank fields, stats, structured
+//! `stale_cursor` errors.
 
 mod support;
 
@@ -30,8 +34,8 @@ mod tests {
     use super::support::{indexed_store, publish_pin, seed_memo, seed_state};
     use lomo_core::{ErrorCategory, PageSize};
     use lomo_store::{
-        MemoFilters, MemoQuery, MemoQueryBoundary, MemoSort, MemoSortField, PageCursor,
-        SortDirection, TagSelectionMode,
+        MemoFilters, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSort, MemoSortField,
+        PageCursor, SortDirection, TagSelectionMode,
     };
     use tempfile::tempdir;
 
@@ -467,5 +471,117 @@ mod tests {
                 .expect_err("cursor must be coupled to sort direction");
             assert_eq!(error.code(), "stale_cursor");
         }
+    }
+
+    #[test]
+    fn positional_pages_rank_identity_start_and_exclusive_before() {
+        let dir = tempdir().expect("tempdir");
+        for id in ["m1", "m2", "m3", "m4", "m5"] {
+            seed_memo(dir.path(), id, id, &[]);
+        }
+        let store = indexed_store(dir.path());
+        let query = MemoQuery {
+            search_text: None,
+            filters: MemoFilters::default(),
+            sort: MemoSort::default(),
+        };
+        let page_size = PageSize::new(2).expect("page");
+        let ordered: Vec<String> = store
+            .query_memos(&query, None, PageSize::new(10).expect("all"))
+            .expect("full order")
+            .items
+            .into_iter()
+            .map(|memo| memo.memo_id)
+            .collect();
+        assert_eq!(ordered.len(), 5);
+
+        let head = store
+            .query_memos(&query, None, page_size)
+            .expect("head page");
+        assert_eq!(head.items.len(), 2);
+        assert_eq!(head.items_before, 0);
+        assert_eq!(head.items_after, 3);
+        assert!(head.prev_cursor.is_none());
+        assert!(head.next_cursor.is_some());
+        assert_eq!(
+            head.items
+                .iter()
+                .map(|memo| memo.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            ordered
+                .iter()
+                .take(2)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+
+        let page2 = store
+            .query_memos(&query, head.next_cursor.as_ref(), page_size)
+            .expect("second page");
+        assert_eq!(page2.items_before, 2);
+        assert_eq!(page2.items_after, 1);
+        assert!(page2.prev_cursor.is_some());
+        assert_eq!(
+            page2
+                .items
+                .iter()
+                .map(|memo| memo.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            ordered
+                .iter()
+                .skip(2)
+                .take(2)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+
+        let start_id = ordered.get(2).expect("middle identity");
+        let from_identity = store
+            .query_memos_starting_at(&query, None, MemoQueryStart::AtMemo(start_id), page_size)
+            .expect("identity start");
+        assert_eq!(
+            from_identity
+                .items
+                .first()
+                .map(|memo| memo.memo_id.as_str()),
+            Some(start_id.as_str())
+        );
+        assert_eq!(from_identity.items_before, 2);
+        assert_eq!(from_identity.items_after, 1);
+
+        let missing = store
+            .query_memos_starting_at(&query, None, MemoQueryStart::AtMemo("missing"), page_size)
+            .expect("missing identity");
+        assert_eq!(missing.items_before, 0);
+        assert_eq!(
+            missing.items.first().map(|memo| memo.memo_id.as_str()),
+            ordered.first().map(String::as_str)
+        );
+
+        let prepended = store
+            .query_memos_starting_at(
+                &query,
+                None,
+                MemoQueryStart::Before(page2.prev_cursor.as_ref().expect("prev cursor")),
+                page_size,
+            )
+            .expect("exclusive before");
+        assert_eq!(prepended.items_before, 0);
+        assert_eq!(
+            prepended
+                .items
+                .iter()
+                .map(|memo| memo.memo_id.as_str())
+                .collect::<Vec<_>>(),
+            ordered
+                .iter()
+                .take(2)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            prepended.items.last().map(|memo| memo.memo_id.as_str()),
+            head.items.last().map(|memo| memo.memo_id.as_str())
+        );
     }
 }
