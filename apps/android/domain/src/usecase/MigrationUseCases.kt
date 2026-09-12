@@ -12,11 +12,6 @@ data class MigrationArchiveSummary(
     val voiceCount: Int = 0,
 )
 
-data class MigrationArchiveImportPlan(
-    val summary: MigrationArchiveSummary,
-    val manifestVersion: Int,
-)
-
 data class MigrationSettingsSummary(
     val settingCount: Int = 0,
     val sensitiveSettingCount: Int = 0,

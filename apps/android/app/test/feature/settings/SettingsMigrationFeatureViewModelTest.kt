@@ -7,7 +7,6 @@ import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
-import com.lomo.domain.usecase.MigrationArchiveImportPlan
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.domain.usecase.MigrationPasswordException
 import com.lomo.domain.usecase.MigrationSettingsSummary
@@ -44,11 +43,15 @@ import java.io.OutputStream
  * - Android ActivityResult launchers, ContentResolver streams, Material rendering, and data-layer ZIP/encryption details.
  *
  * Test Change Justification:
- * - Reason category: required capability boundary migration.
- * - Old behavior/assertion being replaced: no observable assertion is replaced; the repository fake previously lacked archive inspection.
- * - Why old assertion is no longer correct: assertions remain correct, but the fake must now provide the mandatory inspect-before-import capability.
- * - Coverage preserved by: export/import counts, output bytes, rebuild completion and password-error state assertions remain unchanged.
- * - Why this is not fitting the test to the implementation: the fake models the public repository contract and keeps all user-visible assertions intact.
+ * - Reason category: first-principles tail deletion of a disconnected inspect capability (audit-01 F13).
+ * - Old behavior/assertion being replaced: the repository fake had to implement inspectAllNotesArchive
+ *   even though the view-model never inspected before import.
+ * - Why old assertion is no longer correct: inspect-without-a-use-case is a forbidden third state;
+ *   archive validation is owned by import's activate-rebuild path.
+ * - Coverage preserved by: export/import counts, output bytes, rebuild completion and password-error
+ *   state assertions remain unchanged.
+ * - Why this is not fitting the test to the implementation: user-visible migration outcomes are
+ *   unchanged; only an unused repository method disappeared.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsMigrationFeatureViewModelTest : AppFunSpec() {
@@ -167,9 +170,6 @@ private class FakeMigrationArchiveRepository(
         output.write(notesArchiveBytes)
         return notesExportSummary
     }
-
-    override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan =
-        MigrationArchiveImportPlan(summary = notesImportSummary, manifestVersion = 2)
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary {
         importNotesCallCount += 1

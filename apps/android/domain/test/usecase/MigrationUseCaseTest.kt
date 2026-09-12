@@ -28,10 +28,23 @@ import java.io.OutputStream
  *
  * TDD proof:
  * - RED: this spec fails to compile before migration repository and use cases exist.
- * - Unused InspectAllNotesArchiveUseCase wrapper removed under First-Principles tail deletion; MigrationArchiveRepository capability retained.
+ * - InspectAllNotesArchiveUseCase and the leftover repository inspect method were deleted together:
+ *   archive validation is owned by import's activate-rebuild path, so a disconnected inspect
+ *   capability is a forbidden third state.
  *
  * Excludes:
  * - ZIP entry format, encryption primitives, Android URI picker wiring, and repository storage internals.
+ *
+ * Test Change Justification:
+ * - Reason category: first-principles tail deletion of a disconnected inspect capability (audit-01 F13).
+ * - Old behavior/assertion being replaced: the fake had to implement inspectAllNotesArchive after
+ *   InspectAllNotesArchiveUseCase was already deleted.
+ * - Why old assertion is no longer correct: a repository method with no production consumer is a
+ *   forbidden third state; import already validates via Rust archive_inspect inside activate-rebuild.
+ * - Coverage preserved by: export bytes/counts, import-then-rebuild ordering, and password failure
+ *   observability remain asserted.
+ * - Why this is not fitting the test to the implementation: the remaining use cases still prove the
+ *   stream-based migrate/rebuild contract; only the unused inspect method disappeared.
  */
 class MigrationUseCaseTest : DomainFunSpec() {
     init {
@@ -116,10 +129,8 @@ private class FakeMigrationArchiveRepository(
 ) : MigrationArchiveRepository {
     var notesArchiveBytes: ByteArray = byteArrayOf()
     var nextNotesExportSummary = MigrationArchiveSummary()
-    var nextNotesImportPlan = MigrationArchiveImportPlan(summary = MigrationArchiveSummary(), manifestVersion = 1)
     var nextNotesImportSummary = MigrationArchiveSummary()
     var exportNotesCallCount = 0
-    var inspectNotesCallCount = 0
     var importNotesCallCount = 0
     var importSettingsCallCount = 0
     var importCompletedBeforeRebuild = false
@@ -128,12 +139,6 @@ private class FakeMigrationArchiveRepository(
         exportNotesCallCount += 1
         output.write(notesArchiveBytes)
         return nextNotesExportSummary
-    }
-
-    override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan {
-        inspectNotesCallCount += 1
-        input.readBytes()
-        return nextNotesImportPlan
     }
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary {

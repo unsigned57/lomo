@@ -4,7 +4,6 @@ import android.content.Context
 import com.lomo.data.engine.archive.ArchivePort
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.domain.repository.MigrationArchiveRepository
-import com.lomo.domain.usecase.MigrationArchiveImportPlan
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.domain.usecase.MigrationPasswordException
 import com.lomo.domain.usecase.MigrationSettingsSummary
@@ -46,32 +45,6 @@ constructor(
                 )
             } finally {
                 archiveFile.delete()
-            }
-        }
-
-    override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan =
-        withContext(Dispatchers.IO) {
-            val archiveFile = stageCompressedArchive(input)
-            val staging =
-                File(context.cacheDir, "lomo-archive-inspect-${UUID.randomUUID()}").apply {
-                    mkdirs()
-                }
-            try {
-                val inspected =
-                    archivePort.archiveInspect(
-                        archivePath = archiveFile.absolutePath,
-                        stagingRoot = staging.absolutePath,
-                    )
-                MigrationArchiveImportPlan(
-                    summary =
-                        MigrationArchiveSummary(
-                            noteCount = inspected.entryCount.toInt().coerceAtLeast(0),
-                        ),
-                    manifestVersion = inspected.schemaVersion,
-                )
-            } finally {
-                archiveFile.delete()
-                staging.deleteRecursively()
             }
         }
 

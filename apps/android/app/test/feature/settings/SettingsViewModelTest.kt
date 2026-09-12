@@ -47,7 +47,6 @@ import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
-import com.lomo.domain.usecase.MigrationArchiveImportPlan
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.domain.usecase.MigrationSettingsSummary
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
@@ -342,9 +341,6 @@ class SettingsViewModelTest : AppFunSpec() {
 
 private class NoOpMigrationArchiveRepository : MigrationArchiveRepository {
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary = MigrationArchiveSummary()
-
-    override suspend fun inspectAllNotesArchive(input: InputStream): MigrationArchiveImportPlan =
-        MigrationArchiveImportPlan(summary = MigrationArchiveSummary(), manifestVersion = 2)
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary = MigrationArchiveSummary()
 
