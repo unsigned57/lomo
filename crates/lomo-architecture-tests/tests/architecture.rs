@@ -11,6 +11,11 @@
 //! Excludes: migration status claims and behavioral tests owned by the runtime crates.
 
 #[cfg(test)]
+mod policy;
+#[cfg(test)]
+mod policy_contracts;
+
+#[cfg(test)]
 #[expect(
     clippy::expect_used,
     reason = "architecture checks fail closed with explicit diagnostics"
@@ -19,6 +24,8 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    use crate::policy;
 
     fn root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -32,25 +39,7 @@ mod tests {
     }
 
     fn files_under(path: &str) -> Vec<PathBuf> {
-        let output = Command::new("git")
-            .args([
-                "ls-files",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-                "--",
-                path,
-            ])
-            .current_dir(root())
-            .output()
-            .expect("git");
-        assert!(output.status.success());
-        String::from_utf8(output.stdout)
-            .expect("utf8")
-            .lines()
-            .map(|p| root().join(p))
-            .filter(|p| p.exists())
-            .collect()
+        policy::source_files(&root(), path).expect("source inventory must be complete")
     }
 
     #[test]
@@ -105,59 +94,10 @@ mod tests {
 
     #[test]
     fn ownership_and_dependency_direction_are_unique() {
-        let tui = read("apps/tui/Cargo.toml");
-        assert!(
-            tui.contains("lomo-application") && tui.contains("lomo-platform-fs"),
-            "tui composition root must inject application + posix executor"
-        );
-        for forbidden in [
-            "lomo-native",
-            "boltffi",
-            "jni",
-            "tui-textarea",
-            "thought_atom",
-        ] {
-            assert!(
-                !tui.contains(forbidden),
-                "tui Cargo.toml has forbidden dependency {forbidden}"
-            );
-        }
-        let native = read("crates/lomo-native/Cargo.toml");
-        assert!(
-            native.contains("lomo-core")
-                && native.contains("lomo-workspace")
-                && native.contains("lomo-store")
-                && native.contains("lomo-application")
-                && native.contains("lomo-sync")
-                && native.contains("lomo-lan")
-        );
-        for forbidden in [
-            "lomo-xtask",
-            "lomo-feasibility",
-            "lomo-feasibility-device",
-            "lomo-sync-core",
-            "uniffi",
-            "jna",
-        ] {
-            assert!(
-                !native.contains(forbidden),
-                "native facade has forbidden dependency {forbidden}"
-            );
-        }
-        let workspace = read("crates/lomo-workspace/Cargo.toml");
-        for forbidden in [
-            "boltffi",
-            "rusqlite",
-            "reqwest",
-            "git2",
-            "lomo-sync-core",
-            "lomo-xtask",
-        ] {
-            assert!(
-                !workspace.contains(forbidden),
-                "workspace owner has forbidden dependency {forbidden}"
-            );
-        }
+        let metadata = declared_cargo_metadata();
+        let violations = policy::rust_dependency_violations(&root(), &metadata)
+            .expect("Cargo metadata must describe every workspace owner");
+        assert!(violations.is_empty(), "{violations:#?}");
         for source in files_under("apps/android/data/src") {
             let text = fs::read_to_string(&source).expect("utf8");
             assert!(
@@ -176,7 +116,6 @@ mod tests {
                 "--",
                 "apps/android/native-bindings/src",
                 "apps/android/app/jniLibs",
-                "apps/android/native-smoke/jniLibs",
             ])
             .current_dir(root())
             .output()
@@ -189,7 +128,6 @@ mod tests {
         for path in [
             "/apps/android/native-bindings/src/",
             "/apps/android/app/jniLibs/",
-            "/apps/android/native-smoke/jniLibs/",
         ] {
             assert!(ignore.contains(path), "missing ignore rule {path}");
         }
@@ -223,31 +161,11 @@ mod tests {
         // Truth from ARCHITECTURE.md "Kotlin modules": domain is platform-neutral, data is the
         // sole native-bindings consumer, app composes domain contracts, ui-components owns
         // presentation only. Internal references use the `//module` coordinate form.
-        let allowed: &[(&str, &str, &[&str])] = &[
-            (
-                "app",
-                "apps/android/app",
-                &["domain", "data", "ui-components"],
-            ),
-            ("data", "apps/android/data", &["domain", "native-bindings"]),
-            ("ui-components", "apps/android/ui-components", &["domain"]),
-            ("domain", "apps/android/domain", &[]),
-            ("native-bindings", "apps/android/native-bindings", &[]),
-            (
-                "native-smoke",
-                "apps/android/native-smoke",
-                &["native-bindings"],
-            ),
-            ("detekt-rules", "apps/android/quality/detekt-rules", &[]),
-        ];
-        for (module, path, allowed_deps) in allowed {
+        for path in policy::KOTLIN_MODULES {
             let text = read(&format!("{path}/module.yaml"));
-            for dep in internal_module_deps(&text) {
-                assert!(
-                    allowed_deps.contains(&dep.as_str()),
-                    "{module} depends on //{dep}, which violates ARCHITECTURE.md ownership"
-                );
-            }
+            let violations = policy::kotlin_dependency_violations(path, &text)
+                .unwrap_or_else(|error| panic!("{path}: {error}"));
+            assert!(violations.is_empty(), "{violations:#?}");
         }
     }
 
@@ -255,54 +173,134 @@ mod tests {
     fn module_yaml_files_are_owned_by_the_direction_lock() {
         // Every internal dependency must be declared by a module that owns it; a module.yaml
         // without a tracked owner is an unmodeled boundary.
-        let output = Command::new("git")
-            .args(["ls-files", "--", "**/module.yaml"])
-            .current_dir(root())
-            .output()
-            .expect("git");
-        assert!(output.status.success());
-        let files = String::from_utf8(output.stdout).expect("utf8");
-        for file in files.lines() {
-            let module = file
-                .trim_end_matches("/module.yaml")
-                .rsplit('/')
-                .next()
-                .expect("module dir");
-            let is_owned = matches!(
-                module,
-                "app"
-                    | "data"
-                    | "ui-components"
-                    | "domain"
-                    | "native-bindings"
-                    | "native-smoke"
-                    | "detekt-rules"
-            );
+        for file in files_under("apps") {
+            if file.file_name().is_none_or(|name| name != "module.yaml") {
+                continue;
+            }
+            let root = root();
+            let relative = file
+                .strip_prefix(&root)
+                .expect("repository source")
+                .to_str()
+                .expect("UTF-8 module path");
             assert!(
-                is_owned,
-                "module.yaml {file} is not covered by kotlin_module_dependencies_point_inward"
+                policy::owned_kotlin_module(relative),
+                "module.yaml {relative} is not covered by kotlin_module_dependencies_point_inward"
             );
         }
     }
 
+    #[test]
+    fn android_has_no_native_smoke_composition_root() {
+        assert!(
+            !root().join("apps/android/native-smoke").exists(),
+            "native-smoke is not a composition root"
+        );
+        let project = read("apps/android/project.yaml");
+        assert!(
+            !project.contains("native-smoke"),
+            "apps/android/project.yaml must not list native-smoke"
+        );
+    }
+
     fn internal_module_deps(module_yaml: &str) -> Vec<String> {
-        let mut deps = Vec::new();
-        for line in module_yaml.lines() {
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("- //") {
-                let name = rest
-                    .split([':', ' ', '\t'])
-                    .next()
-                    .expect("dependency name")
-                    .to_owned();
-                if !name.is_empty() {
-                    deps.push(name);
-                }
-            }
-        }
+        let mut deps: Vec<_> = policy::internal_module_dependencies(module_yaml)
+            .expect("valid dependency YAML")
+            .into_iter()
+            .map(|dependency| dependency.name)
+            .collect();
         deps.sort_unstable();
         deps.dedup();
         deps
+    }
+
+    fn declared_cargo_metadata() -> serde_json::Value {
+        let output = Command::new("cargo")
+            .args(["metadata", "--no-deps", "--format-version", "1", "--locked"])
+            .current_dir(root())
+            .output()
+            .expect("cargo metadata");
+        assert!(
+            output.status.success(),
+            "cargo metadata: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).expect("Cargo metadata JSON")
+    }
+
+    #[test]
+    fn rust_manifests_cannot_drop_workspace_lint_inheritance() {
+        for file in files_under("crates")
+            .into_iter()
+            .chain(files_under("apps/tui"))
+        {
+            if file.file_name().is_none_or(|name| name != "Cargo.toml") {
+                continue;
+            }
+            let source = fs::read_to_string(&file).expect("manifest source");
+            let violations = policy::rust_manifest_violations(&file.display().to_string(), &source)
+                .expect("valid manifest");
+            assert!(violations.is_empty(), "{violations:#?}");
+        }
+    }
+
+    #[test]
+    fn rust_production_source_cannot_hide_unsafe_or_inline_tests() {
+        let mut violations = Vec::new();
+        for file in files_under("crates")
+            .into_iter()
+            .chain(files_under("apps/tui"))
+        {
+            if file.extension().is_none_or(|extension| extension != "rs") {
+                continue;
+            }
+            if !file
+                .components()
+                .any(|component| component.as_os_str() == "src")
+                && file.file_name().is_none_or(|name| name != "build.rs")
+            {
+                continue;
+            }
+            let source = fs::read_to_string(&file).expect("Rust source");
+            violations.extend(
+                policy::rust_source_violations(&file.display().to_string(), &source)
+                    .expect("Rust policy must parse source"),
+            );
+        }
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn production_detekt_configs_keep_ownership_checks_active() {
+        for module in ["app", "data", "domain", "ui-components"] {
+            let source = read(&format!("quality/detekt/config/{module}.yml"));
+            let violations = policy::detekt_config_violations(module, &source)
+                .expect("valid Detekt policy config");
+            assert!(violations.is_empty(), "{violations:#?}");
+            assert!(
+                !root()
+                    .join(format!("apps/android/{module}/detekt-baseline.xml"))
+                    .exists(),
+                "architecture baselines are forbidden"
+            );
+        }
+    }
+
+    // Behavior Contract: dependency syntax must not weaken module ownership.
+    // Scenarios: Given quoted, inline or platform-qualified YAML dependencies, when the
+    // architecture lock reads them, then it sees the same internal edges as block scalars.
+    // Observable outcomes: actual dependency names, without comment or string decoys.
+    // TDD proof: this test fails against the former `strip_prefix("- //")` scanner.
+    // Excludes: product behavior; graph-direction scenarios are in the policy contracts.
+    #[test]
+    fn module_dependency_syntax_cannot_hide_edges() {
+        for yaml in [
+            "dependencies:\n  - '//data'\n",
+            "dependencies: [//data]\n",
+            "dependencies@android:\n  - {\"//data\": runtime-only}\n",
+        ] {
+            assert_eq!(internal_module_deps(yaml), vec!["data"], "{yaml}");
+        }
     }
 
     #[test]
@@ -508,7 +506,6 @@ mod tests {
                 "rust-host",
                 "native",
                 "android-kotlin",
-                "api26-smoke",
                 "quality"
             ],
             "expected root-level jobs in architecture_checks.yml"
