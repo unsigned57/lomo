@@ -1,11 +1,9 @@
 package com.lomo.app.util
 
-import android.annotation.SuppressLint
 import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -127,11 +125,9 @@ internal fun createTextPaint(
         isSubpixelText = true
     }
 
-@SuppressLint("InlinedApi")
-private fun defaultBreakStrategy(): Int = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
+private fun defaultBreakStrategy(): Int = Layout.BREAK_STRATEGY_HIGH_QUALITY
 
-@SuppressLint("InlinedApi")
-private fun defaultJustificationMode(): Int = LineBreaker.JUSTIFICATION_MODE_NONE
+private fun defaultJustificationMode(): Int = Layout.JUSTIFICATION_MODE_NONE
 
 internal fun buildStaticLayout(
     text: CharSequence,
