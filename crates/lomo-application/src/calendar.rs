@@ -6,9 +6,11 @@
 
 use std::fmt;
 
-use jiff::ToSpan;
-use jiff::civil::{Date as JiffDate, Time as JiffTime};
-use jiff::tz::TimeZone;
+use jiff::{
+    ToSpan,
+    civil::{Date as JiffDate, Time as JiffTime},
+    tz::TimeZone,
+};
 
 /// Supported storage date formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Default)]

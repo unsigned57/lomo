@@ -1,12 +1,16 @@
-use std::fs::{OpenOptions, create_dir_all, read, remove_file, rename};
-use std::io::Write;
-use std::path::Path;
+use std::{
+    fs::{OpenOptions, create_dir_all, read, remove_file, rename},
+    io::Write,
+    path::Path,
+};
 
 use lomo_core::{ExchangeArtifact, ExchangeToken, LomoError, Sha256Digest};
 use sha2::{Digest, Sha256};
 
-use crate::csprng::generate_hex_token;
-use crate::error::{corruption, storage, validation};
+use crate::{
+    csprng::generate_hex_token,
+    error::{corruption, storage, validation},
+};
 
 /// Stages bytes into the exchange directory with fsync and returns an `ExchangeArtifact`.
 ///

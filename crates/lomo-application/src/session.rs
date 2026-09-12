@@ -1,33 +1,35 @@
 //! Shared application lifecycle and commands. Physical writes use one frozen transaction path.
 
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::AtomicU64};
 
 use lomo_core::{LomoError, OperationId, PageSize, PlatformActionExecutor, RelativeWorkspacePath};
 use lomo_store::{
-    DocumentPublication, MemoPage, MemoQuery, MemoQueryBoundary, MemoSnapshot, PageCursor,
-    RebuildResult, SafProjectionMutation, SafProjectionMutationKind, SidebarProjection, Store,
+    DocumentPublication, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot,
+    PageCursor, RebuildResult, SafProjectionMutation, SafProjectionMutationKind, SidebarProjection,
+    Store,
 };
 use lomo_workspace::{
     DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, TrashRecordCreate,
     TrashRecordV1, encode_trash_record, trash_record_relative_path,
 };
 
-use crate::config::WorkspaceSessionConfig;
-use crate::csprng::{generate_device_id, mint_memo_id};
-use crate::document_plan::{LoadedDocument, project_memo};
-use crate::draft::{ConflictEvidence, DraftStore};
-use crate::error::{storage, validation};
-use crate::intent::IntentJournal;
-use crate::lock::TransactionLock;
-use crate::private_io::{read_optional, write_atomic};
-use crate::record_plan::{StateChange, history_files, state_files};
-use crate::transaction::{PlannedFile, TransactionInput, payload_digest};
-use crate::types::{
-    CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
-    PinMemoResult, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
+use crate::{
+    config::WorkspaceSessionConfig,
+    csprng::{generate_device_id, mint_memo_id},
+    document_plan::{LoadedDocument, project_memo},
+    draft::{ConflictEvidence, DraftStore},
+    error::{storage, validation},
+    intent::IntentJournal,
+    lock::TransactionLock,
+    private_io::{read_optional, write_atomic},
+    record_plan::{StateChange, history_files, state_files},
+    transaction::{PlannedFile, TransactionInput, payload_digest},
+    types::{
+        CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
+        PinMemoResult, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
+    },
+    workspace_io::{WorkspaceIo, epoch_millis},
 };
-use crate::workspace_io::{WorkspaceIo, epoch_millis};
 
 pub struct WorkspaceSession {
     pub(crate) config: WorkspaceSessionConfig,
@@ -227,7 +229,7 @@ impl WorkspaceSession {
         self.recover_pending()?;
         let current = self.current_memo(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
         self.check_baseline(
             &loaded,
             &request.operation_id,
@@ -304,7 +306,8 @@ impl WorkspaceSession {
     /// Removes a memo block and retains a durable trash snapshot through the same transaction.
     ///
     /// # Errors
-    /// Propagates stale identity, invalid trash data and platform/projection errors.
+    /// Missing activity source (`memo_source_missing`), stale identity, invalid trash data,
+    /// and platform/projection errors.
     pub fn delete_memo(&self, request: DeleteMemoRequest) -> Result<DeleteMemoResult, LomoError> {
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         let digest = payload_digest(&request)?;
@@ -314,7 +317,7 @@ impl WorkspaceSession {
         self.recover_pending()?;
         let current = self.current_memo(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
         self.check_baseline(
             &loaded,
             &request.operation_id,
@@ -410,7 +413,7 @@ impl WorkspaceSession {
         self.recover_pending()?;
         let current = self.current_memo(&request.memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
-        let loaded = LoadedDocument::load(&self.io(), path.clone())?;
+        let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
         loaded.memo(&request.memo_id)?;
         let now = epoch_millis()?;
         let pinned_at = if request.pinned {
@@ -491,7 +494,23 @@ impl WorkspaceSession {
         cursor: Option<&PageCursor>,
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
+        crate::search::validate_filters(&query.filters)?;
         self.with_store(|store| store.query_memos_with_boundary(query, boundary, cursor, page_size))
+    }
+
+    /// Queries one page from an explicit start in the current query order.
+    ///
+    /// # Errors
+    /// Propagates query validation and storage failures.
+    pub fn query_memos_starting_at(
+        &self,
+        query: &MemoQuery,
+        boundary: Option<&MemoQueryBoundary>,
+        start: MemoQueryStart<'_>,
+        page_size: PageSize,
+    ) -> Result<MemoPage, LomoError> {
+        crate::search::validate_filters(&query.filters)?;
+        self.with_store(|store| store.query_memos_starting_at(query, boundary, start, page_size))
     }
 
     /// Counts rows accepted by the same predicate as [`Self::query_memos_page`].
@@ -499,6 +518,7 @@ impl WorkspaceSession {
     /// # Errors
     /// Propagates query validation and storage failures.
     pub fn query_count(&self, query: &MemoQuery) -> Result<u64, LomoError> {
+        crate::search::validate_filters(&query.filters)?;
         self.with_store(|store| store.query_count(query))
     }
 

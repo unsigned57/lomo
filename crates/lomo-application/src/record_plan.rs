@@ -10,9 +10,11 @@ use lomo_workspace::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::path::Path;
 
-use crate::error::corruption;
-use crate::transaction::PlannedFile;
-use crate::workspace_io::{FileSnapshot, WorkspaceIo};
+use crate::{
+    error::corruption,
+    transaction::PlannedFile,
+    workspace_io::{FileSnapshot, WorkspaceIo},
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

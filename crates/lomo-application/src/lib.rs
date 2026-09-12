@@ -21,6 +21,7 @@ mod record_plan;
 pub mod reminder_cmd;
 pub mod review;
 pub mod search;
+pub mod search_excerpt;
 pub mod session;
 pub mod statistics;
 mod stats_query;
@@ -34,7 +35,8 @@ pub use lifecycle::{
     PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult, RestoreRevisionRequest,
 };
 pub use lomo_store::{
-    MemoFilters, MemoPage, MemoQuery, MemoSort, MemoSummary, PageCursor, PlannedAlarm, ReminderPlan,
+    MemoFilters, MemoPage, MemoQuery, MemoSort, MemoSummary, PageCursor, PlannedAlarm,
+    ReminderPlan, TagSelectionMode,
 };
 pub use media_index::AttachmentObservation;
 pub use reminder_cmd::FireReminderRequest;

@@ -3,8 +3,7 @@
 //! Provides deterministic computation of memo counts, word and character counts,
 //! active days, streaks, distributions, and time bounds without platform or UI dependencies.
 
-use std::collections::BTreeMap;
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use jiff::ToSpan;
 

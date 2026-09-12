@@ -1,16 +1,16 @@
 //! Workspace archive export/import through the store-owned ZIP contract.
 
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use lomo_core::LomoError;
 use lomo_store::{
     ArchiveExportResult, RebuildResult, archive_activate, archive_export, archive_import,
 };
 
-use crate::error::validation;
-use crate::lock::TransactionLock;
-use crate::session::WorkspaceSession;
+use crate::{error::validation, lock::TransactionLock, session::WorkspaceSession};
 
 impl WorkspaceSession {
     /// Exports Markdown, attachments, and portable `.lomo` facts to a plaintext ZIP.

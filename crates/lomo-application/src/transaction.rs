@@ -5,10 +5,12 @@ use lomo_store::{DocumentPublication, SafProjectionCommitResult};
 use lomo_workspace::{MemoId, SourceFingerprint};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{conflict, corruption, validation};
-use crate::intent::{IntentStatus, OperationIntentRecord};
-use crate::session::WorkspaceSession;
-use crate::workspace_io::{FileSnapshot, WorkspaceIo, epoch_millis};
+use crate::{
+    error::{conflict, corruption, validation},
+    intent::{IntentStatus, OperationIntentRecord},
+    session::WorkspaceSession,
+    workspace_io::{FileSnapshot, WorkspaceIo, epoch_millis},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -50,10 +50,12 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use lomo_application::calendar::{CalendarError, CivilDate, CivilTime};
-    use lomo_application::statistics::{
-        DayOfWeek, MemoTagCount, StatisticsError, StatisticsMemoFact, StatisticsSnapshot,
-        calculate_statistics,
+    use lomo_application::{
+        calendar::{CalendarError, CivilDate, CivilTime},
+        statistics::{
+            DayOfWeek, MemoTagCount, StatisticsError, StatisticsMemoFact, StatisticsSnapshot,
+            calculate_statistics,
+        },
     };
 
     fn test_ok<T, E: core::fmt::Debug>(result: Result<T, E>) -> T {

@@ -14,9 +14,9 @@
 mod tests {
     use std::sync::Arc;
 
-    use lomo_application::calendar::CivilDate;
     use lomo_application::{
         CreateMemoRequest, StatisticsSnapshot, WorkspaceSession, WorkspaceSessionConfig,
+        calendar::CivilDate,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
     use lomo_platform_fs::PosixPlatformActionExecutor;

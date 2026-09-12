@@ -12,11 +12,13 @@ use lomo_workspace::{
     memo_identity_record_path, parse_workspace_document,
 };
 
-use crate::calendar::memo_chronology;
-use crate::config::WorkspaceSessionConfig;
-use crate::csprng::{generate_hex_token, mint_memo_id};
-use crate::error::{corruption, storage, validation};
-use crate::workspace_io::{WorkspaceIo, deadline};
+use crate::{
+    calendar::memo_chronology,
+    config::WorkspaceSessionConfig,
+    csprng::{generate_hex_token, mint_memo_id},
+    error::{corruption, storage, validation},
+    workspace_io::{WorkspaceIo, deadline},
+};
 
 /// Rebuilds the entire SQLite query projection from Markdown and `.lomo` physical facts.
 ///

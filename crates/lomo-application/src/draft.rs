@@ -1,11 +1,15 @@
-use std::fs::create_dir_all;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::create_dir_all,
+    path::{Path, PathBuf},
+};
 
 use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
 use serde::{Deserialize, Serialize};
 
-use crate::error::storage;
-use crate::private_io::{baseline_bytes, write_atomic};
+use crate::{
+    error::storage,
+    private_io::{baseline_bytes, write_atomic},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConflictEvidence {

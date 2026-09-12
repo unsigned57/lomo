@@ -1,7 +1,9 @@
 //! One application boundary for capability I/O and byte-exact postcondition verification.
 
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use lomo_core::{
     ActionEvidence, ActionId, ActionOutcome, BatchId, ExpectedFingerprint, JobId, LomoError,
@@ -10,10 +12,12 @@ use lomo_core::{
 };
 use lomo_workspace::SourceFingerprint;
 
-use crate::config::WorkspaceSessionConfig;
-use crate::csprng::generate_hex_token;
-use crate::error::{corruption, storage, validation};
-use crate::exchange_io::{read_artifact_content, stage_content};
+use crate::{
+    config::WorkspaceSessionConfig,
+    csprng::generate_hex_token,
+    error::{corruption, storage, validation},
+    exchange_io::{read_artifact_content, stage_content},
+};
 
 pub struct FileSnapshot {
     pub bytes: Vec<u8>,

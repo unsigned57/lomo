@@ -9,9 +9,11 @@ use lomo_workspace::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::error::{conflict, corruption, storage};
-use crate::private_io::{read_optional, write_atomic};
-use crate::transaction::PlannedFile;
+use crate::{
+    error::{conflict, corruption, storage},
+    private_io::{read_optional, write_atomic},
+    transaction::PlannedFile,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IntentStatus {

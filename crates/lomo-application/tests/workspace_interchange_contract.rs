@@ -19,9 +19,7 @@
     reason = "contract tests fail closed on missing interchange facts"
 )]
 mod tests {
-    use std::fs;
-    use std::path::Path;
-    use std::sync::Arc;
+    use std::{fs, path::Path, sync::Arc};
 
     use lomo_application::{
         CreateMemoRequest, PinMemoRequest, ToggleTaskRequest, WorkspaceSession,

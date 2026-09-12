@@ -11,14 +11,16 @@ use lomo_workspace::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::document_plan::{LoadedDocument, project_memo};
-use crate::error::validation;
-use crate::lock::TransactionLock;
-use crate::record_plan::{StateChange, state_files};
-use crate::session::WorkspaceSession;
-use crate::transaction::{PlannedFile, TransactionInput, payload_digest};
-use crate::types::{UpdateMemoRequest, UpdateMemoResult};
-use crate::workspace_io::epoch_millis;
+use crate::{
+    document_plan::{LoadedDocument, project_memo},
+    error::validation,
+    lock::TransactionLock,
+    record_plan::{StateChange, state_files},
+    session::WorkspaceSession,
+    transaction::{PlannedFile, TransactionInput, payload_digest},
+    types::{UpdateMemoRequest, UpdateMemoResult},
+    workspace_io::epoch_millis,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RestoreMemoRequest {

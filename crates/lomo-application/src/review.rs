@@ -1,18 +1,19 @@
 //! Daily review candidates are timezone-sliced and exclude locally completed notes.
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use lomo_core::LomoError;
 use lomo_store::{MemoFilters, MemoQuery, MemoSummary};
 use lomo_workspace::MemoId;
 use serde::{Deserialize, Serialize};
 
-use crate::calendar::{CivilDate, DateFormat, day_bounds, format_date_key};
-use crate::error::{storage, validation};
-use crate::paging::collect_summaries;
-use crate::private_io::{read_optional, write_atomic};
-use crate::session::WorkspaceSession;
+use crate::{
+    calendar::{CivilDate, DateFormat, day_bounds, format_date_key},
+    error::{storage, validation},
+    paging::collect_summaries,
+    private_io::{read_optional, write_atomic},
+    session::WorkspaceSession,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewCandidate {

@@ -3,11 +3,11 @@
 use lomo_core::LomoError;
 use lomo_store::{count_characters, count_words};
 
-use crate::error::validation;
-use crate::paging::{collect_summaries, default_query};
-use crate::session::WorkspaceSession;
-use crate::statistics::{
-    MemoStatistics, StatisticsMemoFact, StatisticsSnapshot, calculate_statistics,
+use crate::{
+    error::validation,
+    paging::{collect_summaries, default_query},
+    session::WorkspaceSession,
+    statistics::{MemoStatistics, StatisticsMemoFact, StatisticsSnapshot, calculate_statistics},
 };
 
 impl WorkspaceSession {

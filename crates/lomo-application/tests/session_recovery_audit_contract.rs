@@ -10,10 +10,14 @@
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
-    use std::fs;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        fmt::Debug,
+        fs,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
 
     use lomo_application::{
         CreateMemoRequest, PinMemoRequest, UpdateMemoRequest, WorkspaceSession,

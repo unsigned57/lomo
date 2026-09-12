@@ -1,15 +1,19 @@
 //! Atomic persistence for device-private records and editing baselines.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::{
+    fs::{self, File, OpenOptions},
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
+    path::Path,
+};
 
 use lomo_core::LomoError;
 use lomo_workspace::SourceFingerprint;
 
-use crate::csprng::generate_hex_token;
-use crate::error::{corruption, storage, validation};
+use crate::{
+    csprng::generate_hex_token,
+    error::{corruption, storage, validation},
+};
 
 pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, LomoError> {
     match fs::read(path) {

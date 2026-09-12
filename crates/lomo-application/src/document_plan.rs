@@ -8,11 +8,13 @@ use lomo_workspace::{
     memo_identity_record_path, parse_workspace_document, plan_document_patch,
 };
 
-use crate::calendar::memo_chronology;
-use crate::csprng::{generate_hex_token, mint_memo_id};
-use crate::error::{conflict, validation};
-use crate::transaction::PlannedFile;
-use crate::workspace_io::{FileSnapshot, WorkspaceIo};
+use crate::{
+    calendar::memo_chronology,
+    csprng::{generate_hex_token, mint_memo_id},
+    error::{conflict, validation},
+    transaction::PlannedFile,
+    workspace_io::{FileSnapshot, WorkspaceIo},
+};
 
 pub struct LoadedDocument {
     pub path: RelativeWorkspacePath,
@@ -31,7 +33,7 @@ pub struct DocumentChange {
 }
 
 impl LoadedDocument {
-    pub fn load(io: &WorkspaceIo<'_>, path: RelativeWorkspacePath) -> Result<Self, LomoError> {
+    fn require_markdown_path(path: &RelativeWorkspacePath) -> Result<(), LomoError> {
         let first = path.as_str().split('/').next();
         let markdown = path
             .as_str()
@@ -43,8 +45,42 @@ impl LoadedDocument {
                 "memo commands require a Markdown path outside control directories",
             ));
         }
-        let logical_path = WorkspaceRelativePath::parse(path.as_str())?;
+        Ok(())
+    }
+
+    /// Opens a Markdown document, treating a missing file as an empty new document.
+    ///
+    /// Create and restore use this constructor because the destination file may not exist yet.
+    pub fn load(io: &WorkspaceIo<'_>, path: RelativeWorkspacePath) -> Result<Self, LomoError> {
+        Self::require_markdown_path(&path)?;
         let original = io.read(&path)?;
+        Self::from_original(io, path, original)
+    }
+
+    /// Opens a Markdown document that an existing memo identity still occupies.
+    ///
+    /// Missing source is `memo_source_missing`. Update, delete, and pin must not invent an empty
+    /// document and then report a stale baseline or a missing identity.
+    pub fn load_existing(
+        io: &WorkspaceIo<'_>,
+        path: RelativeWorkspacePath,
+    ) -> Result<Self, LomoError> {
+        Self::require_markdown_path(&path)?;
+        let Some(original) = io.read(&path)? else {
+            return Err(validation(
+                "memo_source_missing",
+                format!("active memo source is missing: {}", path.as_str()),
+            ));
+        };
+        Self::from_original(io, path, Some(original))
+    }
+
+    fn from_original(
+        io: &WorkspaceIo<'_>,
+        path: RelativeWorkspacePath,
+        original: Option<FileSnapshot>,
+    ) -> Result<Self, LomoError> {
+        let logical_path = WorkspaceRelativePath::parse(path.as_str())?;
         let bytes = original
             .as_ref()
             .map_or_else(Vec::new, |snapshot| snapshot.bytes.clone());

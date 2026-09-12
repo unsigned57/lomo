@@ -1,9 +1,14 @@
 //! Behavior Contract
-//! Capability: history listing, trash restore, attachment protection, archive export/import.
+//! Capability: history listing, trash restore, attachment protection, archive export/import,
+//! and fail-closed soft delete when the activity Markdown source has been removed externally.
 //! Scenarios: wikilink attachments survive soft delete via history/trash refs; restore rebinds
-//! the original `MemoId`; archive export is self-contained; a corrupt archive fails closed.
-//! Observable outcomes: protected paths, restored bodies, zip entries, unchanged live files.
-//! TDD proof: session lifecycle/media/archive APIs did not exist.
+//! the original `MemoId`; archive export is self-contained; a corrupt archive fails closed;
+//! deleting a projected memo whose `.md` was unlinked outside Lomo returns `memo_source_missing`
+//! and does not invent a trash record.
+//! Observable outcomes: protected paths, restored bodies, zip entries, unchanged live files,
+//! error code `memo_source_missing`, and no `.lomo/trash/v1` record for the rejected delete.
+//! TDD proof: session lifecycle/media/archive APIs did not exist; missing-source delete used to
+//! parse an empty document and fail later at identity resolution.
 //! Excludes: Android SAF archive UI.
 
 #[cfg(test)]
@@ -12,8 +17,7 @@
     reason = "contract tests fail closed on missing facts"
 )]
 mod tests {
-    use std::fs;
-    use std::sync::Arc;
+    use std::{fs, sync::Arc};
 
     use lomo_application::{
         CreateMemoRequest, DeleteMemoRequest, RestoreMemoRequest, WorkspaceSession,
@@ -24,7 +28,7 @@ mod tests {
         MediaSource, PromotePlan, stage_media, suggest_human_relative_path, write_bytes_for_tests,
     };
     use lomo_platform_fs::PosixPlatformActionExecutor;
-    use lomo_workspace::WorkspaceRootId;
+    use lomo_workspace::{WorkspaceRootId, trash_record_relative_path};
     use tempfile::tempdir;
 
     const PNG: &[u8] = &[
@@ -129,6 +133,40 @@ mod tests {
             .expect("get")
             .expect("found");
         assert!(restored.body.contains("image.png"));
+    }
+
+    #[test]
+    fn delete_fails_closed_when_markdown_was_removed_externally() {
+        let ctx = open_session();
+        let created = ctx
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("gone-src").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_10.md").expect("path")),
+                time_token: Some("12:00:00".to_owned()),
+                content: "about to vanish".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        fs::remove_file(ctx.workspace_path.join("2026_09_10.md")).expect("unlink source");
+        let error = ctx
+            .session
+            .delete_memo(DeleteMemoRequest {
+                operation_id: OperationId::parse("del-missing").expect("op"),
+                memo_id: created.memo_id.clone(),
+                expected_document_fingerprint: created.commit_result.file_fingerprint,
+                trashed_at_ms: Some(1_757_500_000_000),
+            })
+            .expect_err("missing activity source must fail closed");
+        assert_eq!(error.code(), "memo_source_missing");
+        let trash = trash_record_relative_path(created.memo_id.as_str()).expect("trash path");
+        assert!(
+            !ctx.workspace_path.join(trash.as_str()).exists(),
+            "delete must not invent a trash record for a missing source"
+        );
     }
 
     #[test]

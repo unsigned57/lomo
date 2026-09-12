@@ -10,9 +10,11 @@ use lomo_workspace::{
 };
 use serde::de::DeserializeOwned;
 
-use crate::error::corruption;
-use crate::record_plan::{history_tip, state_tip, validate_history_revision};
-use crate::workspace_io::WorkspaceIo;
+use crate::{
+    error::corruption,
+    record_plan::{history_tip, state_tip, validate_history_revision},
+    workspace_io::WorkspaceIo,
+};
 
 fn body<T: DeserializeOwned>(record: &LomoRecord, kind: LomoRecordKind) -> Result<T, LomoError> {
     if record.payload.kind != kind {

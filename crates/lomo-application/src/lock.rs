@@ -1,9 +1,13 @@
-use std::fs::{File, create_dir_all};
-use std::path::{Path, PathBuf};
+use std::{
+    fs::{File, create_dir_all},
+    path::{Path, PathBuf},
+};
 
 use lomo_core::LomoError;
-use rustix::fs::{FlockOperation, Mode, OFlags, flock, open};
-use rustix::io::Errno;
+use rustix::{
+    fs::{FlockOperation, Mode, OFlags, flock, open},
+    io::Errno,
+};
 
 use crate::error::{conflict, permission, storage};
 

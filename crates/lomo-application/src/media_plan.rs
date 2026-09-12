@@ -4,9 +4,11 @@ use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
 use lomo_media::{ContentDigest, PromotePlan};
 use lomo_store::{project_content_facts, select_pending_promotes};
 
-use crate::error::{storage, validation};
-use crate::transaction::PlannedFile;
-use crate::workspace_io::WorkspaceIo;
+use crate::{
+    error::{storage, validation},
+    transaction::PlannedFile,
+    workspace_io::WorkspaceIo,
+};
 
 pub fn plan_attachment_files(
     io: &WorkspaceIo<'_>,

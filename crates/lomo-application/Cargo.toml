@@ -17,7 +17,7 @@ jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-pinyin.workspace = true
+pinyin = { workspace = true, features = ["heteronym"] }
 
 [dev-dependencies]
 lomo-platform-fs = { path = "../lomo-platform-fs" }

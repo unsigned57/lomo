@@ -8,11 +8,13 @@ use lomo_store::{
 use lomo_workspace::{MemoId, ReminderReference};
 use serde::{Deserialize, Serialize};
 
-use crate::error::validation;
-use crate::paging::{collect_summaries, default_query};
-use crate::session::WorkspaceSession;
-use crate::types::{UpdateMemoRequest, UpdateMemoResult};
-use crate::workspace_io::epoch_millis;
+use crate::{
+    error::validation,
+    paging::{collect_summaries, default_query},
+    session::WorkspaceSession,
+    types::{UpdateMemoRequest, UpdateMemoResult},
+    workspace_io::epoch_millis,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FireReminderRequest {

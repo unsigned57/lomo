@@ -30,9 +30,13 @@
 //!
 //! TDD proof: RED initially because `WorkspaceSession` implementation is pending.
 
-use std::fs;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    fs,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use lomo_application::{
     CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, UpdateMemoRequest, WorkspaceSession,

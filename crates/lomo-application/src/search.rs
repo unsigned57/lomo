@@ -3,15 +3,10 @@
 use std::sync::atomic::Ordering;
 
 use lomo_core::{LomoError, PageSize};
-use lomo_store::{MemoQuery, MemoSummary, PageCursor};
-use pinyin::ToPinyin;
+use lomo_store::{MemoFilters, MemoQuery, MemoSummary, PageCursor};
 use serde::{Deserialize, Serialize};
 
-use crate::error::validation;
-use crate::paging::{collect_summaries, default_query};
-use crate::session::WorkspaceSession;
-
-const FUZZY_THRESHOLD: i64 = 10;
+use crate::{error::validation, paging::collect_summaries, session::WorkspaceSession};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,11 +15,12 @@ pub enum SearchMode {
     Fuzzy,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchRequest {
     pub query_epoch: u64,
     pub mode: SearchMode,
     pub text: String,
+    pub filters: MemoFilters,
     pub cursor: Option<PageCursor>,
     pub page_size: PageSize,
 }
@@ -34,6 +30,7 @@ pub struct SearchHit {
     pub memo_id: String,
     pub score: i64,
     pub summary: MemoSummary,
+    pub excerpt: crate::search_excerpt::SearchExcerpt,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +39,7 @@ pub struct SearchPage {
     pub mode: SearchMode,
     pub items: Vec<SearchHit>,
     pub next_cursor: Option<PageCursor>,
+    pub total: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,6 +54,13 @@ impl WorkspaceSession {
     /// # Errors
     /// Propagates query validation and projection failures.
     pub fn search(&self, request: &SearchRequest) -> Result<SearchOutcome, LomoError> {
+        validate_filters(&request.filters)?;
+        if request.text.len() > 4096 {
+            return Err(validation(
+                "query_too_long",
+                "search query exceeds 4096 UTF-8 bytes",
+            ));
+        }
         if let Some(active) = stale_epoch(&self.search_epoch, request.query_epoch) {
             return Ok(SearchOutcome::Discarded {
                 query_epoch: request.query_epoch,
@@ -66,6 +71,12 @@ impl WorkspaceSession {
             SearchMode::Fulltext => fulltext(self, request)?,
             SearchMode::Fuzzy => fuzzy(self, request)?,
         };
+        if let Some(active) = stale_epoch(&self.search_epoch, request.query_epoch) {
+            return Ok(SearchOutcome::Discarded {
+                query_epoch: request.query_epoch,
+                active_epoch: active,
+            });
+        }
         Ok(SearchOutcome::Ready(page))
     }
 }
@@ -85,33 +96,92 @@ fn stale_epoch(slot: &std::sync::atomic::AtomicU64, query_epoch: u64) -> Option<
     }
 }
 
+pub(crate) fn validate_filters(filters: &MemoFilters) -> Result<(), LomoError> {
+    if filters
+        .date_from_inclusive_ms
+        .zip(filters.date_until_exclusive_ms)
+        .is_some_and(|(from, until)| from >= until)
+    {
+        return Err(validation(
+            "invalid_date_range",
+            "search range must have a start before its end",
+        ));
+    }
+    if let Some(tag) = &filters.tag {
+        let source = format!("#{tag}");
+        let parsed =
+            lomo_workspace::render_markdown(&lomo_workspace::SourceBytes::try_from_str(&source)?)?;
+        if parsed.tag_names() != std::slice::from_ref(tag) {
+            return Err(validation(
+                "invalid_tag",
+                "tag filter must be one complete tag name without #",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn fulltext(session: &WorkspaceSession, request: &SearchRequest) -> Result<SearchPage, LomoError> {
     let query = MemoQuery {
         search_text: nonempty(&request.text),
-        filters: lomo_store::MemoFilters::default(),
+        filters: request.filters.clone(),
         sort: lomo_store::MemoSort::default(),
     };
-    let page = session.with_store(|store| {
-        store.query_memos(&query, request.cursor.as_ref(), request.page_size)
-    })?;
-    Ok(SearchPage {
-        query_epoch: request.query_epoch,
-        mode: SearchMode::Fulltext,
-        items: page
+    session.with_store(|store| {
+        let page = store.query_memos(&query, request.cursor.as_ref(), request.page_size)?;
+        let total = store.query_count(&query)?;
+        let items = page
             .items
             .into_iter()
-            .map(|summary| SearchHit {
-                score: rank_score(summary.rank),
-                memo_id: summary.memo_id.clone(),
-                summary,
+            .map(|summary| {
+                let snapshot = store
+                    .get_projected_memo(&summary.memo_id)?
+                    .ok_or_else(|| validation("memo_not_found", "search result disappeared"))?;
+                verify_version(&summary, &snapshot.summary)?;
+                let excerpt = crate::search_excerpt::fulltext_excerpt(
+                    &summary.source_path,
+                    &snapshot.body,
+                    &request.text,
+                )?;
+                Ok(SearchHit {
+                    score: rank_score(summary.rank),
+                    memo_id: summary.memo_id.clone(),
+                    summary,
+                    excerpt,
+                })
             })
-            .collect(),
-        next_cursor: page.next_cursor,
+            .collect::<Result<_, LomoError>>()?;
+        Ok(SearchPage {
+            query_epoch: request.query_epoch,
+            mode: SearchMode::Fulltext,
+            items,
+            next_cursor: page.next_cursor,
+            total,
+        })
     })
 }
 
+fn verify_version(expected: &MemoSummary, actual: &MemoSummary) -> Result<(), LomoError> {
+    if expected.content_revision != actual.content_revision
+        || expected.file_fingerprint != actual.file_fingerprint
+    {
+        return Err(validation(
+            "stale_search_result",
+            "memo changed while searching; repeat the query",
+        ));
+    }
+    Ok(())
+}
+
 fn fuzzy(session: &WorkspaceSession, request: &SearchRequest) -> Result<SearchPage, LomoError> {
-    let mut hits = scored_hits(session, &request.text)?;
+    let revision = session.with_store(|store| Ok(store.high_water_revision()))?;
+    let mut hits = scored_hits(session, &request.text, &request.filters)?;
+    if revision != session.with_store(|store| Ok(store.high_water_revision()))? {
+        return Err(validation(
+            "stale_search_result",
+            "projection changed while searching; repeat the query",
+        ));
+    }
     hits.sort_by(|left, right| {
         right
             .score
@@ -119,129 +189,94 @@ fn fuzzy(session: &WorkspaceSession, request: &SearchRequest) -> Result<SearchPa
             .then(right.summary.created_at_ms.cmp(&left.summary.created_at_ms))
             .then(left.memo_id.cmp(&right.memo_id))
     });
-    paginate_fuzzy(request, &hits)
+    paginate_fuzzy(request, &hits, revision)
 }
 
-fn scored_hits(session: &WorkspaceSession, text: &str) -> Result<Vec<SearchHit>, LomoError> {
-    let summaries = collect_summaries(session, &default_query())?;
+fn scored_hits(
+    session: &WorkspaceSession,
+    text: &str,
+    filters: &MemoFilters,
+) -> Result<Vec<SearchHit>, LomoError> {
+    let query = MemoQuery {
+        search_text: None,
+        filters: filters.clone(),
+        sort: lomo_store::MemoSort::default(),
+    };
+    let summaries = collect_summaries(session, &query)?;
     let mut hits = Vec::new();
     let needle = text.trim();
     for summary in summaries {
         let snapshot = session
             .with_store(|store| store.get_projected_memo(&summary.memo_id))?
             .ok_or_else(|| validation("memo_not_found", "search candidate disappeared"))?;
-        let score = if needle.is_empty() {
-            0
-        } else {
-            score_memo(&summary, &snapshot.body, needle)
-        };
-        if needle.is_empty() || score >= FUZZY_THRESHOLD {
+        verify_version(&summary, &snapshot.summary)?;
+        if let Some((score, excerpt)) =
+            crate::search_excerpt::fuzzy_excerpt(&summary.source_path, &snapshot.body, needle)?
+        {
             hits.push(SearchHit {
                 memo_id: summary.memo_id.clone(),
                 score,
                 summary,
+                excerpt,
             });
         }
     }
     Ok(hits)
 }
 
-fn paginate_fuzzy(request: &SearchRequest, hits: &[SearchHit]) -> Result<SearchPage, LomoError> {
-    let fingerprint = format!("fuzzy|{}|{}", request.text.trim(), request.query_epoch);
+fn paginate_fuzzy(
+    request: &SearchRequest,
+    hits: &[SearchHit],
+    revision: u64,
+) -> Result<SearchPage, LomoError> {
+    let fingerprint = format!(
+        "fuzzy|{}|{}",
+        request.text.trim(),
+        request.filters.fingerprint()
+    );
     let start = match &request.cursor {
         None => 0,
         Some(cursor) => {
-            if cursor.query_fingerprint != fingerprint {
-                return Err(validation(
-                    "stale_cursor",
-                    "fuzzy cursor does not match this query",
-                ));
-            }
+            cursor.validate_against(&fingerprint, revision)?;
             hits.iter()
                 .position(|hit| hit.memo_id == cursor.sort_memo_id)
-                .map_or(0, |index| index.saturating_add(1))
+                .ok_or_else(|| {
+                    validation("stale_cursor", "fuzzy cursor memo is no longer a candidate")
+                })?
+                .saturating_add(1)
         }
     };
     let limit = usize::try_from(request.page_size.get())
         .map_err(|error| validation("invalid_page_size", error.to_string()))?;
     let end = start.saturating_add(limit).min(hits.len());
-    let page_items: Vec<SearchHit> = hits.get(start..end).unwrap_or(&[]).to_vec();
-    let next_cursor = hits.get(end).map(|hit| {
-        PageCursor::new(
-            fingerprint,
-            None,
-            hit.summary.is_pinned,
-            hit.summary.created_at_ms,
-            hit.summary.created_at_ms,
-            hit.memo_id.clone(),
-            0,
-        )
-    });
+    let page_items: Vec<SearchHit> = hits
+        .iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .cloned()
+        .collect();
+    let next_cursor = (end < hits.len())
+        .then(|| page_items.last())
+        .flatten()
+        .map(|hit| {
+            PageCursor::new(
+                fingerprint,
+                None,
+                hit.summary.is_pinned,
+                hit.summary.created_at_ms,
+                hit.summary.created_at_ms,
+                hit.memo_id.clone(),
+                revision,
+            )
+        });
     Ok(SearchPage {
         query_epoch: request.query_epoch,
         mode: SearchMode::Fuzzy,
         items: page_items,
         next_cursor,
+        total: u64::try_from(hits.len())
+            .map_err(|error| validation("search_count_overflow", error.to_string()))?,
     })
-}
-
-fn score_memo(summary: &MemoSummary, body: &str, needle: &str) -> i64 {
-    let raw = format!("{} {}", summary.source_path, body);
-    let pinyin = pinyin_index(&raw);
-    fuzzy_score(&raw, needle).max(fuzzy_score(&pinyin, needle))
-}
-
-fn pinyin_index(content: &str) -> String {
-    let mut full = String::new();
-    let mut abbr = String::new();
-    for syllable in content.to_pinyin().flatten() {
-        full.push_str(syllable.plain());
-        abbr.push_str(syllable.first_letter());
-    }
-    format!("{full} {abbr}")
-}
-
-fn fuzzy_score(haystack: &str, needle: &str) -> i64 {
-    let hay: Vec<char> = haystack.chars().flat_map(char::to_lowercase).collect();
-    let ned: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
-    if ned.is_empty() || ned.len() > hay.len() {
-        return 0;
-    }
-    if hay
-        .windows(ned.len())
-        .any(|window| window == ned.as_slice())
-    {
-        return 80_i64.saturating_add(i64::try_from(ned.len()).unwrap_or(i64::MAX));
-    }
-    subsequence_score(&hay, &ned)
-}
-
-fn subsequence_score(hay: &[char], ned: &[char]) -> i64 {
-    let mut score = 0_i64;
-    let mut consecutive = 0_i64;
-    let mut index = 0_usize;
-    for needle in ned {
-        let mut found = false;
-        while index < hay.len() {
-            let Some(hay_ch) = hay.get(index) else {
-                break;
-            };
-            index = index.saturating_add(1);
-            if hay_ch == needle {
-                consecutive = consecutive.saturating_add(1);
-                score = score
-                    .saturating_add(8)
-                    .saturating_add(consecutive.saturating_mul(4));
-                found = true;
-                break;
-            }
-            consecutive = 0;
-        }
-        if !found {
-            return 0;
-        }
-    }
-    score
 }
 
 fn nonempty(text: &str) -> Option<String> {

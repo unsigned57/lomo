@@ -4,9 +4,7 @@ use lomo_core::{LomoError, RelativeWorkspacePath};
 use lomo_media::{AttachmentRef, ContentDigest, ReferenceSource, build_refcounts};
 use lomo_store::{MemoFilters, MemoQuery, project_content_facts};
 
-use crate::error::validation;
-use crate::paging::collect_summaries;
-use crate::session::WorkspaceSession;
+use crate::{error::validation, paging::collect_summaries, session::WorkspaceSession};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachmentObservation {
