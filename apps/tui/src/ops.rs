@@ -50,9 +50,12 @@ pub fn open_runtime(
     let executor = Arc::new(PosixPlatformActionExecutor::new(&paths.exchange_dir)?);
     let capability = CapabilityToken::parse("notes-root")?;
     executor.bind_root(capability.clone(), &config.workspace)?;
+    let workspace_generation =
+        lomo_workspace::load_or_mint_workspace_generation(&config.workspace)?;
     let session_config = WorkspaceSessionConfig {
         capability,
         root_id: WorkspaceRootId::Notes,
+        workspace_generation,
         time_zone: config.time_zone.clone(),
         date_format: config.date_format,
         state_dir: paths.state_dir.clone(),

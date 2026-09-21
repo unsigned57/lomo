@@ -6,7 +6,8 @@ use crate::{
     ops::{TuiRuntime, mint_operation_id},
 };
 use lomo_application::{
-    CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, RestoreMemoRequest, ToggleTaskRequest,
+    CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, PinPolicy, RestoreMemoRequest,
+    ToggleTaskRequest,
 };
 use lomo_core::RelativeWorkspacePath;
 use lomo_media::{ContentDigest, MediaSource, PromotePlan, stage_media};
@@ -25,12 +26,16 @@ pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, 
             })?;
         }
         Effect::Pin { id, pinned } => {
-            runtime.session.pin_memo(PinMemoRequest {
-                operation_id: mint_operation_id()?,
-                memo_id: id.clone(),
-                pinned: *pinned,
-                pinned_at_ms: None,
-            })?;
+            let pin = if *pinned {
+                PinPolicy::Pinned { at_ms: None }
+            } else {
+                PinPolicy::Unpinned
+            };
+            runtime.session.pin_memo(PinMemoRequest::new(
+                mint_operation_id()?,
+                id.clone(),
+                pin,
+            )?)?;
         }
         Effect::Delete { id, fingerprint } => {
             runtime.session.delete_memo(DeleteMemoRequest {

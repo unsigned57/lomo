@@ -243,7 +243,7 @@ fn translate_event(model: &mut AppModel, event: Event) -> Option<Command> {
                         size.height,
                         size.columns,
                         size.rows,
-                    )
+                    );
                 }
                 Err(error) => {
                     model.cell_size = None;
