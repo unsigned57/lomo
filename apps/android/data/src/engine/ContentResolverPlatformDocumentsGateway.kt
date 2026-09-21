@@ -61,7 +61,11 @@ internal class ContentResolverPlatformDocumentsGateway(
                 is WorkspaceTarget.Root -> DocumentsContract.getTreeDocumentId(root)
                 is WorkspaceTarget.Relative ->
                     resolvePath(root, target.path)?.documentId
-                        ?: return PlatformMetadataPage(items = emptyList(), nextCursor = null)
+                        ?: return PlatformMetadataPage(
+                            items = emptyList(),
+                            nextCursor = null,
+                            incomplete = true,
+                        )
             }
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(root, parentDocId)
         val items = ArrayList<PlatformDocumentSnapshot>(pageSize.toInt().coerceAtMost(256))
@@ -90,7 +94,7 @@ internal class ContentResolverPlatformDocumentsGateway(
                     }
                 return PlatformMetadataPage(items = items, nextCursor = nextCursor)
             }
-        return PlatformMetadataPage(items = items, nextCursor = null)
+        return PlatformMetadataPage(items = items, nextCursor = null, incomplete = true)
     }
 
     override fun ensureDirectory(
@@ -515,7 +519,7 @@ internal class ContentResolverPlatformDocumentsGateway(
             if (kind == DocumentKind.FILE && digestMode == SnapshotDigestMode.CONTENT) {
                 digestDocument(documentUri)
             } else {
-                EMPTY_SHA256
+                null
             }
         return PlatformDocumentSnapshot(
             target = target,
@@ -528,9 +532,8 @@ internal class ContentResolverPlatformDocumentsGateway(
         )
     }
 
-    private fun digestDocument(documentUri: Uri): String =
+    private fun digestDocument(documentUri: Uri): String? =
         contentResolver.openInputStream(documentUri)?.use { input -> input.sha256Hex() }
-            ?: EMPTY_SHA256
 
     private data class ResolvedDocument(
         val documentId: String,
@@ -556,8 +559,6 @@ internal class ContentResolverPlatformDocumentsGateway(
                 DocumentsContract.Document.COLUMN_SIZE,
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED,
             )
-        val EMPTY_SHA256 = ByteArray(0).sha256Hex()
-
         private const val DIGEST_ALGORITHM = "SHA-256"
 
         private const val WRITE_CHUNK_BYTES = 64 * 1024
@@ -591,7 +592,7 @@ private data class DocumentColumnIndices(
             length = length,
             lastModifiedEpochMillis = lastModified,
             documentId = documentId,
-            digest = ContentResolverPlatformDocumentsGateway.EMPTY_SHA256,
+            digest = null,
         )
     }
 

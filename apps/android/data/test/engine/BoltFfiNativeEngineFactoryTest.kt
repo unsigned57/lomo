@@ -13,11 +13,12 @@ package com.lomo.data.engine
  *   exist under lomo-engine/v1 and workspace is unset (awaiting selection).
  * - Given a registry-bound SAF grant, when a Saf selection is constructed, then its stable identity
  *   and process capability remain the inseparable FFI input.
- * - Given a missing direct root, when a Direct selection is constructed, then no directory is
- *   created and the selection stays a pure description of the location.
+ * - Given a missing direct root, when registered, then the directory is not created and bind fails.
+ * - Given a registry-bound Direct grant, when a Direct selection is constructed, then its stable
+ *   identity and process capability remain the inseparable FFI input.
  *
  * Observable outcomes:
- * - request path layout, bound SAF selection values, and filesystem side effects of selection.
+ * - request path layout, bound SAF/Direct selection values, and filesystem side effects of bind.
  *
  * TDD proof:
  * - Stable-identity RED is recorded by CapabilityRegistryTest and ManagedEngineSessionTest; this
@@ -29,21 +30,19 @@ package com.lomo.data.engine
  * - Live LomoEngine.open (requires packaged native library).
  *
  * Test Change Justification:
- * - Reason category: SAF identity/capability contract correction; Direct selection purity.
- * - Old behavior/assertion being replaced: Saf selection independently rejected a blank token, and
- *   Direct selection asserted that constructing it created the workspace directory.
- * - Why old assertion is no longer correct: only CapabilityRegistry can create a bound SAF grant;
- *   it owns token validation and stable tree identity derivation before selection construction.
- *   A selection describes a location, so it must never bring that location into existence —
- *   creating the root is what turned "notes are gone" into a Ready empty workspace.
- * - Coverage preserved by: CapabilityRegistryTest retains blank-token rejection; existence and
- *   writability of a candidate root are owned by WorkspaceCandidateProbe.
- * - Why this is not fitting the test to the implementation: the observable boundary is stronger;
- *   an unbound token can no longer be represented as a Saf selection, and selection construction
- *   can no longer have a filesystem side effect.
+ * - Reason category: Direct root capability registration.
+ * - Old behavior/assertion being replaced: Direct selection could be constructed from a bare File
+ *   without a registered capability, and missing-root construction was asserted as a pure description.
+ * - Why old assertion is no longer correct: Direct IO uses the same registered token as session
+ *   config and platform actions. A missing root must fail at bind, still without creating the path.
+ * - Coverage preserved by: missing-root bind still asserts the directory is not created; SAF grant
+ *   pairing remains covered.
+ * - Why this is not fitting the test to the implementation: the observable product contract is that
+ *   Direct has a real grant, not a sentinel token or an unbound path.
  */
 
 import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.io.File
@@ -80,15 +79,36 @@ class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
             selection.stableWorkspaceId shouldBe grant.stableWorkspaceId
         }
 
-        test("given missing direct root when selection is constructed then no directory is created") {
+        test("given missing direct root when registered then the directory is not created") {
             val root = kotlin.io.path.createTempDirectory("lomo-direct-ws").toFile()
             try {
                 val missing = File(root, "nested-workspace")
+                val error =
+                    shouldThrow<CapabilityRegistryException> {
+                        CapabilityRegistry().registerDirect(token = "cap-direct-missing", rootPath = missing)
+                    }
 
-                val selection = NativeWorkspaceSelection.Direct(missing)
-
-                selection.rootPath shouldBe missing
+                error.code shouldBe "workspace_root_not_directory"
                 missing.exists() shouldBe false
+            } finally {
+                root.deleteRecursively()
+            }
+        }
+
+        test("given bound Direct grant when selection is constructed then identity and token stay paired") {
+            val root = kotlin.io.path.createTempDirectory("lomo-direct-selection").toFile()
+            try {
+                val grant =
+                    CapabilityRegistry().registerDirect(
+                        token = "cap-direct-selection",
+                        rootPath = root,
+                    )
+
+                val selection = NativeWorkspaceSelection.Direct(grant)
+
+                selection.capabilityToken shouldBe "cap-direct-selection"
+                selection.stableWorkspaceId shouldBe grant.stableWorkspaceId
+                selection.rootPath shouldBe root.canonicalFile
             } finally {
                 root.deleteRecursively()
             }

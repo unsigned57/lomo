@@ -42,6 +42,7 @@ package com.lomo.data.engine
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.DocumentMetadata
 import com.lomo.nativebridge.EngineFailure
@@ -210,7 +211,7 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
 private val VERIFIED_EVIDENCE =
     ActionEvidence(
         length = 12uL,
-        digest = "a".repeat(64),
+        digest = ContentDigest.Verified("a".repeat(64)),
         fingerprint = "fingerprint-android",
     )
 
@@ -335,7 +336,7 @@ private fun PlatformAction.output(): PlatformActionOutput {
                     evidence =
                         ActionEvidence(
                             length = artifact.length,
-                            digest = artifact.digest,
+                            digest = ContentDigest.Verified(artifact.digest),
                             fingerprint = "fingerprint-android",
                         ),
                 ),

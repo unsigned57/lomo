@@ -8,7 +8,6 @@ import com.lomo.nativebridge.SessionFireReminderRequest
 import com.lomo.nativebridge.SessionMemoView
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
-import com.lomo.nativebridge.SessionRestoreResult
 import com.lomo.nativebridge.SessionRestoreRevisionRequest
 import com.lomo.nativebridge.SessionReviewCandidate
 import com.lomo.nativebridge.SessionSearchOutcome
@@ -21,6 +20,7 @@ import com.lomo.nativebridge.SessionUpdateMemoRequest
 import com.lomo.nativebridge.StoreMemoCommit
 import com.lomo.nativebridge.StoreMemoHistoryPage
 import com.lomo.nativebridge.StoreReminderPlan
+import com.lomo.nativebridge.SyncCyclePlanSummaryDto
 
 /**
  * Application-session FFI edge.
@@ -82,13 +82,13 @@ internal interface SessionNativeBridge {
         limit: UInt,
     ): StoreMemoHistoryPage = error("session history is not expected")
 
-    fun sessionRestoreMemo(request: SessionRestoreRequest): SessionRestoreResult =
+    fun sessionRestoreMemo(request: SessionRestoreRequest): StoreMemoCommit =
         error("session restore is not expected")
 
     fun sessionRestoreRevision(request: SessionRestoreRevisionRequest): StoreMemoCommit =
         error("session restore revision is not expected")
 
-    fun sessionPermanentlyDeleteMemo(request: SessionRestoreRequest): SessionRestoreResult =
+    fun sessionPermanentlyDeleteMemo(request: SessionRestoreRequest): StoreMemoCommit =
         error("session permanent delete is not expected")
 
     fun sessionReminderPlan(nowUtcMs: Long?): StoreReminderPlan =
@@ -96,4 +96,35 @@ internal interface SessionNativeBridge {
 
     fun sessionRecordReminderFired(request: SessionFireReminderRequest): StoreMemoCommit =
         error("session reminder fire is not expected")
+
+    fun sessionSnoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    ) {
+        error("session reminder snooze is not expected")
+    }
+
+    fun sessionClearReminderSnooze(opaqueId: String) {
+        error("session reminder clear-snooze is not expected")
+    }
+
+    fun sessionReminderSnoozeRecoveryPending(): Boolean =
+        error("session reminder snooze recovery query is not expected")
+
+    fun sessionRecoverReminderSnooze() {
+        error("session reminder snooze recovery is not expected")
+    }
+
+    fun syncRunCycle(
+        workspaceRoot: String,
+        backendKind: String,
+        endpointUrl: String,
+        usernameOrAccessKey: String,
+        bucket: String,
+        prefix: String,
+        region: String = "",
+        remoteDatasetId: String = "",
+        secretLeaseId: String = "",
+        applyRemote: Boolean = false,
+    ): SyncCyclePlanSummaryDto = error("session sync cycle is not expected")
 }

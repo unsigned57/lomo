@@ -232,6 +232,8 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
                                             sourceStart = 11uL,
                                             sourceEnd = 33uL,
                                             tokenFingerprint = "b".repeat(64),
+                                            fingerprintOrdinal = 0u,
+                                            embeddedId = null,
                                             token = "@2024-01-01-09:30x2",
                                             dueAtLocal = "2024-01-01-09:30",
                                             repeatCount = 2u,

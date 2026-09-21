@@ -7,6 +7,13 @@ import com.lomo.domain.model.EngineRetryDisposition
 internal fun recoveryFromThrowable(error: Throwable): EngineReadiness.ReadOnlyRecovery =
     when (error) {
         is WorkspaceActivationException -> error.recovery
+        is CapabilityRegistryException ->
+            EngineReadiness.ReadOnlyRecovery(
+                category = error.category.toFailureCategory(),
+                code = error.code,
+                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                diagnostic = error.diagnostic,
+            )
         is com.lomo.nativebridge.EngineError.Failure ->
             EngineReadiness.ReadOnlyRecovery(
                 category = error.failure.category.toFailureCategory(),

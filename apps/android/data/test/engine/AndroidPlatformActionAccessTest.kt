@@ -5,13 +5,17 @@ package com.lomo.data.engine
  * - Unit under test: AndroidPlatformActionAccess.
  * - Owning layer: data Android capability edge.
  * - Priority tier: P0.
- * - Capability: execute one Rust-authored platform action against a capability-bound SAF tree and
- *   application-private exchange files, returning typed outputs with independently verifiable
- *   length/digest/fingerprint evidence and AlreadySatisfied only after postcondition match.
+ * - Capability: execute one Rust-authored platform action against a capability-bound SAF tree or
+ *   Direct filesystem root and application-private exchange files, returning typed outputs with
+ *   independently verifiable length/digest/fingerprint evidence and AlreadySatisfied only after
+ *   postcondition match.
  *
  * Scenarios:
  * - Given a registered capability and present document, when Stat runs, then metadata carries
  *   target/kind/length/digest/fingerprint without content bytes.
+ * - Given a registered Direct root, when Stat runs, then metadata is read from the bound directory
+ *   without treating the path as a SAF tree URI.
+ * - Given an unknown Direct token, when Stat runs, then permission failure is returned before IO.
  * - Given expected fingerprint Match and current evidence equals it, when Delete/Write is replayed,
  *   then AlreadySatisfied is returned without a second side effect.
  * - Given expected fingerprint Match and current evidence differs, when Write runs, then a structured
@@ -43,17 +47,19 @@ package com.lomo.data.engine
  */
 
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.ExpectedFingerprint
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
-import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ExchangeArtifact
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import java.io.File
 import java.security.MessageDigest
 
 class AndroidPlatformActionAccessTest : DataFunSpec() {
@@ -72,7 +78,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             output.metadata.target shouldBe WorkspaceTarget.Relative("memo.md")
             output.metadata.kind shouldBe DocumentKind.FILE
             output.metadata.evidence.length shouldBe 5uL
-            output.metadata.evidence.digest shouldBe sha256Hex("hello".toByteArray())
+            output.metadata.evidence.digest shouldBe ContentDigest.Verified(sha256Hex("hello".toByteArray()))
             output.metadata.evidence.fingerprint shouldBe
                 PlatformActionEvidence.fingerprint(
                     documentId = "doc-memo",
@@ -138,7 +144,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             val mismatched =
                 ActionEvidence(
                     length = 3uL,
-                    digest = sha256Hex("old".toByteArray()),
+                    digest = ContentDigest.Verified(sha256Hex("old".toByteArray())),
                     fingerprint = "not-the-real-fingerprint",
                 )
 
@@ -251,6 +257,104 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             failed.failure.code shouldBe "invalid_exchange_token"
             fixture.gateway.readCount shouldBe 0
         }
+
+        test("given registered Direct root when Stat runs then file metadata is returned without SAF IO") {
+            val root = kotlin.io.path.createTempDirectory("lomo-direct-access").toFile()
+            try {
+                File(root, "memo.md").writeText("hello")
+                val fixture = Fixture()
+                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+
+                val outcome =
+                    fixture.access.execute(
+                        PlatformAction.Stat("action-stat", DIRECT_CAPABILITY, WorkspaceTarget.Relative("memo.md")),
+                    )
+
+                val applied = outcome.shouldBeInstanceOf<ActionOutcome.Applied>()
+                val output = applied.output.shouldBeInstanceOf<PlatformActionOutput.Stat>()
+                output.metadata.target shouldBe WorkspaceTarget.Relative("memo.md")
+                output.metadata.kind shouldBe DocumentKind.FILE
+                output.metadata.evidence.length shouldBe 5uL
+                output.metadata.evidence.digest shouldBe ContentDigest.Verified(sha256Hex("hello".toByteArray()))
+                fixture.gateway.statCount shouldBe 0
+            } finally {
+                root.deleteRecursively()
+            }
+        }
+
+        test("given unknown Direct token when Stat runs then permission fails before filesystem IO") {
+            val fixture = Fixture()
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.Stat("action-stat", DIRECT_CAPABILITY, WorkspaceTarget.Relative("memo.md")),
+                )
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.category shouldBe "permission"
+            failed.failure.code shouldBe "unknown_capability_token"
+            fixture.gateway.statCount shouldBe 0
+        }
+
+        test("given registered Direct root when WriteFromExchange creates then file bytes persist without SAF IO") {
+            val root = kotlin.io.path.createTempDirectory("lomo-direct-write").toFile()
+            try {
+                val fixture = Fixture()
+                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+                val bytes = "hello-direct".toByteArray()
+                fixture.resolver.resolveFile("exchange-direct-write").writeBytes(bytes)
+
+                val outcome =
+                    fixture.access.execute(
+                        PlatformAction.WriteFromExchange(
+                            "action-write",
+                            DIRECT_CAPABILITY,
+                            ExchangeArtifact(
+                                token = "exchange-direct-write",
+                                length = bytes.size.toULong(),
+                                digest = sha256Hex(bytes),
+                            ),
+                            "memo.md",
+                            WriteMode.CREATE,
+                            ExpectedFingerprint.Absent,
+                        ),
+                    )
+
+                outcome.shouldBeInstanceOf<ActionOutcome.Applied>()
+                File(root, "memo.md").readBytes() shouldBe bytes
+                fixture.gateway.sideEffectCount shouldBe 0
+            } finally {
+                root.deleteRecursively()
+            }
+        }
+
+        test("given Direct root with symlink child when ListChildren runs then enumeration is incomplete") {
+            val root = kotlin.io.path.createTempDirectory("lomo-direct-list").toFile()
+            val outside = kotlin.io.path.createTempFile("lomo-direct-list-outside", ".md")
+            try {
+                java.nio.file.Files.writeString(outside, "secret-outside")
+                java.nio.file.Files.createSymbolicLink(root.toPath().resolve("escape.md"), outside)
+                val fixture = Fixture()
+                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+
+                val outcome =
+                    fixture.access.execute(
+                        PlatformAction.ListChildren(
+                            "action-list",
+                            DIRECT_CAPABILITY,
+                            WorkspaceTarget.Root,
+                            null,
+                            16u,
+                        ),
+                    )
+
+                val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+                failed.failure.category shouldBe "storage"
+                failed.failure.code shouldBe "metadata_enumeration_incomplete"
+                fixture.gateway.statCount shouldBe 0
+            } finally {
+                java.nio.file.Files.deleteIfExists(outside)
+                root.deleteRecursively()
+            }
+        }
     }
 
     private class Fixture {
@@ -272,7 +376,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
         ): ActionEvidence =
             ActionEvidence(
                 length = content.length.toULong(),
-                digest = sha256Hex(content.toByteArray()),
+                digest = ContentDigest.Verified(sha256Hex(content.toByteArray())),
                 fingerprint =
                     PlatformActionEvidence.fingerprint(
                         documentId = documentId,
@@ -285,6 +389,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
     private companion object {
         const val CAPABILITY = "saf-root-1"
         const val TREE_URI = "content://com.lomo.nativesmoke.documents/tree/root"
+        const val DIRECT_CAPABILITY = "cap-direct-root-1"
     }
 }
 
@@ -355,7 +460,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
                     length = 0uL,
                     lastModifiedEpochMillis = 0L,
                     documentId = "root",
-                    digest = EMPTY_SHA256,
+                    digest = null,
                 )
             is WorkspaceTarget.Relative -> files[target.path]?.toSnapshot(target)
         }
@@ -493,5 +598,3 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
             digest = sha256Hex(bytes),
         )
 }
-
-private val EMPTY_SHA256 = sha256Hex(ByteArray(0))

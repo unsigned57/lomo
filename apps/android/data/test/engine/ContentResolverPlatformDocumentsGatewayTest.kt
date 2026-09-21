@@ -8,7 +8,8 @@
  *
  * Scenarios:
  * - Given a directory containing a file, when children are listed, then metadata is returned
- *   without opening the file content stream.
+ *   without opening the file content stream, and the listing digest is unknown rather than the
+ *   SHA-256 of empty bytes.
  * - Given a selected file, when it is opened for reading, then its content stream is opened once
  *   and the returned digest is calculated from those same bytes.
  * - Given an opaque handle returned by listing, when it is opened, then the provider document URI
@@ -85,7 +86,24 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
                 )
 
             page.items.single().documentId shouldBe DOCUMENT_ID
+            page.items.single().digest shouldBe null
             fixture.inputStreamOpenCount shouldBe 0
+        }
+
+        test("given a provider that cannot enumerate when children are listed then the page is incomplete") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubUnreadableProvider()
+
+            val page =
+                fixture.gateway.listChildren(
+                    treeUri = TREE_URI,
+                    target = WorkspaceTarget.Root,
+                    cursor = null,
+                    pageSize = 16u,
+                )
+
+            page.items shouldBe emptyList()
+            page.incomplete shouldBe true
         }
 
         test("given a SAF file when it is read then the content stream is opened exactly once") {
@@ -292,6 +310,18 @@ private class ResolverFixture(
     fun stubSingleFileListing() {
         val cursor = documentCursor(includeDisplayName = true)
         stubListing(cursor)
+    }
+
+    fun stubUnreadableProvider() {
+        every {
+            resolver.query(
+                childrenUri,
+                any<Array<String>>(),
+                null,
+                null,
+                null,
+            )
+        } returns null
     }
 
     fun stubListing(cursor: Cursor) {

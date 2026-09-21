@@ -40,10 +40,11 @@ package com.lomo.data.engine
  */
 
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.DocumentMetadata
-import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformActionOutput
@@ -94,7 +95,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                                 evidence =
                                                     ActionEvidence(
                                                         length = 0uL,
-                                                        digest = "c".repeat(64),
+                                                        digest = ContentDigest.Unknown,
                                                         fingerprint = "root-fingerprint",
                                                     ),
                                             ),
@@ -157,7 +158,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                                 evidence =
                                                     ActionEvidence(
                                                         length = 0uL,
-                                                        digest = "c".repeat(64),
+                                                        digest = ContentDigest.Unknown,
                                                         fingerprint = "root-fingerprint",
                                                     ),
                                             ),
@@ -275,9 +276,6 @@ private class RecordingNativePort(
         private set
 
     override fun state(): NativeEngineSnapshot = NativeEngineSnapshot.Opening("job")
-
-    override fun subscribe(listener: (NativeCoreEvent) -> Unit): NativeEngineSubscription =
-        NativeEngineSubscription {}
 
     override fun pollJob(jobId: String): NativeJobStep = pollQueue.removeFirstOrNull() ?: fallbackPoll
 

@@ -82,12 +82,18 @@ internal data class PlatformDocumentSnapshot(
     val length: ULong,
     val lastModifiedEpochMillis: Long,
     val documentId: String,
-    val digest: String,
+    /** Independently hashed SHA-256 hex, or `null` when bytes were not read. */
+    val digest: String?,
 )
 
 internal data class PlatformMetadataPage(
     val items: List<PlatformDocumentSnapshot>,
     val nextCursor: String?,
+    /**
+     * True when the provider could not enumerate the target at all. An incomplete page must never
+     * be read as a complete empty directory, or a scan would treat unreadable data as deleted.
+     */
+    val incomplete: Boolean = false,
 )
 
 internal data class PlatformReadHandle(

@@ -2,6 +2,7 @@ package com.lomo.data.engine
 
 import com.lomo.nativebridge.ActionEvidence
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.ContentDigest
 import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.DocumentMetadata
 import com.lomo.nativebridge.EngineFailure
@@ -15,7 +16,7 @@ import com.lomo.nativebridge.WriteMode
 import java.io.ByteArrayInputStream
 
 /**
- * Executes one platform action against a capability-bound SAF tree and private exchange files.
+ * Executes one platform action against a capability-bound SAF tree or Direct root.
  *
  * Replay returns [ActionOutcome.AlreadySatisfied] only when the independently observed durable
  * postcondition already matches. Mismatched expected fingerprints fail closed without side effects.
@@ -24,6 +25,7 @@ internal class AndroidPlatformActionAccess(
     private val registry: CapabilityRegistry,
     private val exchange: ExchangeResolver,
     private val documents: PlatformDocumentsGateway,
+    private val directDocuments: DirectRootDocumentsGateway = DirectRootDocumentsGateway(),
 ) : PlatformActionAccess {
     override fun execute(action: PlatformAction): ActionOutcome =
         try {
@@ -37,6 +39,8 @@ internal class AndroidPlatformActionAccess(
                 is PlatformAction.Delete -> executeDelete(action)
             }
         } catch (error: CapabilityRegistryException) {
+            ActionOutcome.Failed(error.toFailure())
+        } catch (error: DirectRootAccessException) {
             ActionOutcome.Failed(error.toFailure())
         } catch (error: ExchangeResolverException) {
             ActionOutcome.Failed(error.toFailure())
@@ -56,15 +60,15 @@ internal class AndroidPlatformActionAccess(
         }
 
     private fun executeStat(action: PlatformAction.Stat): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         val snapshot =
-            documents.stat(tree, action.target)
+            tree.stat(action.target)
                 ?: throw notFound("Target document is absent")
         return ActionOutcome.Applied(PlatformActionOutput.Stat(metadata = snapshot.toMetadata()))
     }
 
     private fun executeList(action: PlatformAction.ListChildren): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         if (action.pageSize !in 1u..MAX_METADATA_PAGE_SIZE) {
             throw PlatformActionAccessException(
                 category = "resource_limit",
@@ -72,13 +76,29 @@ internal class AndroidPlatformActionAccess(
                 diagnostic = "page size must be within 1..=256",
             )
         }
-        val page = documents.listChildren(tree, action.target, action.cursor, action.pageSize)
-        if (page.items.size > action.pageSize.toInt()) {
-            throw PlatformActionAccessException(
-                category = "resource_limit",
-                code = "metadata_page_limit_exceeded",
-                diagnostic = "metadata page exceeded the requested page size",
-            )
+        val page = tree.listChildren(action.target, action.cursor, action.pageSize)
+        val violation =
+            when {
+                // An unreadable directory must not be reported as an empty one: a scan would delete
+                // every memo the provider simply failed to enumerate.
+                page.incomplete ->
+                    PlatformActionAccessException(
+                        category = "storage",
+                        code = "metadata_enumeration_incomplete",
+                        diagnostic = "the platform document provider could not enumerate the target",
+                    )
+
+                page.items.size > action.pageSize.toInt() ->
+                    PlatformActionAccessException(
+                        category = "resource_limit",
+                        code = "metadata_page_limit_exceeded",
+                        diagnostic = "metadata page exceeded the requested page size",
+                    )
+
+                else -> null
+            }
+        if (violation != null) {
+            throw violation
         }
         return ActionOutcome.Applied(
             PlatformActionOutput.Listed(
@@ -92,29 +112,29 @@ internal class AndroidPlatformActionAccess(
     }
 
     private fun executeEnsureDirectory(action: PlatformAction.EnsureDirectory): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
-        val existing = documents.stat(tree, WorkspaceTarget.Relative(action.path))
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
         if (existing != null && existing.kind == DocumentKind.DIRECTORY) {
             return ActionOutcome.AlreadySatisfied(
                 PlatformActionOutput.DirectoryReady(metadata = existing.toMetadata()),
             )
         }
-        val created = documents.ensureDirectory(tree, action.path)
+        val created = tree.ensureDirectory(action.path)
         return ActionOutcome.Applied(
             PlatformActionOutput.DirectoryReady(metadata = created.toMetadata()),
         )
     }
 
     private fun executeReadToExchange(action: PlatformAction.ReadToExchange): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
         // Validate exchange token before any SAF I/O.
         exchange.resolveFile(action.exchangeToken)
         val handle =
             action.documentHandle?.let { documentHandle ->
-                documents.openReadByHandle(tree, action.path, documentHandle)
-            } ?: documents.openRead(tree, action.path)
+                tree.openReadByHandle(action.path, documentHandle)
+            } ?: tree.openRead(action.path)
         if (handle.snapshot.kind != DocumentKind.FILE) {
             throw PlatformActionAccessException(
                 category = "validation",
@@ -146,7 +166,7 @@ internal class AndroidPlatformActionAccess(
     }
 
     private fun executeWriteFromExchange(action: PlatformAction.WriteFromExchange): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
         val exchangeFile = exchange.resolveFile(action.artifact.token)
         if (!exchangeFile.isFile) {
@@ -164,12 +184,11 @@ internal class AndroidPlatformActionAccess(
                 diagnostic = "Exchange artifact length/digest does not match the action",
             )
         }
-        val existing = documents.stat(tree, WorkspaceTarget.Relative(action.path))
-        alreadySatisfiedWrite(action, existing)?.let { return it }
-        assertWritePostcondition(action, existing)
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        PlatformActionPostconditions.alreadySatisfiedWrite(action, existing)?.let { return it }
+        PlatformActionPostconditions.assertWritePostcondition(action, existing)
         val written =
-            documents.writeFromExchange(
-                treeUri = tree,
+            tree.writeFromExchange(
                 path = action.path,
                 // behavior-contract: full-load-ok: complete payload required for parse/hash
                 bytes = exchangeFile.readBytes(),
@@ -181,120 +200,22 @@ internal class AndroidPlatformActionAccess(
         )
     }
 
-
-    private fun alreadySatisfiedWrite(
-        action: PlatformAction.WriteFromExchange,
-        existing: PlatformDocumentSnapshot?,
-    ): ActionOutcome? {
-        if (existing == null) return null
-        val matchesArtifact =
-            existing.length == action.artifact.length && existing.digest == action.artifact.digest
-        return when (val expected = action.expectedTarget) {
-            is ExpectedFingerprint.Absent ->
-                if (matchesArtifact) {
-                    ActionOutcome.AlreadySatisfied(
-                        PlatformActionOutput.WriteComplete(metadata = existing.toMetadata()),
-                    )
-                } else {
-                    null
-                }
-            is ExpectedFingerprint.Match -> {
-                if (existing.toEvidence() != expected.evidence) return null
-                if (!matchesArtifact) return null
-                ActionOutcome.AlreadySatisfied(
-                    PlatformActionOutput.WriteComplete(metadata = existing.toMetadata()),
-                )
-            }
-        }
-    }
-
-    private fun assertWritePostcondition(
-        action: PlatformAction.WriteFromExchange,
-        existing: PlatformDocumentSnapshot?,
-    ) {
-        val reason =
-            when (val expected = action.expectedTarget) {
-                is ExpectedFingerprint.Absent ->
-                    if (existing != null && action.mode == WriteMode.CREATE) {
-                        "Create refused because the target already exists"
-                    } else {
-                        null
-                    }
-                is ExpectedFingerprint.Match ->
-                    when {
-                        existing == null -> "Expected target fingerprint but document is absent"
-                        existing.toEvidence() != expected.evidence ->
-                            "Target fingerprint does not match the expected postcondition"
-                        else -> null
-                    }
-            }
-        if (reason != null) {
-            throw postconditionMismatch(reason)
-        }
-    }
-
     private fun executeMove(action: PlatformAction.Move): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.source)
         validateWorkspacePath(action.target)
-        val source = documents.stat(tree, WorkspaceTarget.Relative(action.source))
-        val target = documents.stat(tree, WorkspaceTarget.Relative(action.target))
-        alreadySatisfiedMove(action, source, target)?.let { return it }
-        assertMovePrecondition(action, source, target)
-        val moved = documents.move(tree, action.source, action.target)
+        val source = tree.stat(WorkspaceTarget.Relative(action.source))
+        val target = tree.stat(WorkspaceTarget.Relative(action.target))
+        PlatformActionPostconditions.alreadySatisfiedMove(action, source, target)?.let { return it }
+        PlatformActionPostconditions.assertMovePrecondition(action, source, target)
+        val moved = tree.move(action.source, action.target)
         return ActionOutcome.Applied(PlatformActionOutput.MoveComplete(metadata = moved.toMetadata()))
     }
 
-    private fun alreadySatisfiedMove(
-        action: PlatformAction.Move,
-        source: PlatformDocumentSnapshot?,
-        target: PlatformDocumentSnapshot?,
-    ): ActionOutcome? {
-        if (source != null || target == null) return null
-        return when (val expected = action.expectedTarget) {
-            is ExpectedFingerprint.Absent ->
-                ActionOutcome.AlreadySatisfied(
-                    PlatformActionOutput.MoveComplete(metadata = target.toMetadata()),
-                )
-            is ExpectedFingerprint.Match ->
-                if (target.toEvidence() == expected.evidence) {
-                    ActionOutcome.AlreadySatisfied(
-                        PlatformActionOutput.MoveComplete(metadata = target.toMetadata()),
-                    )
-                } else {
-                    null
-                }
-        }
-    }
-
-    private fun assertMovePrecondition(
-        action: PlatformAction.Move,
-        source: PlatformDocumentSnapshot?,
-        target: PlatformDocumentSnapshot?,
-    ) {
-        val reason =
-            when {
-                source == null -> "Move source is absent without a satisfied target"
-                action.expectedSource is ExpectedFingerprint.Match &&
-                    source.toEvidence() != (action.expectedSource as ExpectedFingerprint.Match).evidence ->
-                    "Move source fingerprint mismatch"
-                action.expectedTarget is ExpectedFingerprint.Absent && target != null ->
-                    "Move target already exists"
-                action.expectedTarget is ExpectedFingerprint.Match &&
-                    target != null &&
-                    target.toEvidence() != (action.expectedTarget as ExpectedFingerprint.Match).evidence ->
-                    "Move target fingerprint mismatch"
-                else -> null
-            }
-        if (reason != null) {
-            throw postconditionMismatch(reason)
-        }
-    }
-
     private fun executeDelete(action: PlatformAction.Delete): ActionOutcome {
-        val tree = registry.resolve(action.capabilityToken)
+        val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
-        val existing = documents.stat(tree, WorkspaceTarget.Relative(action.path))
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
         if (existing == null) {
             // Durable postcondition for delete is absence.
             val fingerprint =
@@ -320,7 +241,7 @@ internal class AndroidPlatformActionAccess(
                 }
             }
         }
-        documents.delete(tree, action.path)
+        tree.delete(action.path)
         val fingerprint =
             when (val expected = action.expectedTarget) {
                 is ExpectedFingerprint.Match -> expected.evidence.fingerprint
@@ -336,9 +257,141 @@ internal class AndroidPlatformActionAccess(
             ),
         )
     }
+
+    private fun boundTree(token: String): BoundDocumentTree =
+        when (val grant = registry.resolve(token)) {
+            is SafCapabilityGrant -> SafBoundDocumentTree(documents, grant.treeUri)
+            is DirectCapabilityGrant -> DirectBoundDocumentTree(directDocuments, grant)
+        }
 }
 
-private fun PlatformDocumentSnapshot.toMetadata(): DocumentMetadata =
+private interface BoundDocumentTree {
+    fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot?
+
+    fun listChildren(
+        target: WorkspaceTarget,
+        cursor: String?,
+        pageSize: UInt,
+    ): PlatformMetadataPage
+
+    fun ensureDirectory(path: String): PlatformDocumentSnapshot
+
+    fun openRead(path: String): PlatformReadHandle
+
+    fun openReadByHandle(
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle
+
+    fun writeFromExchange(
+        path: String,
+        bytes: ByteArray,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot
+
+    fun writeFromFile(
+        path: String,
+        source: java.io.File,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot
+
+    fun move(
+        source: String,
+        target: String,
+    ): PlatformDocumentSnapshot
+
+    fun delete(path: String)
+}
+
+private class SafBoundDocumentTree(
+    private val documents: PlatformDocumentsGateway,
+    private val treeUri: String,
+) : BoundDocumentTree {
+    override fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot? = documents.stat(treeUri, target)
+
+    override fun listChildren(
+        target: WorkspaceTarget,
+        cursor: String?,
+        pageSize: UInt,
+    ): PlatformMetadataPage = documents.listChildren(treeUri, target, cursor, pageSize)
+
+    override fun ensureDirectory(path: String): PlatformDocumentSnapshot = documents.ensureDirectory(treeUri, path)
+
+    override fun openRead(path: String): PlatformReadHandle = documents.openRead(treeUri, path)
+
+    override fun openReadByHandle(
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle = documents.openReadByHandle(treeUri, path, documentHandle)
+
+    override fun writeFromExchange(
+        path: String,
+        bytes: ByteArray,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot = documents.writeFromExchange(treeUri, path, bytes, mode, mimeType)
+
+    override fun writeFromFile(
+        path: String,
+        source: java.io.File,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot = documents.writeFromFile(treeUri, path, source, mode, mimeType)
+
+    override fun move(
+        source: String,
+        target: String,
+    ): PlatformDocumentSnapshot = documents.move(treeUri, source, target)
+
+    override fun delete(path: String) = documents.delete(treeUri, path)
+}
+
+private class DirectBoundDocumentTree(
+    private val documents: DirectRootDocumentsGateway,
+    private val grant: DirectCapabilityGrant,
+) : BoundDocumentTree {
+    override fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot? = documents.stat(grant, target)
+
+    override fun listChildren(
+        target: WorkspaceTarget,
+        cursor: String?,
+        pageSize: UInt,
+    ): PlatformMetadataPage = documents.listChildren(grant, target, cursor, pageSize)
+
+    override fun ensureDirectory(path: String): PlatformDocumentSnapshot = documents.ensureDirectory(grant, path)
+
+    override fun openRead(path: String): PlatformReadHandle = documents.openRead(grant, path)
+
+    override fun openReadByHandle(
+        path: String,
+        documentHandle: String,
+    ): PlatformReadHandle = documents.openReadByHandle(grant, path, documentHandle)
+
+    override fun writeFromExchange(
+        path: String,
+        bytes: ByteArray,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot = documents.writeFromExchange(grant, path, bytes, mode, mimeType)
+
+    override fun writeFromFile(
+        path: String,
+        source: java.io.File,
+        mode: WriteMode,
+        mimeType: String?,
+    ): PlatformDocumentSnapshot = documents.writeFromFile(grant, path, source, mode, mimeType)
+
+    override fun move(
+        source: String,
+        target: String,
+    ): PlatformDocumentSnapshot = documents.move(grant, source, target)
+
+    override fun delete(path: String) = documents.delete(grant, path)
+}
+
+internal fun PlatformDocumentSnapshot.toMetadata(): DocumentMetadata =
     DocumentMetadata(
         target = target,
         documentHandle = documentId,
@@ -347,10 +400,11 @@ private fun PlatformDocumentSnapshot.toMetadata(): DocumentMetadata =
         evidence = toEvidence(),
     )
 
-private fun PlatformDocumentSnapshot.toEvidence(): ActionEvidence =
+internal fun PlatformDocumentSnapshot.toEvidence(): ActionEvidence =
     ActionEvidence(
         length = length,
-        digest = digest,
+        digest =
+            digest?.let { ContentDigest.Verified(it) } ?: ContentDigest.Unknown,
         fingerprint =
             PlatformActionEvidence.fingerprint(
                 documentId = documentId,
@@ -386,7 +440,7 @@ private fun notFound(diagnostic: String): PlatformActionAccessException =
         diagnostic = diagnostic,
     )
 
-private fun postconditionMismatch(diagnostic: String): PlatformActionAccessException =
+internal fun postconditionMismatch(diagnostic: String): PlatformActionAccessException =
     PlatformActionAccessException(
         category = "conflict",
         code = "platform_postcondition_mismatch",
@@ -404,27 +458,7 @@ private const val MAX_WORKSPACE_PATH_BYTES = 4096
 private const val MAX_PATH_SEGMENT_BYTES = 255
 private const val FINGERPRINT_SHORT_HEX_LENGTH = 40
 
-private fun CapabilityRegistryException.toFailure(): EngineFailure =
-    EngineFailure(
-        category = category,
-        code = code,
-        retryDisposition = "after_user_action",
-        operationId = null,
-        jobId = null,
-        diagnostic = diagnostic,
-    )
-
-private fun ExchangeResolverException.toFailure(): EngineFailure =
-    EngineFailure(
-        category = category,
-        code = code,
-        retryDisposition = "never",
-        operationId = null,
-        jobId = null,
-        diagnostic = diagnostic,
-    )
-
-private class PlatformActionAccessException(
+internal class PlatformActionAccessException(
     val category: String,
     val code: String,
     val diagnostic: String,

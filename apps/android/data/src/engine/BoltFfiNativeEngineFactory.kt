@@ -1,7 +1,8 @@
 package com.lomo.data.engine
 
-import com.lomo.nativebridge.EngineConfig
+import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.nativebridge.DocumentKind
+import com.lomo.nativebridge.EngineConfig
 import com.lomo.nativebridge.LomoEngine
 import com.lomo.nativebridge.PlatformBatchHost
 import com.lomo.nativebridge.WorkspaceDescriptor
@@ -28,6 +29,7 @@ internal object BoltFfiNativeEngineFactory {
         exchangeResolver: ExchangeResolver,
         executor: AndroidPlatformActionExecutor,
         documents: PlatformDocumentsGateway,
+        invalidation: StoreInvalidationBus,
     ): RustEngineAdapter {
         val port = openPort(request, exchangeResolver)
         if (request.workspace != null) {
@@ -37,15 +39,17 @@ internal object BoltFfiNativeEngineFactory {
             )
         }
         val safGrant = (request.workspace as? NativeWorkspaceSelection.Saf)?.grant
+        val directGrant = (request.workspace as? NativeWorkspaceSelection.Direct)?.grant
         return RustEngineAdapter.acquire(
             native = port,
             platformBatchRunner = PlatformBatchRunner(native = port, executor = executor),
+            invalidation = invalidation,
             sourceDocumentFingerprintProbe =
-                safGrant?.let { grant ->
-                    { path ->
+                when {
+                    safGrant != null -> { path ->
                         val snapshot =
                             documents.stat(
-                                grant.treeUri,
+                                safGrant.treeUri,
                                 WorkspaceTarget.Relative(path),
                             )
                         when {
@@ -55,6 +59,20 @@ internal object BoltFfiNativeEngineFactory {
                             else -> snapshot.digest
                         }
                     }
+                    directGrant != null -> { path ->
+                        val snapshot =
+                            DirectRootDocumentsGateway().stat(
+                                directGrant,
+                                WorkspaceTarget.Relative(path),
+                            )
+                        when {
+                            snapshot == null -> null
+                            snapshot.kind != DocumentKind.FILE ->
+                                error("Workspace document path is not a file: $path")
+                            else -> snapshot.digest
+                        }
+                    }
+                    else -> null
                 },
             safMediaPromoter =
                 safGrant?.let { grant ->
@@ -122,16 +140,23 @@ internal data class NativeEngineOpenRequest(
 
 internal sealed interface NativeWorkspaceSelection {
     /**
-     * Pure description of a filesystem workspace root.
+     * Direct filesystem workspace bound to a registered root capability.
      *
-     * Describing a location must never bring it into existence: creating a missing or unmounted
-     * root here is what turned "my notes are gone" into a Ready empty workspace instead of typed
-     * Recovery. Existence, readability and writability belong to [WorkspaceCandidateProbe], and
-     * `WorkspaceDescriptor::direct` in the core rejects a root it cannot canonicalize.
+     * The grant is the execution root. Constructing a selection cannot create a missing directory:
+     * [CapabilityRegistry.registerDirect] fails closed when the path is not an existing directory.
      */
     data class Direct(
-        val rootPath: File,
-    ) : NativeWorkspaceSelection
+        val grant: DirectCapabilityGrant,
+    ) : NativeWorkspaceSelection {
+        val rootPath: File
+            get() = grant.canonicalRoot
+
+        val capabilityToken: String
+            get() = grant.capabilityToken
+
+        val stableWorkspaceId: StableWorkspaceId
+            get() = grant.stableWorkspaceId
+    }
 
     data class Saf(
         val grant: SafCapabilityGrant,
@@ -147,7 +172,10 @@ internal sealed interface NativeWorkspaceSelection {
 private fun NativeWorkspaceSelection.toBridge(): WorkspaceDescriptor =
     when (this) {
         is NativeWorkspaceSelection.Direct ->
-            WorkspaceDescriptor.Direct(rootPath = rootPath.absolutePath)
+            WorkspaceDescriptor.Direct(
+                rootPath = rootPath.absolutePath,
+                capabilityToken = capabilityToken,
+            )
         is NativeWorkspaceSelection.Saf ->
             WorkspaceDescriptor.Saf(
                 stableWorkspaceId = stableWorkspaceId.value,

@@ -4,6 +4,7 @@ import com.lomo.data.engine.lan.LanDeviceIdentity
 import com.lomo.data.engine.lan.LanBatchPreview
 import com.lomo.data.engine.lan.LanDiscoveredPeer
 import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanInboxWait
 import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
@@ -14,6 +15,9 @@ import com.lomo.data.engine.lan.LanSendItemPlan
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
+import com.lomo.data.engine.lan.LanProtocolLimits
+import com.lomo.data.repository.StoreInvalidationBus
+import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
@@ -21,7 +25,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Adapts one native engine handle into domain readiness.
@@ -35,18 +38,16 @@ import java.util.concurrent.atomic.AtomicReference
 internal class RustEngineAdapter private constructor(
     private val native: WorkspaceNativeEnginePort,
     private val platformBatchRunner: PlatformBatchRunner,
-    private val projectionScanNowMillis: () -> Long,
+    invalidation: StoreInvalidationBus,
     private val sourceDocumentFingerprintProbe: ((String) -> String?)?,
     private val safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
 ) : WorkspaceNativeAdapter,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
     private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.Opening)
-    private var lastEventSequence: ULong? = null
-    private val subscriptionRef = AtomicReference<NativeEngineSubscription?>(null)
     private val jobDriveMonitorLock = Any()
     private val jobDriveMonitors = mutableMapOf<String, JobDriveMonitor>()
-    private val projectionRebuildCoordinator = ProjectionRebuildCoordinator()
+    private val projectionObserver = StoreProjectionObserver(invalidation)
 
     val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
 
@@ -65,6 +66,8 @@ internal class RustEngineAdapter private constructor(
     }
 
     override fun lanTransferShape(): LanTransferShape = native.lanTransferShape()
+
+    override fun lanProtocolLimits(): LanProtocolLimits = native.lanProtocolLimits()
 
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) {
         native.updateLanNetworkSnapshot(snapshot)
@@ -88,6 +91,9 @@ internal class RustEngineAdapter private constructor(
         nowMs: Long,
         ttlMs: Long,
     ): LanPairingChallenge = native.beginLanPairing(peerDeviceId, nowMs, ttlMs)
+
+    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
+        native.awaitLanInbox(lastGeneration, timeoutMs)
 
     override fun pollLanListener(nowMs: Long): LanRuntimeInbox = native.pollLanListener(nowMs)
 
@@ -184,7 +190,11 @@ internal class RustEngineAdapter private constructor(
         batchId: String,
         itemIndex: UInt,
         nowMs: Long,
-    ): String = native.commitReceivedLanItem(batchId, itemIndex, nowMs)
+    ): com.lomo.nativebridge.StoreMemoCommit {
+        val commit = native.commitReceivedLanItem(batchId, itemIndex, nowMs)
+        projectionObserver.observeNativeCommit(commit)
+        return commit
+    }
 
     override fun listLanPeers(): LanPeerPage = native.listLanPeers()
 
@@ -248,16 +258,6 @@ internal class RustEngineAdapter private constructor(
         jobId: String,
     ): WorkspaceHistoryProjectionScanPageSnapshot =
         native.readWorkspaceHistoryProjectionScanPage(jobId)
-
-    fun rebuildSafProjectionFromWorkspaceScan(): com.lomo.nativebridge.StoreRebuildResult {
-        return projectionRebuildCoordinator.run {
-            rebuildSafProjection(
-                native = native,
-                driveJob = ::driveJob,
-                nowMillis = projectionScanNowMillis,
-            )
-        }
-    }
 
     override fun startWorkspaceDocumentCommand(
         path: String,
@@ -353,10 +353,6 @@ internal class RustEngineAdapter private constructor(
     ): com.lomo.nativebridge.StoreMemoHistoryPage =
         native.listMemoHistory(memoId, cursor, limit)
 
-    override fun queryReminderPlan(
-        query: com.lomo.nativebridge.StoreReminderQuery,
-    ): com.lomo.nativebridge.StoreReminderPlan = native.queryReminderPlan(query)
-
     override fun applyMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
         onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
@@ -395,7 +391,11 @@ internal class RustEngineAdapter private constructor(
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
-    ): com.lomo.nativebridge.StoreMemoCommit = native.sessionToggleTask(request)
+    ): com.lomo.nativebridge.StoreMemoCommit {
+        val commit = native.sessionToggleTask(request)
+        projectionObserver.observeNativeCommit(commit)
+        return commit
+    }
 
     override fun sessionReviewCandidates(
         zone: String,
@@ -423,7 +423,7 @@ internal class RustEngineAdapter private constructor(
 
     override fun sessionRestoreMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.SessionRestoreResult = native.sessionRestoreMemo(request)
+    ): com.lomo.nativebridge.StoreMemoCommit = native.sessionRestoreMemo(request)
 
     override fun sessionRestoreRevision(
         request: com.lomo.nativebridge.SessionRestoreRevisionRequest,
@@ -431,7 +431,7 @@ internal class RustEngineAdapter private constructor(
 
     override fun sessionPermanentlyDeleteMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.SessionRestoreResult = native.sessionPermanentlyDeleteMemo(request)
+    ): com.lomo.nativebridge.StoreMemoCommit = native.sessionPermanentlyDeleteMemo(request)
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         native.sessionReminderPlan(nowUtcMs)
@@ -440,34 +440,49 @@ internal class RustEngineAdapter private constructor(
         request: com.lomo.nativebridge.SessionFireReminderRequest,
     ): com.lomo.nativebridge.StoreMemoCommit = native.sessionRecordReminderFired(request)
 
-    override fun permanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit = native.permanentDeleteMany(request)
+    override fun sessionSnoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    ) = native.sessionSnoozeReminder(opaqueId, snoozeDurationMs)
 
-    override fun commitSafPermanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit = native.commitSafPermanentDeleteMany(request)
+    override fun sessionClearReminderSnooze(opaqueId: String) =
+        native.sessionClearReminderSnooze(opaqueId)
 
-    override fun commitSafProjectionMutation(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-        projection: com.lomo.nativebridge.StoreSafMemoProjection?,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        native.commitSafProjectionMutation(command, projection)
+    override fun sessionReminderSnoozeRecoveryPending(): Boolean =
+        native.sessionReminderSnoozeRecoveryPending()
+
+    override fun sessionRecoverReminderSnooze() = native.sessionRecoverReminderSnooze()
+
+    override fun syncRunCycle(
+        workspaceRoot: String,
+        backendKind: String,
+        endpointUrl: String,
+        usernameOrAccessKey: String,
+        bucket: String,
+        prefix: String,
+        region: String,
+        remoteDatasetId: String,
+        secretLeaseId: String,
+        applyRemote: Boolean,
+    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto =
+        native.syncRunCycle(
+            workspaceRoot,
+            backendKind,
+            endpointUrl,
+            usernameOrAccessKey,
+            bucket,
+            prefix,
+            region,
+            remoteDatasetId,
+            secretLeaseId,
+            applyRemote,
+        )
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
         projection: com.lomo.nativebridge.StoreSafMemoProjection,
     ): com.lomo.nativebridge.StoreMemoCommit =
         native.commitWorkspaceDocumentFacts(command, projection)
-
-    override fun beginSafMemoCreate(
-        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
-    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult = native.beginSafMemoCreate(begin)
-
-    override fun rollbackSafMemoCreate(
-        operationId: String,
-        memoId: String,
-    ): com.lomo.nativebridge.StoreSafMemoRollbackResult = native.rollbackSafMemoCreate(operationId, memoId)
 
     override fun startRebuild(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         native.startRebuild(batchSize)
@@ -479,6 +494,32 @@ internal class RustEngineAdapter private constructor(
         humanNameHint: String,
     ): com.lomo.nativebridge.MediaStagedDto =
         native.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
+
+    override fun recordStageLease(
+        workspaceRoot: String?,
+        staged: com.lomo.nativebridge.MediaStagedDto,
+        ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
+        ownerId: String,
+    ): com.lomo.nativebridge.MediaStageRecordDto =
+        native.recordStageLease(workspaceRoot, staged, ownerKind, ownerId)
+
+    override fun stageRecordsForOwner(
+        mediaRoot: String,
+        ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
+        ownerId: String,
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> =
+        native.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
+
+    override fun transferStageLease(
+        mediaRoot: String,
+        from: com.lomo.nativebridge.MediaStageLeaseDto,
+        to: com.lomo.nativebridge.MediaStageLeaseDto,
+    ): com.lomo.nativebridge.MediaStageReleaseDto = native.transferStageLease(mediaRoot, from, to)
+
+    override fun releaseStageLease(
+        mediaRoot: String,
+        lease: com.lomo.nativebridge.MediaStageLeaseDto,
+    ): com.lomo.nativebridge.MediaStageReleaseDto = native.releaseStageLease(mediaRoot, lease)
 
     override fun allocateRecordingTarget(
         mediaRoot: String,
@@ -548,19 +589,6 @@ internal class RustEngineAdapter private constructor(
             rebuildBatchSize,
         )
 
-    @Synchronized
-    private fun onNativeEvent(event: NativeCoreEvent) {
-        if (closed.get()) return
-        // Core events are invalidations, never deltas. A gap makes this mandatory; contiguous
-        // events use the same resnapshot path so Kotlin never becomes a second state authority.
-        // Invoked only after BoundedInvalidationQueue drain — never on the native callback stack.
-        if (lastEventSequence?.plus(1uL) != event.eventSequence) {
-            lastEventSequence = null
-        }
-        publishBoundarySnapshot()
-        lastEventSequence = event.eventSequence
-    }
-
     /**
      * Reads, decodes and publishes the authoritative snapshot, converting any boundary failure into
      * typed recovery.
@@ -571,13 +599,16 @@ internal class RustEngineAdapter private constructor(
      * diagnostic is preserved rather than collapsed into a generic error.
      */
     private fun publishBoundarySnapshot() {
+        val snapshot =
+            runCatching { driveIfOpening(native.state()) }
+                .getOrElse { error ->
+                    _readiness.value = boundaryRecovery(error)
+                    return
+                }
         val readiness =
-            runCatching { driveIfOpening(native.state()).toDomain() }
+            runCatching { snapshot.toDomain() }
                 .getOrElse { error -> boundaryRecovery(error) }
         _readiness.value = readiness
-        if (readiness is EngineReadiness.Ready) {
-            lastEventSequence = readiness.eventSequence
-        }
     }
 
     private fun boundaryRecovery(error: Throwable): EngineReadiness.ReadOnlyRecovery =
@@ -603,11 +634,7 @@ internal class RustEngineAdapter private constructor(
     }
 
     private fun publishSnapshot(snapshot: NativeEngineSnapshot) {
-        val readiness = snapshot.toDomain()
-        _readiness.value = readiness
-        if (readiness is EngineReadiness.Ready) {
-            lastEventSequence = readiness.eventSequence
-        }
+        _readiness.value = snapshot.toDomain()
     }
 
     override fun close() {
@@ -618,20 +645,18 @@ internal class RustEngineAdapter private constructor(
     }
 
     /**
-     * Takes the first snapshot, drives any durable bootstrap batch, then registers the callback.
+     * Takes the first snapshot and drives any durable bootstrap batch.
      *
+     * Journal events are not an invalidation protocol; store commit receipts publish the bus.
      * Every acquired resource is recorded in the adapter itself, so [acquire] can release whatever
      * this got through before it failed.
      */
     private fun completeAcquisition() {
         publishSnapshot(driveIfOpening(native.state()))
-        lastEventSequence = (_readiness.value as? EngineReadiness.Ready)?.eventSequence
-        subscriptionRef.set(native.subscribe(::onNativeEvent))
     }
 
-    /** Fixed order: stop events (subscription), then release the native port/engine. */
+    /** Fixed order: release the native port/engine. */
     private fun releaseOwnedInto(release: ReleaseSequence) {
-        subscriptionRef.getAndSet(null)?.let { subscription -> release.release(subscription::close) }
         release.release(native::close)
     }
 
@@ -647,7 +672,7 @@ internal class RustEngineAdapter private constructor(
         fun acquire(
             native: WorkspaceNativeEnginePort,
             platformBatchRunner: PlatformBatchRunner,
-            projectionScanNowMillis: () -> Long = { System.nanoTime() / NANOS_PER_MILLISECOND },
+            invalidation: StoreInvalidationBus,
             sourceDocumentFingerprintProbe: ((String) -> String?)? = null,
             safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
         ): RustEngineAdapter {
@@ -655,7 +680,7 @@ internal class RustEngineAdapter private constructor(
                 RustEngineAdapter(
                     native,
                     platformBatchRunner,
-                    projectionScanNowMillis,
+                    invalidation,
                     sourceDocumentFingerprintProbe,
                     safMediaPromoter,
                 )
@@ -678,149 +703,11 @@ private class JobDriveMonitor(
     var result: NativeJobStep? = null,
 )
 
-private fun rebuildSafProjection(
-    native: WorkspaceNativeEnginePort,
-    driveJob: (String) -> NativeJobStep,
-    nowMillis: () -> Long,
-): com.lomo.nativebridge.StoreRebuildResult {
-    val rebuildId = native.beginSafProjectionRebuild()
-    try {
-        var cursor: String? = null
-        do {
-            val deadlineMillis =
-                nowMillis() + WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS.toLong()
-            val jobId =
-                // behavior-contract: loop-io-ok: no bulk workspace scan API; each iteration is one bounded page
-                native.startWorkspaceScan(
-                    pageSize = MAX_SAF_PROJECTION_PAGE_SIZE,
-                    cursor = cursor,
-                    rootPath = null,
-                    deadlineMillis = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
-                )
-            driveProjectionScanToTerminal(
-                driveJob = driveJob,
-                jobId = jobId,
-                deadlineMillis = deadlineMillis,
-                nowMillis = nowMillis,
-            )
-            // behavior-contract: loop-io-ok: no bulk projection scan API; each iteration is one bounded page
-            val page = native.readWorkspaceProjectionScanPage(jobId)
-            // behavior-contract: loop-io-ok: no bulk rebuild-append API; each iteration is one bounded page
-            native.appendSafProjectionRebuildPage(rebuildId, page.items)
-            cursor = page.nextCursor
-        } while (cursor != null)
-        cursor = null
-        do {
-            val deadlineMillis =
-                nowMillis() + WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS.toLong()
-            val jobId =
-                // behavior-contract: loop-io-ok: no bulk trash scan API; each iteration is one bounded page
-                native.startWorkspaceTrashScan(
-                    pageSize = MAX_SAF_PROJECTION_PAGE_SIZE,
-                    cursor = cursor,
-                    deadlineMillis = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
-                )
-            driveProjectionScanToTerminal(
-                driveJob = driveJob,
-                jobId = jobId,
-                deadlineMillis = deadlineMillis,
-                nowMillis = nowMillis,
-            )
-            // behavior-contract: loop-io-ok: no bulk trash scan API; each iteration is one bounded page
-            val page = native.readWorkspaceTrashProjectionScanPage(jobId)
-            // behavior-contract: loop-io-ok: no bulk trash rebuild-append API; each iteration is one bounded page
-            native.appendSafTrashProjectionRebuildPage(rebuildId, page.items)
-            cursor = page.nextCursor
-        } while (cursor != null)
-        cursor = null
-        do {
-            val deadlineMillis =
-                nowMillis() + WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS.toLong()
-            val jobId =
-                // behavior-contract: loop-io-ok: no bulk history scan API; each iteration is one bounded page
-                native.startWorkspaceHistoryScan(
-                    pageSize = MAX_SAF_PROJECTION_PAGE_SIZE,
-                    cursor = cursor,
-                    deadlineMillis = WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS,
-                )
-            driveProjectionScanToTerminal(
-                driveJob = driveJob,
-                jobId = jobId,
-                deadlineMillis = deadlineMillis,
-                nowMillis = nowMillis,
-            )
-            // behavior-contract: loop-io-ok: no bulk history scan API; each iteration is one bounded page
-            val page = native.readWorkspaceHistoryProjectionScanPage(jobId)
-            // behavior-contract: loop-io-ok: no bulk history rebuild-append API; each iteration is one bounded page
-            native.appendSafHistoryProjectionRebuildPage(rebuildId, page.items)
-            cursor = page.nextCursor
-        } while (cursor != null)
-        return native.finishSafProjectionRebuild(rebuildId)
-    } catch (error: Exception) {
-        try {
-            native.abortSafProjectionRebuild(rebuildId)
-        } catch (abortError: Exception) {
-            error.addSuppressed(abortError)
-        }
-        throw error
-    }
-}
-
-private fun driveProjectionScanToTerminal(
-    driveJob: (String) -> NativeJobStep,
-    jobId: String,
-    deadlineMillis: Long,
-    nowMillis: () -> Long,
-) {
-    var step = driveJob(jobId)
-    while (step is NativeJobStep.Running ||
-        step is NativeJobStep.RunningNative ||
-        step is NativeJobStep.NeedsPlatformBatch
-    ) {
-        if (nowMillis() >= deadlineMillis) {
-            throw ProjectionScanDeadlineExceededException()
-        }
-        // The runner returns a durable non-terminal step when its bounded driver window expires.
-        // Continue the same Rust job instead of aborting or starting a duplicate scan.
-        step = driveJob(jobId)
-    }
-    val failure =
-        when (step) {
-            NativeJobStep.Completed -> null
-            is NativeJobStep.Failed -> step.failure
-            is NativeJobStep.BlockedByConflict -> step.failure
-            NativeJobStep.Running,
-            is NativeJobStep.RunningNative,
-            is NativeJobStep.NeedsPlatformBatch,
-            -> error("Workspace projection scan did not reach a terminal state")
-        }
-    failure?.let { throw it.toProjectionRebuildException() }
-}
-
-private fun EngineFailureSnapshot.toProjectionRebuildException(): ProjectionRebuildException =
-    ProjectionRebuildException(code, category, diagnostic)
-
-internal class ProjectionRebuildException(
-    val failureCode: String,
-    val failureCategory: String,
-    diagnostic: String,
-) : IllegalStateException("$failureCode: $diagnostic")
-
-internal class ProjectionScanDeadlineExceededException :
-    IllegalStateException(
-        "Workspace projection scan exceeded its ${WorkspaceNativeAdapter.DEFAULT_JOB_DEADLINE_MILLIS}ms deadline",
-    )
-
-// Rust enumerates at the protocol limit and repartitions independent reads into 63-action batches.
-// One full page therefore needs at most five read batches inside the driver's 64-batch window.
-private const val MAX_SAF_PROJECTION_PAGE_SIZE: UInt = 256u
-private const val NANOS_PER_MILLISECOND = 1_000_000L
-
 private fun NativeEngineSnapshot.toDomain(): EngineReadiness =
     when (this) {
         NativeEngineSnapshot.AwaitingWorkspaceSelection -> EngineReadiness.AwaitingWorkspaceSelection
         is NativeEngineSnapshot.Opening -> EngineReadiness.Opening
-        is NativeEngineSnapshot.Ready -> EngineReadiness.Ready(coreRevision, eventSequence)
+        is NativeEngineSnapshot.Ready -> EngineReadiness.Ready
         is NativeEngineSnapshot.ReadOnlyRecovery ->
             EngineReadiness.ReadOnlyRecovery(
                 category = failure.category.toFailureCategory(),

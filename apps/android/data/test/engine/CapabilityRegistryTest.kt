@@ -3,11 +3,13 @@
  * - Unit under test: CapabilityRegistry.
  * - Owning layer: data Android capability edge.
  * - Priority tier: P0.
- * - Capability: bind rotating process capability tokens to a stable SAF workspace identity and a
- *   persisted tree URI without exposing URIs to Rust, and fail closed for invalid grants.
+ * - Capability: bind rotating process capability tokens to a stable SAF tree or Direct filesystem
+ *   root without exposing URIs or absolute paths to Rust, and fail closed for invalid grants.
  *
  * Scenarios:
- * - Given a registered token and tree URI string, when resolved, then the same string is returned.
+ * - Given a registered token and tree URI string, when resolved, then the SAF grant returns that URI.
+ * - Given an existing Direct root, when registered, then resolve returns the bound Direct grant.
+ * - Given a missing Direct root, when registered, then the path is not created and registration fails.
  * - Given an unknown token, when resolved, then a structured permission failure is returned.
  * - Given a revoked token, when resolved, then resolution fails as if the grant never existed.
  * - Given the same canonical SAF tree with different tokens, when grants are registered, then they
@@ -37,6 +39,9 @@ package com.lomo.data.engine
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
+import java.io.File
+import java.nio.file.Files
 
 class CapabilityRegistryTest : DataFunSpec() {
     init {
@@ -46,7 +51,7 @@ class CapabilityRegistryTest : DataFunSpec() {
 
             registry.register(token = "saf-root-1", treeUri = uri)
 
-            registry.resolve("saf-root-1") shouldBe uri
+            registry.resolve("saf-root-1").shouldBeInstanceOf<SafCapabilityGrant>().treeUri shouldBe uri
         }
 
         test("given unknown or revoked token when resolved then permission failure is structured") {
@@ -112,6 +117,52 @@ class CapabilityRegistryTest : DataFunSpec() {
             }
             shouldThrow<IllegalArgumentException> {
                 registry.register(token = "tok", treeUri = "")
+            }
+        }
+
+        test("given existing direct root when registered then resolve returns the bound grant") {
+            val root = Files.createTempDirectory("lomo-direct-cap").toFile()
+            try {
+                val registry = CapabilityRegistry()
+                val grant = registry.registerDirect(token = "cap-direct-1", rootPath = root)
+
+                val resolved = registry.resolve("cap-direct-1").shouldBeInstanceOf<DirectCapabilityGrant>()
+                resolved.canonicalRoot shouldBe root.canonicalFile
+                resolved.stableWorkspaceId shouldBe DirectWorkspaceIdentity.fromCanonicalRoot(root.canonicalFile)
+                resolved.capabilityToken shouldBe "cap-direct-1"
+                grant.stableWorkspaceId shouldBe resolved.stableWorkspaceId
+            } finally {
+                root.deleteRecursively()
+            }
+        }
+
+        test("given missing direct root when registered then directory is not created") {
+            val parent = Files.createTempDirectory("lomo-direct-missing").toFile()
+            try {
+                val missing = File(parent, "nested-workspace")
+                val error =
+                    shouldThrow<CapabilityRegistryException> {
+                        CapabilityRegistry().registerDirect(token = "cap-direct-missing", rootPath = missing)
+                    }
+                error.code shouldBe "workspace_root_not_directory"
+                error.category shouldBe "validation"
+                missing.exists() shouldBe false
+            } finally {
+                parent.deleteRecursively()
+            }
+        }
+
+        test("given revoked direct token when resolved then permission failure is structured") {
+            val root = Files.createTempDirectory("lomo-direct-revoke").toFile()
+            try {
+                val registry = CapabilityRegistry()
+                registry.registerDirect(token = "cap-direct-1", rootPath = root)
+                registry.revoke("cap-direct-1")
+                val revoked = shouldThrow<CapabilityRegistryException> { registry.resolve("cap-direct-1") }
+                revoked.code shouldBe "unknown_capability_token"
+                revoked.category shouldBe "permission"
+            } finally {
+                root.deleteRecursively()
             }
         }
     }

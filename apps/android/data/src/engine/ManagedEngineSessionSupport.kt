@@ -47,6 +47,8 @@ private fun WorkspaceReminderReferenceSnapshot.toBridge(): com.lomo.nativebridge
         sourceStart = sourceStart,
         sourceEnd = sourceEnd,
         tokenFingerprint = tokenFingerprint,
+        fingerprintOrdinal = fingerprintOrdinal,
+        embeddedId = embeddedId,
         token = token,
         dueAtLocal = dueAtLocal,
         repeatCount = repeatCount,

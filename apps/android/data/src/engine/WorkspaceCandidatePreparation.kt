@@ -5,8 +5,6 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -20,43 +18,33 @@ internal data class ManagedWorkspaceCandidate(
     val adapter: RustEngineAdapter,
     val selection: NativeWorkspaceSelection?,
     val projectionRevision: ULong?,
-    val refreshProjection: Boolean,
 ) {
     init {
         if (selection == null) {
             require(projectionRevision == null) {
                 "Bootstrap candidate cannot carry a workspace projection revision"
             }
-            require(!refreshProjection) {
-                "Bootstrap candidate cannot schedule a projection refresh"
-            }
         } else {
-            require(projectionRevision != null) {
+            requireNotNull(projectionRevision) {
                 "Workspace candidate must carry its projection revision"
             }
         }
     }
 
     val capabilityToken: String?
-        get() = (selection as? NativeWorkspaceSelection.Saf)?.capabilityToken
+        get() =
+            when (val workspace = selection) {
+                null -> null
+                is NativeWorkspaceSelection.Direct -> workspace.capabilityToken
+                is NativeWorkspaceSelection.Saf -> workspace.capabilityToken
+            }
 
     val workspaceId: String?
         get() =
             when (val workspace = selection) {
                 null -> null
-                is NativeWorkspaceSelection.Direct -> "direct:${workspace.rootPath.absolutePath}"
+                is NativeWorkspaceSelection.Direct -> workspace.stableWorkspaceId.value
                 is NativeWorkspaceSelection.Saf -> workspace.stableWorkspaceId.value
-            }
-
-    val refreshCandidate: ProjectionRefreshCandidate?
-        get() =
-            if (refreshProjection) {
-                ProjectionRefreshCandidate(
-                    adapter = adapter,
-                    projectionRevision = checkNotNull(projectionRevision),
-                )
-            } else {
-                null
             }
 
     companion object {
@@ -65,22 +53,16 @@ internal data class ManagedWorkspaceCandidate(
                 adapter = adapter,
                 selection = null,
                 projectionRevision = null,
-                refreshProjection = false,
             )
     }
 }
-
-/** Existing authority that has been committed and only needs a background SAF refresh. */
-internal data class ProjectionRefreshCandidate(
-    val adapter: RustEngineAdapter,
-    val projectionRevision: ULong,
-)
 
 /**
  * Opens and prepares a workspace candidate without changing the active session authority.
  *
  * Capability registration, projection inspection and candidate cleanup belong here so every
  * acquisition path has the same failure semantics before [ManagedEngineSession] reaches promotion.
+ * Mount reconcile is owned by Rust session open; this type only transcribes the resulting revision.
  */
 internal class WorkspaceCandidatePreparer(
     private val filesDir: File,
@@ -93,37 +75,28 @@ internal class WorkspaceCandidatePreparer(
             openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)),
         )
 
-    suspend fun prepare(
-        location: StorageLocation,
-        allowBackgroundRefresh: Boolean,
-    ): ManagedWorkspaceCandidate {
+    fun prepare(location: StorageLocation): ManagedWorkspaceCandidate {
         val selection = selectionFor(location)
         val candidate = openWorkspaceAdapter(selection)
         val candidateReadiness = candidate.readiness.value
         if (candidateReadiness is EngineReadiness.Ready) {
             return try {
-                val currentProjectionRevision = candidate.storeProjectionRevision()
-                if (selection.workspace is NativeWorkspaceSelection.Saf &&
-                    !allowBackgroundRefresh && currentProjectionRevision == 0uL
-                ) {
-                    val rebuiltRevision =
-                        withContext(Dispatchers.IO) {
-                            candidate.rebuildSafProjectionFromWorkspaceScan().highWaterRevision
-                        }
-                    ManagedWorkspaceCandidate(
-                        adapter = candidate,
-                        selection = selection.workspace,
-                        projectionRevision = rebuiltRevision,
-                        refreshProjection = false,
-                    )
-                } else {
-                    ManagedWorkspaceCandidate(
-                        adapter = candidate,
-                        selection = selection.workspace,
-                        projectionRevision = currentProjectionRevision,
-                        refreshProjection = selection.workspace is NativeWorkspaceSelection.Saf,
-                    )
+                val projectionRevision = candidate.storeProjectionRevision()
+                candidate.resnapshot()
+                val afterInspect = candidate.readiness.value
+                if (afterInspect !is EngineReadiness.Ready) {
+                    val activation =
+                        WorkspaceActivationException(
+                            afterInspect as? EngineReadiness.ReadOnlyRecovery
+                                ?: workspaceOpenNotReady(afterInspect),
+                        )
+                    failPreparation(candidate, selection.capabilityToken, activation)
                 }
+                ManagedWorkspaceCandidate(
+                    adapter = candidate,
+                    selection = selection.workspace,
+                    projectionRevision = projectionRevision,
+                )
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 failPreparation(candidate, selection.capabilityToken, error)
@@ -178,9 +151,11 @@ internal class WorkspaceCandidatePreparer(
                 capabilityToken = grant.capabilityToken,
             )
         } else {
+            val token = "cap-${java.util.UUID.randomUUID()}"
+            val grant = capabilityRegistry.registerDirect(token = token, rootPath = File(raw))
             PreparedSelection(
-                workspace = NativeWorkspaceSelection.Direct(rootPath = File(raw)),
-                capabilityToken = null,
+                workspace = NativeWorkspaceSelection.Direct(grant),
+                capabilityToken = grant.capabilityToken,
             )
         }
     }
@@ -201,27 +176,8 @@ internal class WorkspaceCandidatePreparer(
         error: Exception,
     ): Nothing {
         releaseCandidate(candidate, capabilityToken, error, capabilityRegistry)
-        throw recoveryForPreparationFailure(error)?.let(::WorkspaceActivationException) ?: error
+        throw error
     }
-
-    private fun recoveryForPreparationFailure(error: Throwable): EngineReadiness.ReadOnlyRecovery? =
-        when (error) {
-            is ProjectionRebuildException ->
-                EngineReadiness.ReadOnlyRecovery(
-                    category = error.failureCategory.toFailureCategory(),
-                    code = error.failureCode,
-                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                    diagnostic = error.message ?: "Workspace projection rebuild failed",
-                )
-            is ProjectionScanDeadlineExceededException ->
-                EngineReadiness.ReadOnlyRecovery(
-                    category = EngineFailureCategory.TIMEOUT,
-                    code = "projection_scan_deadline_exceeded",
-                    retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                    diagnostic = "Workspace projection scan exceeded deadline",
-                )
-            else -> null
-        }
 
     private data class PreparedSelection(
         val workspace: NativeWorkspaceSelection,

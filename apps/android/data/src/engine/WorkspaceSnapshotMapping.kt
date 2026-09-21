@@ -28,6 +28,8 @@ internal fun com.lomo.nativebridge.WorkspaceScanPage.toSnapshot(
                                 sourceStart = reminder.sourceStart,
                                 sourceEnd = reminder.sourceEnd,
                                 tokenFingerprint = reminder.tokenFingerprint,
+                                fingerprintOrdinal = reminder.fingerprintOrdinal,
+                                embeddedId = reminder.embeddedId,
                                 token = reminder.token,
                                 dueAtLocal = reminder.dueAtLocal,
                                 repeatCount = reminder.repeatCount,

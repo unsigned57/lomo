@@ -12,7 +12,7 @@ internal fun InputStream.md5Hex(): String {
         if (read <= 0) break
         digest.update(buffer, 0, read)
     }
-    return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
+    return digest.digest().joinToString(separator = "") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 }
 
 internal fun File.md5Hex(): String =

@@ -7,19 +7,21 @@ import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.WorkspaceMount
+import com.lomo.domain.model.WorkspaceProcessDuty
 import com.lomo.domain.model.canRebuildDerivedIndex
 import com.lomo.domain.model.toDiagnosticReport
+import com.lomo.data.engine.store.toStoreLong
+import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -34,17 +36,21 @@ import kotlin.concurrent.write
 /**
  * Sole production owner of the Rust engine lifecycle for the process.
  *
- * Cold start opens with no workspace (`AwaitingWorkspaceSelection`); a bootstrap engine that cannot
+ * Construction publishes [EngineReadiness.Opening]. When [ownsNativeEngine] owns the engine, one owned
+ * coroutine opens a persisted workspace engine directly, or a bootstrap engine only when no
+ * workspace is configured / restore is skipped. Projection-only processes (Glance) construct
+ * the session without that coroutine so widget wakes do not pay restore and rebuild. Native
+ * acquisition therefore never runs on the constructing thread. A bootstrap engine that cannot
  * be acquired leaves the session in structured `ReadOnlyRecovery` with no adapter rather than
- * failing graph construction. When a Direct/SAF root is selected (or restored once from persisted
- * settings), [activateWorkspace] runs Prepared → RetiringPrevious → Committed: it opens a candidate
- * engine, promotes it once it reaches [EngineReadiness.Ready], and releases the previous owner.
- * SAF projection reconciliation is a separate generation-boundary operation: an empty candidate
- * projection is published as [ProjectionFreshness.Building] and becomes writable only after the
- * Rust-owned atomic rebuild commits. Soft Recovery and hard open failure leave the previous engine
- * authoritative.
- * Session-owned recovery authority freezes readiness so a bootstrap Awaiting engine cannot
- * resnapshot Recovery away after cold-restore failure.
+ * failing graph construction. When a Direct/SAF
+ * root is selected (or restored once from persisted settings), [activateWorkspace] runs Prepared →
+ * RetiringPrevious → Committed: it opens a candidate engine, promotes it once it reaches
+ * [EngineReadiness.Ready], and releases the previous owner. A still-verified previous mount
+ * publishes [ProjectionFreshness.Revalidating] during prepare; commit transcribes the candidate
+ * revision as [ProjectionFreshness.Verified]. Soft Recovery and hard open failure leave the previous
+ * engine authoritative and restore Verified when that authority remains. Session-owned
+ * recovery authority freezes readiness so a later bootstrap cannot resnapshot Recovery away after
+ * cold-restore failure.
  *
  * Workspace switch orchestration is owned by domain
  * [com.lomo.domain.usecase.SwitchRootStorageUseCase]; this session exclusively owns candidate open,
@@ -52,23 +58,26 @@ import kotlin.concurrent.write
  * cold restore.
  */
 internal class ManagedEngineSession(
-    private val filesDir: File,
+    filesDir: File,
     private val capabilityRegistry: CapabilityRegistry,
-    private val openAdapter: (NativeEngineOpenRequest) -> RustEngineAdapter,
+    openAdapter: (NativeEngineOpenRequest) -> RustEngineAdapter,
     private val directorySettingsRepository: DirectorySettingsRepository,
     private val appScope: CoroutineScope,
     private val isContentUri: (String) -> Boolean,
+    private val invalidation: StoreInvalidationBus,
+    private val ownsNativeEngine: WorkspaceProcessDuty = WorkspaceProcessDuty.OWNED,
 ) : ManagedEngineCapabilities(),
     EngineReadinessRepository,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
     private val activationMutex = Mutex()
     private val adapterLease = ReentrantReadWriteLock()
-    private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.AwaitingWorkspaceSelection)
+    private val _readiness = MutableStateFlow<EngineReadiness>(EngineReadiness.Opening)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
     private val _workspaceAuthority = MutableStateFlow<WorkspaceAuthority?>(null)
     private val _projectionFreshness =
         MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Unavailable)
+    private val _mount = MutableStateFlow(WorkspaceMount.Opening)
     private val activationGeneration = AtomicLong(0)
     private val candidatePreparer =
         WorkspaceCandidatePreparer(
@@ -83,8 +92,6 @@ internal class ManagedEngineSession(
     private var activeCapabilityToken: String? = null
     // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
     private var mirrorJob: kotlinx.coroutines.Job? = null
-    // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
-    private var projectionRefreshJob: kotlinx.coroutines.Job? = null
 
     /**
      * When non-null, session readiness is held by recovery authority and adapter mirrors must not
@@ -93,30 +100,21 @@ internal class ManagedEngineSession(
     private val recoveryAuthority = AtomicReference<EngineReadiness.ReadOnlyRecovery?>(null)
     private val holdRecoveryAuthority: (EngineReadiness.ReadOnlyRecovery) -> Unit = { recovery ->
         recoveryAuthority.set(recovery)
-        _readiness.value = recovery
+        publishMount(
+            WorkspaceMount(
+                readiness = recovery,
+                location = _activeWorkspaceLocation.value,
+                authority = null,
+                freshness = ProjectionFreshness.Unavailable,
+            ),
+        )
     }
 
     init {
-        // Bootstrap without a workspace is a resource transaction, not a precondition: when the
-        // native library or control root is unusable the graph must still build so Recovery UI
-        // exists. A failed bootstrap installs no adapter at all rather than a placeholder.
-        runCatching { candidatePreparer.openBootstrap() }
-            .onSuccess { candidate ->
-                adapterLease.write {
-                    installAdapterLocked(candidate.adapter, capabilityToken = candidate.capabilityToken)
-                }
+        if (ownsNativeEngine.ownsNativeEngine) {
+            appScope.launch {
+                startOwnedEngine()
             }
-            .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
-        appScope.launch {
-            // Cold-start restore only. SwitchRootStorageUseCase activates subsequent selections.
-            runCatching { directorySettingsRepository.recoverRootLocation() }
-                .onSuccess { existing ->
-                    if (existing != null && existing.raw.isNotBlank()) {
-                        runCatching { restoreWorkspaceIfCurrent(existing) }
-                            .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
-                    }
-                }
-                .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
         }
     }
 
@@ -127,6 +125,15 @@ internal class ManagedEngineSession(
         _workspaceAuthority.asStateFlow()
     override val projectionFreshness: StateFlow<ProjectionFreshness> =
         _projectionFreshness.asStateFlow()
+    override val mount: StateFlow<WorkspaceMount> = _mount.asStateFlow()
+
+    private fun publishMount(mount: WorkspaceMount) {
+        _readiness.value = mount.readiness
+        _activeWorkspaceLocation.value = mount.location
+        _workspaceAuthority.value = mount.authority
+        _projectionFreshness.value = mount.freshness
+        _mount.value = mount
+    }
 
     override fun resnapshot() {
         check(!closed.get()) { "Managed engine session is closed" }
@@ -174,11 +181,8 @@ internal class ManagedEngineSession(
 
             // Reopen from the repaired projection and promote only a fully Ready candidate. The
             // previous bootstrap/recovery owner remains non-writable until this atomic install.
-            val prepared = candidatePreparer.prepare(location, allowBackgroundRefresh = false)
-            val authority = promoteCandidate(candidate = prepared, location = location)
-            prepared.refreshCandidate?.let { refresh ->
-                startProjectionRefresh(refresh, checkNotNull(authority))
-            }
+            val prepared = candidatePreparer.prepare(location)
+            promoteCandidate(candidate = prepared, location = location)
             DerivedIndexRebuildSummary(
                 memosIndexed = rebuild.memosIndexed,
                 fileCount = rebuild.fileCount,
@@ -189,68 +193,95 @@ internal class ManagedEngineSession(
         }
     }
 
-    override suspend fun retryProjectionBuild() {
-        check(!closed.get()) { "Managed engine session is closed" }
-        activationMutex.withLock {
-            val authority =
-                checkNotNull(_workspaceAuthority.value) {
-                    "Projection retry requires an active workspace authority"
-                }
-            check(_projectionFreshness.value is ProjectionFreshness.Failed) {
-                "Projection retry requires a failed first projection build"
-            }
-            val location =
-                checkNotNull(_activeWorkspaceLocation.value) {
-                    "Projection retry requires an active workspace location"
-                }
-            check(isContentUri(location.raw)) {
-                "Projection retry is only valid for an SAF workspace"
-            }
-            val adapter =
-                adapterLease.read {
-                    check(_readiness.value is EngineReadiness.Ready) {
-                        "Projection retry requires a Ready engine"
-                    }
-                    checkNotNull(activeAdapter) {
-                        "Projection retry requires an active workspace adapter"
-                    }
-                }
-            startProjectionRefresh(
-                candidate =
-                    ProjectionRefreshCandidate(
-                        adapter = adapter,
-                        projectionRevision = authority.projectionRevision,
-                    ),
-                launchedAuthority = authority,
-            )
-        }
-    }
-
     override suspend fun activateWorkspace(location: StorageLocation) {
         check(!closed.get()) { "Managed engine session is closed" }
         require(location.raw.isNotBlank()) { "Workspace location must be non-blank" }
         activationMutex.withLock {
             check(!closed.get()) { "Managed engine session is closed" }
-            val prepared = candidatePreparer.prepare(location, allowBackgroundRefresh = true)
-            val authority = promoteCandidate(candidate = prepared, location = location)
-            prepared.refreshCandidate?.let { refresh ->
-                startProjectionRefresh(refresh, checkNotNull(authority))
+            val previousVerified = WorkspaceMountTransitions.verifiedOrNull(_mount.value)
+            WorkspaceMountTransitions.revalidating(previousVerified)?.let(::publishMount)
+            try {
+                val prepared = candidatePreparer.prepare(location)
+                promoteCandidate(candidate = prepared, location = location)
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) {
+                    WorkspaceMountTransitions.restoreVerified(_mount.value, previousVerified)
+                        ?.let(::publishMount)
+                    throw failure
+                }
+                WorkspaceMountTransitions.restoreVerified(_mount.value, previousVerified)
+                    ?.let(::publishMount)
+                throw failure
             }
         }
     }
 
-    private suspend fun restoreWorkspaceIfCurrent(location: StorageLocation) {
+    /**
+     * Success path opens the persisted workspace engine only. Bootstrap is the no-workspace host,
+     * never a paid precondition of a configured vault.
+     */
+    private suspend fun startOwnedEngine() {
         activationMutex.withLock {
-            check(!closed.get()) { "Managed engine session is closed" }
-            val committed = directorySettingsRepository.currentRootLocation()
-            val pending = directorySettingsRepository.pendingRootTransition()
-            if (committed != location || pending != null) return@withLock
-            val prepared = candidatePreparer.prepare(location, allowBackgroundRefresh = true)
-            val authority = promoteCandidate(candidate = prepared, location = location)
-            prepared.refreshCandidate?.let { refresh ->
-                startProjectionRefresh(refresh, checkNotNull(authority))
+            if (closed.get() || recoveryAuthority.get() != null || _workspaceAuthority.value != null) {
+                return
+            }
+            val existing =
+                try {
+                    directorySettingsRepository.recoverRootLocation()
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    holdRecoveryAuthority(recoveryFromThrowable(failure))
+                    return
+                }
+            if (existing != null && existing.raw.isNotBlank()) {
+                try {
+                    restoreWorkspaceIfCurrentLocked(existing)
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    holdRecoveryAuthority(recoveryFromThrowable(failure))
+                }
+            }
+            if (!closed.get() && recoveryAuthority.get() == null && activeAdapter == null) {
+                installBootstrapLocked()
             }
         }
+    }
+
+    private suspend fun restoreWorkspaceIfCurrentLocked(location: StorageLocation) {
+        check(!closed.get()) { "Managed engine session is closed" }
+        val committed = directorySettingsRepository.currentRootLocation()
+        val pending = directorySettingsRepository.pendingRootTransition()
+        if (committed != location || pending != null) return
+        val prepared = candidatePreparer.prepare(location)
+        promoteCandidate(candidate = prepared, location = location)
+    }
+
+    private fun installBootstrapLocked() {
+        runCatching { candidatePreparer.openBootstrap() }
+            .onSuccess { candidate ->
+                adapterLease.write {
+                    if (closed.get() || recoveryAuthority.get() != null || activeAdapter != null) {
+                        releaseCandidate(
+                            candidate.adapter,
+                            candidate.capabilityToken,
+                            IllegalStateException("Bootstrap engine was superseded before install"),
+                            capabilityRegistry,
+                        )
+                        return@write
+                    }
+                    installAdapterLocked(candidate.adapter, capabilityToken = candidate.capabilityToken)
+                    publishMount(
+                        WorkspaceMount(
+                            readiness = candidate.adapter.readiness.value,
+                            location = null,
+                            authority = null,
+                            freshness = ProjectionFreshness.Unavailable,
+                        ),
+                    )
+                    startAdapterMirrorLocked(candidate.adapter)
+                }
+            }
+            .onFailure { error -> holdRecoveryAuthority(recoveryFromThrowable(error)) }
     }
 
     override suspend fun clearWorkspace() {
@@ -270,7 +301,14 @@ internal class ManagedEngineSession(
                 val adapter = activeAdapter
                 detachActiveAdapterLocked()
                 recoveryAuthority.set(null)
-                _activeWorkspaceLocation.value = null
+                publishMount(
+                    WorkspaceMount(
+                        readiness = EngineReadiness.ShuttingDown,
+                        location = null,
+                        authority = null,
+                        freshness = ProjectionFreshness.Unavailable,
+                    ),
+                )
                 AdapterRetirement(
                     previousToken = token,
                     failure = adapter?.let { runCatching(it::close).exceptionOrNull() },
@@ -278,58 +316,17 @@ internal class ManagedEngineSession(
             }
         // A failing engine close must not skip capability revoke or the terminal readiness value.
         retirement.previousToken?.let(capabilityRegistry::revoke)
-        _readiness.value = EngineReadiness.ShuttingDown
         retirement.failure?.let { throw it }
     }
 
     override fun rebuildActiveStore(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
-        withActiveWorkspaceAdapter { adapter ->
-            val location =
-                checkNotNull(_activeWorkspaceLocation.value) {
-                    "Ready workspace has no active storage location"
-                }
-            if (isContentUri(location.raw)) {
-                adapter.rebuildSafProjectionFromWorkspaceScan()
-            } else {
-                adapter.startRebuild(batchSize)
-            }
-        }
+        withActiveWorkspaceAdapter { adapter -> adapter.startRebuild(batchSize) }
 
     protected override fun applyActiveMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
         onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
     ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.applyMemoCommand(command, onPublication) }
-
-    override fun commitSafPermanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.commitSafPermanentDeleteMany(request) }
-
-    override fun beginSafMemoCreate(
-        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
-    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult =
-        withActiveWorkspaceAdapter { adapter -> adapter.beginSafMemoCreate(begin) }
-
-    override fun rollbackSafMemoCreate(
-        operationId: String,
-        memoId: String,
-    ): com.lomo.nativebridge.StoreSafMemoRollbackResult =
-        withActiveWorkspaceAdapter { adapter -> adapter.rollbackSafMemoCreate(operationId, memoId) }
-
-    override fun applyActivePermanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit =
-        withActiveWorkspaceAdapter { adapter ->
-            val location = checkNotNull(_activeWorkspaceLocation.value) {
-                "Ready workspace has no active storage location"
-            }
-            if (isContentUri(location.raw)) {
-                applySafPermanentDeleteManyOnSafAdapter(adapter, request)
-            } else {
-                adapter.permanentDeleteMany(request)
-            }
-        }
 
     /**
      * RetiringPrevious → Committed: the outgoing owner is released first and only a complete
@@ -400,8 +397,6 @@ internal class ManagedEngineSession(
                 // Ready install clears any prior recovery authority and becomes sole publisher.
                 recoveryAuthority.set(null)
                 installAdapterLocked(candidate.adapter, capabilityToken = candidate.capabilityToken)
-                _activeWorkspaceLocation.value = location
-                // A new generation is published only here, once the candidate is the sole owner.
                 val authority =
                     candidate.workspaceId?.let { id ->
                         WorkspaceAuthority(
@@ -410,98 +405,29 @@ internal class ManagedEngineSession(
                             projectionRevision = checkNotNull(candidate.projectionRevision),
                         )
                     }
-                _workspaceAuthority.value = authority
-                _projectionFreshness.value =
-                    when {
-                        candidate.workspaceId == null -> ProjectionFreshness.Unavailable
-                        candidate.refreshProjection && candidate.projectionRevision == 0uL ->
-                            ProjectionFreshness.Building(0uL)
-                        candidate.refreshProjection ->
-                            ProjectionFreshness.Refreshing(checkNotNull(candidate.projectionRevision))
-                        else ->
-                            ProjectionFreshness.Verified(checkNotNull(candidate.projectionRevision))
-                    }
+                if (authority != null) {
+                    invalidation.reanchor(
+                        generation = authority.generation,
+                        highWaterRevision = authority.projectionRevision.toStoreLong("projection_revision"),
+                    )
+                }
+                publishMount(
+                    WorkspaceMount(
+                        readiness = candidateReadiness,
+                        location = location,
+                        authority = authority,
+                        freshness =
+                            if (authority == null) {
+                                ProjectionFreshness.Unavailable
+                            } else {
+                                ProjectionFreshness.Verified(checkNotNull(candidate.projectionRevision))
+                            },
+                    ),
+                )
+                startAdapterMirrorLocked(candidate.adapter)
                 AdapterPromotion.Committed(token, authority)
             }
         }
-
-    private fun startProjectionRefresh(
-        candidate: ProjectionRefreshCandidate,
-        launchedAuthority: WorkspaceAuthority,
-    ) {
-        projectionRefreshJob?.cancel()
-        adapterLease.write {
-            check(
-                activeAdapter === candidate.adapter &&
-                    _workspaceAuthority.value == launchedAuthority,
-            ) {
-                "Projection refresh authority is no longer active"
-            }
-            _projectionFreshness.value =
-                if (candidate.projectionRevision == 0uL) {
-                    ProjectionFreshness.Building(baseRevision = 0uL)
-                } else {
-                    ProjectionFreshness.Refreshing(
-                        lastVerifiedRevision = candidate.projectionRevision,
-                    )
-                }
-        }
-        projectionRefreshJob =
-            appScope.launch(Dispatchers.IO) {
-                val result =
-                    runCatching {
-                        adapterLease.read {
-                            check(
-                                activeAdapter === candidate.adapter &&
-                                    _workspaceAuthority.value == launchedAuthority,
-                            ) {
-                                "Projection refresh adapter is no longer active"
-                            }
-                        }
-                        // The native port leases each FFI call. Do not hold the session lease across
-                        // Android provider I/O: a blocked refresh must not prevent the next
-                        // workspace generation from retiring this adapter.
-                        candidate.adapter.rebuildSafProjectionFromWorkspaceScan()
-                    }
-                adapterLease.write {
-                    val currentAuthority = _workspaceAuthority.value
-                    if (!closed.get() &&
-                        activeAdapter === candidate.adapter &&
-                        currentAuthority == launchedAuthority
-                    ) {
-                        result.fold(
-                            onSuccess = { rebuild ->
-                                _workspaceAuthority.value =
-                                    currentAuthority.copy(projectionRevision = rebuild.highWaterRevision)
-                                _projectionFreshness.value =
-                                    ProjectionFreshness.Verified(rebuild.highWaterRevision)
-                            },
-                            onFailure = { error ->
-                                val reasonCode =
-                                    when (error) {
-                                        is ProjectionRebuildException -> error.failureCode
-                                        is ProjectionScanDeadlineExceededException ->
-                                            "projection_scan_deadline_exceeded"
-                                        else -> "projection_refresh_failed"
-                                    }
-                                _projectionFreshness.value =
-                                    if (candidate.projectionRevision == 0uL) {
-                                        ProjectionFreshness.Failed(
-                                            baseRevision = 0uL,
-                                            reasonCode = reasonCode,
-                                        )
-                                    } else {
-                                        ProjectionFreshness.Stale(
-                                            lastVerifiedRevision = candidate.projectionRevision,
-                                            reasonCode = reasonCode,
-                                        )
-                                    }
-                            },
-                        )
-                    }
-                }
-            }
-    }
 
     private fun installAdapterLocked(
         adapter: RustEngineAdapter,
@@ -510,21 +436,29 @@ internal class ManagedEngineSession(
         mirrorJob?.cancel()
         activeAdapter = adapter
         activeCapabilityToken = capabilityToken
-        // Do not publish adapter Awaiting over an active recovery authority (cold-restore hold).
-        if (recoveryAuthority.get() == null) {
-            _readiness.value = adapter.readiness.value
-        }
+    }
+
+    private fun startAdapterMirrorLocked(adapter: RustEngineAdapter) {
+        mirrorJob?.cancel()
         mirrorJob =
             appScope.launch {
                 adapter.readiness.collect { value ->
                     adapterLease.read {
                         if (!closed.get() && activeAdapter === adapter && recoveryAuthority.get() == null) {
-                            _readiness.value = value
-                            if (value !is EngineReadiness.Ready) {
-                                // Authority is a capability for the committed Ready projection;
-                                // invalidate it immediately when the active boundary becomes
-                                // unknown so readers cannot keep using a retired generation.
-                                _workspaceAuthority.value = null
+                            if (value is EngineReadiness.Ready) {
+                                val current = _mount.value
+                                if (current.authority != null) {
+                                    publishMount(current.copy(readiness = value))
+                                }
+                            } else {
+                                publishMount(
+                                    WorkspaceMount(
+                                        readiness = value,
+                                        location = _activeWorkspaceLocation.value,
+                                        authority = null,
+                                        freshness = ProjectionFreshness.Unavailable,
+                                    ),
+                                )
                             }
                         }
                     }
@@ -534,14 +468,10 @@ internal class ManagedEngineSession(
 
     /** Drops the outgoing owner before it is closed, so no route can reach a retiring adapter. */
     private fun detachActiveAdapterLocked() {
-        projectionRefreshJob?.cancel()
-        projectionRefreshJob = null
         mirrorJob?.cancel()
         mirrorJob = null
         activeAdapter = null
         activeCapabilityToken = null
-        _workspaceAuthority.value = null
-        _projectionFreshness.value = ProjectionFreshness.Unavailable
     }
 
     protected override fun <T> withActiveWorkspaceAdapter(block: (RustEngineAdapter) -> T): T {

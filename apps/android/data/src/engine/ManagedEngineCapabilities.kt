@@ -4,6 +4,7 @@ import com.lomo.data.engine.lan.LanBatchPreview
 import com.lomo.data.engine.lan.LanDeviceIdentity
 import com.lomo.data.engine.lan.LanDiscoveredPeer
 import com.lomo.data.engine.lan.LanDiscoveryFacts
+import com.lomo.data.engine.lan.LanInboxWait
 import com.lomo.data.engine.lan.LanLocalIdentity
 import com.lomo.data.engine.lan.LanNetworkFacts
 import com.lomo.data.engine.lan.LanPairingChallenge
@@ -14,6 +15,7 @@ import com.lomo.data.engine.lan.LanServiceState
 import com.lomo.data.engine.lan.LanSessionChallenge
 import com.lomo.data.engine.lan.LanSessionState
 import com.lomo.data.engine.lan.LanTransferShape
+import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.EngineCommandFailureException
@@ -42,10 +44,6 @@ internal abstract class ManagedEngineCapabilities :
     protected abstract fun rebuildActiveStore(
         batchSize: UInt,
     ): com.lomo.nativebridge.StoreRebuildResult
-
-    protected abstract fun applyActivePermanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit
 
     override fun renderMarkdown(content: String) =
         renderMarkdown(content = content, schemaVersion = MarkdownRenderDocument.SCHEMA_VERSION)
@@ -135,6 +133,9 @@ internal abstract class ManagedEngineCapabilities :
     override fun lanTransferShape(): LanTransferShape =
         withActiveEngineAdapter(RustEngineAdapter::lanTransferShape)
 
+    override fun lanProtocolLimits(): LanProtocolLimits =
+        withActiveEngineAdapter(RustEngineAdapter::lanProtocolLimits)
+
     override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) =
         withActiveEngineAdapter { adapter -> adapter.updateLanDiscoverySnapshot(snapshot) }
 
@@ -143,6 +144,9 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun stopLanService(): LanServiceState =
         withActiveEngineAdapter(RustEngineAdapter::stopLanService)
+
+    override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
+        withActiveEngineAdapter { adapter -> adapter.awaitLanInbox(lastGeneration, timeoutMs) }
 
     override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> =
         withActiveEngineAdapter(RustEngineAdapter::listLanDiscoveredPeers)
@@ -219,7 +223,11 @@ internal abstract class ManagedEngineCapabilities :
             adapter.lanUnconfirmedBatchChunks(batchId, itemIndex, attachmentSlot)
         }
 
-    override fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): String =
+    override fun commitReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        nowMs: Long,
+    ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveEngineAdapter { adapter -> adapter.commitReceivedLanItem(batchId, itemIndex, nowMs) }
 
     override fun listLanPeers(): LanPeerPage = withActiveEngineAdapter(RustEngineAdapter::listLanPeers)
@@ -342,11 +350,6 @@ internal abstract class ManagedEngineCapabilities :
     ): com.lomo.nativebridge.StoreMemoHistoryPage =
         withActiveWorkspaceAdapter { adapter -> adapter.listMemoHistory(memoId, cursor, limit) }
 
-    override fun queryReminderPlan(
-        query: com.lomo.nativebridge.StoreReminderQuery,
-    ): com.lomo.nativebridge.StoreReminderPlan =
-        withActiveWorkspaceAdapter { adapter -> adapter.queryReminderPlan(query) }
-
     protected abstract fun applyActiveMemoCommand(
         command: com.lomo.nativebridge.StoreMemoCommand,
         onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
@@ -426,7 +429,7 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionRestoreMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.SessionRestoreResult =
+    ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionRestoreMemo(request) }
 
     override fun sessionRestoreRevision(
@@ -436,7 +439,7 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionPermanentlyDeleteMemo(
         request: com.lomo.nativebridge.SessionRestoreRequest,
-    ): com.lomo.nativebridge.SessionRestoreResult =
+    ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionPermanentlyDeleteMemo(request) }
 
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
@@ -447,15 +450,46 @@ internal abstract class ManagedEngineCapabilities :
     ): com.lomo.nativebridge.StoreMemoCommit =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionRecordReminderFired(request) }
 
-    final override fun permanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit = applyActivePermanentDeleteMany(request)
+    override fun sessionSnoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    ) = withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, snoozeDurationMs) }
 
-    override fun commitSafProjectionMutation(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-        projection: com.lomo.nativebridge.StoreSafMemoProjection?,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.commitSafProjectionMutation(command, projection) }
+    override fun sessionClearReminderSnooze(opaqueId: String) =
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionClearReminderSnooze(opaqueId) }
+
+    override fun sessionReminderSnoozeRecoveryPending(): Boolean =
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionReminderSnoozeRecoveryPending() }
+
+    override fun sessionRecoverReminderSnooze() =
+        withActiveWorkspaceAdapter { adapter -> adapter.sessionRecoverReminderSnooze() }
+
+    override fun syncRunCycle(
+        workspaceRoot: String,
+        backendKind: String,
+        endpointUrl: String,
+        usernameOrAccessKey: String,
+        bucket: String,
+        prefix: String,
+        region: String,
+        remoteDatasetId: String,
+        secretLeaseId: String,
+        applyRemote: Boolean,
+    ): com.lomo.nativebridge.SyncCyclePlanSummaryDto =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.syncRunCycle(
+                workspaceRoot,
+                backendKind,
+                endpointUrl,
+                usernameOrAccessKey,
+                bucket,
+                prefix,
+                region,
+                remoteDatasetId,
+                secretLeaseId,
+                applyRemote,
+            )
+        }
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
@@ -475,6 +509,38 @@ internal abstract class ManagedEngineCapabilities :
         withActiveWorkspaceAdapter { adapter ->
             adapter.stageMedia(mediaRoot, sourceKind, sourcePath, humanNameHint)
         }
+
+    override fun recordStageLease(
+        workspaceRoot: String?,
+        staged: com.lomo.nativebridge.MediaStagedDto,
+        ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
+        ownerId: String,
+    ): com.lomo.nativebridge.MediaStageRecordDto =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.recordStageLease(workspaceRoot, staged, ownerKind, ownerId)
+        }
+
+    override fun stageRecordsForOwner(
+        mediaRoot: String,
+        ownerKind: com.lomo.nativebridge.MediaStageOwnerKindDto,
+        ownerId: String,
+    ): List<com.lomo.nativebridge.MediaStageRecordDto> =
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.stageRecordsForOwner(mediaRoot, ownerKind, ownerId)
+        }
+
+    override fun transferStageLease(
+        mediaRoot: String,
+        from: com.lomo.nativebridge.MediaStageLeaseDto,
+        to: com.lomo.nativebridge.MediaStageLeaseDto,
+    ): com.lomo.nativebridge.MediaStageReleaseDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.transferStageLease(mediaRoot, from, to) }
+
+    override fun releaseStageLease(
+        mediaRoot: String,
+        lease: com.lomo.nativebridge.MediaStageLeaseDto,
+    ): com.lomo.nativebridge.MediaStageReleaseDto =
+        withActiveWorkspaceAdapter { adapter -> adapter.releaseStageLease(mediaRoot, lease) }
 
     override fun allocateRecordingTarget(mediaRoot: String, extension: String): String =
         withActiveWorkspaceAdapter { adapter -> adapter.allocateRecordingTarget(mediaRoot, extension) }
@@ -682,6 +748,8 @@ private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker 
                 memoIdentity = memoIdentity,
                 sourceSpan = MarkdownSourceSpan(startByte = sourceStart, endByte = sourceEnd),
                 tokenFingerprint = tokenFingerprint,
+                fingerprintOrdinal = fingerprintOrdinal,
+                embeddedId = embeddedId,
             ),
         token = token,
     )

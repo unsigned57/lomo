@@ -42,6 +42,9 @@ internal data class WorkspaceReminderReferenceSnapshot(
     val sourceStart: ULong,
     val sourceEnd: ULong,
     val tokenFingerprint: String,
+    val fingerprintOrdinal: UInt,
+    /** Resolved durable embedded reminder id; null for legacy or ambiguous-duplicate tokens. */
+    val embeddedId: String?,
     val token: String,
     val dueAtLocal: String,
     val repeatCount: UInt,
@@ -289,34 +292,9 @@ internal interface WorkspaceDurableRecordScanPort {
     fun readWorkspaceHistoryProjectionScanPage(jobId: String): WorkspaceHistoryProjectionScanPageSnapshot
 }
 
-/** Streaming sink whose finish atomically publishes one complete SAF projection. */
-internal interface SafProjectionRebuildSink {
-    fun beginSafProjectionRebuild(): String
-
-    fun appendSafProjectionRebuildPage(
-        rebuildId: String,
-        memos: List<SafMemoProjectionReferenceSnapshot>,
-    )
-
-    fun appendSafTrashProjectionRebuildPage(
-        rebuildId: String,
-        memos: List<SafTrashProjectionReferenceSnapshot>,
-    )
-
-    fun appendSafHistoryProjectionRebuildPage(
-        rebuildId: String,
-        revisions: List<SafHistoryProjectionReferenceSnapshot>,
-    )
-
-    fun finishSafProjectionRebuild(rebuildId: String): com.lomo.nativebridge.StoreRebuildResult
-
-    fun abortSafProjectionRebuild(rebuildId: String)
-}
-
 /** Read/rebuild capability of the Rust-owned workspace projection boundary. */
 internal interface WorkspaceProjectionEnginePort :
-    WorkspaceDurableRecordScanPort,
-    SafProjectionRebuildSink {
+    WorkspaceDurableRecordScanPort {
     fun renderMarkdown(
         content: String,
         schemaVersion: UInt,

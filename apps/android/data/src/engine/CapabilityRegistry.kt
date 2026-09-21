@@ -1,5 +1,6 @@
 package com.lomo.data.engine
 
+import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -8,38 +9,57 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Binds opaque process capabilities to a stable SAF workspace identity and persisted tree URI.
+ * Binds opaque process capabilities to a stable workspace identity and an execution root.
  *
- * URI text never crosses the FFI boundary. Rust receives the stable ID for journal/lock ownership
- * and the token for platform access. Revocation removes the whole binding so a later resolve is
- * indistinguishable from an unknown token.
+ * Grants are either a SAF tree or a Direct filesystem root. URI text and absolute file paths never
+ * cross the FFI boundary: Rust receives the stable ID and the token. Revocation removes the whole
+ * binding so a later resolve is indistinguishable from an unknown token.
  */
 internal class CapabilityRegistry {
-    private val grants = ConcurrentHashMap<String, SafCapabilityGrant>()
+    private val grants = ConcurrentHashMap<String, RootCapabilityGrant>()
 
     fun register(
         token: String,
         treeUri: String,
     ): SafCapabilityGrant {
         val grant = SafCapabilityGrant.bind(token = token, treeUri = treeUri)
-        val existing = grants.putIfAbsent(token, grant)
-        require(existing == null || existing.hasSameBindingAs(grant)) {
-            "capability token is already bound to a different SAF tree"
-        }
-        return existing ?: grant
+        return putGrant(grant) as SafCapabilityGrant
+    }
+
+    fun registerDirect(
+        token: String,
+        rootPath: File,
+    ): DirectCapabilityGrant {
+        val grant = DirectCapabilityGrant.bind(token = token, rootPath = rootPath)
+        return putGrant(grant) as DirectCapabilityGrant
     }
 
     fun revoke(token: String) {
         grants.remove(token)
     }
 
-    fun resolve(token: String): String =
-        grants[token]?.treeUri
+    fun resolve(token: String): RootCapabilityGrant =
+        grants[token]
             ?: throw CapabilityRegistryException(
                 category = "permission",
                 code = "unknown_capability_token",
                 diagnostic = "Capability token is unknown or revoked",
             )
+
+    private fun putGrant(grant: RootCapabilityGrant): RootCapabilityGrant {
+        val existing = grants.putIfAbsent(grant.capabilityToken, grant)
+        require(existing == null || existing.hasSameBindingAs(grant)) {
+            "capability token is already bound to a different root"
+        }
+        return existing ?: grant
+    }
+}
+
+internal sealed interface RootCapabilityGrant {
+    val capabilityToken: String
+    val stableWorkspaceId: StableWorkspaceId
+
+    fun hasSameBindingAs(other: RootCapabilityGrant): Boolean
 }
 
 @JvmInline
@@ -63,12 +83,13 @@ internal value class StableWorkspaceId(
 }
 
 internal class SafCapabilityGrant private constructor(
-    val capabilityToken: String,
-    val stableWorkspaceId: StableWorkspaceId,
+    override val capabilityToken: String,
+    override val stableWorkspaceId: StableWorkspaceId,
     val treeUri: String,
-) {
-    fun hasSameBindingAs(other: SafCapabilityGrant): Boolean =
-        capabilityToken == other.capabilityToken &&
+) : RootCapabilityGrant {
+    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean =
+        other is SafCapabilityGrant &&
+            capabilityToken == other.capabilityToken &&
             stableWorkspaceId == other.stableWorkspaceId &&
             treeUri == other.treeUri
 
@@ -132,6 +153,62 @@ internal object SafWorkspaceIdentity {
     private const val TREE_PATH_PREFIX = "/tree/"
 }
 
+internal class DirectCapabilityGrant private constructor(
+    override val capabilityToken: String,
+    override val stableWorkspaceId: StableWorkspaceId,
+    val canonicalRoot: File,
+) : RootCapabilityGrant {
+    override fun hasSameBindingAs(other: RootCapabilityGrant): Boolean =
+        other is DirectCapabilityGrant &&
+            capabilityToken == other.capabilityToken &&
+            stableWorkspaceId == other.stableWorkspaceId &&
+            canonicalRoot == other.canonicalRoot
+
+    companion object {
+        fun bind(
+            token: String,
+            rootPath: File,
+        ): DirectCapabilityGrant {
+            require(token.isNotBlank()) { "capability token must be non-blank" }
+            val canonical =
+                try {
+                    rootPath.canonicalFile
+                } catch (error: java.io.IOException) {
+                    throw CapabilityRegistryException(
+                        category = "storage",
+                        code = "workspace_root_unavailable",
+                        diagnostic = "direct workspace root cannot be canonicalized: ${error.message}",
+                        cause = error,
+                    )
+                }
+            if (!canonical.isDirectory) {
+                throw CapabilityRegistryException(
+                    category = "validation",
+                    code = "workspace_root_not_directory",
+                    diagnostic = "direct workspace root must be a directory",
+                )
+            }
+            return DirectCapabilityGrant(
+                capabilityToken = token,
+                stableWorkspaceId = DirectWorkspaceIdentity.fromCanonicalRoot(canonical),
+                canonicalRoot = canonical,
+            )
+        }
+    }
+}
+
+/** Canonical identity edge for Direct filesystem roots. Matches Rust `workspace_identity(direct)`. */
+internal object DirectWorkspaceIdentity {
+    fun fromCanonicalRoot(canonicalRoot: File): StableWorkspaceId {
+        val identityMaterial = "direct\u0000${canonicalRoot.path}"
+        val digest =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(identityMaterial.toByteArray(StandardCharsets.UTF_8))
+        return StableWorkspaceId("ws-${digest.toLowerHex()}")
+    }
+}
+
 private fun isLowerHex(character: Char): Boolean = character in '0'..'9' || character in 'a'..'f'
 
 private fun ByteArray.toLowerHex(): String =
@@ -152,4 +229,5 @@ internal class CapabilityRegistryException(
     val category: String,
     val code: String,
     val diagnostic: String,
-) : RuntimeException("$code: $diagnostic")
+    cause: Throwable? = null,
+) : RuntimeException("$code: $diagnostic", cause)
