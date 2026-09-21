@@ -161,6 +161,8 @@ pub struct MemoSummary {
     pub reminders: Vec<lomo_workspace::ReminderReference>,
     /// Row was published by a begun create whose durable commit has not landed yet.
     pub is_pending: bool,
+    /// Full-document character count materialized at rebuild (UTF-16 code units).
+    pub char_count: i64,
 }
 
 /// Bounded page result.
@@ -527,7 +529,7 @@ fn start_summary(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL \
+         m.pending_operation_id IS NOT NULL, m.char_count \
          FROM {} \
          WHERE {where_sql} AND m.memo_id = ?{memo_idx} \
          LIMIT 1",
@@ -693,6 +695,7 @@ fn memo_summary_from_row(row: &Row<'_>) -> Result<MemoSummary, lomo_core::LomoEr
         )
         .map_err(|error| corruption("invalid_reminder_projection", &error.to_string()))?,
         is_pending: row.get::<_, i64>(14).map_err(|err| from_sqlite(&err))? != 0,
+        char_count: row.get(15).map_err(|err| from_sqlite(&err))?,
     })
 }
 
@@ -733,7 +736,7 @@ fn build_sql(
          m.has_todo, m.has_url, m.has_attachment, \
          m.is_pinned, m.is_trashed, \
          m.body_preview, m.content_revision, {rank_select}, m.reminders_json, \
-         m.pending_operation_id IS NOT NULL \
+         m.pending_operation_id IS NOT NULL, m.char_count \
          FROM {from_sql} \
          WHERE {where_sql} \
          ORDER BY {order_sql} \
@@ -1043,7 +1046,7 @@ pub fn get_memo_projection(
                     m.has_todo, m.has_url, m.has_attachment, \
                     m.is_pinned, m.is_trashed, \
                     m.body_preview, m.content_revision, m.reminders_json, \
-                    m.pending_operation_id IS NOT NULL \
+                    m.pending_operation_id IS NOT NULL, m.char_count \
              FROM memo m \
              WHERE m.memo_id = ?1",
             params![memo_id],
@@ -1084,6 +1087,7 @@ pub fn get_memo_projection(
                         )
                     })?,
                     is_pending: row.get::<_, i64>(13)? != 0,
+                    char_count: row.get(14)?,
                 })
             },
         )
@@ -1162,6 +1166,30 @@ pub fn source_document_fingerprint(
             "memos from one source document disagree on its fingerprint",
         )),
     }
+}
+
+/// Active memo ids projected from one source document path (excludes trash and in-flight ops).
+///
+/// # Errors
+///
+/// Path validation or `SQLite` projection failures.
+pub fn active_memo_ids_for_source_path(
+    connection: &Connection,
+    source_path: &str,
+) -> Result<Vec<String>, lomo_core::LomoError> {
+    let _path = lomo_workspace::WorkspaceRelativePath::parse(source_path)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT memo_id FROM memo WHERE source_path = ?1 AND is_trashed = 0 \
+             AND pending_operation_id IS NULL ORDER BY memo_id",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let ids = statement
+        .query_map(params![source_path], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(ids)
 }
 
 /// Loads tag names and non-audio attachment paths for one bounded page in two statements.

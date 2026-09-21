@@ -59,6 +59,7 @@ pub fn seed_state(root: &Path, memo: &str, pinned: bool, trashed: bool) {
 }
 
 pub fn indexed_store(root: &Path) -> Store {
+    lomo_workspace::load_or_mint_workspace_generation(root).expect("workspace generation");
     run_rebuild(root, 8).expect("index seed markdown");
     Store::open(root).expect("open indexed store")
 }

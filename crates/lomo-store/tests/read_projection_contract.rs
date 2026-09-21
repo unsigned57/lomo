@@ -158,6 +158,31 @@ mod tests {
     }
 
     #[test]
+    fn query_memos_projects_full_document_char_count_on_preview_rows() {
+        let dir = tempdir().expect("tempdir");
+        let body = "alpha beta beta";
+        seed_memo(dir.path(), "m1", body, &[]);
+        let store = indexed_store(dir.path());
+        let page = store
+            .query_memos(&all_query(), None, PageSize::new(10).expect("page size"))
+            .expect("page");
+        let summary = page
+            .items
+            .iter()
+            .find(|item| item.memo_id == "m1")
+            .expect("seeded memo");
+        assert_eq!(
+            count_characters(body),
+            summary.char_count,
+            "list rows must carry the rebuilt full-document character count, not preview length"
+        );
+        assert!(
+            summary.body_preview.len() <= body.len(),
+            "preview is a bounded view of the same document whose char_count is projected"
+        );
+    }
+
+    #[test]
     fn count_words_matches_whitespace_run_contract() {
         assert_eq!(0, count_words("   \n\t"));
         assert_eq!(3, count_words("alpha beta\ngamma"));

@@ -92,6 +92,9 @@ pub struct RebuildResult {
     pub store_digest: String,
     pub corrupt_lomo_isolated: u64,
     pub high_water_revision: u64,
+    /// `false` when live projection fingerprints already matched workspace facts, so SQLite was
+    /// not replaced and the high-water clock was not advanced.
+    pub rewritten: bool,
 }
 
 /// One memo projection already parsed by the Rust workspace owner through a SAF scan.
@@ -214,22 +217,7 @@ pub struct SafPermanentDeleteManyResult {
 /// platform executor and represented by `projection` facts from a fresh Rust-owned scan.
 ///
 /// # Errors
-///
-/// Returns validation/corruption/storage errors when the mutation is malformed, stale, conflicts
-/// with a prior operation, or cannot be committed atomically.
-pub fn commit_saf_projection_mutation(
-    projection_root: &Path,
-    mutation: &SafProjectionMutation,
-) -> Result<SafProjectionCommitResult, lomo_core::LomoError> {
-    let database = database_path(projection_root);
-    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
-    commit_saf_projection_mutation_on_connection(&connection, mutation)
-}
-
 /// Commits a SAF projection mutation using an already-open store connection.
-///
-/// Keeping connection ownership at [`crate::Store`] makes the projection gate and SQLite handle
-/// one lifecycle boundary; the path-based wrapper above remains for standalone callers.
 pub fn commit_saf_projection_mutation_on_connection(
     connection: &Connection,
     mutation: &SafProjectionMutation,
@@ -964,19 +952,6 @@ fn verify_rebuilt_publication(
 /// id; SQLite atomicity guarantees that a retry observes either all children or none.
 ///
 /// # Errors
-///
-/// Returns validation/conflict/corruption/storage errors and never partially removes projection
-/// rows.
-pub fn commit_saf_permanent_delete_many(
-    projection_root: &Path,
-    operation_id: &str,
-    targets: &[SafPermanentDeleteTarget],
-) -> Result<SafPermanentDeleteManyResult, lomo_core::LomoError> {
-    let database = database_path(projection_root);
-    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
-    commit_saf_permanent_delete_many_on_connection(&connection, operation_id, targets)
-}
-
 /// Commits a SAF permanent-delete batch using an already-open projection connection.
 pub fn commit_saf_permanent_delete_many_on_connection(
     connection: &Connection,
@@ -1407,20 +1382,6 @@ pub struct SafMemoCreateBeginResult {
 /// ordinary queryable projection state carrying `pending_operation_id`; the commit upgrades it in
 /// place and rollback removes it. Crash between begin and commit is recovered by the open-time
 /// sweep (or the next rebuild), never by durable half-state.
-///
-/// # Errors
-///
-/// Validation for malformed operation id, date/time layout parts, chronology or source path;
-/// conflict when the same operation id replays with a different body or a minted identity collides.
-pub fn begin_saf_memo_create(
-    projection_root: &Path,
-    begin: &SafMemoCreateBegin,
-) -> Result<SafMemoCreateBeginResult, lomo_core::LomoError> {
-    let database = database_path(projection_root);
-    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
-    begin_saf_memo_create_on_connection(&connection, begin)
-}
-
 /// Publishes a pending SAF create using an already-open projection connection.
 pub fn begin_saf_memo_create_on_connection(
     connection: &Connection,
@@ -1542,22 +1503,6 @@ fn insert_pending_memo_row(
         )
         .map_err(|error| from_sqlite(&error))?;
     Ok(())
-}
-
-/// Removes the pending create row published for this operation, if it is still pending.
-///
-/// # Errors
-///
-/// Storage/`SQLite` errors; no error is produced when the row is already gone (swept or rolled
-/// back), which returns `None` without publishing.
-pub fn rollback_saf_memo_create(
-    projection_root: &Path,
-    operation_id: &str,
-    memo_id: &str,
-) -> Result<Option<SafMemoPublication>, lomo_core::LomoError> {
-    let database = database_path(projection_root);
-    let connection = Connection::open(&database).map_err(|error| from_sqlite(&error))?;
-    rollback_saf_memo_create_on_connection(&connection, operation_id, memo_id)
 }
 
 /// Removes a pending SAF create using an already-open projection connection.
@@ -2195,6 +2140,7 @@ impl SafProjectionRebuild {
             store_digest: evidence.store_digest,
             corrupt_lomo_isolated: 0,
             high_water_revision: self.high_water_revision,
+            rewritten: true,
         })
     }
 
@@ -2579,6 +2525,7 @@ pub fn run_rebuild(
         store_digest: compare_store_digest,
         corrupt_lomo_isolated: checkpoint.isolated,
         high_water_revision: 0,
+        rewritten: true,
     })
 }
 
@@ -2590,11 +2537,10 @@ struct CompareEvidence {
     store_digest: String,
 }
 
-/// Fail-closed compare: workspace memo files vs store projection counts + digests.
-fn compare_workspace_to_store(
+/// Collects Direct workspace memo/trash fingerprints for reconcile or post-rebuild integrity.
+fn collect_direct_workspace_pairs(
     workspace_root: &Path,
-    conn: &Connection,
-) -> Result<CompareEvidence, lomo_core::LomoError> {
+) -> Result<(Vec<(String, String)>, u64), lomo_core::LomoError> {
     let memo_files = list_memo_files(workspace_root)?;
     let mut workspace_pairs: Vec<(String, String)> = Vec::with_capacity(memo_files.len());
     let mut workspace_attachments = 0u64;
@@ -2634,61 +2580,127 @@ fn compare_workspace_to_store(
             .checked_add(u64::try_from(record.attachments.len()).unwrap_or(u64::MAX))
             .ok_or_else(|| corruption("rebuild_compare_failed", "attachment count overflow"))?;
     }
-    workspace_pairs.sort_by(|a, b| a.0.cmp(&b.0));
-    let workspace_digest = aggregate_memo_digest(&workspace_pairs);
-    let file_count = u64::try_from(workspace_pairs.len()).unwrap_or(u64::MAX);
+    Ok((workspace_pairs, workspace_attachments))
+}
 
-    let memo_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM memo", [], |row| row.get(0))
-        .map_err(|err| from_sqlite(&err))?;
-    let memo_count_u = u64::try_from(memo_count).unwrap_or(u64::MAX);
-    if memo_count_u != file_count {
-        return Err(corruption(
-            "rebuild_compare_failed",
-            &format!("memo count {memo_count_u} does not match workspace file count {file_count}"),
-        ));
+pub fn live_reconciled_result(
+    connection: &Connection,
+    high_water_revision: u64,
+) -> Result<RebuildResult, lomo_core::LomoError> {
+    let mut store_pairs = Vec::new();
+    let mut statement = connection
+        .prepare("SELECT memo_id,file_fingerprint FROM memo ORDER BY memo_id")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    for row in rows {
+        store_pairs.push(row.map_err(|error| from_sqlite(&error))?);
     }
+    let file_count = u64::try_from(store_pairs.len())
+        .map_err(|_error| validation("memo_count_overflow", "memo count exceeds u64"))?;
+    let digest = aggregate_memo_digest(&store_pairs);
+    let store_attachments: i64 = connection
+        .query_row("SELECT COUNT(*) FROM attachment_ref", [], |row| row.get(0))
+        .map_err(|error| from_sqlite(&error))?;
+    let attachment_count = u64::try_from(store_attachments)
+        .map_err(|_error| corruption("rebuild_compare_failed", "negative attachment count"))?;
+    Ok(RebuildResult {
+        memos_indexed: file_count,
+        file_count,
+        attachment_count,
+        workspace_digest: digest.clone(),
+        store_digest: digest,
+        corrupt_lomo_isolated: 0,
+        high_water_revision,
+        rewritten: false,
+    })
+}
 
-    let mut store_pairs: Vec<(String, String)> = Vec::new();
+fn rebuild_result_from_evidence(
+    evidence: CompareEvidence,
+    memos_indexed: u64,
+    high_water_revision: u64,
+    rewritten: bool,
+) -> RebuildResult {
+    RebuildResult {
+        memos_indexed,
+        file_count: evidence.file_count,
+        attachment_count: evidence.attachment_count,
+        workspace_digest: evidence.workspace_digest,
+        store_digest: evidence.store_digest,
+        corrupt_lomo_isolated: 0,
+        high_water_revision,
+        rewritten,
+    }
+}
+
+/// Live-projection fingerprint gate. `None` means the projection diverges and a rewrite is required.
+pub fn try_reconcile_direct(
+    workspace_root: &Path,
+    connection: &Connection,
+    high_water_revision: u64,
+) -> Result<Option<RebuildResult>, lomo_core::LomoError> {
+    let (mut workspace_pairs, attachment_count) = collect_direct_workspace_pairs(workspace_root)?;
+    try_reconcile_scanned(
+        connection,
+        &mut workspace_pairs,
+        attachment_count,
+        high_water_revision,
+        None,
+        None,
+    )
+}
+
+/// Live-projection fingerprint gate for scanned (session/SAF) memo facts.
+///
+/// When `pins`/`history` are `Some`, those workspace-derived records must also match the live
+/// projection. Direct rebuild leaves them `None` because pins are app-private live copies.
+pub fn try_reconcile_scanned(
+    connection: &Connection,
+    workspace_pairs: &mut [(String, String)],
+    attachment_count: u64,
+    high_water_revision: u64,
+    pins: Option<&[ScannedPinProjection]>,
+    history: Option<&[ScannedHistoryProjection]>,
+) -> Result<Option<RebuildResult>, lomo_core::LomoError> {
+    let Some(evidence) = projection_matches_pairs(connection, workspace_pairs, attachment_count)?
+    else {
+        return Ok(None);
+    };
+    if let Some(pins) = pins
+        && !projection_matches_pins(connection, pins)?
     {
-        let mut stmt = conn
-            .prepare("SELECT memo_id, file_fingerprint FROM memo ORDER BY memo_id")
-            .map_err(|err| from_sqlite(&err))?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|err| from_sqlite(&err))?;
-        for row in rows {
-            store_pairs.push(row.map_err(|err| from_sqlite(&err))?);
-        }
+        return Ok(None);
     }
-    let store_digest = aggregate_memo_digest(&store_pairs);
-    if workspace_digest != store_digest {
-        return Err(corruption(
+    if let Some(history) = history
+        && !projection_matches_history(connection, history)?
+    {
+        return Ok(None);
+    }
+    let memos_indexed = evidence.file_count;
+    Ok(Some(rebuild_result_from_evidence(
+        evidence,
+        memos_indexed,
+        high_water_revision,
+        false,
+    )))
+}
+
+/// Fail-closed compare: workspace memo files vs store projection counts + digests.
+fn compare_workspace_to_store(
+    workspace_root: &Path,
+    conn: &Connection,
+) -> Result<CompareEvidence, lomo_core::LomoError> {
+    let (mut workspace_pairs, workspace_attachments) =
+        collect_direct_workspace_pairs(workspace_root)?;
+    projection_matches_pairs(conn, &mut workspace_pairs, workspace_attachments)?.ok_or_else(|| {
+        corruption(
             "rebuild_compare_failed",
             "workspace and store content digests diverge",
-        ));
-    }
-
-    let store_attachments: i64 = conn
-        .query_row("SELECT COUNT(*) FROM attachment_ref", [], |row| row.get(0))
-        .map_err(|err| from_sqlite(&err))?;
-    let store_attachments_u = u64::try_from(store_attachments).unwrap_or(u64::MAX);
-    if store_attachments_u != workspace_attachments {
-        return Err(corruption(
-            "rebuild_compare_failed",
-            &format!(
-                "attachment count store={store_attachments_u} workspace={workspace_attachments}"
-            ),
-        ));
-    }
-
-    Ok(CompareEvidence {
-        file_count,
-        attachment_count: store_attachments_u,
-        workspace_digest,
-        store_digest,
+        )
     })
 }
 
@@ -2697,6 +2709,19 @@ fn compare_scanned_pairs_to_store(
     attachment_count: u64,
     connection: &Connection,
 ) -> Result<CompareEvidence, lomo_core::LomoError> {
+    projection_matches_pairs(connection, workspace_pairs, attachment_count)?.ok_or_else(|| {
+        corruption(
+            "rebuild_compare_failed",
+            "SAF page facts and rebuilt projection diverge",
+        )
+    })
+}
+
+fn projection_matches_pairs(
+    connection: &Connection,
+    workspace_pairs: &mut [(String, String)],
+    attachment_count: u64,
+) -> Result<Option<CompareEvidence>, lomo_core::LomoError> {
     workspace_pairs.sort();
     let workspace_digest = aggregate_memo_digest(workspace_pairs);
     let file_count = u64::try_from(workspace_pairs.len())
@@ -2707,10 +2732,7 @@ fn compare_scanned_pairs_to_store(
     let store_count = u64::try_from(memo_count)
         .map_err(|_error| corruption("rebuild_compare_failed", "negative memo count"))?;
     if store_count != file_count {
-        return Err(corruption(
-            "rebuild_compare_failed",
-            "SAF page memo count does not match rebuilt projection",
-        ));
+        return Ok(None);
     }
     let mut store_pairs = Vec::with_capacity(workspace_pairs.len());
     let mut statement = connection
@@ -2725,11 +2747,8 @@ fn compare_scanned_pairs_to_store(
         store_pairs.push(row.map_err(|error| from_sqlite(&error))?);
     }
     let store_digest = aggregate_memo_digest(&store_pairs);
-    if workspace_pairs != store_pairs {
-        return Err(corruption(
-            "rebuild_compare_failed",
-            "SAF page facts and rebuilt projection diverge",
-        ));
+    if workspace_pairs != store_pairs.as_slice() {
+        return Ok(None);
     }
     let store_attachments: i64 = connection
         .query_row("SELECT COUNT(*) FROM attachment_ref", [], |row| row.get(0))
@@ -2737,17 +2756,93 @@ fn compare_scanned_pairs_to_store(
     let store_attachment_count = u64::try_from(store_attachments)
         .map_err(|_error| corruption("rebuild_compare_failed", "negative attachment count"))?;
     if store_attachment_count != attachment_count {
-        return Err(corruption(
-            "rebuild_compare_failed",
-            "SAF page attachment count does not match rebuilt projection",
-        ));
+        return Ok(None);
     }
-    Ok(CompareEvidence {
+    Ok(Some(CompareEvidence {
         file_count,
         attachment_count: store_attachment_count,
         workspace_digest,
         store_digest,
-    })
+    }))
+}
+
+fn projection_matches_pins(
+    connection: &Connection,
+    pins: &[ScannedPinProjection],
+) -> Result<bool, lomo_core::LomoError> {
+    let mut expected: Vec<(String, i64)> = pins
+        .iter()
+        .map(|pin| (pin.memo_id.clone(), pin.pinned_at_ms))
+        .collect();
+    expected.sort();
+    let mut statement = connection
+        .prepare("SELECT memo_id,pinned_at_ms FROM memo_pin ORDER BY memo_id")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    let mut live = Vec::with_capacity(expected.len());
+    for row in rows {
+        live.push(row.map_err(|error| from_sqlite(&error))?);
+    }
+    if expected != live {
+        return Ok(false);
+    }
+    let mut pinned = connection
+        .prepare("SELECT memo_id FROM memo WHERE is_pinned=1 ORDER BY memo_id")
+        .map_err(|error| from_sqlite(&error))?;
+    let pinned_rows = pinned
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?;
+    let mut pinned_ids = Vec::with_capacity(expected.len());
+    for row in pinned_rows {
+        pinned_ids.push(row.map_err(|error| from_sqlite(&error))?);
+    }
+    let expected_ids: Vec<String> = expected.into_iter().map(|(memo_id, _)| memo_id).collect();
+    Ok(expected_ids == pinned_ids)
+}
+
+fn projection_matches_history(
+    connection: &Connection,
+    history: &[ScannedHistoryProjection],
+) -> Result<bool, lomo_core::LomoError> {
+    let mut expected = Vec::with_capacity(history.len());
+    for item in history {
+        let revision = i64::try_from(item.revision)
+            .map_err(|_error| validation("revision_overflow", "history revision exceeds i64"))?;
+        expected.push((
+            item.memo_id.clone(),
+            item.record_id.clone(),
+            revision,
+            item.created_at_ms,
+            item.file_fingerprint.clone(),
+        ));
+    }
+    expected.sort();
+    let mut statement = connection
+        .prepare(
+            "SELECT memo_id,history_record_id,revision,created_at_ms,file_fingerprint \
+             FROM revision_index ORDER BY memo_id,history_record_id",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    let mut live = Vec::with_capacity(expected.len());
+    for row in rows {
+        live.push(row.map_err(|error| from_sqlite(&error))?);
+    }
+    Ok(expected == live)
 }
 
 fn copy_saf_private_state(live_db: &Path, target: &Connection) -> Result<(), lomo_core::LomoError> {

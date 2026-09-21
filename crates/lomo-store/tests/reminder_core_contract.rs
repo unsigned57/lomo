@@ -14,9 +14,9 @@
 //!   returned.
 //! - Given a daily recurrence missed for several days, when the plan rebuilds, then at most one
 //!   catch-up fire is emitted for that session before the next future trigger.
-//! - Given snooze bound to workspace generation + opaque id + memo revision, when plan rebuilds
-//!   with the same binding, then the snooze instant is used; with a different generation/revision,
-//!   snooze does not apply.
+//! - Given snooze bound to workspace generation + opaque id, when plan rebuilds with the same
+//!   binding after a memo revision change, then the snooze instant is used; a different workspace
+//!   generation does not apply.
 //! - Given mark-done / record-fired, when applied, then a Markdown replacement token is planned;
 //!   given snooze, when applied, then `replacement_token` is None and body rewrite is forbidden.
 //! - Given snooze open path under `.lomo`, when opened, then validation fails closed.
@@ -25,6 +25,9 @@
 //! structured `LomoError` codes.
 //!
 //! TDD proof: RED — package has no `reminder_core_contract` target / reminder symbols before P3-07.
+//!
+//! Test Change Justification: domain contract correction (C3). Snooze is bound to workspace
+//! generation + reminder definition id; memo revision is command CAS, not the snooze primary key.
 //!
 //! Excludes: Android `AlarmManager` delivery (P3-08), `BoltFFI` wiring (P3-09), Room cutover
 //! (P3-10).
@@ -45,7 +48,8 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    /// `America/New_York` 2024 spring + fall transitions (platform `ZoneRules` shape).
+    /// `America/New_York` 2024 spring + fall transitions (platform `ZoneRules` shape) with
+    /// coverage spanning all 2024 instants the scenarios exercise.
     fn new_york_2024() -> TimeZoneContext {
         TimeZoneContext {
             zone_id: "America/New_York".to_owned(),
@@ -62,6 +66,8 @@ mod tests {
                     offset_after_secs: -5 * 3600,
                 },
             ],
+            coverage_start_utc_ms: 1_704_067_200_000, // 2024-01-01T00:00Z
+            coverage_end_utc_ms: 1_767_225_600_000,   // 2026-01-01T00:00Z
         }
     }
 
@@ -123,7 +129,7 @@ mod tests {
                     zone,
                     sessions: vec![s.clone()],
                     rolling_window: 4,
-                    workspace_generation: 1,
+                    workspace_generation: "gen-1".to_owned(),
                 },
                 &snooze,
             )
@@ -189,9 +195,7 @@ mod tests {
         apply_reminder_command(
             &ReminderCommand::Snooze {
                 opaque_id: "rem-clear".to_owned(),
-                memo_identity: s.memo_identity.clone(),
-                memo_revision: "rev-c".to_owned(),
-                workspace_generation: 2,
+                workspace_generation: "gen-2".to_owned(),
                 snooze_until_utc_ms: due + 9_000_000,
             },
             &mut snooze,
@@ -200,9 +204,7 @@ mod tests {
         apply_reminder_command(
             &ReminderCommand::ClearSnooze {
                 opaque_id: "rem-clear".to_owned(),
-                memo_identity: s.memo_identity.clone(),
-                memo_revision: "rev-c".to_owned(),
-                workspace_generation: 2,
+                workspace_generation: "gen-2".to_owned(),
             },
             &mut snooze,
         )
@@ -213,7 +215,7 @@ mod tests {
                 zone: zone.clone(),
                 sessions: vec![s.clone()],
                 rolling_window: 4,
-                workspace_generation: 2,
+                workspace_generation: "gen-2".to_owned(),
             },
             &snooze,
         )
@@ -232,7 +234,7 @@ mod tests {
                 zone,
                 sessions: vec![done_session],
                 rolling_window: 4,
-                workspace_generation: 2,
+                workspace_generation: "gen-2".to_owned(),
             },
             &snooze,
         )
@@ -289,7 +291,7 @@ mod tests {
                 zone,
                 sessions: vec![s],
                 rolling_window: 16,
-                workspace_generation: 1,
+                workspace_generation: "gen-1".to_owned(),
             },
             &SnoozeStore::memory(),
         )
@@ -332,7 +334,7 @@ mod tests {
                 zone,
                 sessions: vec![s],
                 rolling_window: 16,
-                workspace_generation: 1,
+                workspace_generation: "gen-1".to_owned(),
             },
             &SnoozeStore::memory(),
         )
@@ -343,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn snooze_binds_to_generation_ref_and_revision() {
+    fn snooze_binds_to_generation_and_definition_id() {
         let zone = new_york_2024();
         let s = session(&SessionSpec {
             opaque: "rem-snooze",
@@ -363,9 +365,7 @@ mod tests {
         apply_reminder_command(
             &ReminderCommand::Snooze {
                 opaque_id: "rem-snooze".to_owned(),
-                memo_identity: s.memo_identity.clone(),
-                memo_revision: "rev-1".to_owned(),
-                workspace_generation: 7,
+                workspace_generation: "gen-7".to_owned(),
                 snooze_until_utc_ms: until,
             },
             &mut snooze,
@@ -378,7 +378,7 @@ mod tests {
                 zone: zone.clone(),
                 sessions: vec![s.clone()],
                 rolling_window: 8,
-                workspace_generation: 7,
+                workspace_generation: "gen-7".to_owned(),
             },
             &snooze,
         )
@@ -392,7 +392,7 @@ mod tests {
                 zone: zone.clone(),
                 sessions: vec![s.clone()],
                 rolling_window: 8,
-                workspace_generation: 8,
+                workspace_generation: "gen-8".to_owned(),
             },
             &snooze,
         )
@@ -407,12 +407,12 @@ mod tests {
                 zone,
                 sessions: vec![s2],
                 rolling_window: 8,
-                workspace_generation: 7,
+                workspace_generation: "gen-7".to_owned(),
             },
             &snooze,
         )
         .expect("plan other rev");
-        assert_eq!(first_alarm(&plan_rev.alarms).trigger_at_utc_ms, due);
+        assert_eq!(first_alarm(&plan_rev.alarms).trigger_at_utc_ms, until);
     }
 
     #[test]
@@ -431,15 +431,22 @@ mod tests {
         });
         let done = apply_reminder_command(
             &ReminderCommand::MarkDone {
-                session: s.clone(),
+                session: s,
                 expected_revision: "rev-x".to_owned(),
             },
             &mut snooze,
         )
         .expect("done");
-        assert_eq!(
-            done.replacement_token.as_deref(),
-            Some("@2024-06-01-15:00.done")
+        let done_token = done.replacement_token.as_deref().expect("done token");
+        assert!(
+            done_token.starts_with("@2024-06-01-15:00.done#"),
+            "legacy token must migrate to embedded id: {done_token}"
+        );
+        assert!(
+            lomo_workspace::reminder_token_facts(done_token)
+                .expect("done facts")
+                .embedded_id
+                .is_some()
         );
         assert!(!done.snooze_only);
 
@@ -462,17 +469,16 @@ mod tests {
             &mut snooze,
         )
         .expect("fired");
-        assert_eq!(
-            fired.replacement_token.as_deref(),
-            Some("@2024-06-01-15:00x3.1")
+        let fired_token = fired.replacement_token.as_deref().expect("fired token");
+        assert!(
+            fired_token.starts_with("@2024-06-01-15:00x3.1#"),
+            "legacy token must migrate to embedded id: {fired_token}"
         );
 
         let snoozed = apply_reminder_command(
             &ReminderCommand::Snooze {
                 opaque_id: "rem-cmd".to_owned(),
-                memo_identity: s.memo_identity,
-                memo_revision: "rev-x".to_owned(),
-                workspace_generation: 1,
+                workspace_generation: "gen-1".to_owned(),
                 snooze_until_utc_ms: 99,
             },
             &mut snooze,
@@ -517,7 +523,7 @@ mod tests {
 
         let private = dir.path().join("app_private");
         let store = SnoozeStore::open_app_private(&private).expect("private ok");
-        assert!(store.snooze_until(1, "x", "r").is_none());
+        assert!(store.snooze_until("gen-1", "x").is_none());
         assert!(
             !PathBuf::from(&private)
                 .components()
@@ -547,7 +553,7 @@ mod tests {
                 zone,
                 sessions: vec![s],
                 rolling_window: 4,
-                workspace_generation: 1,
+                workspace_generation: "gen-1".to_owned(),
             },
             &SnoozeStore::memory(),
         )
@@ -555,5 +561,231 @@ mod tests {
         assert_eq!(plan.alarms.len(), 1);
         assert_eq!(first_alarm(&plan.alarms).trigger_at_utc_ms, due);
         assert!(!first_alarm(&plan.alarms).is_catch_up);
+    }
+
+    #[test]
+    fn planned_alarms_carry_distinct_occurrence_identities() {
+        let zone = new_york_2024();
+        let s = session(&SessionSpec {
+            opaque: "rem-occ",
+            token: "@2024-01-01-09:00x3i10",
+            due: "2024-01-01-09:00",
+            repeat: 3,
+            fired: 0,
+            done: false,
+            interval: 10,
+            recurrence: "",
+            revision: "rev",
+        });
+        // First firing (09:00) is missed; the 09:10 firing is still future.
+        let now = resolve_floating_local_to_utc_ms("2024-01-01-09:05", &zone).expect("now");
+        let plan = query_reminder_plan(
+            &ReminderQuery {
+                now_utc_ms: now,
+                zone,
+                sessions: vec![s],
+                rolling_window: 8,
+                workspace_generation: "gen-occ".to_owned(),
+            },
+            &SnoozeStore::memory(),
+        )
+        .expect("plan");
+        assert_eq!(plan.alarms.len(), 2);
+        let catch_up = plan
+            .alarms
+            .iter()
+            .find(|a| a.is_catch_up)
+            .expect("catch-up occurrence");
+        let future = plan
+            .alarms
+            .iter()
+            .find(|a| !a.is_catch_up)
+            .expect("future occurrence");
+        assert!(!catch_up.occurrence_id.is_empty());
+        assert!(!future.occurrence_id.is_empty());
+        assert_ne!(
+            catch_up.occurrence_id, future.occurrence_id,
+            "each firing must have its own occurrence identity"
+        );
+        assert!(catch_up.occurrence_id.contains("rem-occ"));
+        assert!(catch_up.occurrence_id.contains("gen-occ"));
+    }
+
+    #[test]
+    fn durable_snooze_survives_reopen_and_stays_generation_scoped() {
+        let dir = tempdir().expect("dir");
+        {
+            let mut store = SnoozeStore::open_app_private(dir.path()).expect("open");
+            apply_reminder_command(
+                &ReminderCommand::Snooze {
+                    opaque_id: "rem-durable".to_owned(),
+                    workspace_generation: "gen-a".to_owned(),
+                    snooze_until_utc_ms: 123_456,
+                },
+                &mut store,
+            )
+            .expect("snooze");
+        }
+        let reopened = SnoozeStore::open_app_private(dir.path()).expect("reopen");
+        assert_eq!(reopened.snooze_until("gen-a", "rem-durable"), Some(123_456));
+        assert_eq!(reopened.snooze_until("gen-b", "rem-durable"), None);
+        assert!(!reopened.recovery_pending());
+    }
+
+    #[test]
+    fn corrupt_snooze_pauses_scheduling_until_explicit_recovery() {
+        let dir = tempdir().expect("dir");
+        std::fs::create_dir_all(dir.path()).expect("mkdir");
+        let file = dir.path().join("reminder_snooze.v1.json");
+        std::fs::write(&file, b"{not json").expect("write corrupt");
+
+        let store = SnoozeStore::open_app_private(dir.path()).expect("open keeps evidence");
+        assert!(store.recovery_pending());
+        // The corrupt file is preserved in place; nothing is rebuilt empty underneath it.
+        assert!(file.exists());
+        assert_eq!(store.snooze_until("gen-a", "x"), None);
+
+        let zone = new_york_2024();
+        let s = session(&SessionSpec {
+            opaque: "rem-corrupt",
+            token: "@2024-06-01-15:00",
+            due: "2024-06-01-15:00",
+            repeat: 1,
+            fired: 0,
+            done: false,
+            interval: 10,
+            recurrence: "",
+            revision: "rev",
+        });
+        let err = query_reminder_plan(
+            &ReminderQuery {
+                now_utc_ms: 1,
+                zone,
+                sessions: vec![s],
+                rolling_window: 4,
+                workspace_generation: "gen-a".to_owned(),
+            },
+            &store,
+        )
+        .expect_err("recovery pauses planning");
+        assert_eq!(err.code(), "reminder_recovery_needed");
+
+        let mut store = store;
+        let err = apply_reminder_command(
+            &ReminderCommand::Snooze {
+                opaque_id: "rem-corrupt".to_owned(),
+                workspace_generation: "gen-a".to_owned(),
+                snooze_until_utc_ms: 1,
+            },
+            &mut store,
+        )
+        .expect_err("snooze writes are blocked during recovery");
+        assert_eq!(err.code(), "reminder_recovery_needed");
+
+        store.recover().expect("explicit recover");
+        assert!(!store.recovery_pending());
+        // The live path now holds a valid empty store; the corrupt bytes only
+        // survive in the quarantine copy.
+        let live: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&file).expect("live file")).expect("valid json");
+        assert_eq!(live, serde_json::json!({}));
+        let quarantined: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("read_dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("entries")
+            .into_iter()
+            .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
+            .collect();
+        assert_eq!(quarantined.len(), 1, "corrupt payload must be preserved");
+
+        // Recovery permits new explicit snoozes but never resurrects unreadable bindings.
+        apply_reminder_command(
+            &ReminderCommand::Snooze {
+                opaque_id: "rem-corrupt".to_owned(),
+                workspace_generation: "gen-a".to_owned(),
+                snooze_until_utc_ms: 77,
+            },
+            &mut store,
+        )
+        .expect("snooze after recovery");
+        assert_eq!(store.snooze_until("gen-a", "rem-corrupt"), Some(77));
+    }
+
+    #[test]
+    fn recover_app_private_quarantines_corrupt_payload() {
+        let dir = tempdir().expect("dir");
+        std::fs::create_dir_all(dir.path()).expect("mkdir");
+        std::fs::write(dir.path().join("reminder_snooze.v1.json"), b"\xff\xfe").expect("write");
+        let store = SnoozeStore::recover_app_private(dir.path()).expect("recover");
+        assert!(!store.recovery_pending());
+        let quarantined: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("read_dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("entries")
+            .into_iter()
+            .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
+            .collect();
+        assert_eq!(quarantined.len(), 1);
+    }
+
+    #[test]
+    fn instants_outside_zone_coverage_fail_closed() {
+        let zone = new_york_2024();
+        // 2030 local time resolves beyond the declared 2026 coverage end — refuse rather than
+        // guessing an offset or falling back to the earliest transition.
+        let err = resolve_floating_local_to_utc_ms("2030-06-01-15:00", &zone)
+            .expect_err("out of coverage");
+        assert_eq!(err.code(), "need_zone_context");
+
+        // A local gap inside coverage still resolves to the post-gap transition.
+        let gap = resolve_floating_local_to_utc_ms("2024-03-10-02:30", &zone).expect("gap");
+        assert_eq!(gap, 1_710_054_000_000);
+    }
+
+    #[test]
+    fn rolling_window_reports_dropped_alarms() {
+        let zone = new_york_2024();
+        let spec = |tag: &'static str| SessionSpec {
+            opaque: tag,
+            token: "@2024-06-01-15:00",
+            due: "2024-06-01-15:00",
+            repeat: 1,
+            fired: 0,
+            done: false,
+            interval: 10,
+            recurrence: "",
+            revision: "rev-w",
+        };
+        let snooze = SnoozeStore::memory();
+        let plan = query_reminder_plan(
+            &ReminderQuery {
+                now_utc_ms: 1_700_000_000_000,
+                zone: zone.clone(),
+                sessions: vec![session(&spec("rem-a")), session(&spec("rem-b"))],
+                rolling_window: 1,
+                workspace_generation: "gen-w".to_owned(),
+            },
+            &snooze,
+        )
+        .expect("windowed plan");
+        assert_eq!(plan.alarms.len(), 1);
+        assert_eq!(
+            plan.dropped_count, 1,
+            "overflow must be reported, not dropped"
+        );
+
+        let full = query_reminder_plan(
+            &ReminderQuery {
+                now_utc_ms: 1_700_000_000_000,
+                zone,
+                sessions: vec![session(&spec("rem-a")), session(&spec("rem-b"))],
+                rolling_window: 8,
+                workspace_generation: "gen-w".to_owned(),
+            },
+            &snooze,
+        )
+        .expect("full plan");
+        assert_eq!(full.alarms.len(), 2);
+        assert_eq!(full.dropped_count, 0);
     }
 }

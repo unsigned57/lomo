@@ -17,6 +17,10 @@
 //! - Given active rebuild gate, when a mutation is submitted, then it is rejected with
 //!   `store_rebuilding`.
 //! - Given `SQLite` file deleted while `.lomo` remains, when rebuild runs, then `.lomo` is intact.
+//! - Given a live projection whose memo fingerprints already match the workspace, when
+//!   `Store::rebuild` runs, then it reports `rewritten = false` and does not advance high-water.
+//! - Given an external Markdown file appears after that reconcile, when rebuild runs again, then
+//!   it rewrites and the new memo is queryable.
 //! - Given bounded memo facts scanned from a SAF workspace, when its app-private projection is
 //!   rebuilt, then its complete body and summary are readable from one published revision without
 //!   creating a second Markdown document, and the replacement revision is durable and monotonic.
@@ -56,9 +60,8 @@ mod tests {
         MemoQuery, RebuildPhase, SafPermanentDeleteTarget, SafProjectionMutation,
         SafProjectionMutationKind, SafProjectionRebuild, ScannedHistoryProjection,
         ScannedMemoProjection, ScannedTrashProjection, StateBody, Store, WriteGate,
-        commit_saf_permanent_delete_many, ensure_writable, fingerprint_content,
-        project_reminder_references, read_record, rebuild_scanned_projection, run_rebuild,
-        write_gate_for_checkpoint, write_record_atomic,
+        ensure_writable, fingerprint_content, project_reminder_references, read_record,
+        rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint, write_record_atomic,
     };
     use tempfile::tempdir;
 
@@ -1072,21 +1075,15 @@ mod tests {
             result_fingerprint: "0".repeat(64),
         };
 
-        let first = commit_saf_permanent_delete_many(
-            dir.path(),
-            "saf-batch-purge",
-            std::slice::from_ref(&target),
-        )
-        .expect("first batch commit");
+        let first = store
+            .commit_saf_permanent_delete_many("saf-batch-purge", std::slice::from_ref(&target))
+            .expect("first batch commit");
         let first_deleted = first.deleted.first().expect("deleted memo");
         assert_eq!(first_deleted.reminder_ids.len(), 1);
 
-        let replay = commit_saf_permanent_delete_many(
-            dir.path(),
-            "saf-batch-purge",
-            std::slice::from_ref(&target),
-        )
-        .expect("batch replay");
+        let replay = store
+            .commit_saf_permanent_delete_many("saf-batch-purge", std::slice::from_ref(&target))
+            .expect("batch replay");
         assert!(replay.idempotent_replay);
         assert_eq!(replay.deleted, first.deleted);
     }
@@ -1410,8 +1407,9 @@ mod tests {
     fn store_rebuild_wrapper_publishes_high_water_revision() {
         let dir = tempdir().expect("tempdir");
         seed_memo(dir.path(), "rbw", "rebuild wrapper body", &["w"]);
-        let store = indexed_store(dir.path());
+        let store = Store::open(dir.path()).expect("open empty projection");
         let (store, result) = store.rebuild(8).expect("store.rebuild");
+        assert!(result.rewritten);
         assert!(result.memos_indexed >= 1);
         assert_eq!(result.file_count, result.memos_indexed);
         assert!(!result.workspace_digest.is_empty());
@@ -1427,7 +1425,34 @@ mod tests {
         assert_eq!(result.high_water_revision, store.high_water_revision());
         assert_eq!(query_all(&store), 1);
         seed_memo(store.workspace_root(), "rbw2", "after rebuild", &["w"]);
-        let (store, _second) = store.rebuild(8).expect("reindex second memo");
+        let (store, second) = store.rebuild(8).expect("reindex second memo");
+        assert!(second.rewritten);
+        assert_eq!(query_all(&store), 2);
+    }
+
+    #[test]
+    fn unchanged_workspace_rebuild_reconciles_without_rewriting() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "gate", "fingerprint gate body", &["g"]);
+        let store = Store::open(dir.path()).expect("open empty projection");
+        let (store, first) = store.rebuild(8).expect("initial rewrite");
+        assert!(first.rewritten);
+        let high_water = first.high_water_revision;
+        let event_sequence = store.event_sequence();
+
+        let (store, second) = store.rebuild(8).expect("reconcile");
+        assert!(
+            !second.rewritten,
+            "matching workspace fingerprints must skip SQLite replacement"
+        );
+        assert_eq!(second.high_water_revision, high_water);
+        assert_eq!(store.high_water_revision(), high_water);
+        assert_eq!(store.event_sequence(), event_sequence);
+        assert_eq!(query_all(&store), 1);
+
+        seed_memo(store.workspace_root(), "gate2", "external markdown", &["g"]);
+        let (store, third) = store.rebuild(8).expect("external change");
+        assert!(third.rewritten);
         assert_eq!(query_all(&store), 2);
     }
 

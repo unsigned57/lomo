@@ -13,9 +13,10 @@ use crate::open::{SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path};
 use crate::{
     HistoryAttachmentRef, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
     MemoSnapshot, MemoStatisticsRow, MemoSummary, PageCursor, SidebarProjection, StoreStats,
-    get_memo, get_memo_projection, get_projected_memo, list_history_attachment_refs,
-    list_memo_history, query_count, query_memo_statistics_rows, query_memos_starting_at,
-    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
+    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
+    list_history_attachment_refs, list_memo_history, query_count, query_memo_statistics_rows,
+    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
+    source_document_fingerprint,
 };
 use lomo_core::{LomoError, PageSize};
 
@@ -224,6 +225,20 @@ impl StoreReader {
         source_path: &str,
     ) -> Result<Option<String>, LomoError> {
         self.snapshot(|connection, _revision| source_document_fingerprint(connection, source_path))
+    }
+
+    /// Active memo ids for one source document path.
+    ///
+    /// # Errors
+    ///
+    /// Returns source-path validation or projection storage errors.
+    pub fn active_memo_ids_for_source_path(
+        &self,
+        source_path: &str,
+    ) -> Result<Vec<String>, LomoError> {
+        self.snapshot(|connection, _revision| {
+            active_memo_ids_for_source_path(connection, source_path)
+        })
     }
 
     /// Reads one bounded memo history page.

@@ -293,38 +293,6 @@ pub fn apply_memo_command(
         connection,
         gate,
         command,
-        None,
-        *high_water_revision,
-        *event_sequence,
-        crash_point,
-    )
-}
-
-/// Same fail-closed Direct boundary as [`apply_memo_command`]; the timestamp is unused.
-///
-/// # Errors
-///
-/// See [`apply_memo_command`].
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the public transaction boundary keeps the durable connection and revision counters explicit"
-)]
-pub fn apply_memo_command_with_created_at(
-    workspace_root: &Path,
-    connection: &Connection,
-    gate: WriteGate,
-    command: &MemoCommand,
-    created_at_ms: Option<i64>,
-    high_water_revision: &mut u64,
-    event_sequence: &mut u64,
-    crash_point: Option<CrashPoint>,
-) -> Result<MemoCommitResult, lomo_core::LomoError> {
-    apply_memo_command_inner(
-        workspace_root,
-        connection,
-        gate,
-        command,
-        created_at_ms,
         *high_water_revision,
         *event_sequence,
         crash_point,
@@ -351,16 +319,11 @@ pub fn permanent_delete_many(
     ))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "transaction core carries durable store counters and an optional source timestamp"
-)]
 fn apply_memo_command_inner(
     workspace_root: &Path,
     _connection: &Connection,
     gate: WriteGate,
     command: &MemoCommand,
-    _created_at_ms: Option<i64>,
     high_water_revision: u64,
     event_sequence: u64,
     _crash_point: Option<CrashPoint>,

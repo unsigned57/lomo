@@ -53,25 +53,27 @@ pub use publication::{DocumentPublication, ProjectionClock};
 pub use query::{
     MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoSort,
     MemoSortField, MemoStatisticsRow, MemoSummary, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount,
-    SidebarProjection, SidebarTagCount, SortDirection, StoreStats, TagSelectionMode, get_memo,
-    get_memo_projection, get_projected_memo, query_count, query_memo_statistics_rows, query_memos,
-    query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
-    source_document_fingerprint,
+    SidebarProjection, SidebarTagCount, SortDirection, StoreStats, TagSelectionMode,
+    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
+    query_count, query_memo_statistics_rows, query_memos, query_memos_starting_at,
+    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 pub use reader::StoreReader;
+mod reader_pool;
+pub use reader_pool::{ReaderPoolOptions, StoreReaderLease, StoreReaderPool};
 pub use rebuild::{
     RebuildCheckpoint, RebuildPhase, RebuildResult, SafMemoCreateBegin, SafMemoCreateBeginResult,
     SafMemoPublication, SafPermanentDeleteManyResult, SafPermanentDeleteMemoResult,
     SafPermanentDeleteTarget, SafProjectionCommitResult, SafProjectionMutation,
     SafProjectionMutationKind, SafProjectionRebuild, ScannedHistoryProjection,
-    ScannedMemoProjection, ScannedPinProjection, ScannedTrashProjection, begin_saf_memo_create,
-    commit_saf_permanent_delete_many, commit_saf_projection_mutation, ensure_writable,
-    rebuild_scanned_projection, rollback_saf_memo_create, run_rebuild, write_gate_for_checkpoint,
+    ScannedMemoProjection, ScannedPinProjection, ScannedTrashProjection, ensure_writable,
+    rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
 };
 pub use reminder::{
-    PlannedAlarm, ReminderCommand, ReminderCommandResult, ReminderPlan, ReminderQuery,
-    ReminderSessionInput, SnoozeStore, TimeZoneContext, ZoneTransition, apply_reminder_command,
-    query_reminder_plan, resolve_floating_local_to_utc_ms, session_base_trigger_utc_ms,
+    PlannedAlarm, REMINDER_ROLLING_WINDOW, ReminderCommand, ReminderCommandResult, ReminderPlan,
+    ReminderQuery, ReminderSessionInput, SnoozeStore, TimeZoneContext, ZoneTransition,
+    apply_reminder_command, naive_local_epoch_ms, query_reminder_plan,
+    resolve_floating_local_to_utc_ms, session_base_trigger_utc_ms,
 };
 pub use schema::{BUSY_TIMEOUT_MS, STORE_SCHEMA_VERSION, TOKENIZER_VERSION, tables};
 pub use sync_local::{
@@ -88,8 +90,8 @@ pub use tokenizer::{
 pub use transaction::{
     CrashPoint, MemoCommand, MemoCommitResult, PermanentDeleteManyResult,
     PermanentDeleteMemoResult, PermanentDeleteTarget, WriteGate, apply_memo_command,
-    apply_memo_command_with_created_at, cleanup_expired_operations, create_received_memo,
-    permanent_delete_many, refuse_v1_writers_on_layout_v2, select_pending_promotes,
+    cleanup_expired_operations, create_received_memo, permanent_delete_many,
+    refuse_v1_writers_on_layout_v2, select_pending_promotes,
 };
 
 use crate::rebuild::{
@@ -99,7 +101,7 @@ use crate::rebuild::{
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::params;
+use rusqlite::{Error as SqliteError, params};
 
 use lomo_core::{ErrorCategory, LomoError, PageSize, RetryDisposition};
 
@@ -259,6 +261,30 @@ impl Store {
         }
     }
 
+    /// Content listing digest persisted after the last successful mount reconcile.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn workspace_listing_digest(&self) -> Result<Option<String>, LomoError> {
+        read_meta_optional(&self.opened.connection, "workspace_listing_digest")
+    }
+
+    /// Stores the workspace file listing digest used by the next mount short-circuit.
+    ///
+    /// # Errors
+    /// Propagates SQLite write failures.
+    pub fn set_workspace_listing_digest(&mut self, digest: &str) -> Result<(), LomoError> {
+        write_meta_string(&self.opened.connection, "workspace_listing_digest", digest)
+    }
+
+    /// Rebuild result for a live projection that already matches workspace facts.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn reconciled_live_result(&self) -> Result<RebuildResult, LomoError> {
+        rebuild::live_reconciled_result(&self.opened.connection, self.high_water_revision)
+    }
+
     /// Restores the private clock floor before rebuilding a lost query database.
     ///
     /// # Errors
@@ -298,27 +324,12 @@ impl Store {
         command: &MemoCommand,
         crash_point: Option<CrashPoint>,
     ) -> Result<MemoCommitResult, LomoError> {
-        self.apply_memo_command_with_created_at(command, None, crash_point)
-    }
-
-    /// Same fail-closed Direct boundary as [`Self::apply_memo_command`]; `created_at_ms` is unused.
-    ///
-    /// # Errors
-    ///
-    /// See [`apply_memo_command`].
-    pub fn apply_memo_command_with_created_at(
-        &mut self,
-        command: &MemoCommand,
-        created_at_ms: Option<i64>,
-        crash_point: Option<CrashPoint>,
-    ) -> Result<MemoCommitResult, LomoError> {
         let gate = self.write_gate();
-        let result = apply_memo_command_with_created_at(
+        let result = apply_memo_command(
             &self.workspace_root,
             &self.opened.connection,
             gate,
             command,
-            created_at_ms,
             &mut self.high_water_revision,
             &mut self.event_sequence,
             crash_point,
@@ -520,6 +531,18 @@ impl Store {
         source_document_fingerprint(&self.opened.connection, source_path)
     }
 
+    /// Active memo ids for one source document path.
+    ///
+    /// # Errors
+    ///
+    /// See [`active_memo_ids_for_source_path`].
+    pub fn active_memo_ids_for_source_path(
+        &self,
+        source_path: &str,
+    ) -> Result<Vec<String>, LomoError> {
+        active_memo_ids_for_source_path(&self.opened.connection, source_path)
+    }
+
     /// Lists durable memo revisions in a bounded page.
     ///
     /// # Errors
@@ -541,7 +564,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// See [`commit_saf_projection_mutation`].
+    /// Returns validation, conflict, corruption, or storage errors from the projection commit.
     pub fn commit_saf_projection_mutation(
         &mut self,
         mutation: &SafProjectionMutation,
@@ -607,7 +630,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// See [`begin_saf_memo_create`].
+    /// Returns validation, conflict, corruption, or storage errors from the pending-create transaction.
     pub fn begin_saf_memo_create(
         &mut self,
         begin: &SafMemoCreateBegin,
@@ -622,7 +645,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// See [`rollback_saf_memo_create`].
+    /// Returns validation or storage errors while removing the pending create.
     pub fn rollback_saf_memo_create(
         &mut self,
         operation_id: &str,
@@ -760,12 +783,20 @@ impl Store {
     }
 
     /// Runs rebuild (process-death resumable). Drops the live connection first so the file can be
-    /// replaced, then reopens.
+    /// replaced, then reopens. Matching workspace fingerprints skip the rewrite and leave the
+    /// publication clock unchanged.
     ///
     /// # Errors
     ///
     /// See [`run_rebuild`].
     pub fn rebuild(self, batch_size: usize) -> Result<(Self, RebuildResult), LomoError> {
+        if let Ok(Some(result)) = rebuild::try_reconcile_direct(
+            &self.workspace_root,
+            &self.opened.connection,
+            self.high_water_revision,
+        ) {
+            return Ok((self, result));
+        }
         let root = self.workspace_root.clone();
         drop(self);
         let result = run_rebuild(&root, batch_size)?;
@@ -799,8 +830,34 @@ impl Store {
                 store_digest: result.store_digest,
                 corrupt_lomo_isolated: result.corrupt_lomo_isolated,
                 high_water_revision,
+                rewritten: true,
             },
         ))
+    }
+
+    /// Returns a non-rewriting rebuild result when live memo, pin, and history facts already match.
+    ///
+    /// `None` means the projection diverges and a rewrite is required. Compare failures are
+    /// returned to the caller so session rebuild can fail-open into a full rewrite.
+    ///
+    /// # Errors
+    ///
+    /// Propagates SQLite read failures while inspecting the live projection.
+    pub fn reconcile_scanned_projection(
+        &self,
+        workspace_pairs: &mut [(String, String)],
+        attachment_count: u64,
+        pins: &[ScannedPinProjection],
+        history: &[ScannedHistoryProjection],
+    ) -> Result<Option<RebuildResult>, LomoError> {
+        rebuild::try_reconcile_scanned(
+            &self.opened.connection,
+            workspace_pairs,
+            attachment_count,
+            self.high_water_revision,
+            Some(pins),
+            Some(history),
+        )
     }
 }
 
@@ -836,14 +893,37 @@ fn write_meta_u64(
     key: &str,
     value: u64,
 ) -> Result<(), LomoError> {
+    write_meta_string(connection, key, &value.to_string())
+}
+
+fn write_meta_string(
+    connection: &rusqlite::Connection,
+    key: &str,
+    value: &str,
+) -> Result<(), LomoError> {
     connection
         .execute(
             "INSERT INTO store_meta(key, value) VALUES(?1, ?2) \
              ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            params![key, value.to_string()],
+            params![key, value],
         )
         .map_err(|err| from_sqlite(&err))?;
     Ok(())
+}
+
+fn read_meta_optional(
+    connection: &rusqlite::Connection,
+    key: &str,
+) -> Result<Option<String>, LomoError> {
+    match connection.query_row(
+        "SELECT value FROM store_meta WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    ) {
+        Ok(value) => Ok(Some(value)),
+        Err(SqliteError::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(from_sqlite(&error)),
+    }
 }
 
 fn store_validation(code: &str, diagnostic: &str) -> LomoError {

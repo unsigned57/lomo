@@ -285,8 +285,8 @@ fn quick_integrity(connection: &Connection) -> Result<bool, lomo_core::LomoError
 /// Pending rows are volatile visibility state published before durable platform I/O; a process
 /// that died between begin and commit leaves no authoritative fact behind. The workspace truth is
 /// recovered by the next rebuild (a written document becomes a real memo) or by the user retrying
-/// the send, so sweeping at open can never lose a durable memo. No publication is emitted: the
-/// list reloads fully when the owning engine republishes readiness.
+/// the send, so sweeping at open can never lose a durable memo. Publication is the mount reanchor
+/// that follows session open — this function does not emit a second invalidation.
 fn sweep_stale_pending_creates(connection: &Connection) -> Result<(), lomo_core::LomoError> {
     let stale: Vec<(i64, String)> = {
         let mut statement = connection

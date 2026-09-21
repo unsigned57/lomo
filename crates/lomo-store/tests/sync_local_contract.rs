@@ -33,6 +33,8 @@
 //!   that digest; path traversal is rejected; matching re-apply is idempotent (process-death replay).
 //! - Given `EnsureMediaPresent` when an existing file has a different digest, when Direct apply runs,
 //!   then `sync_media_precondition_failed` refuses overwrite.
+//! - Given a Direct workspace whose `generation.rec` is missing, when snapshot / prepare / verify
+//!   runs, then `workspace_generation_missing` and no generation record is minted.
 //!
 //! Observable outcomes: snapshot entries, `content_revision`, error codes, on-disk media, generation
 //! fence, projection DB bytes. Excludes: WebDAV/S3/Git adapters, production DI, Kotlin SAF executor
@@ -52,10 +54,11 @@ mod tests {
     use lomo_store::{
         LocalSyncMutation, LocalSyncMutationBatch, SafProjectionBinding, Store, SyncLocalPathFact,
         SyncLocalSnapshot, SyncPlatformAction, SyncPlatformActionResult, fingerprint_content,
-        prepare_sync_apply, sync_local_write_authority, verify_platform_results,
+        prepare_sync_apply, run_rebuild, sync_local_write_authority, verify_platform_results,
     };
     use lomo_workspace::{
-        WorkspaceGenerationId, load_workspace_generation, mint_new_workspace_generation,
+        LomoPaths, WorkspaceGenerationId, load_or_mint_workspace_generation,
+        load_workspace_generation, mint_new_workspace_generation,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -68,6 +71,11 @@ mod tests {
             write!(out, "{byte:02x}").expect("write");
         }
         out
+    }
+
+    fn open_with_generation(root: &std::path::Path) -> Store {
+        load_or_mint_workspace_generation(root).expect("generation");
+        Store::open(root).expect("open")
     }
 
     #[test]
@@ -89,10 +97,27 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_without_generation_fails_closed_without_minting() {
+        let temporary = tempdir().expect("temp");
+        let root = temporary.path();
+        seed_memo(root, "m-nogen", "body", &[]);
+        run_rebuild(root, 8).expect("index");
+        let store = Store::open(root).expect("open");
+        let err = store
+            .snapshot_sync_view()
+            .expect_err("missing generation must not mint");
+        assert_eq!(err.code(), "workspace_generation_missing");
+        assert!(
+            !LomoPaths::generation_record_path(root).exists(),
+            "read-side snapshot must not persist a minted generation"
+        );
+    }
+
+    #[test]
     fn direct_upsert_equivalence_with_user_edit_path() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let mut store = Store::open(root).expect("open");
+        let mut store = open_with_generation(root);
         let batch = LocalSyncMutationBatch {
             mutations: vec![LocalSyncMutation::UpsertMemo {
                 operation_id: "op-sync-create-1".into(),
@@ -145,7 +170,7 @@ mod tests {
     fn failed_platform_result_fails_closed_without_commit() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let store = Store::open(root).expect("open");
+        let store = open_with_generation(root);
         let prepared = prepare_sync_apply(
             root,
             &LocalSyncMutationBatch {
@@ -173,7 +198,7 @@ mod tests {
     fn generation_fence_rejects_commit_after_mint() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let mut store = Store::open(root).expect("open");
+        let mut store = open_with_generation(root);
         let prepared = store
             .prepare_sync_apply(&LocalSyncMutationBatch {
                 mutations: vec![LocalSyncMutation::UpsertMemo {
@@ -293,7 +318,7 @@ mod tests {
     fn media_ensure_present_and_path_traversal_reject() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let mut store = Store::open(root).expect("open");
+        let mut store = open_with_generation(root);
         let bytes = b"media-bytes-v1".to_vec();
         let digest = hex_digest(&bytes);
         store
@@ -414,7 +439,7 @@ mod tests {
             }],
         };
         let prepared = {
-            let store = Store::open(&root).expect("open");
+            let store = open_with_generation(&root);
             store.prepare_sync_apply(&batch).expect("prepare")
         };
         // Incomplete platform results after crash → fail closed, no memo.
@@ -459,7 +484,7 @@ mod tests {
         };
 
         let direct_error = {
-            let mut store = Store::open(&direct_root).expect("open direct");
+            let mut store = open_with_generation(&direct_root);
             store
                 .apply_local_sync_batch(&batch)
                 .expect_err("direct upsert refused")
@@ -468,7 +493,7 @@ mod tests {
         };
 
         let saf_error = {
-            let mut store = Store::open(&saf_root).expect("open saf");
+            let mut store = open_with_generation(&saf_root);
             let prepared = store.prepare_sync_apply(&batch).expect("prepare");
             assert_eq!(prepared.platform_actions.len(), 1);
             let action = prepared.platform_actions.first().expect("action");
@@ -529,7 +554,7 @@ mod tests {
     fn media_matching_digest_reapply_is_idempotent_process_death_replay() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let mut store = Store::open(root).expect("open");
+        let mut store = open_with_generation(root);
         let bytes = b"media-replay-v1".to_vec();
         let digest = hex_digest(&bytes);
         let batch = LocalSyncMutationBatch {
@@ -569,7 +594,7 @@ mod tests {
     fn ensure_media_absent_and_write_authority_marker() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
-        let mut store = Store::open(root).expect("open");
+        let mut store = open_with_generation(root);
         let bytes = b"to-remove".to_vec();
         let digest = hex_digest(&bytes);
         store

@@ -24,6 +24,13 @@ pub struct ZoneTransition {
     pub offset_after_secs: i32,
 }
 
+/// Number of reminder alarms the rolling window emits per plan.
+///
+/// The window refills on the next plan query after an occurrence fires or is cancelled; alarms
+/// beyond the window are reported via [`ReminderPlan::dropped_count`] rather than silently
+/// discarded.
+pub const REMINDER_ROLLING_WINDOW: usize = 64;
+
 /// Bounded time-zone context supplied by the platform adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeZoneContext {
@@ -32,6 +39,10 @@ pub struct TimeZoneContext {
     pub base_offset_secs: i32,
     /// Transitions sorted ascending by [`ZoneTransition::transition_utc_ms`].
     pub transitions: Vec<ZoneTransition>,
+    /// Inclusive UTC-ms bound: resolution below this instant has no trustworthy offset.
+    pub coverage_start_utc_ms: i64,
+    /// Inclusive UTC-ms bound: resolution above this instant has no trustworthy offset.
+    pub coverage_end_utc_ms: i64,
 }
 
 /// One reminder occurrence projected from Markdown/scan (typed facts, no regex authority here).
@@ -57,12 +68,17 @@ pub struct ReminderQuery {
     pub sessions: Vec<ReminderSessionInput>,
     /// Maximum alarms to emit across all sessions (rolling window).
     pub rolling_window: usize,
-    pub workspace_generation: u64,
+    /// Durable workspace generation (`WorkspaceGenerationId` hex) the plan is issued under.
+    pub workspace_generation: String,
 }
 
 /// One platform alarm the adapter must schedule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlannedAlarm {
+    /// Identity of this single firing: `{generation}\u{1f}{opaque_id}\u{1f}{trigger_at_utc_ms}`.
+    /// Distinct from the definition identity so cancellation/dedup never relies on a process
+    /// cache or a bare 32-bit request-code hash.
+    pub occurrence_id: String,
     pub opaque_id: String,
     pub memo_identity: String,
     pub trigger_at_utc_ms: i64,
@@ -74,7 +90,11 @@ pub struct PlannedAlarm {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReminderPlan {
     pub alarms: Vec<PlannedAlarm>,
-    pub workspace_generation: u64,
+    /// Future alarms omitted because the rolling window is full. Never silently dropped — a
+    /// non-zero value means the platform must re-plan after the earliest in-window occurrence
+    /// completes or is cancelled, which refills the window.
+    pub dropped_count: u32,
+    pub workspace_generation: String,
 }
 
 /// Commands that mutate reminder business state.
@@ -90,16 +110,14 @@ pub enum ReminderCommand {
     },
     Snooze {
         opaque_id: String,
-        memo_identity: String,
-        memo_revision: String,
-        workspace_generation: u64,
+        /// Durable workspace generation the binding is scoped to.
+        workspace_generation: String,
         snooze_until_utc_ms: i64,
     },
     ClearSnooze {
         opaque_id: String,
-        memo_identity: String,
-        memo_revision: String,
-        workspace_generation: u64,
+        /// Durable workspace generation the binding is scoped to.
+        workspace_generation: String,
     },
 }
 
@@ -113,17 +131,30 @@ pub struct ReminderCommandResult {
     pub snooze_only: bool,
 }
 
+/// Maximum persisted snooze bindings; the store refuses new bindings past this bound.
+const MAX_SNOOZE_ENTRIES: usize = 1024;
+
 /// App-private snooze binding key as a single string map key (JSON object keys must be strings).
-/// Format: `{workspace_generation}\u{1f}{opaque_id}\u{1f}{memo_revision}`
-fn snooze_key(workspace_generation: u64, opaque_id: &str, memo_revision: &str) -> String {
-    format!("{workspace_generation}\u{1f}{opaque_id}\u{1f}{memo_revision}")
+/// Format: `{workspace_generation}\u{1f}{opaque_id}`
+fn snooze_key(workspace_generation: &str, opaque_id: &str) -> String {
+    format!("{workspace_generation}\u{1f}{opaque_id}")
 }
 
-/// App-private snooze state. Bound to workspace generation + `ReminderRef` + memo revision.
+/// Deterministic occurrence identity for one planned firing.
+fn occurrence_id(workspace_generation: &str, opaque_id: &str, trigger_at_utc_ms: i64) -> String {
+    format!("{workspace_generation}\u{1f}{opaque_id}\u{1f}{trigger_at_utc_ms}")
+}
+
+/// App-private snooze state. Bound to workspace generation + reminder definition id.
+///
+/// A corrupt payload never blocks workspace reads/writes: the file is kept in place as evidence,
+/// the store reports [`SnoozeStore::recovery_pending`], and planning/snooze commands fail closed
+/// with `reminder_recovery_needed` until [`SnoozeStore::recover`] quarantines the evidence.
 #[derive(Debug, Clone, Default)]
 pub struct SnoozeStore {
     path: Option<PathBuf>,
     entries: BTreeMap<String, i64>,
+    recovery_pending: bool,
 }
 
 impl SnoozeStore {
@@ -137,6 +168,7 @@ impl SnoozeStore {
         Self {
             path: None,
             entries: BTreeMap::new(),
+            recovery_pending: false,
         }
     }
 
@@ -144,7 +176,9 @@ impl SnoozeStore {
     ///
     /// # Errors
     ///
-    /// Returns storage errors when the path cannot be read/created. Corrupt payloads fail closed.
+    /// Returns storage errors when the path cannot be read/created. A corrupt payload does not
+    /// error: it marks the store `recovery_pending` instead so scheduling pauses until
+    /// [`SnoozeStore::recover`] is invoked explicitly.
     pub fn open_app_private(app_private_dir: impl AsRef<Path>) -> Result<Self, LomoError> {
         let dir = app_private_dir.as_ref();
         if dir_is_under_lomo(dir) {
@@ -163,54 +197,112 @@ impl SnoozeStore {
         let mut store = Self {
             path: Some(path.clone()),
             entries: BTreeMap::new(),
+            recovery_pending: false,
         };
         if path.exists() {
             let bytes = fs::read(&path).map_err(|err| {
                 reminder_storage("snooze_read_failed", &format!("read snooze file: {err}"))
             })?;
-            let decoded: BTreeMap<String, i64> = serde_json::from_slice(&bytes).map_err(|err| {
-                reminder_corruption("snooze_corrupt", &format!("snooze payload corrupt: {err}"))
-            })?;
-            store.entries = decoded;
+            match serde_json::from_slice::<BTreeMap<String, i64>>(&bytes) {
+                Ok(decoded) => store.entries = decoded,
+                // Corrupt bytes stay in place as evidence; recovery is an explicit entry point.
+                Err(_) => store.recovery_pending = true,
+            }
         }
         Ok(store)
     }
 
+    /// Opens snooze state and immediately quarantines a corrupt payload, returning a ready store.
+    ///
+    /// This is the explicit recovery entry: the corrupt file is renamed aside (preserved), then a
+    /// fresh empty store is persisted. It is never invoked implicitly by planning.
+    ///
+    /// # Errors
+    ///
+    /// Storage errors when the path cannot be read/created/quarantined.
+    pub fn recover_app_private(app_private_dir: impl AsRef<Path>) -> Result<Self, LomoError> {
+        let mut store = Self::open_app_private(app_private_dir)?;
+        store.recover()?;
+        Ok(store)
+    }
+
+    /// True when a corrupt payload was found and scheduling must pause until [`Self::recover`].
+    #[must_use]
+    pub const fn recovery_pending(&self) -> bool {
+        self.recovery_pending
+    }
+
+    /// Quarantines the corrupt payload file and persists a fresh empty store.
+    ///
+    /// # Errors
+    ///
+    /// Storage errors when the evidence rename or the fresh persist fails.
+    pub fn recover(&mut self) -> Result<(), LomoError> {
+        if !self.recovery_pending {
+            return Ok(());
+        }
+        if let Some(path) = &self.path
+            && path.exists()
+        {
+            let name = path.file_name().map_or_else(
+                || "reminder_snooze.v1.json".to_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis());
+            let quarantine = path.with_file_name(format!("{name}.corrupt-{stamp}"));
+            fs::rename(path, &quarantine).map_err(|err| {
+                reminder_storage(
+                    "snooze_quarantine_failed",
+                    &format!("quarantine corrupt snooze file: {err}"),
+                )
+            })?;
+        }
+        self.entries.clear();
+        self.recovery_pending = false;
+        self.persist()
+    }
+
     /// Lookup snooze-until UTC ms when binding matches.
     #[must_use]
-    pub fn snooze_until(
-        &self,
-        workspace_generation: u64,
-        opaque_id: &str,
-        memo_revision: &str,
-    ) -> Option<i64> {
+    pub fn snooze_until(&self, workspace_generation: &str, opaque_id: &str) -> Option<i64> {
         self.entries
-            .get(&snooze_key(workspace_generation, opaque_id, memo_revision))
+            .get(&snooze_key(workspace_generation, opaque_id))
             .copied()
+    }
+
+    fn ensure_writable(&self) -> Result<(), LomoError> {
+        if self.recovery_pending {
+            return Err(reminder_recovery_needed(
+                "snooze state is quarantined pending explicit recovery",
+            ));
+        }
+        Ok(())
     }
 
     fn put(
         &mut self,
-        workspace_generation: u64,
+        workspace_generation: &str,
         opaque_id: &str,
-        memo_revision: &str,
         until: i64,
     ) -> Result<(), LomoError> {
-        self.entries.insert(
-            snooze_key(workspace_generation, opaque_id, memo_revision),
-            until,
-        );
+        self.ensure_writable()?;
+        let key = snooze_key(workspace_generation, opaque_id);
+        if !self.entries.contains_key(&key) && self.entries.len() >= MAX_SNOOZE_ENTRIES {
+            return Err(reminder_validation(
+                "snooze_budget_exhausted",
+                "snooze entry budget exhausted",
+            ));
+        }
+        self.entries.insert(key, until);
         self.persist()
     }
 
-    fn remove(
-        &mut self,
-        workspace_generation: u64,
-        opaque_id: &str,
-        memo_revision: &str,
-    ) -> Result<(), LomoError> {
+    fn remove(&mut self, workspace_generation: &str, opaque_id: &str) -> Result<(), LomoError> {
+        self.ensure_writable()?;
         self.entries
-            .remove(&snooze_key(workspace_generation, opaque_id, memo_revision));
+            .remove(&snooze_key(workspace_generation, opaque_id));
         self.persist()
     }
 
@@ -275,15 +367,39 @@ pub fn resolve_floating_local_to_utc_ms(
 
     match valid.as_slice() {
         [] => first_valid_after_gap(naive_ms, zone),
-        [one] => Ok(*one),
-        many => Ok(*many.iter().min().unwrap_or(&0)),
+        [one] => require_zone_coverage(zone, *one),
+        many => require_zone_coverage(zone, *many.iter().min().unwrap_or(&0)),
     }
+}
+
+/// Naive epoch-ms reading of a `due_at_local` wall time (components treated as UTC).
+///
+/// This is a coverage-bound estimate for transition-table sizing, not a zone resolution — callers
+/// must still resolve the instant through [`resolve_floating_local_to_utc_ms`].
+///
+/// # Errors
+///
+/// Validation when the wall string is malformed.
+pub fn naive_local_epoch_ms(due_at_local: &str) -> Result<i64, LomoError> {
+    let (year, month, day, hour, minute) = parse_ymd_hm(due_at_local)?;
+    Ok(civil_to_epoch_ms(year, month, day, hour, minute))
+}
+
+/// Rejects instants outside the supplied zone coverage instead of guessing an offset.
+fn require_zone_coverage(zone: &TimeZoneContext, utc_ms: i64) -> Result<i64, LomoError> {
+    if utc_ms < zone.coverage_start_utc_ms || utc_ms > zone.coverage_end_utc_ms {
+        return Err(reminder_validation(
+            "need_zone_context",
+            "reminder instant lies outside the supplied time-zone coverage",
+        ));
+    }
+    Ok(utc_ms)
 }
 
 /// Builds a rolling-window reminder plan.
 ///
 /// Missed moments yield **at most one catch-up** fire per session, then the next future trigger.
-/// Snooze, when bound to generation+opaque id+revision, overrides the next trigger until cleared.
+/// Snooze, when bound to generation+opaque id, overrides the next trigger until cleared.
 ///
 /// # Errors
 ///
@@ -298,18 +414,25 @@ pub fn query_reminder_plan(
             "rolling_window must be positive",
         ));
     }
+    if snooze.recovery_pending() {
+        return Err(reminder_recovery_needed(
+            "snooze state is quarantined pending explicit recovery",
+        ));
+    }
     let mut alarms: Vec<PlannedAlarm> = Vec::new();
     for session in &query.sessions {
         if session.done {
             continue;
         }
-        if let Some(until) = snooze.snooze_until(
-            query.workspace_generation,
-            &session.opaque_id,
-            &session.memo_revision,
-        ) && until > query.now_utc_ms
+        if let Some(until) = snooze.snooze_until(&query.workspace_generation, &session.opaque_id)
+            && until > query.now_utc_ms
         {
             alarms.push(PlannedAlarm {
+                occurrence_id: occurrence_id(
+                    &query.workspace_generation,
+                    &session.opaque_id,
+                    until,
+                ),
                 opaque_id: session.opaque_id.clone(),
                 memo_identity: session.memo_identity.clone(),
                 trigger_at_utc_ms: until,
@@ -317,16 +440,21 @@ pub fn query_reminder_plan(
             });
             continue;
         }
-        let planned = plan_session_triggers(session, &query.zone, query.now_utc_ms)?;
+        let planned = plan_session_triggers(
+            session,
+            &query.zone,
+            query.now_utc_ms,
+            &query.workspace_generation,
+        )?;
         alarms.extend(planned);
     }
     alarms.sort_by_key(|a| (a.trigger_at_utc_ms, a.opaque_id.clone()));
-    if alarms.len() > query.rolling_window {
-        alarms.truncate(query.rolling_window);
-    }
+    let dropped_count = alarms.len().saturating_sub(query.rolling_window);
+    alarms.truncate(query.rolling_window);
     Ok(ReminderPlan {
         alarms,
-        workspace_generation: query.workspace_generation,
+        dropped_count: u32::try_from(dropped_count).unwrap_or(u32::MAX),
+        workspace_generation: query.workspace_generation.clone(),
     })
 }
 
@@ -372,17 +500,10 @@ pub fn apply_reminder_command(
         }
         ReminderCommand::Snooze {
             opaque_id,
-            memo_identity: _,
-            memo_revision,
             workspace_generation,
             snooze_until_utc_ms,
         } => {
-            snooze.put(
-                *workspace_generation,
-                opaque_id,
-                memo_revision,
-                *snooze_until_utc_ms,
-            )?;
+            snooze.put(workspace_generation, opaque_id, *snooze_until_utc_ms)?;
             Ok(ReminderCommandResult {
                 replacement_token: None,
                 scopes: vec![InvalidationScope::Reminder],
@@ -391,11 +512,9 @@ pub fn apply_reminder_command(
         }
         ReminderCommand::ClearSnooze {
             opaque_id,
-            memo_identity: _,
-            memo_revision,
             workspace_generation,
         } => {
-            snooze.remove(*workspace_generation, opaque_id, memo_revision)?;
+            snooze.remove(workspace_generation, opaque_id)?;
             Ok(ReminderCommandResult {
                 replacement_token: None,
                 scopes: vec![InvalidationScope::Reminder],
@@ -428,6 +547,7 @@ fn plan_session_triggers(
     session: &ReminderSessionInput,
     zone: &TimeZoneContext,
     now_utc_ms: i64,
+    workspace_generation: &str,
 ) -> Result<Vec<PlannedAlarm>, LomoError> {
     // Validate token facts match session payload (fail closed on drift).
     let facts = reminder_token_facts(&session.token).map_err(map_workspace_err)?;
@@ -461,6 +581,7 @@ fn plan_session_triggers(
                 continue;
             }
             out.push(PlannedAlarm {
+                occurrence_id: occurrence_id(workspace_generation, &session.opaque_id, now_utc_ms),
                 opaque_id: session.opaque_id.clone(),
                 memo_identity: session.memo_identity.clone(),
                 trigger_at_utc_ms: now_utc_ms,
@@ -470,6 +591,7 @@ fn plan_session_triggers(
             working = advance_after_fire(&working)?;
         } else {
             out.push(PlannedAlarm {
+                occurrence_id: occurrence_id(workspace_generation, &session.opaque_id, trigger),
                 opaque_id: session.opaque_id.clone(),
                 memo_identity: session.memo_identity.clone(),
                 trigger_at_utc_ms: trigger,
@@ -544,18 +666,11 @@ fn first_valid_after_gap(naive_ms: i64, zone: &TimeZoneContext) -> Result<i64, L
         let local_after = transition
             .transition_utc_ms
             .saturating_add(i64::from(transition.offset_after_secs).saturating_mul(1_000));
-        // Gap is (local_before, local_after) in local timeline for spring-forward when
-        // offset_after > offset_before (local jumps forward).
-        if transition.offset_after_secs > transition.offset_before_secs
-            && naive_ms > local_before
-            && naive_ms < local_after
-        {
-            return Ok(transition.transition_utc_ms);
+        // Gap is (local_before, local_after) in local timeline for spring-forward (local time
+        // jumps forward). Fall-back overlaps have two valid instants handled by the caller.
+        if naive_ms > local_before && naive_ms < local_after {
+            return require_zone_coverage(zone, transition.transition_utc_ms);
         }
-    }
-    // Fallback: next transition after the earliest candidate UTC, or fail closed.
-    if let Some(t) = zone.transitions.first() {
-        return Ok(t.transition_utc_ms);
     }
     Err(reminder_validation(
         "unresolvable_local_time",
@@ -690,11 +805,12 @@ fn reminder_storage(code: &str, diagnostic: &str) -> LomoError {
     }
 }
 
-fn reminder_corruption(code: &str, diagnostic: &str) -> LomoError {
+/// Corrupt snooze state requires an explicit recovery action before scheduling resumes.
+fn reminder_recovery_needed(diagnostic: &str) -> LomoError {
     match LomoError::from_platform_boundary(
         ErrorCategory::Corruption,
-        code,
-        RetryDisposition::Never,
+        "reminder_recovery_needed",
+        RetryDisposition::AfterUserAction,
         None,
         None,
         diagnostic,

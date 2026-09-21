@@ -433,7 +433,7 @@ pub fn snapshot_sync_view(
     workspace_root: &Path,
     high_water_revision: u64,
 ) -> Result<SyncLocalSnapshot, LomoError> {
-    let generation = lomo_workspace::load_or_mint_workspace_generation(workspace_root)?;
+    let generation = lomo_workspace::load_workspace_generation(workspace_root)?;
     let mut stmt = connection
         .prepare(
             "SELECT memo_id, source_path, file_fingerprint, content_revision \
@@ -523,7 +523,7 @@ pub fn prepare_sync_apply(
     workspace_root: &Path,
     batch: &LocalSyncMutationBatch,
 ) -> Result<PreparedSyncApply, LomoError> {
-    let generation = lomo_workspace::load_or_mint_workspace_generation(workspace_root)?;
+    let generation = lomo_workspace::load_workspace_generation(workspace_root)?;
     let mut platform_actions = Vec::new();
     let mut commit_mutations = LocalSyncMutationBatch {
         mutations: Vec::new(),
@@ -654,7 +654,7 @@ pub fn verify_platform_results(
     prepared: &PreparedSyncApply,
     results: &[SyncPlatformActionResult],
 ) -> Result<(), LomoError> {
-    let live = lomo_workspace::load_or_mint_workspace_generation(workspace_root)?;
+    let live = lomo_workspace::load_workspace_generation(workspace_root)?;
     if live.as_str() != prepared.expected_workspace_generation {
         return Err(validation(
             "sync_apply_generation_mismatch",

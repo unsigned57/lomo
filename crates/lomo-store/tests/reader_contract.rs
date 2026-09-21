@@ -10,6 +10,8 @@
 //!   every reader returns the same published snapshot.
 //! - Given a reader opened against a missing projection, when it is constructed, then opening
 //!   fails instead of creating an implicit writable database.
+//! - Given all bounded reader leases are held, when another checkout is requested, then explicit
+//!   exhaustion is returned; releasing one lease admits the next read, and close rejects new reads.
 //!
 //! Observable outcomes: returned page items, high-water revision, pin flag, and structured open
 //! failure.
@@ -40,7 +42,9 @@ mod support;
 mod tests {
     use super::support::{indexed_store, publish_pin, seed_memo};
     use lomo_core::{ErrorCategory, PageSize};
-    use lomo_store::{MemoFilters, MemoQuery, MemoSort, StoreReader};
+    use lomo_store::{
+        MemoFilters, MemoQuery, MemoSort, ReaderPoolOptions, StoreReader, StoreReaderPool,
+    };
     use tempfile::tempdir;
 
     fn query() -> MemoQuery {
@@ -49,6 +53,56 @@ mod tests {
             filters: MemoFilters::default(),
             sort: MemoSort::default(),
         }
+    }
+
+    #[test]
+    fn bounded_pool_exhaustion_release_and_close_are_observable() {
+        let root = tempdir().expect("workspace");
+        seed_memo(root.path(), "bounded", "body", &[]);
+        let _writer = indexed_store(root.path());
+        let pool = StoreReaderPool::new(
+            root.path().to_owned(),
+            ReaderPoolOptions::new(2, std::time::Duration::ZERO).expect("pool options"),
+        );
+        let first = pool.checkout().expect("first lease");
+        let second = pool.checkout().expect("second lease");
+        let Err(exhausted) = pool.checkout() else {
+            panic!("third reader must be rejected");
+        };
+        assert_eq!(exhausted.code(), "store_reader_pool_exhausted");
+        assert_eq!(
+            first
+                .reader()
+                .expect("reader")
+                .query_count(&query())
+                .expect("query"),
+            1
+        );
+        drop(first);
+        let admitted = pool
+            .checkout()
+            .expect("released slot must admit next query");
+        assert_eq!(
+            admitted
+                .reader()
+                .expect("reader")
+                .query_count(&query())
+                .expect("query"),
+            1
+        );
+        pool.close().expect("close");
+        let Err(closed) = pool.checkout() else {
+            panic!("closed pool must reject new readers");
+        };
+        assert_eq!(closed.code(), "store_reader_pool_closed");
+        assert_eq!(
+            second
+                .reader()
+                .expect("active reader")
+                .query_count(&query())
+                .expect("active snapshot may finish"),
+            1
+        );
     }
 
     fn pin(store: &mut lomo_store::Store, id: &str) {
